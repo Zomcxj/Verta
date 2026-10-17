@@ -1,5 +1,6 @@
 pub mod types;
 
+mod delete;
 mod opencode;
 mod pi;
 
