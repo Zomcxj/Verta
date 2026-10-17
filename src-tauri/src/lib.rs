@@ -351,6 +351,7 @@ pub fn run() {
             agent::agent_enable_hooks,
             agent::agent_hooks_status,
             agent_sessions::agent_sessions_list,
+            agent_sessions::agent_sessions_delete,
             secrets::secrets_get,
             secrets::secrets_set,
             secrets::secrets_delete,

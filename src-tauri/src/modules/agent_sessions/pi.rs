@@ -241,11 +241,6 @@ struct Located {
     owned_directory: Option<PathBuf>,
 }
 
-pub(crate) fn delete(id: &str) -> Result<(), String> {
-    let root = default_root().ok_or("找不到用户主目录，无法定位 pi 会话目录")?;
-    delete_at(&root, id)
-}
-
 pub(crate) fn delete_at(root: &Path, id: &str) -> Result<(), String> {
     if !root.is_dir() {
         return Err(format!(

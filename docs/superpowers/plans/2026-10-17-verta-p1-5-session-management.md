@@ -715,6 +715,35 @@ git commit -m "feat(agent-sessions): delete sessions over ipc and re-read to con
 
 ---
 
+## Task 4 实现修订（记录，2026-10-17）
+
+实际实现与上面草稿的差异，都是踩到之后改的：
+
+1. **命令定义在 `mod.rs`，不在 `delete.rs`**。`#[tauri::command]` 生成的 `__cmd__xxx` 宏**不能被 `pub use` 转出**，放在 `delete.rs` 会让 `generate_handler!` 在 `agent_sessions::__cmd__agent_sessions_delete` 上编译失败（实际踩到）。所以命令跟 `agent_sessions_list` 一样定义在模块根，逻辑仍留在 `delete.rs`。
+2. **`validate_all` 没有实现**，也不需要：逐条删除的循环天然做到"一条失败不影响其余"，单独的预校验函数反而多一层。
+3. **数据位置改成注入的 `Stores { opencode: Option<PathBuf>, pi: Option<PathBuf> }`**。原因是要让命令层在**临时 store** 上被测：`delete_targets` 直接调默认路径的话，任何一条测试都可能真删用户的会话。
+4. **`outcome()` 抽成纯函数**，专门让"CLI 说成功但数据还在"这条规则可以被直接断言（`Ok(()) + gone=false` 必须报失败）。
+5. **删掉适配器里的 `opencode::delete(id)` / `pi::delete(id)`**：命令层自己解析路径后它们没人用了，留着 clippy `-D warnings` 会因 dead code 失败。
+6. **`SessionTarget` 提前加 `distro: Option<String>`**（带 `#[serde(default)]`）：spec §12.4 的 WSL 并存落地后，`{tool, id}` 无法区分两个仓库里同 id 的会话。现在收进来，是为了不让删除的 IPC 形状再变一次；有 `distro` 的目标明确返回"WSL 会话的删除尚未实现"，绝不静默当成 Windows 目标。
+
+实际测试用例（`delete.rs` 的 `tests`，全部用临时 store）：
+
+| 用例 | 断言 |
+|---|---|
+| `an_invalid_id_is_reported_and_nothing_is_deleted` | 报"非法 id"，且文件还在 |
+| `an_unsupported_tool_is_reported` | 报"不支持" |
+| `a_wsl_target_is_reported_as_not_implemented_yet` | 报 WSL 未实现，且文件还在 |
+| `deletes_a_pi_session_and_counts_it` | `deleted == 1`、无 reason、目标没了、兄弟会话还在 |
+| `one_failure_does_not_stop_the_other_targets` | 两条目标里第一条失败第二条成功 |
+| `a_store_that_still_has_the_session_is_not_reported_as_a_success` | `Ok(()) + gone=false` 报"仍能读到" |
+| `a_broken_opencode_store_is_reported_per_target` | 空 sqlite 库时报错而不是假装成功 |
+
+实际结果：`cargo test -j 2 --lib agent_sessions` 46 passed / 0 failed；`cargo clippy --all-targets --locked -j 2 -- -D warnings` 无警告。
+
+**仍然没被验证的东西**：opencode 删除的**成功路径**没有在真机跑过，因为那需要删一条真实会话。已覆盖的是 argv 与 cwd 的构造、未知 id 的失败语义（实测退出码 1）、以及"复核不过就不算成功"。第一次真实删除由用户在界面上执行。
+
+---
+
 ## Task 5: 前端纯函数（选中集合与确认文案）
 
 **Files:**

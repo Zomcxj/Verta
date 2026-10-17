@@ -4,6 +4,7 @@ mod delete;
 mod opencode;
 mod pi;
 
+use delete::{DeleteReport, SessionTarget};
 use types::AgentSessionsPayload;
 
 /// Reads sqlite and session files, so it runs on the blocking pool: Tauri runs a
@@ -16,4 +17,13 @@ pub async fn agent_sessions_list(tool: String) -> Result<AgentSessionsPayload, S
         other => Err(format!("不支持的会话工具：{other}")),
     })
     .await
+}
+
+/// Deleting touches sqlite, the filesystem and a child process, so it runs on
+/// the blocking pool too.
+#[tauri::command]
+pub async fn agent_sessions_delete(targets: Vec<SessionTarget>) -> DeleteReport {
+    crate::modules::fs::blocking(move || Ok(delete::delete_sessions(&targets)))
+        .await
+        .unwrap_or_default()
 }

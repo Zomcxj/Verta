@@ -132,11 +132,6 @@ fn delete_command(directory: &Path, id: &str) -> Command {
     command
 }
 
-pub(crate) fn delete(id: &str) -> Result<(), String> {
-    let path = default_db_path().ok_or("找不到用户主目录，无法定位 opencode 数据库")?;
-    delete_at(&path, id)
-}
-
 /// Deletes through opencode's own command so it also removes the session's child
 /// sessions and the rows it owns; the 5.6 GB WAL database is never written here.
 pub(crate) fn delete_at(db: &Path, id: &str) -> Result<(), String> {
