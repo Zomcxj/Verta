@@ -44,12 +44,17 @@ function readSidebarWidth(): number {
 function readSidebarView(): SidebarViewId {
   try {
     const stored = window.localStorage.getItem(SIDEBAR_VIEW_STORAGE_KEY);
-    if (stored === "explorer" || stored === "source-control" || stored === "launcher")
+    if (
+      stored === "explorer" ||
+      stored === "source-control" ||
+      stored === "launcher"
+    )
       return stored;
   } catch {
     // ignore
   }
-  return "explorer";
+  // Sessions are what the app opens for, so they lead.
+  return "launcher";
 }
 
 function readSidebarCollapsed(): boolean {
