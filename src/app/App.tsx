@@ -46,6 +46,11 @@ import {
   type SearchTarget,
 } from "@/modules/header";
 import { setLspNavigator } from "@/modules/lsp";
+import {
+  type AgentSession,
+  LauncherPanel,
+  resumeCommand,
+} from "@/modules/launcher";
 import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -208,6 +213,7 @@ export default function App() {
   const searchAddons = useRef<Map<number, TerminalSearchController>>(new Map());
   const [activeSearchAddon, setActiveSearchAddon] =
     useState<TerminalSearchController | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const searchInlineRef = useRef<SearchInlineHandle | null>(null);
   const terminalRefs = useRef<Map<number, TerminalPaneHandle>>(new Map());
   const editorRefs = useRef<Map<number, EditorPaneHandle>>(new Map());
@@ -649,6 +655,29 @@ export default function App() {
       }
     },
     [inheritedCwdForNewTab, newAgentGroupTab],
+  );
+
+  // The session's cwd and id are one unit: opencode and pi both resolve the
+  // session against the directory they are started in.
+  const handleOpenSession = useCallback(
+    (session: AgentSession) => {
+      let command: string;
+      try {
+        command = resumeCommand(session);
+      } catch (error) {
+        console.error("[terax] refusing to build a resume command", error);
+        return;
+      }
+      const { leafId } = newAgentTab(session.cwd, session.title);
+      setActiveSessionId(session.id);
+      void (async () => {
+        await whenSessionReady(leafId);
+        if (!writeToSession(leafId, `${command}\r`)) {
+          console.error(`[terax] terminal ${leafId} closed before resume`);
+        }
+      })();
+    },
+    [newAgentTab],
   );
 
   const sendCd = useCallback(
@@ -1477,7 +1506,12 @@ export default function App() {
                       key={sidebarView}
                       className="min-h-0 flex-1 terax-panel-in"
                     >
-                      {sidebarView === "explorer" ? (
+                      {sidebarView === "launcher" ? (
+                        <LauncherPanel
+                          activeSessionId={activeSessionId}
+                          onOpenSession={handleOpenSession}
+                        />
+                      ) : sidebarView === "explorer" ? (
                         <FileExplorer
                           ref={explorerRef}
                           rootPath={explorerRoot}

@@ -28,7 +28,17 @@
 
 ---
 
-## 1. 数据契约（P1 实现依据）
+## 0.5 实现时对计划的修订（实际执行后回填）
+
+计划是开工前写的，落地时有 5 处必须改正，后续按本节为准：
+
+1. **`useSidebarPanel` 的白名单（计划漏项，必须补）**：`src/modules/sidebar/useSidebarPanel.ts` 的 `readSidebarView()` 里硬编码了 `if (stored === "explorer" || stored === "source-control") return stored;`。不加 `"launcher"` 的话，视图切到会话面板后**重启无法恢复**（会悄悄回落成 explorer）。所以 Task 10 除了 `types.ts`，还必须改这个函数。
+2. **临时目录用既有 `tempfile`**：`tempfile = "3"` 已是 dev-dependency，测试用 `tempfile::tempdir()`，不新增 `tempdir 0.3`。
+3. **注释语言按上游**：本仓库 Rust 与 TS 的注释是**英文**（TERAX.md 的 `Comments: default to none... 1-2 lines on why` 也是英文写的），因此新代码的注释与测试名用英文；只有**面向用户的文案**（错误信息、面板标签、占位符、空态）用中文，符合"界面中文"的偏好。已知后果：继承自上游的界面文案仍是英文，需要单独一轮翻译，不属 P1 范围。
+4. **面板必须走 `Lazy` 包装**：仓库有 `src/app/eager-budget.test.ts` 与 `src/app/dist-budget.test.ts` 两个产物体积预算测试（`HEAVY` 列表锁定 AI SDK / CodeMirror / 图标集等不得进入启动图）。既有面板的统一做法是 `XxxPanelLazy.tsx` + barrel 导出 Lazy 版（见 `src/modules/source-control/index.ts`），`LauncherPanel` 照此办理。
+5. **`resumeCommand` 从 barrel 导出**：App.tsx 需要它，跨模块引用走 `@/modules/launcher` 而不是深路径（TERAX.md：前端 import 一律 `@/...`，不跨模块用相对路径）。
+
+另外一处实现加强：opencode 的表选择测试补了「同一库里同时存在 `session` 与 `session_v2` 时选 `session_v2`」与「库存在但没有任何已知表时报错」两个用例。
 
 ### 1.1 opencode
 
@@ -504,13 +514,7 @@ fn open_read_only(path: &Path) -> Result<Connection, String> {
 }
 ```
 
-`Cargo.toml` 的 `[dev-dependencies]` 加：
-
-```toml
-tempdir = "0.3"
-```
-
-- `tempdir` 是唯一新增的 dev 依赖（只在测试里用，不进产物）。
+`Cargo.toml` 的 `[dev-dependencies]` **不需要新增任何东西**：`tempfile = "3"` 已经是既有 dev-dependency（`src-tauri/Cargo.toml:81`），测试里用 `tempfile::tempdir()` 即可。不要引入已停止维护的 `tempdir 0.3`。
 
 - [ ] **Step 4: 跑测试确认通过**
 
@@ -1369,6 +1373,7 @@ git commit -m "feat(launcher): fold subagent sessions under their parent"
 - Create: `src/modules/launcher/lib/sessions.ts`
 - Create: `src/modules/launcher/components/SessionList.tsx`
 - Create: `src/modules/launcher/components/LauncherPanel.tsx`
+- Create: `src/modules/launcher/components/LauncherPanelLazy.tsx`
 - Create: `src/modules/launcher/index.ts`
 
 - [ ] **Step 1: 写 IPC 出口**
@@ -1654,6 +1659,7 @@ git commit -m "feat(launcher): add the session list panel"
 
 **Files:**
 - Modify: `src/modules/sidebar/types.ts:1`
+- Modify: `src/modules/sidebar/useSidebarPanel.ts:41`
 - Modify: `src/modules/sidebar/SidebarRail.tsx:24`
 - Modify: `src/app/App.tsx`
 
