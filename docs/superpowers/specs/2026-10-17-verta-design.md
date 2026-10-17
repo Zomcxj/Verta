@@ -181,3 +181,30 @@
 2. terax 的 AI 侧栏保留但默认收起是否可接受（暂定：是）。
 3. 项目清单与 terax 的 Space 是否合并为同一份数据（暂定：同源，Space 承载项目根，另加状态列）。
 4. 上游对账策略（多久同步一次 terax 上游）。
+
+## 12. 追加需求（2026-10-17，用户提出）
+
+### 12.1 会话删除与管理（P1.5，已出计划）
+
+会话要支持**真删除**（不是隐藏），并给一个能看到**全部会话（含子代理）**的管理界面，支持多选删除。实现计划见 `docs/superpowers/plans/2026-10-17-verta-p1-5-session-management.md`。要点：前端只传 `{tool, id}`（不传路径）；opencode 走它自带的 `opencode session delete`（它会连带删除子会话）；pi 按扫描结果删文件与其产物目录；删除后必须重新扫描复核。
+
+### 12.2 项目行的 agent / 会话入口（P2 范围）
+
+参考 GitShow 项目行的 `⋯` 菜单（`GitShow/src/app/ui/shell.rs:617`：`ui.weak(说明)` + `ui.button(动作)` + `ui.close()`，打开类操作收进菜单以免撑宽列），在 Verta 的项目行上提供：
+
+1. **右键 / `⋯` 菜单**：`用 opencode 打开`、`用 pi 打开`（随适配器扩展）、`在终端中打开`、`复制项目路径`。选中某个 agent 即在项目根目录开终端并启动该 agent 的交互式会话（不带 `--session`，因此是新建会话）。
+2. **鼠标选中 / 悬停该行时弹出**：该项目下已有的会话列表（点一条即 resume，沿用 P1 的 `(tool, id, cwd)` 不可拆传递规则），以及一项 `新建会话`。
+3. 归属匹配：会话的 `cwd`（opencode 的 `directory`、pi 首行的 `cwd`）与项目的 `root` 匹配；匹配不到任何会话的项目只显示 `新建会话`。
+
+该需求把 P1 的会话数据与 P2 的项目列表连起来，因此排在 P1.5（会话管理）之后实现。
+
+### 12.3 Git 面板放右侧（布局改动）
+
+现状：git 面板是左栏三个视图之一（`explorer` / `source-control` / `launcher` 互斥），所以看项目列表时看不到 Git。用户要求 **Git 在页面右侧打开**，让「项目列表」与「Git」能同时看，并在右侧加一个与左上角对称的**隐藏/展开按钮**。
+
+落点：
+
+1. `App.tsx` 的 `ResizablePanelGroup` 现在是 `[sidebar | workspace]`，改为 `[sidebar | workspace | rightPanel]`，右面板 `collapsible` + `collapsedSize={0}`，默认收起，宽度与收起态持久化（对应左栏的 `terax.sidebar.*`，新增 `terax.rightPanel.*`）。
+2. 左上角那个按钮是 `Header.tsx:124` 的 `Button variant="ghost" size="icon-sm"` + `HugeiconsIcon icon={SidebarLeftIcon}`；右侧按钮用同一套，图标换 `SidebarRightIcon`（hugeicons 里有）。
+3. 右面板装 git 视图（现有 `SourceControlPanel`，P3 的 git 操作与提交图也进这里）；左栏只留 `explorer` 与 `launcher`，即 `SidebarViewId` 去掉 `source-control`，避免同一个面板有两处入口、两份状态。
+4. 右面板默认收起：不改变现有用户"打开就看到 workspace"的习惯，需要看 Git 时点右上角展开。

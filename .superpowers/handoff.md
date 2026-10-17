@@ -154,6 +154,13 @@ git fetch --depth=1 upstream && git diff upstream/main --stat   # 在线
 
 P2 要比 P1 轻：`git_status` 等命令 terax 已有（`src-tauri/src/modules/git/commands.rs`），要加的是状态列的并发刷新与「进工作区」动作。注意 spec §4.4 与 §11.3（项目清单是否与 Space 同源，暂定同源）。
 
+**但顺序上 P1.5 排在 P2 前面**（用户 2026-10-17 追加）：
+
+- **P1.5 会话管理**：真删除 + 能看到全部会话（含子代理）的管理界面 + 多选删除。计划：`docs/superpowers/plans/2026-10-17-verta-p1-5-session-management.md`。
+- **P2 追加了项目行的 agent / 会话入口**（spec §12.2）：项目行右键 / `⋯` 菜单选 agent 打开，悬停弹出该项目已有会话或「新建会话」。参照 `GitShow/src/app/ui/shell.rs:617` 的菜单写法（`ui.weak` 说明 + `ui.button` 动作 + `ui.close`）。
+
+**破坏性功能的分工**：P1.5 的真实删除由用户在界面上首次执行，我只负责确认框写清影响、删除后复核、失败可见，并且我自己不删除任何真实会话（见该计划 §验收）。
+
 ### 界面语言现状
 
 「界面中文」目前只在新代码里落地（会话面板的标签、占位符、空态、错误文案）。**继承自上游的界面文案（Files / Git / Open 等）仍是英文**，需要单独一轮翻译，不属 P1 范围。代码注释按上游风格用英文（只有面向用户的字符串用中文）。
