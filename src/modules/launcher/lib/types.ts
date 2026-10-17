@@ -13,3 +13,21 @@ export type AgentSessionsPayload = {
   sessions: AgentSession[];
   warnings: string[];
 };
+
+/** What the backend accepts: an id, never a path. */
+export type SessionTarget = {
+  tool: AgentTool;
+  id: string;
+};
+
+export type DeleteOutcome = {
+  tool: AgentTool;
+  id: string;
+  deleted: boolean;
+  reason: string | null;
+};
+
+export type DeleteReport = {
+  deleted: number;
+  outcomes: DeleteOutcome[];
+};
