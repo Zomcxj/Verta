@@ -1,0 +1,9 @@
+# Keep the working tree at LF on every platform. Biome formats with LF, so a
+# CRLF checkout (core.autocrlf=true on Windows) fails `pnpm lint` on untouched
+# upstream files, and CRLF also breaks the shell scripts.
+* text=auto eol=lf
+
+*.png binary
+*.wasm binary
+*.ico binary
+*.icns binary
