@@ -198,6 +198,60 @@
 
 该需求把 P1 的会话数据与 P2 的项目列表连起来，因此排在 P1.5（会话管理）之后实现。
 
+### 12.4 Windows 与 WSL 并存 + WSL 开关
+
+现状：terax 用 `Space.env = {kind:"windows"} | {kind:"wsl",distro}` 表达工作区环境，由状态栏的 `WorkspaceEnvSelector` 切换（`src/modules/workspace/env.ts:7`、`src/modules/statusbar/WorkspaceEnvSelector.tsx:40`），切换即整体换环境。用户要求**不再切换**：Windows 与 WSL 的**项目与会话同时展示**，并加一个 **WSL 开关**，点了就开启服务并显示 WSL 内的 opencode/pi 项目与会话，不点就关闭服务且不显示。
+
+本机实况（已核实）：
+
+| 项 | 结果 |
+|---|---|
+| 发行版 | 只有 `Ubuntu-22.04`，WSL2，调查时 State 已是 Running |
+| WSL 内的 opencode 数据 | `/home/cxj/.local/share/opencode/opencode.db`，**3.3 GB**；`session_v2` 233 行 = **4 条顶层会话** + 229 条子代理会话；目录 `/home/cxj/workspace/mem0_chat_fastapi`（226 行）、`/home/cxj/workspace/ai-fusion-video`、`/home/cxj` |
+| WSL 内的 pi 数据 | **没有**：WSL 里 `pi` 解析到 `/mnt/c/Users/费马大定理/.pi/agent/bin/pi`（Windows 的 pi），`~/.pi/agent/sessions` 不存在 |
+| WSL 里的 `opencode` | 也是 Windows 那个：`/mnt/d/Softwaredata/npm-global/opencode`（interop 跑 exe）。它按 `HOME=/home/cxj` 写入 WSL 文件系统，这就是那 3.3 GB 的来源 |
+| 从 Windows 读那个库 | `\\wsl.localhost\<distro>\...` 可读；`?mode=ro` 在 **14.4 秒后 database is locked**（9p 上拿不到 WAL 的 `-shm` 锁）；`?immutable=1` **0.03 秒成功**，但它会忽略未 checkpoint 的 WAL 尾巴 |
+| WSL 里的 python3 | `/usr/bin/python3` 有；**没有** `sqlite3` CLI |
+
+落点（关闭语义确认后再写实现计划）：
+
+1. 会话列表改为**按来源分组展示**：Windows（现状）+ WSL（开关开启时才请求）。`SessionTarget` 要加 `distro: Option<String>`，否则 `{tool, id}` 无法区分两个仓库里同 id 的会话。
+2. WSL 侧读会话走 **distro 内 python3 查询**（`wsl.exe -d <distro> -- python3 <脚本>`，脚本先落到 Windows 临时文件再经 `/mnt/c/...` 传入，以避开 wsl.exe 的参数引号转换）。这是 WAL 正确的读法；`immutable=1` 的 UNC 直读只作为 `-wal` 为 0 字节时的备选，因为它可能静默读到过期数据。
+3. WSL 侧的**项目**来自会话的 `directory` 加上 `~/workspace` 下的目录；点击 WSL 会话恢复时要开 **WSL 终端**（`pty` 已有 `build_wsl(cwd, distro)`）。
+4. pi 在 WSL 侧没有数据，界面要**如实说明**，不能显示成普通的空列表。
+5. 开关的关闭语义是危险操作，待用户确认（见下）。
+
+#### 关闭语义的决定（用户 2026-10-17 答复）
+
+**在设置里加一个开关**，语义是"关闭 WSL 开关时做什么"：
+
+| 设置开关 | 行为 |
+|---|---|
+| 关（默认） | 只停 Verta 的 WSL 查询：不再请求该发行版，列表里隐藏 WSL 项。不碰 WSL 本身，用户在 WSL 里跑的服务与容器不受影响 |
+| 开 | `wsl --shutdown`：关掉**所有**发行版与 WSL2 工具 VM |
+
+默认关，所以默认行为永远不会中断用户的东西；选了开就是一次明确同意，设置项的描述必须写明它会中断 WSL 里正在跑的一切（例如 Docker Desktop 的 WSL 后端）。因此关闭时不再额外弹确认框，但关闭结果要在界面上如实回报（成功与失败都显示，沿用 §5.5 不静默失败）。
+
+### 12.5 删掉 terax 的内置智能体
+
+用户要求"项目原有的内部智能体不要了"，范围已确认为**全删**：
+
+| 目标 | 规模 | 处理 |
+|---|---|---|
+| `src/modules/ai/**` | 89 文件 / 14.7k 行 | 删（AI 侧栏、聊天、工具、store、模型设置界面） |
+| `src/components/ai-elements/**` | 11 文件 / 2.7k 行 | 删（聊天 UI 基元，只有 AI 模块在用） |
+| `src/modules/agents/**` | 27 文件 / 2.4k 行 | 删；**但 `lib/agentIcon.tsx` 要搬到 `src/modules/launcher/lib/`**，它是 R3 的工具图标组件 |
+| `src-tauri/src/modules/ai_sessions.rs` | 1243 行 | 删，连同它的 5 个命令与 `SessionFilesState` |
+| `src-tauri/src/modules/agent.rs` | 567 行 | 删（给 claude/codex/gemini 装终端钩子做跑完通知），连同 `agent_enable_hooks`、`agent_hooks_status` 与 `emit_conout_marker` 的调用点 |
+| 连线 | 约 20 个文件 | 逐处摘除，例如 `App.tsx` 的 `useChatStore`/`panelOpen`/AI diff 审批/输入栏 composer、`Header.tsx` 的通知铃、编辑器 `autocomplete/provider.ts` 的 AI 补全、`settings/store.ts` 的模型与 API key 项 |
+
+落点要求：
+
+1. **一次删干净**：不留"只剩引用没人用"的模块、命令与设置项，也不留空面板。删完 `pnpm lint`、`pnpm check-types`、`pnpm exec vitest run --maxWorkers=2`、`cargo clippy --all-targets -j 2 -- -D warnings` 必须全绿。
+2. 启动体积预算测试（`src/app/eager-budget.test.ts`、`src/app/dist-budget.test.ts`）会跟着变小，要确认它们断言的是上限而不是下限，否则会因为"变小"而失败。
+3. **删代码不删用户数据**：`tauri-plugin-store` 里已存的模型 API key 保留在盘上不动（删代码不等于替你擦密钥；要擦另说）。AI 会话文件（`ai_sessions.rs` 管的那些）同样先不删，等确认后再清。
+4. 删完把这些删除记进 `.superpowers/handoff.md` 的"与上游分歧"表，写清"这个 fork 不含内置智能体"，避免以后对账时把删除误判成漂移。
+
 ### 12.3 Git 面板放右侧（布局改动）
 
 现状：git 面板是左栏三个视图之一（`explorer` / `source-control` / `launcher` 互斥），所以看项目列表时看不到 Git。用户要求 **Git 在页面右侧打开**，让「项目列表」与「Git」能同时看，并在右侧加一个与左上角对称的**隐藏/展开按钮**。

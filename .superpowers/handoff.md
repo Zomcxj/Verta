@@ -1,12 +1,14 @@
 # Verta 交接说明（2026-10-17）
 
+> **上下文被压缩、或新开会话时，先读 `docs/superpowers/requirements-log.md`**：那是用户口头需求的台账，含已拍板的决定、已核实的技术结论与执行顺序。本文件偏"工程现状与对账"。
+
 ## 一句话
 
-把 GitShow（项目/git/GitHub）+ Coffee-CLI 的「本机 agent 会话列表」+ terax-ai（终端/编辑器/源码管理）合并成一个 Windows 优先的桌面工作台。**设计已定，实现未开始。**
+把 GitShow（项目/git/GitHub）+ Coffee-CLI 的「本机 agent 会话列表」+ terax-ai（终端/编辑器/源码管理）合并成一个 Windows 优先的桌面工作台。**设计已定；P0（基线导入）与 P1（会话列表）已完成并提交，当前在做 P1.5（会话删除与管理）。**
 
 ## 设计文档
 
-`docs/superpowers/specs/2026-10-17-verta-design.md`（尚未 git 提交：新仓库还没 `git init`，P0 里连代码一起提交）
+`docs/superpowers/specs/2026-10-17-verta-design.md`（已随 P0/P1 提交；§12 是 2026-10-17 追加的需求：会话删除、项目行的 agent 入口、Git 右置、Windows 与 WSL 并存、删掉内置智能体）
 
 ## 已定决策
 
