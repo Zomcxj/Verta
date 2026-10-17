@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { AgentIcon } from "@/modules/agents/lib/agentIcon";
 import type { AgentSession } from "../lib/types";
 
 type Props = {
@@ -53,9 +54,18 @@ function SessionButton({
           : "hover:bg-foreground/[0.045]",
       )}
     >
-      <span className="truncate text-xs text-foreground">{session.title}</span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <AgentIcon
+          agent={session.tool}
+          size={13}
+          className="shrink-0 text-muted-foreground"
+        />
+        <span className="truncate text-xs text-foreground">
+          {session.title}
+        </span>
+      </span>
       <span className="truncate text-[10px] text-muted-foreground">
-        {session.tool} · {formatTime(session.updatedAtMs)} · {session.cwd}
+        {formatTime(session.updatedAtMs)} · {session.cwd}
       </span>
     </button>
   );

@@ -18,7 +18,3 @@ export function topLevelSessions(sessions: AgentSession[]): AgentSession[] {
     return !present.has(parentId);
   });
 }
-
-export function hiddenSubagentCount(sessions: AgentSession[]): number {
-  return sessions.length - topLevelSessions(sessions).length;
-}

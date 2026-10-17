@@ -2,7 +2,6 @@ import {
   AiBrowserIcon,
   ChatGptIcon,
   ClaudeIcon,
-  CodeIcon,
   GoogleGeminiIcon,
   Grok02Icon,
 } from "@hugeicons/core-free-icons";
@@ -28,11 +27,37 @@ function PiIcon({ size, className }: { size: number; className?: string }) {
   );
 }
 
+// OpenCode mark, the glyph of the official wordmark embedded in @opencode/cli
+// (MIT): an outer frame with a solid block in the lower half of its opening.
+// The two opacities keep the mark's two-tone reading in a monochrome list.
+// The viewBox is padded to 48 units around the 24x30 glyph so the ink covers
+// about 62% of the box, which is what the Pi mark's own viewBox does; without
+// that padding this mark reads a size larger than the others.
+function OpenCodeIcon({
+  size,
+  className,
+}: {
+  size: number;
+  className?: string;
+}) {
+  return (
+    <svg
+      viewBox="-12 -3 48 48"
+      width={size}
+      height={size}
+      className={className}
+      aria-hidden="true"
+    >
+      <path fill="currentColor" fillOpacity="0.45" d="M18 30H6V18H18V30Z" />
+      <path fill="currentColor" d="M18 12H6V30H18V12ZM24 36H0V6H24V36Z" />
+    </svg>
+  );
+}
+
 function iconFor(agent: string): IconSvgElement {
   const a = agent.toLowerCase();
   if (a.includes("claude")) return ClaudeIcon;
   if (a.includes("gemini")) return GoogleGeminiIcon;
-  if (a.includes("opencode")) return CodeIcon;
   if (a.includes("grok")) return Grok02Icon;
   if (a.includes("codex") || a.includes("gpt") || a.includes("openai"))
     return ChatGptIcon;
@@ -50,6 +75,9 @@ export function AgentIcon({
 }) {
   if (agent.toLowerCase() === "pi") {
     return <PiIcon size={size} className={className} />;
+  }
+  if (agent.toLowerCase().includes("opencode")) {
+    return <OpenCodeIcon size={size} className={className} />;
   }
   if (agent.toLowerCase().includes("terax")) {
     return (

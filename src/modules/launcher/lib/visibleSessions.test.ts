@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSession } from "./types";
-import { hiddenSubagentCount, topLevelSessions } from "./visibleSessions";
+import { topLevelSessions } from "./visibleSessions";
 
 const session = (
   id: string,
@@ -38,15 +38,5 @@ describe("topLevelSessions", () => {
 
   it("handles an empty list", () => {
     expect(topLevelSessions([])).toEqual([]);
-  });
-
-  it("counts the hidden subagent sessions", () => {
-    const all = [
-      session("a", null, 3),
-      session("child", "a", 2),
-      session("b", null, 1),
-    ];
-    expect(hiddenSubagentCount(all)).toBe(1);
-    expect(hiddenSubagentCount([])).toBe(0);
   });
 });
