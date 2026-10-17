@@ -166,3 +166,41 @@ P2 要比 P1 轻：`git_status` 等命令 terax 已有（`src-tauri/src/modules/
 ### 界面语言现状
 
 「界面中文」目前只在新代码里落地（会话面板的标签、占位符、空态、错误文案）。**继承自上游的界面文案（Files / Git / Open 等）仍是英文**，需要单独一轮翻译，不属 P1 范围。代码注释按上游风格用英文（只有面向用户的字符串用中文）。
+
+## P1.5 实况（2026-10-17 完成）
+
+会话的**真删除**与**管理界面**都已可用，并且成功路径在真机上验证过（一次经用户授权的删除）。
+
+### 落地内容
+
+| 层 | 内容 |
+|---|---|
+| Rust | `agent_sessions/delete.rs`（类型、id 白名单、`Stores` 注入、逐条执行 + 复核）、`opencode::delete_at`（走 `opencode session delete`）、`pi::delete_at`（删会话文件与其产物目录，root 内校验）、`mod.rs` 的命令、`lib.rs` 注册 |
+| 前端 | `launcher/lib/selection.ts`（`sessionKey` / 选中集合 / `selectedTargets` / `deletionSummary`）、`sessions.ts` 的 `deleteAgentSessions`、`SessionList` 的勾选态与"子代理"标记、`LauncherPanel` 的管理态与确认框 |
+| 安全 | 前端只传 `{tool, id}`（不传路径）；id 过 `^[A-Za-z0-9_-]+$`；pi 的每个删除目标都先 `canonicalize` 证明在 pi root 内；**删除后重新扫描复核，复核不过就不算成功** |
+
+### 门禁与验收
+
+- Rust：`cargo test -j 2 --lib agent_sessions` 47 通过；`cargo clippy --all-targets --locked -j 2 -- -D warnings` 无警告
+- 前端：`pnpm lint` exit 0、`pnpm check-types` 通过、launcher 28 个测试通过、全量 `vitest --maxWorkers=2` 全绿
+- 真机真删一次：删一条子代理会话 `ses_eda8cfdc5ffeN3XYbjTRWiSx92`（用户明确授权），`session_v2` 18 → 17，**逐条比对 id 列表只少了那一条**，父会话与其剩余 4 个子会话都在，pi 6 个文件与 WSL 233 行都没动
+- 第一次真删失败过：`capture::run` 要求调用方先 piped stdout/stderr，我漏了，报 `no stdout pipe`；**失败如实显示且什么都没删**，修好后（`capture_ready` + 契约测试）重跑成功
+
+### P1.5 期间修正的数据契约
+
+**pi 的 fork 在 `<项目>/<stem>/forks/`，不是 `<项目>/forks/`**。原实现找的是后者，所以本机那 2 条 fork 从来没被列出来过（`6b2b909` 修）。因此普通态列表从 12 条变成 14 条。另外 pi 的子代理运行记录在 `<stem>/<uuid>/run-0/session.jsonl`（本机 16 个），**刻意不列为会话**。
+
+### 新增的验收工具
+
+| 脚本 | 用途 | 注意 |
+|---|---|---|
+| `webview-eval.mjs` + `probes/*.js` | 在 dev 实例的 WebView2 里执行 JS（读 DOM、触发点击） | 要先 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 pnpm tauri dev`；比像素点击可靠得多 |
+| `shot-window.ps1`（改进） | 截图 | 现在还会等窗口矩形可用（刚创建时只有 16x16） |
+| `click-window.ps1`（改进） | 像素点击 | 会用 ALT + `SetForegroundWindow` 重试并校验置前；坐标请从截图逐列扫描得出，别目测 |
+
+### 下一步（按用户 2026-10-17 定的顺序）
+
+1. **删掉 terax 的内置智能体**（spec §12.5，R14）：`src/modules/ai`（89 文件 14.7k 行）、`src/components/ai-elements`（2.7k）、`src/modules/agents`（2.4k，但 `lib/agentIcon.tsx` 要搬到 `launcher/lib/`）、Rust `ai_sessions.rs`（1243）与 `agent.rs`（567），外加约 20 个文件的连线
+2. **WSL 并存 + 开关**（spec §12.4，R13）
+3. **Git 右置**（spec §12.3，R12）
+4. **P2 项目行 + 右键菜单 + 悬停会话弹窗**（spec §12.2，R11）
