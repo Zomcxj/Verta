@@ -232,6 +232,101 @@ fn modified_ms(file: &Path) -> Option<i64> {
     Some(since_epoch.as_millis() as i64)
 }
 
+const MAX_HEADER_BYTES: u64 = 16 * 1024;
+
+/// Where a session id actually lives, proved by the same scan the list uses.
+struct Located {
+    file: PathBuf,
+    /// A top-level session owns `<stem>/`: its subagent runs and its forks.
+    owned_directory: Option<PathBuf>,
+}
+
+pub(crate) fn delete(id: &str) -> Result<(), String> {
+    let root = default_root().ok_or("找不到用户主目录，无法定位 pi 会话目录")?;
+    delete_at(&root, id)
+}
+
+pub(crate) fn delete_at(root: &Path, id: &str) -> Result<(), String> {
+    if !root.is_dir() {
+        return Err(format!(
+            "找不到 pi 会话目录：{}。请确认 pi 已安装并至少运行过一次。",
+            root.display()
+        ));
+    }
+    let located = locate(root, id)?;
+    let canonical_root = std::fs::canonicalize(root)
+        .map_err(|e| format!("无法解析 pi 会话目录 {}：{e}", root.display()))?;
+    let mut targets = vec![located.file];
+    if let Some(directory) = located.owned_directory {
+        targets.push(directory);
+    }
+    // Every removal is proved to sit inside the root before anything is removed.
+    for target in &targets {
+        let canonical = std::fs::canonicalize(target)
+            .map_err(|e| format!("无法解析待删除路径 {}：{e}", target.display()))?;
+        if !canonical.starts_with(&canonical_root) {
+            return Err(format!(
+                "拒绝删除 pi 会话目录之外的路径：{}",
+                canonical.display()
+            ));
+        }
+    }
+    for target in targets {
+        let removed = if target.is_dir() {
+            std::fs::remove_dir_all(&target)
+        } else {
+            std::fs::remove_file(&target)
+        };
+        removed.map_err(|e| format!("删除 {} 失败：{e}", target.display()))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn exists_at(root: &Path, id: &str) -> Result<bool, String> {
+    Ok(locate(root, id).is_ok())
+}
+
+/// The id a session file declares in its first line, without resolving anything
+/// else, so a session whose header cannot become a full record is still
+/// locatable.
+fn session_id_of(file: &Path) -> Option<String> {
+    let prefix = read_prefix_with(file, MAX_HEADER_BYTES, 1).ok()?;
+    let header = prefix.lines().next().and_then(parse_line)?;
+    if header.get("type").and_then(Value::as_str) != Some("session") {
+        return None;
+    }
+    header.get("id").and_then(Value::as_str).map(str::to_string)
+}
+
+fn locate(root: &Path, id: &str) -> Result<Located, String> {
+    for project_dir in child_paths(root)? {
+        if !project_dir.is_dir() {
+            continue;
+        }
+        for file in session_files(&project_dir) {
+            if session_id_of(&file).as_deref() != Some(id) {
+                continue;
+            }
+            let is_fork = file
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str())
+                == Some("forks");
+            let owned_directory = if is_fork {
+                None
+            } else {
+                let candidate = file.with_extension("");
+                candidate.is_dir().then_some(candidate)
+            };
+            return Ok(Located {
+                file,
+                owned_directory,
+            });
+        }
+    }
+    Err(format!("pi 里找不到会话 {id}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,6 +336,96 @@ mod tests {
         let path = dir.join(name);
         std::fs::write(&path, body).expect("write");
         path
+    }
+
+    /// Writes a session file the way pi names them: `<ISO>_<uuid>.jsonl`.
+    fn write_session(dir: &Path, stem: &str, id: &str) -> PathBuf {
+        write_file(
+            dir,
+            &format!("{stem}.jsonl"),
+            &format!(
+                "{{\"type\":\"session\",\"version\":3,\"id\":\"{id}\",\"cwd\":\"F:\\\\VibeCoding_workspace\\\\ModelHarbor\"}}\n"
+            ),
+        )
+    }
+
+    #[test]
+    fn deletes_the_session_file_and_its_artifact_directory_only() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let project = root.path().join("--F--VibeCoding_workspace-ModelHarbor--");
+        let stem = "2026-09-12T13-20-04-533Z_01a095c6";
+        let file = write_session(&project, stem, "01a095c6");
+        let artifacts = project.join(stem);
+        write_file(&artifacts.join("00e278ab/run-0"), "output.jsonl", "{}\n");
+        let sibling = write_session(&project, "2026-10-17T02-24-43-071Z_01a147ad", "01a147ad");
+        write_file(&project.join("subagent-artifacts"), "run-0.jsonl", "{}\n");
+
+        delete_at(root.path(), "01a095c6").expect("delete");
+
+        assert!(!file.exists(), "session file should be gone");
+        assert!(!artifacts.exists(), "the session's artifact directory goes too");
+        assert!(sibling.exists(), "a sibling session must survive");
+        assert!(
+            project.join("subagent-artifacts").exists(),
+            "the shared artifact directory is never a target"
+        );
+        assert!(!exists_at(root.path(), "01a095c6").expect("exists"));
+    }
+
+    #[test]
+    fn deleting_a_fork_leaves_the_session_it_branched_from_alone() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let project = root.path().join("--F--x--");
+        let stem = "2026-09-09T10-55-18-316Z_01a085ce";
+        let parent = write_session(&project, stem, "01a085ce");
+        let fork = write_session(
+            &project.join(stem).join("forks"),
+            "2026-09-09T13-14-24-105Z_01a0864e",
+            "01a0864e",
+        );
+
+        delete_at(root.path(), "01a0864e").expect("delete");
+
+        assert!(!fork.exists());
+        assert!(parent.exists());
+        assert!(
+            project.join(stem).exists(),
+            "a fork never owns the parent's artifacts"
+        );
+    }
+
+    #[test]
+    fn an_unknown_id_changes_nothing() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let project = root.path().join("--F--x--");
+        let file = write_session(&project, "2026-10-17T02-00-00-000Z_keep", "keep");
+        let error = delete_at(root.path(), "nope").expect_err("should fail");
+        assert!(error.contains("nope"), "unexpected error: {error}");
+        assert!(file.exists());
+    }
+
+    #[test]
+    fn refuses_an_id_that_points_outside_the_root() {
+        let root = tempfile::tempdir().expect("temp dir");
+        std::fs::create_dir_all(root.path().join("--F--x--")).expect("dir");
+        let outside = root
+            .path()
+            .parent()
+            .expect("parent")
+            .join("verta-outside-probe.jsonl");
+        std::fs::write(&outside, "{}\n").expect("write");
+        for id in ["..", "../verta-outside-probe", "a/b", "a\\b"] {
+            assert!(delete_at(root.path(), id).is_err(), "should reject {id:?}");
+        }
+        assert!(outside.exists(), "nothing outside the root may be touched");
+        let _ = std::fs::remove_file(&outside);
+    }
+
+    #[test]
+    fn a_missing_root_is_an_error_not_a_silent_success() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let error = delete_at(&root.path().join("nope"), "01a085ce").expect_err("should fail");
+        assert!(error.contains("pi") || error.contains("01a085ce"), "{error}");
     }
 
     #[test]
