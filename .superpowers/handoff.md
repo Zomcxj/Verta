@@ -26,7 +26,7 @@
 
 GitShow 当前状态：工作区干净、与 `origin/main` 同步（0 领先）、版本号 `0.0.1`。本轮界面问题（长分支名撑宽列、三栏不可调宽、工作区右栏溢出卡片盖住圆角）已在其后续提交中修完（`a40a09a`/`ace25df`/`ecbaeab`/`d1f8b9f`/`325a5eb`）。
 
-## 下一步：P0
+## 下一步：P0（已于 2026-10-17 完成，见文末「P0 实况」）
 
 ```bash
 # 1) 起新仓库：Verta/ 目录已存在（只放了 docs/ 与 .superpowers/），
@@ -58,7 +58,7 @@ cd .. && pnpm tauri dev               # 验收：窗口起来 + 能开一个终�
 - 界面中文、提交信息英文。
 - **不写长段设计说明式注释**（设计进文档，代码只留必要的「为什么」）。
 - 不做全量重排式格式化：GitShow 侧不跑 `cargo fmt`；Verta 侧沿用 terax 既有 biome/clippy 配置，也不对上游代码重排。
-- 测试交 testing 子代理执行，主助手不直接跑。
+- 测试：2026-10-17 起改为**主助手自己做**（配置里的子代理持续 `Variant unavailable`，见文末「P1 开工须知」）。
 - 危险操作（删除、强制推送、重置）先确认。
 
 ## 未决事项（spec §11）
@@ -67,3 +67,42 @@ cd .. && pnpm tauri dev               # 验收：窗口起来 + 能开一个终�
 2. terax 的 AI 侧栏保留但默认收起是否可接受（暂定：是）。
 3. 项目清单与 terax 的 Space 是否同源（暂定：同源，Space 承载项目根 + 新增状态列）。
 4. 上游 terax 对账节奏。
+
+## P0 实况（2026-10-17 完成）
+
+- 基线提交：`1cd3921 Import terax-ai 1a68067 as the Verta baseline`
+- 仓库 `F:\VibeCoding_workspace\Verta`，remote `upstream = file:///F:/VibeCoding_workspace/GitProject/terax-ai`
+- `pnpm install --frozen-lockfile`：51.6 秒 / 927 包；实际用的是 lockfile 声明的 **pnpm 11.9.0**（corepack 生效，不是全局 11.20.0）
+- Rust 首次全量编译：**11 分 18 秒**（`cargo build -j 2`，无 E0463）
+- 验收：`pnpm tauri dev` 起窗成功，日志出现 `pty opened id=1 cols=135 rows=61`（终端确实开起来了）
+
+### 与上游的已知分歧（对账时只需看这几项）
+
+| 项 | 上游 | Verta | 原因 |
+|---|---|---|---|
+| `src-tauri/tauri.conf.json` 的 `identifier` | `app.crynta.terax` | `app.verta` | 本机装着正式版 terax（`D:\Softwaredata\Terax\terax.exe`）。同 identifier 会让 dev 构建读写用户真实数据、并抢同一个 WebView2 profile，实测导致我们的 app 启动后异常退出。换独立 identifier 后两者可共存 |
+| `docs/superpowers/`、`.superpowers/`、`scripts/dev/` | 无 | 有 | Verta 自有文档与开发脚本 |
+
+其余 1041 个文件与上游**逐字节一致（含权限位）**。对账命令：
+
+```bash
+cd /f/VibeCoding_workspace/Verta
+bash scripts/dev/upstream-drift.sh                             # 离线，比 index 的 mode + blob + 路径
+git fetch --depth=1 upstream && git diff upstream/main --stat   # 在线
+```
+
+### 上游是浅克隆（对账注意事项）
+
+上游 `GitProject\terax-ai` 是 **depth-1 浅克隆，只有 1 个 commit**。普通 `git fetch upstream` 会被拒（`shallow roots are not allowed to be updated`），必须带 `--depth=1`；这会把 Verta 自身也标成 shallow（`.git/shallow` 写入 `1a68067`），属已知副作用。因此**拿不到上游中间历史，对账只能比 tip**。
+
+## P1 开工须知（2026-10-17 补充）
+
+### 数据契约修正（必读，spec §4 有 4 处与实况不符）
+
+详见 `docs/superpowers/plans/2026-10-17-verta-p1-sessions.md` 第 0 节。最关键一条：**opencode 要读 `session_v2` 而不是 `session`**（前者是活表，含当天会话；后者是迁移前旧表，最后写入停在 10-14，spec 的示例行正是从这张旧表抄的）。照 spec 实现会得到陈旧列表并静默漏掉新会话。
+
+### 环境与工具
+
+- **子代理**：`explore` 与兜底代理持续报 `Variant unavailable for opencode/...: max` 不可用；`testing` 代理本次能跑通但不可依赖。用户 2026-10-17 明确：**不用配置里的子代理，主助手自己做**。
+- **截图脚本 `scripts/dev/shot-window.ps1` 必须按可执行文件路径过滤进程**（`-ExeMatch target\debug\terax.exe`）。只按进程名 `terax` 会抓到你已装的正式版窗口，产出假证据。
+- **本机同时运行着正式版 terax**：涉及 `%APPDATA%\app.crynta.terax` 的任何读写都要当作危险操作。P0 期间我们的 dev 构建曾写入过该目录（`terax-spaces.json` / `terax-ai-sessions.json` / `terax-settings.json` / `.window-state.json` 在 21:17:44 被写过）。事后核对：2 个 space 的元数据与 state 键一致，标签齐备，**未发现数据丢失**；备份在 `~/verta-p0-terax-store-backup-20261017-211927/`，换 identifier 后不会再触碰。

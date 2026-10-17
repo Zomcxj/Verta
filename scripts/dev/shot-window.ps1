@@ -1,7 +1,9 @@
-# 按进程名抓窗口截图，用于逐期验收（PrintWindow，不依赖前台焦点）。
+# 按进程名 + 可执行文件路径抓窗口截图，用于逐期验收（PrintWindow，不依赖前台焦点）。
+# 必须按路径过滤：本机同时装着正式版 terax 时，只按进程名会抓到别人的窗口。
 param(
     [string]$ProcName = "terax",
-    [string]$Out = "docs\superpowers\shots\p0-01-window.png",
+    [string]$ExeMatch = "target\debug\terax.exe",
+    [string]$Out = "docs\superpowers\shots\shot.png",
     [int]$WaitMs = 9000
 )
 
@@ -20,14 +22,18 @@ $deadline = (Get-Date).AddMilliseconds($WaitMs)
 $proc = $null
 while (-not $proc -and (Get-Date) -lt $deadline) {
     $proc = Get-Process -Name $ProcName -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
+        Where-Object { $_.Path -and $_.Path -like "*$ExeMatch*" -and $_.MainWindowHandle -ne [IntPtr]::Zero } |
         Select-Object -First 1
     if (-not $proc) { Start-Sleep -Milliseconds 250 }
 }
 if (-not $proc) {
-    Write-Error "未找到 $ProcName 的可见窗口"
+    $seen = Get-Process -Name $ProcName -ErrorAction SilentlyContinue |
+        ForEach-Object { "  pid=$($_.Id) path=$($_.Path) hwnd=$($_.MainWindowHandle)" }
+    Write-Error "未找到匹配 '$ExeMatch' 的 $ProcName 可见窗口。当前同名进程：`n$($seen -join "`n")"
     exit 1
 }
+
+Write-Host "目标进程 pid=$($proc.Id) path=$($proc.Path)"
 
 $h = $proc.MainWindowHandle
 $r = New-Object Win+RECT
