@@ -38,15 +38,7 @@ pub(crate) fn list_at(root: &Path) -> Result<AgentSessionsPayload, String> {
         if !project_dir.is_dir() {
             continue;
         }
-        // Forked sessions live in `forks/` and carry `parentSession`.
-        let mut files = child_paths(&project_dir).unwrap_or_default();
-        if let Ok(forks) = child_paths(&project_dir.join("forks")) {
-            files.extend(forks);
-        }
-        for file in files {
-            if file.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-                continue;
-            }
+        for file in session_files(&project_dir) {
             match read_session(&file) {
                 Ok(Some(session)) => sessions.push(session),
                 Ok(None) => {}
@@ -56,6 +48,24 @@ pub(crate) fn list_at(root: &Path) -> Result<AgentSessionsPayload, String> {
     }
     sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at_ms));
     Ok(AgentSessionsPayload { sessions, warnings })
+}
+
+/// The session files of one project directory: its own transcripts, plus the
+/// forks of each session. pi writes a fork under `<stem>/forks` next to that
+/// session's run artifacts (`<stem>/<run uuid>/run-0`), so a fork sits one
+/// level deeper than the transcript it branched from; nothing deeper than
+/// `forks` is a session.
+fn session_files(project_dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for child in child_paths(project_dir).unwrap_or_default() {
+        if child.is_dir() {
+            files.extend(child_paths(&child.join("forks")).unwrap_or_default());
+        } else {
+            files.push(child);
+        }
+    }
+    files.retain(|file| file.extension().and_then(|ext| ext.to_str()) == Some("jsonl"));
+    files
 }
 
 fn child_paths(dir: &Path) -> Result<Vec<PathBuf>, String> {
@@ -352,8 +362,9 @@ mod tests {
                 "\n",
             ),
         );
+        // A fork is kept next to the artifacts of the session it branched from.
         write_file(
-            &project.join("forks"),
+            &project.join("2026-10-17T02-24-43-071Z_01a147ad/forks"),
             "2026-10-17T03-00-00-000Z_01a19999.jsonl",
             concat!(
                 r#"{"type":"session","version":3,"id":"01a19999","cwd":"F:\\VibeCoding_workspace\\ModelHarbor","parentSession":"01a147ad"}"#,
@@ -381,6 +392,49 @@ mod tests {
             .find(|session| session.id == "01a147ad")
             .expect("parent");
         assert_eq!(parent.title, "daily talk");
+    }
+
+    #[test]
+    fn a_fork_still_lists_when_its_parent_file_is_gone() {
+        // This machine has exactly one of these: the parent transcript is gone
+        // but the artifact directory, and the forks inside it, stayed.
+        let root = tempfile::tempdir().expect("temp dir");
+        let project = root.path().join("--F--VibeCoding_workspace-ModelHarbor--");
+        write_file(
+            &project.join("2026-09-09T10-55-18-316Z_01a085ce/forks"),
+            "2026-09-09T13-14-24-105Z_01a0864e.jsonl",
+            concat!(
+                r#"{"type":"session","version":3,"id":"01a0864e","cwd":"F:\\VibeCoding_workspace\\ModelHarbor","parentSession":"01a085ce"}"#,
+                "\n",
+            ),
+        );
+        let payload = list_at(root.path()).expect("list");
+        assert_eq!(payload.sessions.len(), 1, "{:?}", payload.sessions);
+        assert_eq!(payload.sessions[0].id, "01a0864e");
+        assert_eq!(payload.sessions[0].parent_id.as_deref(), Some("01a085ce"));
+    }
+
+    #[test]
+    fn subagent_run_artifacts_are_not_sessions() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let project = root.path().join("--F--x--");
+        write_file(
+            &project,
+            "2026-09-12T13-20-04-533Z_01a095c6.jsonl",
+            concat!(
+                r#"{"type":"session","version":3,"id":"01a095c6","cwd":"F:\\x"}"#,
+                "\n",
+            ),
+        );
+        // Real layout: <stem>/<run uuid>/run-0/... holds the subagent output.
+        write_file(
+            &project.join("2026-09-12T13-20-04-533Z_01a095c6/00e278ab/run-0"),
+            "output.jsonl",
+            "{\"type\":\"artifact\"}\n",
+        );
+        let payload = list_at(root.path()).expect("list");
+        assert_eq!(payload.sessions.len(), 1, "{:?}", payload.sessions);
+        assert!(payload.warnings.is_empty(), "{:?}", payload.warnings);
     }
 
     #[test]

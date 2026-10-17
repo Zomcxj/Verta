@@ -18,7 +18,7 @@
 | opencode 对未知 id 的报错 | `opencode session delete ses_vertaprobe_nonexistent` 输出 `Session not found: ses_vertaprobe_nonexistent`，无副作用（`session_v2` 仍 18 行） |
 | opencode 有 export / import | `opencode session export [<session>]`、`opencode session import <file>`；import 对已存在的 id 幂等（输出 `Session already exists`，行数不变） |
 | pi 没有删除机制 | `pi --help` 只有 install / remove / uninstall / update / list / config / auth / mcp，无会话管理 |
-| pi 的布局（本机实测） | 会话本体是 `<pi root>/<编码cwd>/<ISO>_<uuid>.jsonl`；**可能**存在同名目录 `<ISO>_<uuid>/`，里面装该会话的子代理产物目录（ModelHarbor 那条有 53 个）与 `forks/*.jsonl`；WorkBuddy / portfolio 的会话文件没有同名目录；`<编码cwd>/subagent-artifacts/` 是**共享**目录，任何情况都不许碰 |
+| pi 的布局（本机实测） | 会话本体是 `<pi root>/<编码cwd>/<ISO>_<uuid>.jsonl`；**可能**存在同名目录 `<ISO>_<uuid>/`，里面装该会话的子代理产物目录（ModelHarbor 那条有 52 项）与 `forks/*.jsonl`；WorkBuddy / portfolio 的会话文件没有同名目录；`subagent-artifacts` 是**共享**目录，任何情况都不许碰 |\n| pi 的 fork 真实位置（本次修正） | 完整形态是 `<root>/<编码cwd>/<ISO>_<uuid>.jsonl` + `<root>/<编码cwd>/<ISO>_<uuid>/{<运行uuid>/run-0/..., forks/<ISO>_<uuid>.jsonl}`。**本机不存在 `<项目>/forks/`**，而 `pi.rs` 原来找的正是那一层，所以那 2 条 fork 会话从未被列出来过（见 Task 0）。`forks` 是 forks 唯一所在层，再深就不是会话 |\n| opencode 的可执行形态（本机实测） | PATH 上是 npm 垫片 `D:\\Softwaredata\\npm-global\\opencode.cmd` → `node_modules/@opencode/cli/bin/opencode.exe`。Windows 的 `CreateProcess` **不认 `.cmd`**，所以删会话不能直接 `Command::new(\"opencode\")`，要走 `cmd /C opencode ...`（对\"真 exe\"的安装形态同样成立） |
 | 前端已有的 id 白名单 | `src/modules/launcher/lib/resumeCommand.ts` 里 `SESSION_ID = /^[A-Za-z0-9_-]+$/`（opencode 的 `ses_…` 与 pi 的 uuid 都满足） |
 
 **本机路径陷阱**：bash 的 `/tmp` 是 `%TEMP%`，而 Windows 版 python 的 `/tmp` 是 `C:\tmp`（不存在）。计划里的命令统一用 `$HOME` 或仓库内路径，测试统一用 `tempfile`。
@@ -59,6 +59,59 @@
 | `src/modules/launcher/lib/types.ts` | 新增 `SessionTarget`、`DeleteOutcome`、`DeleteReport` |
 | `src/modules/launcher/components/SessionList.tsx` | 支持 `selectable` / `selected` / `onToggle` 与"子代理"标记 |
 | `src/modules/launcher/components/LauncherPanel.tsx` | 管理态：显示全部会话、多选、底部操作条、删除确认框、结果反馈 |
+
+---
+
+## Task 0: 修正 pi 的 fork 扫描位置（先做，删除要复用同一套定位）
+
+**Files:**
+- Modify: `src-tauri/src/modules/agent_sessions/pi.rs`
+
+- [x] **Step 1: 写测试（两个：真实 fork 层级 + 产物目录不算会话）**
+
+`scans_top_level_and_forks_but_skips_non_sessions` 里 fork 的写入路径从 `<项目>/forks/` 改成 `<项目>/<stem>/forks/`；新增 `a_fork_still_lists_when_its_parent_file_is_gone`（本机真实形态：父会话文件已删、`<stem>/forks` 还在）与 `subagent_run_artifacts_are_not_sessions`（`<stem>/<uuid>/run-0/output.jsonl` 不是会话）。
+
+- [x] **Step 2: 跑测试确认失败**
+
+Run: `cd /f/VibeCoding_workspace/Verta/src-tauri && CARGO_BUILD_JOBS=2 cargo test -j 2 --lib agent_sessions`
+
+实际结果：2 failed / 23 passed，两个失败都指向 fork 完全没被扫到。
+
+- [x] **Step 3: 实现（列表与删除共用 `session_files`）**
+
+```rust
+/// The session files of one project directory: its own transcripts, plus the
+/// forks of each session. pi writes a fork under `<stem>/forks` next to that
+/// session's run artifacts (`<stem>/<run uuid>/run-0`), so a fork sits one
+/// level deeper than the transcript it branched from; nothing deeper than
+/// `forks` is a session.
+fn session_files(project_dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for child in child_paths(project_dir).unwrap_or_default() {
+        if child.is_dir() {
+            files.extend(child_paths(&child.join("forks")).unwrap_or_default());
+        } else {
+            files.push(child);
+        }
+    }
+    files.retain(|file| file.extension().and_then(|ext| ext.to_str()) == Some("jsonl"));
+    files
+}
+```
+
+`list_at` 的扫描循环改为 `for file in session_files(&project_dir)`（去掉原来那段 `<项目>/forks` 与扩展名过滤）。
+
+- [x] **Step 4: 跑测试确认通过**
+
+实际结果：25 passed / 0 failed。
+
+- [x] **Step 5: 提交**
+
+```bash
+git commit -m "fix(agent-sessions): read pi forks from where pi writes them"
+```
+
+**连带影响**：列表会多出 2 条 pi 会话（`--F--VibeCoding_workspace-ModelHarbor--/2026-09-09T.../forks/` 下那两条），它们的 `parentSession` 文件本机已不存在，所以会作为顶层会话显示。这是真实可 resume 的会话，显示出来是对的。
 
 ---
 
