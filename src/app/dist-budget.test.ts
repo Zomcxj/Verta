@@ -253,7 +253,14 @@ describe("built startup graph", () => {
     expect(failure({ TERAX_BENCH_IDENTIFIER: "" })).toContain(
       "TERAX_BENCH_IDENTIFIER",
     );
-    expect(failure({ TERAX_BENCH_IDENTIFIER: "app.crynta.terax" })).toContain(
+    // Read the identifier instead of hardcoding it, so renaming the product
+    // cannot silently disarm this guard.
+    const productIdentifier = (
+      JSON.parse(
+        readFileSync(join(root, "src-tauri/tauri.conf.json"), "utf8"),
+      ) as { identifier: string }
+    ).identifier;
+    expect(failure({ TERAX_BENCH_IDENTIFIER: productIdentifier })).toContain(
       "not the product identifier",
     );
     // Nothing was emitted by either attempt.
