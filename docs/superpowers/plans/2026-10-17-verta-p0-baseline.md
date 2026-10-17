@@ -397,4 +397,4 @@ rm -rf .git node_modules src-tauri/target dist
 ## 待用户确认（不阻塞 Task 0–7）
 
 1. **是否在 P0 就把 `productName` / `identifier` / `version` 改成 Verta？** 本计划默认**不改**，理由是让基线保持与上游逐字节一致（`diff upstream/main` 为空最好对账）。改名会同时改变 `tauri-plugin-store` 的数据目录（`app.crynta.terax` → 新 id），现在还没数据，改的成本最低，但会打破"零漂移基线"。
-2. **`identifier` 若不改，Windows 上会与用户已装的 terax 本体冲突吗？** 若本机已安装 terax 正式版，两者共用同一 identifier 可能导致配置互相覆盖——需要单独确认。
+2. **`identifier` 若不改，Windows 上会与用户已装的 terax 本体冲突吗？** 若本机已安装 terax 正式版，两者共用同一 identifier 可能导致配置互相覆盖，需要单独确认。

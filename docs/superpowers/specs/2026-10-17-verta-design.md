@@ -121,7 +121,7 @@
 
 ## 5. 关键交互与安全规则
 
-1. **恢复会话**：点击会话行 → 打开终端标签，cwd = 会话记录的 `directory`，命令 = 该 tool 的 resume 形式。**cwd 与会话 id 必须成对传递**——Coffee-CLI 源码注释里记着这个坑：`--resume <token>` 在错误目录下会静默 resume 到别的项目。我们实现时把 (tool, session_id, cwd) 作为一个不可拆的单元传递，并在终端标签标题上显示会话名。
+1. **恢复会话**：点击会话行 → 打开终端标签，cwd = 会话记录的 `directory`，命令 = 该 tool 的 resume 形式。**cwd 与会话 id 必须成对传递**：Coffee-CLI 源码注释里记着这个坑，`--resume <token>` 在错误目录下会静默 resume 到别的项目。我们实现时把 (tool, session_id, cwd) 作为一个不可拆的单元传递，并在终端标签标题上显示会话名。
 2. **进工作区**：点击项目行 → 切换/创建 Space（`root` = 项目根），恢复该 Space 的标签与 cwd。
 3. **看改动**：源码管理面板列出工作区文件 → 逐文件 diff → 逐 hunk 暂存/取消 → 提交（沿用 terax 已有能力，补 GitShow 的按文件视角）。
 4. **危险操作一律二次确认**（沿用 GitShow 的确认框语义）：丢储藏、删 worktree、撤销提交、软撤回、删除分支、强制推送、丢弃工作区改动。

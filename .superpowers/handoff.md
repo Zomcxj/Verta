@@ -48,7 +48,7 @@ cd .. && pnpm tauri dev               # 验收：窗口起来 + 能开一个终�
 ## 环境约束与坑
 
 - 本机空闲内存约 4.9 GB：Rust 编译一律 `-j 1~2`，并行会 OOM；偶发 `E0463` 用 `cargo clean -p <crate>` 恢复。磁盘充足（630 GB）。
-- **子代理故障**：2026-10-17 当天 testing 子代理连续报 `Variant unavailable for opencode/mimo-v2.6-flash-free: max`，测试派发失败。用户约定测试一律交子代理执行 —— 需要换子代理或等模型侧恢复。
+- **子代理故障**：2026-10-17 当天 testing 子代理连续报 `Variant unavailable for opencode/mimo-v2.6-flash-free: max`，测试派发失败。用户约定测试一律交子代理执行；需要换子代理或等模型侧恢复。
 - 首次 `pnpm install` 与 Tauri 构建需要联网。
 - 不擅自 `push`；版本号由用户决定（GitShow 曾因子代理擅自升到 0.1.0 被要求回退）。
 - 桌面上的 `GitShow.exe` 是拷贝，每次 release 构建后要手动覆盖同步。
