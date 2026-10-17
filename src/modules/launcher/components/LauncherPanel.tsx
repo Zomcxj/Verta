@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { relativeTime } from "../lib/relativeTime";
 import { listAgentSessions } from "../lib/sessions";
 import type { AgentSession, AgentTool } from "../lib/types";
+import { hiddenSubagentCount, topLevelSessions } from "../lib/visibleSessions";
 import { SessionList } from "./SessionList";
 
 const TOOLS: { id: AgentTool; label: string }[] = [
@@ -44,15 +45,19 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
     void refresh(tool);
   }, [refresh, tool]);
 
+  const topLevel = useMemo(() => topLevelSessions(sessions), [sessions]);
+
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return sessions;
-    return sessions.filter(
+    if (!needle) return topLevel;
+    return topLevel.filter(
       (session) =>
         session.title.toLowerCase().includes(needle) ||
         session.cwd.toLowerCase().includes(needle),
     );
-  }, [query, sessions]);
+  }, [query, topLevel]);
+
+  const hidden = hiddenSubagentCount(sessions);
 
   const nowMs = Date.now();
 
@@ -111,7 +116,8 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
       </div>
 
       <div className="shrink-0 border-t border-border/60 px-2 py-1 text-[10px] text-muted-foreground">
-        {visible.length} / {sessions.length} 条
+        {visible.length} / {topLevel.length} 条
+        {hidden > 0 ? `，已隐藏 ${hidden} 个子代理会话` : ""}
         {warnings.length > 0 ? `，${warnings.length} 个文件无法解析` : ""}
       </div>
     </div>

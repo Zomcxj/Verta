@@ -8,10 +8,13 @@ use super::types::{AgentSession, AgentSessionsPayload};
 pub(crate) const TOOL: &str = "pi";
 
 const MAX_TITLE_CHARS: usize = 80;
-/// A session file can be megabytes; the header, the first user message and the
-/// `session_info` name are all near the top, so a prefix is enough.
-const MAX_PREFIX_LINES: usize = 512;
-const MAX_PREFIX_BYTES: u64 = 256 * 1024;
+/// The name is written wherever the user names the session, which on this
+/// machine happened 3.98 MiB into a 4.18 MiB file, so the window has to be
+/// large. The scan stops at the first name, which keeps the common case
+/// (named near the top) cheap; a session renamed again later keeps its earlier
+/// name. Measured: first user messages sit within 77 KiB.
+const MAX_PREFIX_LINES: usize = 100_000;
+const MAX_PREFIX_BYTES: u64 = 8 * 1024 * 1024;
 
 pub(crate) fn default_root() -> Option<PathBuf> {
     Some(dirs::home_dir()?.join(".pi/agent/sessions"))
@@ -51,7 +54,7 @@ pub(crate) fn list_at(root: &Path) -> Result<AgentSessionsPayload, String> {
             }
         }
     }
-    sessions.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
+    sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at_ms));
     Ok(AgentSessionsPayload { sessions, warnings })
 }
 
@@ -186,13 +189,18 @@ pub(crate) fn decode_cwd_dirname(name: &str) -> Option<String> {
 }
 
 fn read_prefix(file: &Path) -> Result<String, String> {
+    read_prefix_with(file, MAX_PREFIX_BYTES, MAX_PREFIX_LINES)
+}
+
+/// Split out so the two bounds can be exercised without writing megabytes.
+fn read_prefix_with(file: &Path, max_bytes: u64, max_lines: usize) -> Result<String, String> {
     let handle = std::fs::File::open(file)
         .map_err(|e| format!("无法打开会话文件 {}：{e}", file.display()))?;
-    let mut reader = BufReader::new(handle.take(MAX_PREFIX_BYTES));
+    let mut reader = BufReader::new(handle.take(max_bytes));
     let mut prefix = String::new();
     let mut line = String::new();
     let mut lines = 0;
-    while lines < MAX_PREFIX_LINES {
+    while lines < max_lines {
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) => break,
@@ -287,6 +295,34 @@ mod tests {
         let title = title_from_prefix(&prefix).expect("title");
         assert_eq!(title.chars().count(), MAX_TITLE_CHARS + 1);
         assert!(title.ends_with('…'));
+    }
+
+    #[test]
+    fn the_prefix_window_is_bounded_by_bytes_and_lines() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = write_file(dir.path(), "s.jsonl", "aaaa\nbbbb\ncccc\n");
+        assert_eq!(
+            read_prefix_with(&path, 10, 100).expect("prefix"),
+            "aaaa\nbbbb\n"
+        );
+        assert_eq!(read_prefix_with(&path, 4096, 1).expect("prefix"), "aaaa\n");
+    }
+
+    #[test]
+    fn a_name_far_past_the_first_message_still_wins() {
+        // Locks why the window is megabytes wide: pi writes the name when the
+        // user names the session, which can be far past the opening exchange.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let body = format!(
+            "{}\n{}\n{}\n{}\n",
+            r#"{"type":"session","id":"s1","cwd":"F:\\x"}"#,
+            r#"{"type":"message","message":{"role":"user","content":"第一句"}}"#,
+            "x".repeat(64),
+            r#"{"type":"session_info","name":"晚来的名字"}"#,
+        );
+        let path = write_file(dir.path(), "s.jsonl", &body);
+        let prefix = read_prefix_with(&path, 4096, 100).expect("prefix");
+        assert_eq!(title_from_prefix(&prefix).as_deref(), Some("晚来的名字"));
     }
 
     #[test]

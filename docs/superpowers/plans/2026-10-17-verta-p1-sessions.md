@@ -40,6 +40,8 @@
 
 另外一处实现加强：opencode 的表选择测试补了「同一库里同时存在 `session` 与 `session_v2` 时选 `session_v2`」与「库存在但没有任何已知表时报错」两个用例。
 
+6. **pi 的前缀窗口从 512 行 / 256 KiB 提到 8 MiB / 100,000 行（实测驱动的修正）**：GUI 验收时发现 4 个 pi 会话里有 2 个标题显示成原始 prompt，而它们其实都有 `session_info.name`。实测字节偏移后确认原因是窗口太小（名字最晚出现在 3.98 MiB 处），详见 §1.2 与执行记录。这条属于「照计划实现会得到可见错误结果」的那类问题，靠验收对照期望值才发现。
+
 ### 1.1 opencode
 
 - 库：`~/.local/share/opencode/opencode.db`（本机 5 621 583 872 B，另有 `-wal` / `-shm`）。
@@ -73,7 +75,7 @@ LIMIT 200
 {"type":"message","id":"…","parentId":"…","timestamp":"…","message":{"role":"user","content":[{"type":"text","text":"查看pi是否有两个压缩插件一个自带一个第三方"}]}}
 ```
 
-- 读取范围：每个文件最多读 512 行或 256 KiB（先到者为准），够覆盖首行与靠前的 `session_info`；超范围又没找到名字时回退到首条 user 消息，再回退目录名。
+- 读取范围：**实测推翻了原计划的"512 行 / 256 KiB"**。名字（`session_info`）不是写在文件开头，而是用户命名的那一刻，本机实测最晚的一条在 **4,175,445 字节（3.98 MiB）** 处（一个 4.18 MB 的会话）；首条 user 消息则总在 77 KiB 内。因此窗口改为 **8 MiB 或 100,000 行（先到者为准）**，并在**命中第一个名字时立即停止扫描**（大多数会话只读几十到几百 KB，不会为每个文件读满 8 MiB）。代价：一个被改名多次的会话显示它较早的那个名字（本机 ModelHarbor 那条会显示 `ModelHarber2` 而非后来的 `ModelHarber`），已用 `the_prefix_window_is_bounded_by_bytes_and_lines` 与 `a_name_far_past_the_first_message_still_wins` 两个用例把这个取舍钉住。
 - 恢复：cwd = 会话首行的 `cwd`，命令 = `pi --session <uuid>`（cwd 必须成对传递，否则 pi 会在别的项目目录里找会话）。
 
 ---
@@ -125,7 +127,7 @@ LIMIT 200
 **Files:**
 - Modify: `src-tauri/Cargo.toml:38-76`
 
-- [ ] **Step 1: 用 cargo add 解析版本（不手写版本号，避免猜错）**
+- [x] **Step 1: 用 cargo add 解析版本（不手写版本号，避免猜错）**
 
 Run:
 
@@ -139,7 +141,7 @@ Expected: `Cargo.toml` 的 `[dependencies]` 出现 `rusqlite = { version = "…"
 - `bundled` 是硬要求（spec §3.1）：本机没有系统 sqlite，且要保证 Windows 上一致。
 - 需要联网。会新编译 `libsqlite3-sys`（含 C 代码），内存敏感，**必须 `-j 2`**。
 
-- [ ] **Step 2: 确认仍能编译**
+- [x] **Step 2: 确认仍能编译**
 
 Run:
 
@@ -150,7 +152,7 @@ cargo build -j 2
 
 Expected: `Finished`。若 `E0463`，`cargo clean -p <crate>` 后重跑。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
@@ -168,7 +170,7 @@ git commit -m "build: add rusqlite with the bundled sqlite for agent session rea
 - Create: `src-tauri/src/modules/agent_sessions/mod.rs`
 - Modify: `src-tauri/src/modules/mod.rs`
 
-- [ ] **Step 1: 写类型**
+- [x] **Step 1: 写类型**
 
 `types.rs`：
 
@@ -194,7 +196,7 @@ pub struct AgentSessionsPayload {
 }
 ```
 
-- [ ] **Step 2: 写失败的映射测试**
+- [x] **Step 2: 写失败的映射测试**
 
 `opencode.rs` 里先只放测试：
 
@@ -239,7 +241,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 3: 跑测试确认失败**
+- [x] **Step 3: 跑测试确认失败**
 
 Run:
 
@@ -250,7 +252,7 @@ cargo test -j 2 --locked agent_sessions
 
 Expected: FAIL，`cannot find function map_row`。
 
-- [ ] **Step 4: 实现映射（最小实现）**
+- [x] **Step 4: 实现映射（最小实现）**
 
 `opencode.rs` 顶部：
 
@@ -305,7 +307,7 @@ mod opencode;
 pub mod agent_sessions;
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run:
 
@@ -316,7 +318,7 @@ cargo test -j 2 --locked agent_sessions
 
 Expected: PASS，4 个测试全绿。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
@@ -331,7 +333,7 @@ git commit -m "feat(agent-sessions): add session types and opencode row mapping"
 **Files:**
 - Modify: `src-tauri/src/modules/agent_sessions/opencode.rs`
 
-- [ ] **Step 1: 写表选择与连接测试（用临时 sqlite，绝不碰真实库）**
+- [x] **Step 1: 写表选择与连接测试（用临时 sqlite，绝不碰真实库）**
 
 在 `opencode.rs` 的 `tests` 模块里追加：
 
@@ -400,7 +402,7 @@ git commit -m "feat(agent-sessions): add session types and opencode row mapping"
     }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run:
 
@@ -411,7 +413,7 @@ cargo test -j 2 --locked agent_sessions
 
 Expected: FAIL，`cannot find function session_table` / `list_at` / `tempdir`。
 
-- [ ] **Step 3: 实现适配器**
+- [x] **Step 3: 实现适配器**
 
 在 `opencode.rs` 加（`tests` 模块之外）：
 
@@ -516,7 +518,7 @@ fn open_read_only(path: &Path) -> Result<Connection, String> {
 
 `Cargo.toml` 的 `[dev-dependencies]` **不需要新增任何东西**：`tempfile = "3"` 已经是既有 dev-dependency（`src-tauri/Cargo.toml:81`），测试里用 `tempfile::tempdir()` 即可。不要引入已停止维护的 `tempdir 0.3`。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run:
 
@@ -529,7 +531,7 @@ Expected: PASS（Task 2 的 4 个 + Task 3 的 4 个）。
 
 注意这里**故意不带 `--locked`**：新增 dev 依赖会改 `Cargo.lock`，先让 cargo 更新它。更新后在 Step 5 一并提交。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
@@ -545,7 +547,7 @@ git commit -m "feat(agent-sessions): read opencode sessions from a read-only sql
 - Create: `src-tauri/src/modules/agent_sessions/pi.rs`
 - Modify: `src-tauri/src/modules/agent_sessions/mod.rs`
 
-- [ ] **Step 1: 写纯函数的失败测试**
+- [x] **Step 1: 写纯函数的失败测试**
 
 `pi.rs`：
 
@@ -609,7 +611,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run:
 
@@ -620,7 +622,7 @@ cargo test -j 2 agent_sessions
 
 Expected: FAIL，`cannot find function title_from_prefix` / `decode_cwd_dirname`。
 
-- [ ] **Step 3: 实现纯函数**
+- [x] **Step 3: 实现纯函数**
 
 `pi.rs` 顶部：
 
@@ -711,7 +713,7 @@ pub(crate) fn decode_cwd_dirname(name: &str) -> Option<String> {
 
 `mod.rs` 加 `mod pi;`。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run:
 
@@ -722,7 +724,7 @@ cargo test -j 2 agent_sessions
 
 Expected: PASS（5 个新测试全绿）。
 
-- [ ] **Step 5: 实现扫描与列表（集成测试用临时目录）**
+- [x] **Step 5: 实现扫描与列表（集成测试用临时目录）**
 
 追加到 `pi.rs`（`tests` 之外）：
 
@@ -914,7 +916,7 @@ fn modified_ms(file: &std::path::Path) -> Option<i64> {
     }
 ```
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 Run:
 
@@ -925,7 +927,7 @@ cargo test -j 2 agent_sessions
 
 Expected: PASS。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
@@ -941,7 +943,7 @@ git commit -m "feat(agent-sessions): list pi sessions by scanning session jsonl 
 - Modify: `src-tauri/src/modules/agent_sessions/mod.rs`
 - Modify: `src-tauri/src/lib.rs:273`
 
-- [ ] **Step 1: 实现命令**
+- [x] **Step 1: 实现命令**
 
 `mod.rs` 补上：
 
@@ -960,7 +962,7 @@ pub async fn agent_sessions_list(tool: String) -> Result<AgentSessionsPayload, S
 }
 ```
 
-- [ ] **Step 2: 注册**
+- [x] **Step 2: 注册**
 
 `src-tauri/src/lib.rs` 的 `generate_handler!` 里，紧跟 `agent::agent_hooks_status,` 之后加一行（保持与 `mod.rs` 一致的字母序）：
 
@@ -970,7 +972,7 @@ pub async fn agent_sessions_list(tool: String) -> Result<AgentSessionsPayload, S
 
 顶部 `mod` 引用方式与既有条目一致（文件里已有 `agent::agent_enable_hooks` 这类写法，因此这里写 `agent_sessions::agent_sessions_list` 而不是 `modules::agent_sessions::…`）。
 
-- [ ] **Step 3: 编译 + 静态检查**
+- [x] **Step 3: 编译 + 静态检查**
 
 Run:
 
@@ -982,7 +984,7 @@ cargo test -j 2 --locked agent_sessions
 
 Expected: clippy 无 warning（`-D warnings` 会把 warning 变错误），测试全绿。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
@@ -999,7 +1001,7 @@ git commit -m "feat(agent-sessions): expose agent_sessions_list over ipc"
 - Create: `src/modules/launcher/lib/resumeCommand.ts`
 - Create: `src/modules/launcher/lib/resumeCommand.test.ts`
 
-- [ ] **Step 1: 写类型**
+- [x] **Step 1: 写类型**
 
 `types.ts`：
 
@@ -1021,7 +1023,7 @@ export type AgentSessionsPayload = {
 };
 ```
 
-- [ ] **Step 2: 写失败的测试**
+- [x] **Step 2: 写失败的测试**
 
 `resumeCommand.test.ts`：
 
@@ -1065,7 +1067,7 @@ describe("resumeCommand", () => {
 });
 ```
 
-- [ ] **Step 3: 跑测试确认失败**
+- [x] **Step 3: 跑测试确认失败**
 
 Run:
 
@@ -1076,7 +1078,7 @@ pnpm vitest run src/modules/launcher/lib/resumeCommand.test.ts
 
 Expected: FAIL，`Failed to resolve import "./resumeCommand"`。
 
-- [ ] **Step 4: 实现**
+- [x] **Step 4: 实现**
 
 `resumeCommand.ts`：
 
@@ -1112,7 +1114,7 @@ export function resumeCommand({ tool, id, cwd }: ResumeTarget): string {
 
 - `quoteShellArg` 来自 `src/lib/shellQuote.ts`（既有工具，App.tsx 的 `cd ${quoteShellArg(path)}` 已在用）。
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run:
 
@@ -1123,7 +1125,7 @@ pnpm vitest run src/modules/launcher/lib/resumeCommand.test.ts
 
 Expected: PASS（4 个）。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
@@ -1139,7 +1141,7 @@ git commit -m "feat(launcher): build the resume command for opencode and pi"
 - Create: `src/modules/launcher/lib/relativeTime.ts`
 - Create: `src/modules/launcher/lib/relativeTime.test.ts`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -1174,7 +1176,7 @@ describe("relativeTime", () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run:
 
@@ -1185,7 +1187,7 @@ pnpm vitest run src/modules/launcher/lib/relativeTime.test.ts
 
 Expected: FAIL，无法解析 import。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```ts
 const MINUTE = 60_000;
@@ -1207,7 +1209,7 @@ export function relativeTime(nowMs: number, updatedAtMs: number): string {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run:
 
@@ -1218,7 +1220,7 @@ pnpm vitest run src/modules/launcher/lib/relativeTime.test.ts
 
 Expected: PASS（7 个）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
@@ -1234,7 +1236,7 @@ git commit -m "feat(launcher): add relative time formatting"
 - Create: `src/modules/launcher/lib/sessionTree.ts`
 - Create: `src/modules/launcher/lib/sessionTree.test.ts`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -1283,7 +1285,7 @@ describe("foldSessions", () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run:
 
@@ -1294,7 +1296,7 @@ pnpm vitest run src/modules/launcher/lib/sessionTree.test.ts
 
 Expected: FAIL，无法解析 import。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```ts
 import type { AgentSession } from "./types";
@@ -1346,7 +1348,7 @@ export function foldSessions(sessions: AgentSession[]): SessionRow[] {
 
 - 第二轮 `for (const session of sessions) take(session)` 用来接住环里的会话（`a -> b -> a` 时两者都不在 `roots`）。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run:
 
@@ -1357,7 +1359,7 @@ pnpm vitest run src/modules/launcher/lib/sessionTree.test.ts
 
 Expected: PASS（4 个）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
@@ -1376,7 +1378,7 @@ git commit -m "feat(launcher): fold subagent sessions under their parent"
 - Create: `src/modules/launcher/components/LauncherPanelLazy.tsx`
 - Create: `src/modules/launcher/index.ts`
 
-- [ ] **Step 1: 写 IPC 出口**
+- [x] **Step 1: 写 IPC 出口**
 
 `sessions.ts`：
 
@@ -1389,7 +1391,7 @@ export function listAgentSessions(tool: AgentTool): Promise<AgentSessionsPayload
 }
 ```
 
-- [ ] **Step 2: 写列表组件**
+- [x] **Step 2: 写列表组件**
 
 `SessionList.tsx`：
 
@@ -1498,7 +1500,7 @@ function SessionButton({
 - `nowMs` 由面板算一次并向下传，避免每行各读一次时钟。
 - `formatTime` 也由面板注入，方便后面共用。
 
-- [ ] **Step 3: 写面板外壳**
+- [x] **Step 3: 写面板外壳**
 
 `LauncherPanel.tsx`：
 
@@ -1624,7 +1626,7 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
 - `formatTime` 也由面板注入，方便后面共用。
 - 错误用 `String(failure)` 呈现，这是本仓库既有写法（`src/modules/ai/lib/sessions.ts:167` 等处一致）；`@/lib/utils` 里只有 `cn` 与 `isMarkdownPath`，没有 `formatError`。
 
-- [ ] **Step 4: 写 barrel**
+- [x] **Step 4: 写 barrel**
 
 `index.ts`：
 
@@ -1633,7 +1635,7 @@ export { LauncherPanel } from "./components/LauncherPanel";
 export type { AgentSession, AgentSessionsPayload, AgentTool } from "./lib/types";
 ```
 
-- [ ] **Step 5: 类型检查与 lint**
+- [x] **Step 5: 类型检查与 lint**
 
 Run:
 
@@ -1645,7 +1647,7 @@ pnpm lint
 
 Expected: 均通过。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
@@ -1663,7 +1665,7 @@ git commit -m "feat(launcher): add the session list panel"
 - Modify: `src/modules/sidebar/SidebarRail.tsx:24`
 - Modify: `src/app/App.tsx`
 
-- [ ] **Step 1: 加视图 id**
+- [x] **Step 1: 加视图 id**
 
 `src/modules/sidebar/types.ts`：
 
@@ -1671,7 +1673,7 @@ git commit -m "feat(launcher): add the session list panel"
 export type SidebarViewId = "explorer" | "source-control" | "launcher";
 ```
 
-- [ ] **Step 2: 加轨道按钮**
+- [x] **Step 2: 加轨道按钮**
 
 `src/modules/sidebar/SidebarRail.tsx` 的 import 改成：
 
@@ -1687,7 +1689,7 @@ import { FolderGitTwoIcon, FolderTreeIcon, MessageMultiple01Icon } from "@hugeic
 
 - 中文标签符合「界面中文」的约定。
 
-- [ ] **Step 3: 三路渲染**
+- [x] **Step 3: 三路渲染**
 
 `src/app/App.tsx:1480` 的二元三目改成三路（保留既有两个分支不动，只加 launcher 分支并调整条件）：
 
@@ -1700,7 +1702,7 @@ import { FolderGitTwoIcon, FolderTreeIcon, MessageMultiple01Icon } from "@hugeic
                       ) : sidebarView === "explorer" ? (
 ```
 
-- [ ] **Step 4: 实现 onOpenSession**
+- [x] **Step 4: 实现 onOpenSession**
 
 先在 `App.tsx` 顶部加引用（与既有 `@/modules/...` 导入并列）：
 
@@ -1739,7 +1741,7 @@ import { LauncherPanel, type AgentSession } from "@/modules/launcher";
 
 - `.cwd` 与 `.title` 与 id 一起用，满足 spec §5.1「(tool, session_id, cwd) 不可拆」。
 
-- [ ] **Step 5: 检查**
+- [x] **Step 5: 检查**
 
 Run:
 
@@ -1752,7 +1754,7 @@ pnpm test
 
 Expected: 三项全通过。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
@@ -1767,7 +1769,7 @@ git commit -m "feat(launcher): open a terminal at the session cwd from the sideb
 **Files:**
 - Create: `docs/superpowers/shots/p1-01-sessions.png`
 
-- [ ] **Step 1: 起应用**
+- [x] **Step 1: 起应用**
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
@@ -1776,14 +1778,14 @@ pnpm tauri dev
 
 Expected: 窗口起来，左栏出现「会话」轨道按钮。
 
-- [ ] **Step 2: 截图**
+- [x] **Step 2: 截图**
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/shot-window.ps1 -Out docs/superpowers/shots/p1-01-sessions.png
 ```
 
-- [ ] **Step 3: 逐条核对 spec §6 P1 的验收**
+- [x] **Step 3: 逐条核对 spec §6 P1 的验收**
 
 手工确认下列事项，任何一条不成立都不算通过：
 
@@ -1793,7 +1795,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/shot-window.ps1 
 4. 把 `~/.pi/agent/sessions` 临时改名，点刷新：面板显示明确错误，**不是**空列表；改回后刷新恢复。
 5. `opencode` 库被占用时（可用一个 python 进程持写锁模拟）点刷新：显示明确错误，不是空列表。
 
-- [ ] **Step 4: 提交截图与交接记录**
+- [x] **Step 4: 提交截图与交接记录**
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
@@ -1818,6 +1820,56 @@ git commit -m "docs: add the P1 session list screenshot"
 
 1. **pi 的时间用文件 mtime**，不是首行 timestamp，也不是最后一条消息的时间。mtime 够用且零依赖；若发现偏差明显，再考虑读文件尾部或引入日期库。
 2. **pi 的 `updatedAt` 与排序**：opencode 用 `time_updated`，两者语义不同但都能回答"最近用过的"。
-3. **只读 512 行 / 256 KiB**：一个很晚才被改名的 pi 会话会退回用首条 user 消息作标题。
+3. **前缀窗口 8 MiB / 100,000 行，命中第一个名字即停**：一个在 >8 MiB 处才被命名的会话会退回用首条 user 消息作标题；一个被改名多次的会话显示它较早的名字（本机 ModelHarbor 那条显示 `ModelHarber2` 而非后来的 `ModelHarber`）。原计划的 512 行 / 256 KiB 已被实测推翻，见 §0.5 第 6 条。
 4. **不做置顶/重命名/隐藏**（spec §11.1 的暂定结论：P1 只做打开、复制 resume 命令、复制路径、资源管理器显示）。本计划只做了「打开」，另外三项留到 P1.1，因为它们是纯前端追加，不阻塞核心痛点。
 5. **`opencode --session` 传错 id 会静默新建会话**：本计划靠白名单校验 id 形状 + 始终传 cwd 来降低风险，但没有从根上消除；后续可在打开后校验终端里是否出现新会话 id。
+
+---
+
+## 执行记录（2026-10-17，Task 1 到 11 全部完成）
+
+### 门禁结果
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| Rust 测试 | `cd src-tauri && cargo test -j 2 --lib agent_sessions` | **23 passed** |
+| Rust 静态检查 | `cd src-tauri && cargo clippy --all-targets --locked -j 2 -- -D warnings` | **通过** |
+| 前端 lint | `pnpm lint` | exit 0（0 error；89 warning 全为上游既有，新代码 0 warning） |
+| 类型 | `pnpm check-types` | 通过 |
+| 前端测试 | `pnpm exec vitest run --maxWorkers=2` | 220 文件 / 2048 用例通过，1 skipped |
+
+### 验收结果（逐条对照 spec §6 P1）
+
+| 验收项 | 结果 | 证据 |
+|---|---|---|
+| opencode 列出真实会话 | 8 条顶层（子代理按用户要求隐藏） | `shots/p1-05-state.png` |
+| pi 列出真实会话 | 4 条，标题为 `ModelHarber2` / `daily talk` / `pelican` / `项目分析` | `shots/p1-06-pi-fixed.png` |
+| 点会话在该目录 resume | 标签标题为会话名；终端提示符与面包屑是 `F:\VibeCoding_workspace\PasteLabel`；TUI 恢复出该会话历史 | `shots/p1-02-resume.png`；dev 日志 `pty cwd: F:\VibeCoding_workspace\PasteLabel` |
+| 不静默新建会话 | 点击前后 `session_v2` 都是 18 行；被恢复的会话 `time_updated` 从 10-13 变为当天 21:47 | 见下 |
+| 失败不伪装成空列表 | 3 个单测钉住（库不存在 / 目录不存在 / 无已知表） | `opencode.rs`、`pi.rs` |
+| 会话名进入标签 | 标签 `PasteLabel Go` | `shots/p1-02-resume.png` |
+
+「不新建会话」的核对方式：点击前后各跑一次 `SELECT COUNT(*) FROM session_v2`，都是 18；同时 `SELECT time_updated FROM session_v2 WHERE id='ses_0be16f2c8ffeFnRn5CVN2D7Xay'` 从 2026-10-13 变成 2026-10-17T21:47:24，证明是它被恢复而不是新建。
+
+### 实现过程中发现并修掉的问题（按发现顺序）
+
+1. **一个 pi 测试自身写错**：用例的 JSON 里塞了真实换行，导致该行不是合法 JSON（JSONL 按定义不含裸换行）。实现跳过它是正确的，测试改用 raw string，并补了"含裸换行的行必须被跳过"的守卫用例。
+2. **计划漏项：`useSidebarPanel` 的视图白名单**（`readSidebarView`）→ 不加 `launcher` 会导致切到会话面板后重启回落。已修，并在重启后实测仍是会话面板。
+3. **本机 CRLF 与 biome 冲突**（环境问题）→ 加 `.gitattributes`（`* text=auto eol=lf`）并重新检出，`pnpm lint` 从"对未改过的上游文件也报错"变成 exit 0。
+4. **`dist-budget.test.ts` 硬编码产品 identifier**（被本项目的 identifier 改动打穿）→ 改为从 `src-tauri/tauri.conf.json` 读。
+5. **`compositingBudget.test.ts` 的上游 Windows 路径 bug**（`new URL(...).pathname` 得到 `F:\F:\...`，整个文件 0 用例）→ 改用 `fileURLToPath`。
+6. **`AdaptedGhosttyGpu.test.ts` 并行 flaky**（10 万次更新的 5 秒超时用例；单独跑 68/68 两次全过）→ 文档化 `--maxWorkers=2`。
+7. **clippy 1.99 的两个新 lint**：我的 `sort_by` 改 `sort_by_key`；上游 `workspace.rs:448` 的 `chunks_exact(2)` 改 `as_chunks::<2>()`。
+8. **pi 前缀窗口太小（真正的功能缺陷，靠 GUI 对照期望值才发现）**：256 KiB 窗口漏掉了写在文件深处的 `session_info.name`，4 个 pi 会话里有 2 个显示成原始 prompt。实测名字最晚在 3.98 MiB 处，改为 8 MiB / 100,000 行，并补两个边界用例。
+9. **截图脚本在窗口最小化时静默截出废图**（160x28 的碎条）→ 先 `SW_RESTORE` 再截，并打印提示。
+
+### 用户决策（覆盖 spec）
+
+- **子代理会话不展示**（2026-10-17 用户指示，覆盖 spec §4.1 的"默认折叠"）。实现为 `topLevelSessions`：只在父会话也在列表里时才隐藏；父会话落到查询窗口之外的孤儿仍显示，避免因 `LIMIT 200` 丢会话。底部显示"已隐藏 N 个子代理会话"，以免用户看到数字对不上而困惑。
+- 因不再需要折叠，已删除 `sessionTree.ts` 及其测试（新增 `visibleSessions.ts` 与其测试）。
+
+### 遗留与观察
+
+- 启动时若恢复了带运行中进程的标签，terax 会弹出 "Close Terminal?" 守卫框。这是上游既有行为（`CloseDialogs.tsx`），不是本次改动引入；观察到一次，未深究。
+- GUI 错误态（pi 目录被改名 / opencode 库被占用）没有做破坏性验证，因为那要动用户的真实数据目录；该不变量由 3 个单元测试覆盖。
+- `--session` 传错 id 时 opencode 会静默新建会话这一风险仍未从根上消除（见「已知取舍」第 5 条）。

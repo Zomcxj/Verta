@@ -14,6 +14,8 @@ using System.Runtime.InteropServices;
 public class Win {
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 }
 "@
@@ -36,6 +38,13 @@ if (-not $proc) {
 Write-Host "目标进程 pid=$($proc.Id) path=$($proc.Path)"
 
 $h = $proc.MainWindowHandle
+# A minimized window reports its icon-sized rect, which would silently produce a
+# useless sliver, so restore it first.
+if ([Win]::IsIconic($h)) {
+    Write-Host "窗口处于最小化，先还原"
+    [void][Win]::ShowWindow($h, 9)   # 9 = SW_RESTORE
+    Start-Sleep -Milliseconds 600
+}
 $r = New-Object Win+RECT
 [void][Win]::GetWindowRect($h, [ref]$r)
 $w = $r.R - $r.L

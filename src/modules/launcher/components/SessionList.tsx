@@ -1,5 +1,4 @@
 import { cn } from "@/lib/utils";
-import { foldSessions } from "../lib/sessionTree";
 import type { AgentSession } from "../lib/types";
 
 type Props = {
@@ -10,8 +9,7 @@ type Props = {
 };
 
 export function SessionList({ sessions, activeId, onOpen, formatTime }: Props) {
-  const rows = foldSessions(sessions);
-  if (rows.length === 0) {
+  if (sessions.length === 0) {
     return (
       <div className="px-3 py-6 text-center text-xs text-muted-foreground">
         没有会话记录
@@ -20,28 +18,14 @@ export function SessionList({ sessions, activeId, onOpen, formatTime }: Props) {
   }
   return (
     <div className="flex flex-col gap-0.5 px-1.5 pb-2">
-      {rows.map((row) => (
-        <div key={row.parent.id} className="flex flex-col gap-0.5">
-          <SessionButton
-            session={row.parent}
-            active={row.parent.id === activeId}
-            onOpen={onOpen}
-            formatTime={formatTime}
-          />
-          {row.children.length > 0 ? (
-            <div className="ml-3 flex flex-col gap-0.5 border-l border-border/60 pl-1.5">
-              {row.children.map((child) => (
-                <SessionButton
-                  key={child.id}
-                  session={child}
-                  active={child.id === activeId}
-                  onOpen={onOpen}
-                  formatTime={formatTime}
-                />
-              ))}
-            </div>
-          ) : null}
-        </div>
+      {sessions.map((session) => (
+        <SessionButton
+          key={session.id}
+          session={session}
+          active={session.id === activeId}
+          onOpen={onOpen}
+          formatTime={formatTime}
+        />
       ))}
     </div>
   );
