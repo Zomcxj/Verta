@@ -38,14 +38,22 @@ if (-not $proc) {
 Write-Host "目标进程 pid=$($proc.Id) path=$($proc.Path)"
 
 $h = $proc.MainWindowHandle
-# A minimized window reports its icon-sized rect, which would silently produce a
-# useless sliver, so restore it first.
-if ([Win]::IsIconic($h)) {
-    Write-Host "窗口处于最小化，先还原"
-    [void][Win]::ShowWindow($h, 9)   # 9 = SW_RESTORE
-    Start-Sleep -Milliseconds 600
-}
 $r = New-Object Win+RECT
+# A minimized window reports its icon-sized rect, and a window that is still
+# being created reports a tiny one, which would silently produce a useless
+# sliver, so wait for a usable size before capturing.
+$sizeDeadline = (Get-Date).AddMilliseconds($WaitMs)
+while ((Get-Date) -lt $sizeDeadline) {
+    if ([Win]::IsIconic($h)) {
+        Write-Host "窗口处于最小化，先还原"
+        [void][Win]::ShowWindow($h, 9)   # 9 = SW_RESTORE
+        Start-Sleep -Milliseconds 600
+    }
+    [void][Win]::GetWindowRect($h, [ref]$r)
+    if (($r.R - $r.L) -ge 400 -and ($r.B - $r.T) -ge 300) { break }
+    Start-Sleep -Milliseconds 250
+}
+Start-Sleep -Milliseconds 800   # let the webview paint after it has been sized
 [void][Win]::GetWindowRect($h, [ref]$r)
 $w = $r.R - $r.L
 $hh = $r.B - $r.T

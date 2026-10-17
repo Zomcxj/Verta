@@ -17,6 +17,7 @@
 | C7 | 不对上游代码做全量重排式格式化。`pnpm format:check` 对 20 个**上游**文件的既有偏差不修 | 用户 |
 | C8 | 内存受限：Rust 编译一律 `CARGO_BUILD_JOBS=2`（`-j 2`），前端全量测试一律 `--maxWorkers=2` | 本机实况 |
 | C9 | 截图验收用 `scripts/dev/shot-window.ps1`，必须按可执行文件路径过滤（`-ExeMatch target\debug\terax.exe`），否则会抓到你已装的正式版 terax 窗口 | 本机实况 |
+| C10 | **测试期间绝不删真实会话**。Rust 测试一律用临时目录/临时 sqlite；GUI 验收只做到"确认框出现 + 点取消"；真实删除必须由用户明确指定目标后才做，且只删指定的那一条，删完逐条比对 id 列表证明只少了那一条 | 用户（2026-10-17） |
 
 ## 2. 需求台账
 
@@ -28,7 +29,7 @@
 | R4 | 子代理会话不展示（覆盖设计文档 §4.1 的"默认折叠"） | 已完成 `0e0742a` `bbd242a` | `launcher/lib/visibleSessions.ts` 的 `topLevelSessions` |
 | R5 | 图标有点大 | 已完成 | `agentIcon.tsx` 按光学配重调小 |
 | R6 | 会话底部不要写"隐藏子代理会话" | 已完成 | `LauncherPanel` 底部只留条数与解析失败数 |
-| R7 | 支持删除会话（参考 Coffee-CLI） | Rust 侧已完成 `3d7f1c1` `4a01f63` `2f03fff`；前端与 UI 未做 | `plans/2026-10-17-verta-p1-5-session-management.md` |
+| R7 | 支持删除会话（参考 Coffee-CLI） | **成功路径已真机验证**（用户授权删一条子代理会话，证据见计划 Task 7）；前端与 UI 已完成 | `plans/2026-10-17-verta-p1-5-session-management.md` |
 | R8 | 给一个全部会话的管理界面，包括子代理会话 | 计划已写，未实现 | 同上 Task 5、Task 6 |
 | R9 | 支持多选删除 | 计划已写，未实现 | 同上 Task 5、Task 6 |
 | R10 | 注意要删除数据，不是隐藏会话 | 已按此设计：opencode 走它自带的 delete、pi 删文件与其产物目录、**删除后必须重新扫描复核** | 同上 §1 安全规则 |
@@ -54,7 +55,9 @@
 | opencode 会话表 | 要读 **`session_v2`**，`session` 是迁移前旧表 | 实机查询 |
 | pi 会话文件 | `<root>/<编码cwd>/<ISO>_<uuid>.jsonl` | 实机扫描 |
 | pi 的 fork 位置 | `<root>/<编码cwd>/<stem>/forks/*.jsonl`，**不是** `<root>/<编码cwd>/forks/`。本机因此有 2 条 fork 从来没被列出来过（`6b2b909` 修） | 实机扫描 |
-| pi 会话的产物目录 | 同名目录 `<stem>/` 装 `<运行uuid>/run-0/...` 与该会话的 forks；`subagent-artifacts/` 是共享目录，任何情况都不许删 | 实机扫描 |
+| pi 会话的产物目录 | 同名目录 `<stem>/` 装 `<uuid>/run-0/...` 与该会话的 forks；`subagent-artifacts/` 是共享目录，任何情况都不许删 | 实机扫描 |
+| pi 的子代理运行记录 | `<stem>/<uuid>/run-0/session.jsonl`（本机 16 个）。文件名也叫 session.jsonl，但它们是子代理运行的记录，**刻意不列为会话**：只扫 `<项目>/*.jsonl` 与 `<项目>/<stem>/forks/*.jsonl` 两层 | 实机扫描 + `pi.rs` 的 `session_files` |
+| UI 验收的可靠手段 | 用 WebView2 远程调试口读 DOM 并触发点击（`scripts/dev/webview-eval.mjs` + `scripts/dev/probes/`），比按像素点坐标可靠。启动方式：`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 pnpm tauri dev`。像素点击仍可用，但坐标要从截图逐列扫描取，别目测 | 本机踩到 |
 | pi 标题优先级 | `session_info.name` → 首条 user 消息 → 目录名；名字最晚出现在约 3.98 MB 处，前缀窗口 8 MiB / 100,000 行 | 实机实测 |
 | opencode 删除 | 走 `opencode session delete <id>`（自带"删会话及其子会话"）；未知 id 退出码 1 + `Session not found: <id>` | 实机验证 |
 | opencode 在 Windows 的可执行形态 | PATH 上是 npm 垫片 `opencode.cmd` → `node_modules/@opencode/cli/bin/opencode.exe`；`CreateProcess` 不认 `.cmd`，所以要走 `cmd /C opencode ...` | 实机查证 |

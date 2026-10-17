@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
@@ -127,7 +127,18 @@ fn delete_command(directory: &Path, id: &str) -> Command {
     };
     #[cfg(not(windows))]
     let mut command = Command::new(CLI);
-    command.args(delete_arguments(id)).current_dir(directory);
+    command.args(delete_arguments(id));
+    capture_ready(command, directory)
+}
+
+/// `capture::run` refuses a command whose pipes are not in place, and it fails at
+/// spawn time with "no stdout pipe" rather than anything actionable.
+fn capture_ready(mut command: Command, directory: &Path) -> Command {
+    command
+        .current_dir(directory)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     hide_console(&mut command);
     command
 }
@@ -410,6 +421,34 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(cli_failure(&captured), "Session not found: ses_x");
+    }
+
+    #[test]
+    fn the_command_is_ready_for_the_capture_helper() {
+        // Locks the contract `capture::run` documents: without the pipes it fails
+        // at spawn time with "no stdout pipe", which is how the first real delete
+        // attempt ended.
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "echo", "hi"]);
+            command
+        };
+        #[cfg(not(windows))]
+        let mut command = {
+            let mut command = Command::new("sh");
+            command.args(["-c", "echo hi"]);
+            command
+        };
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut command = capture_ready(command, dir.path());
+        let captured =
+            capture::run(&mut command, Duration::from_secs(10), DELETE_LIMITS).expect("run");
+        assert_eq!(captured.exit_code, Some(0));
+        assert!(
+            String::from_utf8_lossy(&captured.stdout).contains("hi"),
+            "stdout was not captured"
+        );
     }
 
     #[test]

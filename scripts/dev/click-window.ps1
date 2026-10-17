@@ -15,9 +15,11 @@ using System.Runtime.InteropServices;
 public class Click {
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
 }
 "@
@@ -42,8 +44,21 @@ $saved = New-Object Click+POINT
 [void][Click]::GetCursorPos([ref]$saved)
 
 if (-not $NoForeground) {
-    [void][Click]::SetForegroundWindow($h)
-    Start-Sleep -Milliseconds 350
+    # SetForegroundWindow is refused when the calling process does not own the
+    # foreground, and it fails silently; a synthetic ALT press lifts that
+    # restriction, and the result is verified because an unactivated window
+    # swallows the click into "just activating me".
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        if ([Click]::GetForegroundWindow() -eq $h) { break }
+        [Click]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)   # ALT down
+        [Click]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)   # ALT up
+        [void][Click]::SetForegroundWindow($h)
+        Start-Sleep -Milliseconds 300
+    }
+    if ([Click]::GetForegroundWindow() -ne $h) {
+        Write-Warning "窗口未能置前，点击可能被其他窗口接走"
+    }
+    Start-Sleep -Milliseconds 250
 }
 Write-Host "点击客户区 ($X, $Y) -> 屏幕 ($($target.X), $($target.Y))  pid=$($proc.Id)"
 [void][Click]::SetCursorPos($target.X, $target.Y)

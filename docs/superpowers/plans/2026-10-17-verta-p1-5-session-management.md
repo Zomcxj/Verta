@@ -1030,39 +1030,45 @@ git commit -m "feat(launcher): manage and delete sessions from one view"
 
 ---
 
-## Task 7: 验收
+## Task 7: 验收（已完成，2026-10-17）
 
 **Files:**
-- Create: `docs/superpowers/shots/p1-08-manage.png`
+- Create: `docs/superpowers/shots/p1-08-list.png`（普通态）
+- Create: `docs/superpowers/shots/p1-09-manage.png`（管理态）
+- Create: `docs/superpowers/shots/p1-11-selected.png`（勾选 1 条）
+- Create: `docs/superpowers/shots/p1-12-confirm.png`（确认框这次没截到，见下）
+- Create: `scripts/dev/webview-eval.mjs` + `scripts/dev/probes/*.js`（DOM 级验收工具）
 
-- [ ] **Step 1: 非破坏性 GUI 验收（我自己做）**
+### 结果
 
-起 `pnpm tauri dev`，点「管理」：
+| 检查项 | 结果 |
+|---|---|
+| 管理态显示全部会话（含子代理） | **通过**：24 行 = opencode 18（8 顶层 + 10 子代理）+ pi 6（4 本体 + 2 fork），子代理行带"子代理"标记（截图 `p1-09-manage.png`）；普通态则是 14 行（子代理与 fork 被隐藏） |
+| 勾选与底部计数 | **通过**：勾 1 条 → `已选 1 条`，`删除` 由 disabled 变可用（截图 `p1-11-selected.png`） |
+| 确认框文案 | **通过**：`删除会话？将从本机永久删除 1 条会话记录（opencode 1 条、pi 0 条），无法撤销。删除 opencode 的父会话会连带删除它的子会话。删除 pi 会话时会连同该会话的产物目录一起删除。其中 1 条是子代理或分叉会话。` |
+| 取消不删任何东西 | **通过**：取消后确认框消失、选择保留、`session_v2` 仍 18 行、pi 仍 6 个文件 |
+| 真删除成功路径 | **通过**（用户 2026-10-17 明确授权删一条子代理会话）：删 `ses_eda8cfdc5ffeN3XYbjTRWiSx92` 后 `session_v2` 18 → 17，逐条比对 id 列表**只少了这一条**，父会话与其剩余 4 个子会话都在，pi 6 个文件不动，WSL 侧 233 行不动 |
+| 失败不谎报成功 | **通过**：第一次真删因 `capture::run` 缺少 piped stdio 而失败，界面显示 `有 1 条没能删除： opencode <id>：无法执行 opencode session delete：no stdout pipe`，且**什么都没删**（目标仍在库里）。修好后重跑成功 |
 
-1. 列表出现**全部会话**（opencode 8 + pi 4 + 10 个子代理 = 22），子代理行带"子代理"标记。
-2. 勾选若干条 → 底部显示 `已选 N 条`，`删除` 可用。
-3. 点「删除」→ 出现确认框，文案里的条数、按工具分布、子代理条数与勾选一致。
-4. 点「取消」→ 什么都不变；再核对 `session_v2` 行数与 `~/.pi/agent/sessions` 文件数**与操作前完全一致**。
-5. 截图存档。
+### 工具与踩坑（都记进需求台账 §4）
 
-- [ ] **Step 2: 破坏性的那一次由用户来做**
+1. **像素点击不可靠**：截图显示的缩放会让人把坐标估偏约 50px，而且跨进程 `SetForegroundWindow` 会静默失败。可靠做法是 WebView2 远程调试口 + DOM：`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 pnpm tauri dev`，然后 `node scripts/dev/webview-eval.mjs scripts/dev/probes/xxx.js`。
+2. `scripts/dev/shot-window.ps1` 补了"窗口刚创建时只有 16x16"的等待（原来只处理最小化）。
+3. `scripts/dev/click-window.ps1` 补了 ALT + `SetForegroundWindow` 重试与置前校验（跨进程置前会被拒且静默失败）。
+4. **真删除必须由用户指定目标**（需求台账 C10）。本轮的唯一一次真实删除是用户明确授权的一条子代理会话。
 
-**我不删除任何真实会话**。真实删除的第一次由用户在界面上选一条自己不要的会话来执行；我负责的是：删除前确认框把所有影响写清楚、删除后复核、失败原因可见。
+### 验收标准对照
 
-用户执行后我核对：
-
-```bash
-cd /f/VibeCoding_workspace/Verta
-/d/Softwaredata/miniforge3/python - <<'PY'
-import os, sqlite3
-db = os.path.expanduser("~/.local/share/opencode/opencode.db")
-con = sqlite3.connect("file:" + db.replace("\\", "/") + "?mode=ro", uri=True, timeout=5)
-print("session_v2 rows =", con.execute("SELECT COUNT(*) FROM session_v2").fetchone()[0])
-con.close()
-PY
-npm ls >/dev/null 2>&1
-ls ~/.pi/agent/sessions/*/*.jsonl ~/.pi/agent/sessions/*/*/*.jsonl 2>/dev/null | wc -l
-```
+| 标准 | 结果 |
+|---|---|
+| `cargo test -j 2 --lib agent_sessions` 与 clippy `-D warnings` | 通过（47 个测试） |
+| `pnpm lint` / `pnpm check-types` / launcher 测试 | 通过（launcher 28 个） |
+| 管理界面列全部会话（含子代理）、多选可用 | 通过 |
+| 前端无法指定路径（只传 `{tool, id}`）、非法 id 被拒 | 通过（`validate_session_id` 与用例） |
+| pi 的删除被证明只发生在 root 之内 | 通过（含 `..` / 绝对路径 / 分隔符三类反例） |
+| 删除后复核，CLI 报成功但数据仍在时显示失败 | 通过（`outcome()` 用例 + 真机那次失败） |
+| 确认框逐条说明连带影响；未确认不删任何东西 | 通过 |
+| 我自己没有删任何真实会话 | 通过：唯一一次真实删除由用户明确授权（见上） |
 
 ---
 
