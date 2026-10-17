@@ -1,9 +1,12 @@
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
 
 use super::types::{AgentSession, AgentSessionsPayload};
+use crate::modules::proc::capture::{self, Captured, Limits};
+use crate::modules::proc::hide_console;
 
 pub(crate) const TOOL: &str = "opencode";
 
@@ -96,6 +99,100 @@ fn open_read_only(path: &Path) -> Result<Connection, String> {
     conn.busy_timeout(BUSY_TIMEOUT)
         .map_err(|e| format!("设置 opencode 数据库超时失败：{e}"))?;
     Ok(conn)
+}
+
+const CLI: &str = "opencode";
+const DELETE_TIMEOUT: Duration = Duration::from_secs(30);
+const DELETE_LIMITS: Limits = Limits {
+    stdout: 8 * 1024,
+    stderr: 8 * 1024,
+    stop_on_stdout_cap: false,
+};
+
+pub(crate) fn delete_arguments(id: &str) -> Vec<&str> {
+    vec!["session", "delete", id]
+}
+
+/// The CLI is an npm shim: `opencode.cmd` next to a `.exe` under `node_modules`.
+/// `CreateProcess` does not run a `.cmd`, so Windows goes through the shell that
+/// resolves shims. Every argument is a validated session id, so there is nothing
+/// for that shell to reparse; on a machine where the CLI is a real executable
+/// the same line still works.
+fn delete_command(directory: &Path, id: &str) -> Command {
+    #[cfg(windows)]
+    let mut command = {
+        let mut command = Command::new("cmd");
+        command.arg("/C").arg(CLI);
+        command
+    };
+    #[cfg(not(windows))]
+    let mut command = Command::new(CLI);
+    command.args(delete_arguments(id)).current_dir(directory);
+    hide_console(&mut command);
+    command
+}
+
+pub(crate) fn delete(id: &str) -> Result<(), String> {
+    let path = default_db_path().ok_or("找不到用户主目录，无法定位 opencode 数据库")?;
+    delete_at(&path, id)
+}
+
+/// Deletes through opencode's own command so it also removes the session's child
+/// sessions and the rows it owns; the 5.6 GB WAL database is never written here.
+pub(crate) fn delete_at(db: &Path, id: &str) -> Result<(), String> {
+    let directory = session_directory(db, id)?;
+    let mut command = delete_command(Path::new(&directory), id);
+    let captured = capture::run(&mut command, DELETE_TIMEOUT, DELETE_LIMITS)
+        .map_err(|e| format!("无法执行 opencode session delete：{e}"))?;
+    if captured.timed_out {
+        return Err("删除超时：opencode 在 30 秒内没有返回".to_string());
+    }
+    if captured.exit_code != Some(0) {
+        return Err(cli_failure(&captured));
+    }
+    Ok(())
+}
+
+/// Measured: an unknown id exits 1 and prints `Session not found: <id>`, so the
+/// exit code is enough to call it a failure and the text explains it.
+fn cli_failure(captured: &Captured) -> String {
+    let text = if captured.stderr.is_empty() {
+        &captured.stdout
+    } else {
+        &captured.stderr
+    };
+    let text = String::from_utf8_lossy(text).trim().to_string();
+    if text.is_empty() {
+        format!("opencode session delete 退出码 {:?}", captured.exit_code)
+    } else {
+        text
+    }
+}
+
+/// The command resolves a session against the directory it runs in, so that
+/// directory is read from the database rather than accepted from the caller.
+pub(crate) fn session_directory(path: &Path, id: &str) -> Result<String, String> {
+    let table = session_table(path)?;
+    let conn = open_read_only(path)?;
+    conn.query_row(
+        &format!("SELECT directory FROM {table} WHERE id = ?1"),
+        [id],
+        |row| row.get::<_, String>(0),
+    )
+    .map_err(|_| format!("opencode 里找不到会话 {id}"))
+}
+
+pub(crate) fn exists_at(path: &Path, id: &str) -> Result<bool, String> {
+    let table = session_table(path)?;
+    let conn = open_read_only(path)?;
+    let found: i64 = conn
+        .query_row(
+            &format!("SELECT COUNT(*) FROM {table} WHERE id = ?1"),
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("读取 opencode 会话失败：{e}"))?;
+    Ok(found > 0)
 }
 
 pub(crate) fn map_row(
@@ -267,5 +364,65 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let error = list_at(&dir.path().join("nope.db")).expect_err("should fail");
         assert!(error.contains("opencode"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn builds_the_delete_arguments_it_documents() {
+        assert_eq!(delete_arguments("ses_1"), vec!["session", "delete", "ses_1"]);
+    }
+
+    #[test]
+    fn resolves_the_program_the_platform_needs() {
+        let command = delete_command(Path::new("F:/x"), "ses_1");
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        #[cfg(windows)]
+        {
+            // The installed CLI is `opencode.cmd`, which CreateProcess will not run.
+            assert_eq!(command.get_program().to_string_lossy(), "cmd");
+            assert_eq!(args, ["/C", "opencode", "session", "delete", "ses_1"]);
+        }
+        #[cfg(not(windows))]
+        {
+            assert_eq!(command.get_program().to_string_lossy(), "opencode");
+            assert_eq!(args, ["session", "delete", "ses_1"]);
+        }
+        assert_eq!(command.get_current_dir(), Some(Path::new("F:/x")));
+    }
+
+    #[test]
+    fn a_missing_row_is_a_clear_error() {
+        let (_dir, path) = temp_db("session_v2");
+        let error = session_directory(&path, "ses_nope").expect_err("should fail");
+        assert!(error.contains("ses_nope"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn reads_the_directory_and_the_presence_of_a_row() {
+        let (_dir, path) = temp_db("session_v2");
+        insert(&path, "session_v2", "ses_1", None, Some("t"), "F:/x", 1);
+        assert_eq!(session_directory(&path, "ses_1").expect("dir"), "F:/x");
+        assert!(exists_at(&path, "ses_1").expect("exists"));
+        assert!(!exists_at(&path, "ses_2").expect("exists"));
+    }
+
+    #[test]
+    fn a_failed_run_reports_what_the_cli_said() {
+        let captured = Captured {
+            stdout: b"Session not found: ses_x\n".to_vec(),
+            ..Default::default()
+        };
+        assert_eq!(cli_failure(&captured), "Session not found: ses_x");
+    }
+
+    #[test]
+    fn an_empty_failure_output_falls_back_to_the_exit_code() {
+        let captured = Captured {
+            exit_code: Some(2),
+            ..Default::default()
+        };
+        assert!(cli_failure(&captured).contains('2'), "{}", cli_failure(&captured));
     }
 }
