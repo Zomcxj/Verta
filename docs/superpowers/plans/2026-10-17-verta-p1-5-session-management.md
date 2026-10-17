@@ -1019,6 +1019,17 @@ git commit -m "feat(launcher): manage and delete sessions from one view"
 
 ---
 
+## Task 6 实现修订（记录，2026-10-17）
+
+1. **勾选框是视觉 span，不是 Radix `Checkbox`**。`Checkbox` 渲染出来是一个 `<button role="checkbox">`，而会话行本身就是 `<button>`，嵌进去是非法 HTML，点击语义也会打架。行仍然是唯一的交互元素（键盘 Enter/Space 可用），勾选框只显示状态。
+2. **行的 key 用 `sessionKey`（`tool:id`）**，不是裸 `id`：选中集合与 React key 都用同一个身份，避免两个工具撞 id。
+3. **管理态列表用 `sessions`（全部，含子代理），非管理态用 `topLevel`**。搜索在两种态下都生效；`全选`/`清空` 只作用于**当前可见**（含搜索结果）的 key，不会偷偷扩大选择范围到看不见的行。
+4. **`子代理` 标记**：`parentId !== null` 的行显示该标记，pi 的 fork 也算（它同样是子会话），所以确认框里写的是"子代理或分叉会话"。
+5. **确认框的文案与数据在点击时一次性快照**（`PendingDelete { targets, summary, includesActive }`）：`targets` 给 IPC，`summary` 给文案里的条数与按工具分布，`includesActive` 决定是否追加"其中包含当前已在终端打开的会话"。这样弹窗打开后列表即使刷新，弹窗说的仍是用户当时选的东西。
+6. **失败在刷新之后再报**：先 `refresh()` 让列表显示"剩下什么"，再把没删掉的逐条原因写进已有的错误区（一条一行），IPC 异常也走同一个错误区，不静默。
+
+---
+
 ## Task 7: 验收
 
 **Files:**
