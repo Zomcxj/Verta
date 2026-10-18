@@ -444,8 +444,7 @@ export function ThemesSection() {
           </div>
         ) : (
           <p className="text-[11px] text-muted-foreground">
-            Drop an image here or pick one. Stored locally; doesn't affect the
-            default look until set.
+            {t("settings.themes.dropImage")}
           </p>
         )}
       </div>

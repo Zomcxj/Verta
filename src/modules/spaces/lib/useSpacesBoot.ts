@@ -1,6 +1,7 @@
 import { native } from "@/lib/native";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { Tab } from "@/modules/tabs";
+import { defaultSpaceName } from "@/modules/i18n/spaceName";
 import { DEFAULT_SPACE_ID } from "@/modules/tabs/lib/useTabs";
 import { isLeaf, type PaneNode } from "@/modules/terminal/lib/panes";
 import { parseWorkspaceScopeKey, type WorkspaceEnv } from "@/modules/workspace";
@@ -66,7 +67,9 @@ export function useSpacesBoot({
           const root = launchCwd ?? home ?? null;
           const meta: SpaceMeta = {
             id: DEFAULT_SPACE_ID,
-            name: "Default",
+            // Stored as the resolved text: a workspace name is user data the
+            // user can rename, so it must exist as a real value, not a key.
+            name: defaultSpaceName(),
             root,
             env: parseWorkspaceScopeKey(
               usePreferencesStore.getState().defaultWorkspaceEnv,

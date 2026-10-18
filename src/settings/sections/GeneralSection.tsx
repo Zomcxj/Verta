@@ -530,13 +530,16 @@ function LanguageSetting() {
   const pref = usePreferencesStore((s) => s.language);
   return (
     <div className="flex flex-col gap-2">
-      <Label>{t("settings.language")}</Label>
-      <SettingRow title="" description={t("settings.languageHint")}>
+      <Label>{t("settings.language.title")}</Label>
+      <SettingRow
+        title={t("settings.language.title")}
+        description={t("settings.language.description")}
+      >
         <Select
           value={pref ?? "system"}
           onValueChange={(v) => void setLanguage(v as "system" | "zh" | "en")}
         >
-          <SelectTrigger size="sm" className="h-8 w-32 text-[12px]">
+          <SelectTrigger size="sm" className="h-8 w-36 text-[12px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

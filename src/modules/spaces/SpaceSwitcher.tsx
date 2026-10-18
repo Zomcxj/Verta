@@ -1,3 +1,4 @@
+import { spaceDisplayName } from "@/modules/i18n/spaceName";
 import { useT } from "@/modules/i18n";
 import { Kbd } from "@/components/ui/kbd";
 import {
@@ -85,6 +86,7 @@ export function SpaceSwitcher({
   onReorderTab,
   onReorderSpaces,
 }: Props) {
+  const t = useT();
   const spaces = useSpaces((s) => s.spaces);
   const activeId = useSpaces((s) => s.activeId);
   const setActive = useSpaces((s) => s.setActive);
@@ -241,11 +243,11 @@ export function SpaceSwitcher({
       <PopoverTrigger asChild>
         <button
           type="button"
-          title={shortcut ? `Spaces · ${shortcut}` : "Spaces"}
+          title={shortcut ? `${t("spaces.title")} · ${shortcut}` : t("spaces.title")}
           className="flex h-7 shrink-0 items-center gap-2 rounded-md px-2 text-muted-foreground/90 outline-none transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
         >
           <span className="max-w-36 truncate text-xs font-medium">
-            {current.name}
+            {spaceDisplayName(current.name)}
           </span>
           <HugeiconsIcon
             icon={ArrowRight01Icon}
@@ -320,7 +322,7 @@ export function SpaceSwitcher({
             {draggedSpace ? (
               <OverlayChip
                 color={accentFor(draggedSpace)}
-                label={draggedSpace.name}
+                label={spaceDisplayName(draggedSpace.name)}
               />
             ) : draggedTab ? (
               <OverlayChip tab={draggedTab} label={labelFor(draggedTab)} />
@@ -437,14 +439,14 @@ function SpaceRow({
         <SpaceAvatar space={space} size="sm" active={isActive} />
         {editing ? (
           <InlineRename
-            initial={space.name}
+            initial={spaceDisplayName(space.name)}
             onCommit={onCommitRename}
             onCancel={onCancelRename}
             className="ml-0.5"
           />
         ) : (
           <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
-            {space.name}
+            {spaceDisplayName(space.name)}
           </span>
         )}
         {!editing && (
