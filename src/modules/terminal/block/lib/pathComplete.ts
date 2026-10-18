@@ -1,4 +1,4 @@
-import { currentWorkspaceEnv } from "@/modules/workspace";
+import { envForPath } from "@/modules/workspace";
 import {
   type Completion,
   startCompletion,
@@ -43,7 +43,7 @@ export async function pathCompletions(
     entries = await invoke<DirEntry[]>("fs_read_dir", {
       path: dir,
       showHidden: base.startsWith("."),
-      workspace: currentWorkspaceEnv(),
+      workspace: envForPath(dir),
     });
   } catch {
     return null;

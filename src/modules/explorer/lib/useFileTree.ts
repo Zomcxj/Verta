@@ -8,7 +8,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import {
-  currentWorkspaceEnv,
+  envForPath,
   useWorkspaceEnvStore,
   workspaceScopeKey,
 } from "@/modules/workspace";
@@ -202,7 +202,8 @@ export function useFileTree(rootPath: string | null, options?: Options) {
           path,
           showHidden: showHiddenRef.current,
           gitDecorations: gitDecorationsRef.current,
-          workspace,
+          // 环境按路径取：切标签/开终端时环境与根分两步落地，用订阅来的环境会拿 Linux 路径去本机找。
+          workspace: envForPath(path, workspace),
         });
         if (!isCurrent()) return false;
 
@@ -449,7 +450,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
       const cmd =
         pendingCreate.kind === "dir" ? "fs_create_dir" : "fs_create_file";
       try {
-        await invoke(cmd, { path, workspace: currentWorkspaceEnv() });
+        await invoke(cmd, { path, workspace: envForPath(path, workspace) });
         await fetchChildren(pendingCreate.parentPath);
       } catch (e) {
         console.error(`${cmd} failed:`, e);
@@ -482,7 +483,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         await invoke("fs_rename", {
           from: renaming,
           to,
-          workspace,
+          workspace: envForPath(renaming, workspace),
         });
         optionsRef.current?.onPathRenamed?.(renaming, to);
         if (scopeKeyRef.current === scopeKey) await fetchChildren(parent);
@@ -498,7 +499,10 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   const deletePath = useCallback(
     async (path: string) => {
       try {
-        await invoke("fs_delete", { path, workspace });
+        await invoke("fs_delete", {
+          path,
+          workspace: envForPath(path, workspace),
+        });
         optionsRef.current?.onPathsDeleted?.([path]);
         if (scopeKeyRef.current === scopeKey) {
           await fetchChildren(dirname(path));
@@ -518,7 +522,11 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         if (scopeKeyRef.current !== scopeKey) return;
         const { deleted, failed } = await invoke<DeleteBatchResult>(
           "fs_delete_batch",
-          { paths: topLevelPaths, root: rootPath ?? "", workspace },
+          {
+            paths: topLevelPaths,
+            root: rootPath ?? "",
+            workspace: envForPath(rootPath ?? paths[0], workspace),
+          },
         );
         if (deleted.length > 0) {
           optionsRef.current?.onPathsDeleted?.(deleted);
@@ -573,7 +581,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
               to: item.to,
               root: rootPath ?? "",
               expectedConflict,
-              workspace,
+              workspace: envForPath(rootPath ?? item.to, workspace),
             }),
           resolveConflict: (item) => resolveMoveConflict(item.name),
           canReplace: (item) =>

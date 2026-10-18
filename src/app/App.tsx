@@ -232,6 +232,8 @@ export default function App() {
     launchCwd,
     launchCwdResolved,
     adoptWorkspaceEnv,
+    prepareEnv,
+    applyEnv,
   } = useWorkspaceSwitcher({
     tabsRef,
     workspaceEnv,
@@ -562,15 +564,17 @@ export default function App() {
    */
   const openTerminalChoice = useCallback(
     async ({ shell, env }: TerminalChoice) => {
-      // 先切环境、再开标签：反过来的话文件树会拿新 cwd 去旧环境里找。
-      await followTerminalEnv(env);
       const cwd =
         env.kind === "wsl"
           ? await getWslHome(env.distro).catch(() => undefined)
           : await localCwdForNewTab();
+      // 家目录先解析好、授权好，再在同一个提交里换环境 + 开标签：分两次落地的话，中间那一瞬
+      // 文件树会拿旧的根去新的环境里找，用户看到的就是一闪而过的「系统找不到指定路径」。
+      const nextHome = await prepareEnv(env);
+      applyEnv(env, nextHome ?? cwd ?? null);
       newTab(cwd, { shell, workspace: env });
     },
-    [newTab, followTerminalEnv, localCwdForNewTab],
+    [newTab, prepareEnv, applyEnv, localCwdForNewTab],
   );
 
   /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { envForRoot, LOCAL_WORKSPACE, type WorkspaceEnv } from "./env";
+import { envForPath, envForRoot, LOCAL_WORKSPACE, type WorkspaceEnv } from "./env";
 
 const WSL: WorkspaceEnv = { kind: "wsl", distro: "Ubuntu-22.04" };
 
@@ -41,5 +41,22 @@ describe("envForRoot", () => {
     expect(envForRoot(null, WSL)).toEqual(WSL);
     expect(envForRoot(undefined, LOCAL_WORKSPACE)).toEqual(LOCAL_WORKSPACE);
     expect(envForRoot("relative/dir", WSL)).toEqual(WSL);
+  });
+});
+
+describe("envForPath", () => {
+  it("answers from the path, not from whatever the store still says", () => {
+    // 环境与文件树的根分两步落地，中间那一瞬间 store 还是旧环境；
+    // 盘符路径必须仍然按本机处理，否则文件树会拿它去发行版里找。
+    expect(envForPath("C:/Users/x", WSL)).toEqual(LOCAL_WORKSPACE);
+    expect(envForPath("\\\\wsl.localhost\\Ubuntu-22.04\\home\\cxj", LOCAL_WORKSPACE)).toEqual(
+      { kind: "wsl", distro: "Ubuntu-22.04" },
+    );
+  });
+
+  it("falls back to the given environment when the path cannot say", () => {
+    expect(envForPath("/home/cxj", WSL)).toEqual(WSL);
+    expect(envForPath("/home/cxj", LOCAL_WORKSPACE)).toEqual(LOCAL_WORKSPACE);
+    expect(envForPath(null, WSL)).toEqual(WSL);
   });
 });

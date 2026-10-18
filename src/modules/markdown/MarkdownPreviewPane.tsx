@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { currentWorkspaceEnv } from "@/modules/workspace";
+import { envForPath } from "@/modules/workspace";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { MarkdownRender } from "./MarkdownRender";
@@ -30,7 +30,7 @@ export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
     setStatus({ kind: "loading" });
     invoke<ReadResult>("fs_read_file", {
       path,
-      workspace: currentWorkspaceEnv(),
+      workspace: envForPath(path),
     })
       .then((res) => {
         if (cancelled) return;

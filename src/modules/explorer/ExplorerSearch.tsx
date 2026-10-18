@@ -15,7 +15,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
-import { currentWorkspaceEnv } from "@/modules/workspace";
+import { envForPath } from "@/modules/workspace";
 import {
   forwardRef,
   useEffect,
@@ -122,7 +122,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
           limit: 200,
           showHidden,
           requestKey: "explorer-search",
-          workspace: currentWorkspaceEnv(),
+          workspace: envForPath(rootPath),
         });
         if (alive) {
           setResults(res.hits);

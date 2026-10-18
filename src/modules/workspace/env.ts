@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { setLastWslDistro } from "@/modules/settings/store";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 
 export type WorkspaceEnv =
   | { kind: "local" }
@@ -48,6 +49,20 @@ export function envForRoot(
     return lastDistro ? { kind: "wsl", distro: lastDistro } : previous;
   }
   return previous;
+}
+
+/**
+ * 这一次调用该用哪个环境：以**路径本身**为准。
+ *
+ * 环境与路径是分两步落地的（切标签、开终端都要先解析家目录、先授权），中间那一瞬间两边会对不上，
+ * 而文件树、编辑器读的都是绝对路径：按路径取环境，就不会拿 Linux 路径去本机文件系统里找
+ * （用户看到的就是一闪而过的「系统找不到指定路径」）。
+ */
+export function envForPath(
+  path: string | null | undefined,
+  previous: WorkspaceEnv = currentWorkspaceEnv(),
+): WorkspaceEnv {
+  return envForRoot(path, previous, usePreferencesStore.getState().lastWslDistro);
 }
 
 export const useWorkspaceEnvStore = create<State>((set) => ({

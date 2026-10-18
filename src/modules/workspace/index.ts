@@ -1,6 +1,7 @@
 export {
   currentWorkspaceScopeKey,
   currentWorkspaceEnv,
+  envForPath,
   envForRoot,
   getWslHome,
   LOCAL_WORKSPACE,

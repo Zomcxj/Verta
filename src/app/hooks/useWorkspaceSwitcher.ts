@@ -71,6 +71,42 @@ export function useWorkspaceSwitcher({
     }
   }, []);
 
+  /**
+   * 解析并授权某个环境的家目录，但不改任何状态。
+   *
+   * 需要「准备好再一次落地」的调用方（比如开终端）用它：环境与文件树的根分两次落地时，中间那
+   * 一瞬间文件树会拿旧的根去新的环境里找（用户看到的就是一闪而过的「系统找不到指定路径」）。
+   */
+  const prepareEnv = useCallback(
+    async (env: WorkspaceEnv): Promise<string | null> => {
+      let nextHome: string;
+      try {
+        nextHome = await resolveEnvHome(env);
+      } catch {
+        return null;
+      }
+      try {
+        await native.workspaceAuthorize(nextHome, env);
+      } catch {
+        // Non-fatal — git panel will surface "not authorized" if needed.
+      }
+      return nextHome;
+    },
+    [],
+  );
+
+  /** 同步落地环境与家目录；解析与授权交给 prepareEnv。 */
+  const applyEnv = useCallback(
+    (env: WorkspaceEnv, nextHome: string | null) => {
+      setWorkspaceEnv(env.kind === "local" ? LOCAL_WORKSPACE : env);
+      if (nextHome) {
+        setHome(nextHome);
+        setLaunchCwd(nextHome);
+      }
+    },
+    [setWorkspaceEnv],
+  );
+
   const switchWorkspace = useCallback(
     async (env: WorkspaceEnv): Promise<boolean> => {
       if (
@@ -114,17 +150,11 @@ export function useWorkspaceSwitcher({
 
   const adoptWorkspaceEnv = useCallback(
     async (env: WorkspaceEnv): Promise<string | null> => {
-      setWorkspaceEnv(env.kind === "local" ? LOCAL_WORKSPACE : env);
-      let nextHome: string;
-      try {
-        nextHome = await resolveEnvHome(env);
-      } catch {
-        return null;
-      }
-      await authorizeHome(nextHome);
+      const nextHome = await prepareEnv(env);
+      applyEnv(env, nextHome);
       return nextHome;
     },
-    [setWorkspaceEnv, authorizeHome],
+    [prepareEnv, applyEnv],
   );
 
   return {
@@ -133,5 +163,7 @@ export function useWorkspaceSwitcher({
     launchCwdResolved,
     switchWorkspace,
     adoptWorkspaceEnv,
+    prepareEnv,
+    applyEnv,
   };
 }
