@@ -8,6 +8,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useT } from "@/modules/i18n";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -396,6 +397,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   repositoryTarget,
   onFollowRepositoryContext,
 }: Props) {
+  const t = useT();
   const scm = useSourceControlPanel(open, sourceControl, onOpenDiff);
   const refreshAnimationRef = useRef<number | null>(null);
   const [refreshAnimating, setRefreshAnimating] = useState(false);
@@ -761,7 +763,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
               )}
             </IconActionButton>
             <IconActionButton
-              label="Refresh source control"
+              label={t("scm.refresh")}
               disabled={isRefreshing || !!scm.actionBusy}
               onClick={handleRefresh}
               side="bottom"
@@ -803,19 +805,19 @@ export const SourceControlPanel = memo(function SourceControlPanel({
         ) : null}
 
         {panelState === "loading" ? (
-          <PanelCenter title="Loading repository" />
+          <PanelCenter title={t("scm.loading")} />
         ) : null}
 
         {panelState === "no-repo" ? (
           <PanelCenter
-            title="No repository"
+            title={t("scm.noRepo")}
             body="The active workspace is not inside a Git repository."
           />
         ) : null}
 
         {panelState === "error" ? (
           <PanelCenter
-            title="Source control error"
+            title={t("scm.error")}
             body={scm.statusError ?? "Unknown source control error"}
             action={
               <Button size="sm" onClick={() => void scm.refresh()}>
@@ -841,7 +843,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
                   value={scm.commitMessage}
                   onChange={(event) => scm.setCommitMessage(event.target.value)}
                   onKeyDown={handleCommitShortcut}
-                  placeholder="Commit message"
+                  placeholder={t("scm.commitMessage")}
                   rows={3}
                   className={cn(
                     "min-h-[72px] border-border resize-none rounded-lg bg-transparent px-3 pb-7 pt-2.5 text-[12.5px] leading-snug shadow-none placeholder:text-muted-foreground/65 focus-visible:ring-0 focus:border-0",
@@ -937,7 +939,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
                 ref={containerRef}
                 tabIndex={0}
                 role="listbox"
-                aria-label="Changed files"
+                aria-label={t("scm.changedFiles")}
                 aria-activedescendant={
                   focusedRowKey ? `scm-row-${focusedRowKey}` : undefined
                 }
@@ -1122,6 +1124,7 @@ function ListHeader({
 }: RowRendererProps & {
   row: Extract<RowDescriptor, { kind: "list-header" }>;
 }) {
+  const t = useT();
   return (
     <div className="flex h-7 items-center gap-2 px-3">
       <span className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/85">
@@ -1133,7 +1136,7 @@ function ListHeader({
       <label className="ml-auto flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-[10.5px] font-medium text-muted-foreground hover:text-foreground">
         <span>All</span>
         <Checkbox
-          aria-label="Stage all changes"
+          aria-label={t("scm.stageAll")}
           checked={checkboxValue(headerCheckState)}
           disabled={actionBusy !== null}
           onCheckedChange={() => void onToggleAll()}

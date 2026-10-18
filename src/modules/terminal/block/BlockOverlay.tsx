@@ -1,3 +1,4 @@
+import { useT } from "@/modules/i18n";
 import { homeRelativePath } from "@/lib/homeRelativePath";
 import "@/modules/terminal/block/block.css";
 
@@ -230,6 +231,7 @@ function StickyHeader({ block, all, onSearch }: ChromeProps) {
 }
 
 function Toolbar({ block, all, onSearch }: ChromeProps) {
+  const t = useT();
   const duration = block.running
     ? null
     : fmtDuration(block.finishedAt - block.startedAt);
@@ -241,7 +243,7 @@ function Toolbar({ block, all, onSearch }: ChromeProps) {
       {!block.running && block.canRerun && (
         <button
           type="button"
-          title="Run again"
+          title={t("term.runAgain")}
           className="bt-btn"
           disabled={!all.promptReady}
           onClick={() => all.onRunAgain(block.command)}
@@ -255,11 +257,12 @@ function Toolbar({ block, all, onSearch }: ChromeProps) {
 }
 
 function BlockMenu({ block, all, onSearch }: ChromeProps) {
+  const t = useT();
   const output = () => all.readOutput(block.id) ?? "";
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" title="Block actions" className="bt-btn">
+        <button type="button" title={t("term.blockActions")} className="bt-btn">
           <HugeiconsIcon
             icon={MoreHorizontalIcon}
             size={14}
@@ -277,19 +280,19 @@ function BlockMenu({ block, all, onSearch }: ChromeProps) {
       >
         <MenuItem
           icon={Refresh01Icon}
-          label="Run again"
+          label={t("term.runAgain")}
           disabled={block.running || !all.promptReady || !block.canRerun}
           onClick={() => all.onRunAgain(block.command)}
         />
         <MenuItem
           icon={Copy01Icon}
-          label="Copy command"
+          label={t("term.copyCommand")}
           disabled={!block.command}
           onClick={() => copy(block.command, "Command copied")}
         />
         <MenuItem
           icon={ComputerTerminal02Icon}
-          label="Copy output"
+          label={t("term.copyOutput")}
           onClick={() => {
             const o = output();
             if (o) copy(o, "Output copied");
@@ -297,7 +300,7 @@ function BlockMenu({ block, all, onSearch }: ChromeProps) {
         />
         <MenuItem
           icon={Copy01Icon}
-          label="Copy command and output"
+          label={t("term.copyBoth")}
           onClick={() => {
             const text = `$ ${block.command}\n${output()}`;
             copy(text, "Block copied");
@@ -305,7 +308,7 @@ function BlockMenu({ block, all, onSearch }: ChromeProps) {
         />
         <MenuItem
           icon={Search01Icon}
-          label="Find in block"
+          label={t("term.findInBlock")}
           onClick={() => onSearch(block.id)}
         />
       </DropdownMenuContent>
@@ -355,6 +358,7 @@ function SearchBar({
   revealMatch: (m: BlockMatch) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [matches, setMatches] = useState<BlockMatch[]>([]);
   const [idx, setIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -401,7 +405,7 @@ function SearchBar({
       <input
         ref={inputRef}
         className="bt-search-input"
-        placeholder="Find in block"
+        placeholder={t("term.findInBlock")}
         onChange={(e) => run(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
@@ -421,11 +425,11 @@ function SearchBar({
             : "0"}
       </span>
       <SearchBtn
-        title="Previous"
+        title={t("term.previous")}
         icon={ArrowUp01Icon}
         onClick={() => nav(-1)}
       />
-      <SearchBtn title="Next" icon={ArrowDown01Icon} onClick={() => nav(1)} />
+      <SearchBtn title={t("term.next")} icon={ArrowDown01Icon} onClick={() => nav(1)} />
       <SearchBtn title="Close" icon={Cancel01Icon} onClick={onClose} />
     </div>
   );

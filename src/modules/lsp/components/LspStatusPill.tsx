@@ -3,6 +3,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useT } from "@/modules/i18n";
 import { setLspActivation } from "@/modules/settings/store";
 import {
   Cancel01Icon,
@@ -74,13 +75,14 @@ export function LspStatusPill({ filePath }: Props) {
 }
 
 function ErrorPill({ preset, reason }: { preset: LspPreset; reason: string }) {
+  const t = useT();
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
           className={PILL_CLASS}
-          title="Language server stopped"
+          title={t("lsp.stopped")}
         >
           <span className="size-1.5 rounded-full bg-destructive" />
           <span>{preset.name} LSP</span>
@@ -118,12 +120,13 @@ function ErrorPill({ preset, reason }: { preset: LspPreset; reason: string }) {
 }
 
 function DismissButton({ preset }: { preset: LspPreset }) {
+  const t = useT();
   return (
     <button
       type="button"
       className="rounded-full p-0.5 hover:bg-foreground/10"
       onClick={() => void setLspActivation(preset.id, "dismissed")}
-      title="Dismiss (you can re-enable from Settings)"
+      title={t("lsp.dismissHint")}
     >
       <HugeiconsIcon icon={Cancel01Icon} size={9} strokeWidth={2.2} />
     </button>
@@ -131,6 +134,7 @@ function DismissButton({ preset }: { preset: LspPreset }) {
 }
 
 function InstallPill({ preset }: { preset: LspPreset }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const [checking, setChecking] = useState(false);
   const install = preset.install;
@@ -181,7 +185,7 @@ function InstallPill({ preset }: { preset: LspPreset }) {
               type="button"
               className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
               onClick={copy}
-              title="Copy command"
+              title={t("lsp.copyCommand")}
             >
               <HugeiconsIcon
                 icon={copied ? Tick02Icon : Copy01Icon}

@@ -1,3 +1,4 @@
+import { useT } from "@/modules/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { KEY_SEP } from "@/lib/platform";
@@ -44,6 +45,7 @@ type Props = {
 
 export const SearchInline = forwardRef<SearchInlineHandle, Props>(
   function SearchInline({ target, compact }, ref) {
+  const t = useT();
     const [q, setQ] = useState("");
     // In compact mode the field is hidden behind an icon until activated.
     // In normal mode the field is always present.
@@ -182,7 +184,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
                   inputRef.current?.focus();
                 }}
                 className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-label="Clear search"
+                aria-label={t("header.clearSearch")}
               >
                 <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
               </button>

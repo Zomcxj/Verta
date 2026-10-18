@@ -8,6 +8,73 @@ import type { Language } from "./language";
  * Keys are `module.name`, so a missing entry is obvious from the caller.
  */
 const zh = {
+  "term.runAgain": "再次运行",
+  "term.blockActions": "区块操作",
+  "term.copyCommand": "复制命令",
+  "term.copyOutput": "复制输出",
+  "term.copyBoth": "复制命令与输出",
+  "term.findInBlock": "在区块内查找",
+  "term.previous": "上一个",
+  "term.next": "下一个",
+  "term.runInTerminal": "在当前终端运行",
+
+  "palette.title": "命令面板",
+  "palette.description": "运行命令、切换主题，或搜索工作区。",
+  "palette.noThemes": "没有主题",
+  "palette.noWorkspaceRoot": "没有工作区根目录",
+  "palette.typeMore": "至少输入 2 个字符",
+  "palette.openTerminal": "打开终端以运行历史记录",
+  "palette.searchFailed": "搜索失败",
+  "palette.searching": "搜索中…",
+
+  "scm.refresh": "刷新源代码管理",
+  "scm.loading": "正在加载仓库",
+  "scm.noRepo": "没有仓库",
+  "scm.error": "源代码管理出错",
+  "scm.commitMessage": "提交信息",
+  "scm.changedFiles": "已更改的文件",
+  "scm.stageAll": "暂存全部更改",
+
+  "preview.reload": "重新加载",
+  "preview.commonPorts": "常用开发服务器端口",
+  "preview.openBrowser": "在系统浏览器中打开",
+  "preview.cookieWarning": "沙箱预览中基于 Cookie 的登录可能无法使用。",
+  "preview.dismissCookie": "关闭 Cookie 登录提示",
+  "preview.dismiss": "关闭",
+  "preview.title": "预览",
+
+  "explorer.searchFiles": "搜索文件",
+  "explorer.searchPlaceholder": "搜索文件…",
+  "explorer.clearSearch": "清除搜索",
+  "explorer.newFile": "新建文件",
+  "explorer.newFolder": "新建文件夹",
+  "explorer.refresh": "刷新",
+
+  "spaces.rename": "重命名工作区",
+  "spaces.newTab": "新建标签页",
+  "spaces.delete": "删除工作区",
+  "spaces.closeTab": "关闭标签页",
+
+  "tabs.newTab": "新建标签页",
+  "tabs.unsaved": "有未保存的更改",
+  "tabs.close": "关闭标签页",
+  "tabs.rename": "重命名标签页",
+
+  "header.settings": "设置",
+  "header.toggleSidebar": "显示/隐藏侧栏",
+  "header.commandPalette": "命令面板",
+  "header.clearSearch": "清除搜索",
+
+  "common.copyCode": "复制代码",
+  "common.loading": "加载中",
+
+  "lsp.stopped": "语言服务器已停止",
+  "lsp.dismissHint": "关闭（可在设置中重新启用）",
+  "lsp.copyCommand": "复制命令",
+
+  "statusbar.showHidden": "显示隐藏文件夹",
+  "statusbar.workspaceEnv": "工作区环境",
+
   "rail.sessions": "会话",
   "rail.files": "文件",
   "rail.git": "Git",
@@ -199,6 +266,74 @@ const zh = {
 export type MessageKey = keyof typeof zh;
 
 const en: Record<MessageKey, string> = {
+  "term.runAgain": "Run again",
+  "term.blockActions": "Block actions",
+  "term.copyCommand": "Copy command",
+  "term.copyOutput": "Copy output",
+  "term.copyBoth": "Copy command and output",
+  "term.findInBlock": "Find in block",
+  "term.previous": "Previous",
+  "term.next": "Next",
+  "term.runInTerminal": "Run in active terminal",
+
+  "palette.title": "Command Palette",
+  "palette.description": "Run a command, switch theme, or search your workspace.",
+  "palette.noThemes": "No themes",
+  "palette.noWorkspaceRoot": "No workspace root",
+  "palette.typeMore": "Type at least 2 characters",
+  "palette.openTerminal": "Open a terminal to run history",
+  "palette.searchFailed": "Search failed",
+  "palette.searching": "Searching...",
+
+  "scm.refresh": "Refresh source control",
+  "scm.loading": "Loading repository",
+  "scm.noRepo": "No repository",
+  "scm.error": "Source control error",
+  "scm.commitMessage": "Commit message",
+  "scm.changedFiles": "Changed files",
+  "scm.stageAll": "Stage all changes",
+
+  "preview.reload": "Reload",
+  "preview.commonPorts": "Common dev-server ports",
+  "preview.openBrowser": "Open in system browser",
+  "preview.cookieWarning":
+    "Cookie-based sign-in may not work in the sandboxed preview.",
+  "preview.dismissCookie": "Dismiss cookie sign-in notice",
+  "preview.dismiss": "Dismiss",
+  "preview.title": "Preview",
+
+  "explorer.searchFiles": "Search files",
+  "explorer.searchPlaceholder": "Search files...",
+  "explorer.clearSearch": "Clear search",
+  "explorer.newFile": "New file",
+  "explorer.newFolder": "New folder",
+  "explorer.refresh": "Refresh",
+
+  "spaces.rename": "Rename space",
+  "spaces.newTab": "New tab",
+  "spaces.delete": "Delete space",
+  "spaces.closeTab": "Close tab",
+
+  "tabs.newTab": "New tab",
+  "tabs.unsaved": "Unsaved changes",
+  "tabs.close": "Close tab",
+  "tabs.rename": "Rename tab",
+
+  "header.settings": "Settings",
+  "header.toggleSidebar": "Toggle sidebar",
+  "header.commandPalette": "Command palette",
+  "header.clearSearch": "Clear search",
+
+  "common.copyCode": "Copy code",
+  "common.loading": "Loading",
+
+  "lsp.stopped": "Language server stopped",
+  "lsp.dismissHint": "Dismiss (you can re-enable from Settings)",
+  "lsp.copyCommand": "Copy command",
+
+  "statusbar.showHidden": "Show hidden folders",
+  "statusbar.workspaceEnv": "Workspace environment",
+
   "rail.sessions": "Sessions",
   "rail.files": "Files",
   "rail.git": "Git",

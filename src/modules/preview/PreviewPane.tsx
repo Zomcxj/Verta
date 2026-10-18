@@ -5,6 +5,7 @@ import {
   InformationCircleIcon,
   LinkSquare02Icon,
 } from "@hugeicons/core-free-icons";
+import { useT } from "@/modules/i18n";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -38,6 +39,7 @@ const SUSPEND_AFTER_MS = 30_000;
 
 export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
   function PreviewPane({ url, visible, onUrlChange }, ref) {
+  const t = useT();
     // `nonce` is part of the iframe `key`. Bumping it remounts the iframe,
     // which is the only reliable cross-origin reload (calling
     // contentWindow.location.reload() throws on cross-origin frames).
@@ -116,7 +118,7 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
             />
             <span
               className="min-w-0 flex-1 truncate"
-              title="Cookie-based sign-in may not work in the sandboxed preview."
+              title={t("preview.cookieWarning")}
             >
               Cookie-based sign-in may not work in preview.
             </span>
@@ -134,8 +136,8 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
             </button>
             <button
               type="button"
-              aria-label="Dismiss cookie sign-in notice"
-              title="Dismiss"
+              aria-label={t("preview.dismissCookie")}
+              title={t("preview.dismiss")}
               onClick={() => setDismissedCookieOrigin(cookieOrigin)}
               className="flex size-5 shrink-0 items-center justify-center rounded text-sky-700/70 hover:bg-sky-500/15 hover:text-sky-800 dark:text-sky-300/70 dark:hover:text-sky-200"
             >
@@ -155,7 +157,7 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
               <iframe
                 key={`${url}#${nonce}`}
                 src={url}
-                title="Preview"
+                title={t("preview.title")}
                 className="h-full w-full border-0"
                 // sandbox grants the bare minimum for a dev preview: scripts,
                 // same-origin (cookies/storage for the previewed app), forms,

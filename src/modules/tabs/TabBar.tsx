@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useT } from "@/modules/i18n";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import {
@@ -89,6 +90,8 @@ export function TabBar({
   onOverrideLanguage,
   compact,
 }: Props) {
+  // `tr`, not `t`: this component already uses `t` for the tab it renders.
+  const tr = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -458,7 +461,7 @@ export function TabBar({
                     </span>
                     {t.kind === "editor" && t.dirty ? (
                       <span
-                        aria-label="Unsaved changes"
+                        aria-label={tr("tabs.unsaved")}
                         className="size-1.5 shrink-0 rounded-full bg-foreground/70"
                       />
                     ) : null}
@@ -466,7 +469,7 @@ export function TabBar({
                   {tabs.length > 1 && (
                     <span
                       role="button"
-                      aria-label="Close tab"
+                      aria-label={tr("tabs.close")}
                       data-no-drag
                       onPointerDown={(e) => {
                         e.preventDefault();
@@ -680,6 +683,7 @@ function TabRenameInput({
   onCommit: (value: string) => void;
   onCancel: () => void;
 }) {
+  const tr = useT();
   const ref = useRef<HTMLInputElement>(null);
   // Guards against a trailing blur re-resolving an edit that Enter/Escape
   // already finished (Escape must never commit).
@@ -713,7 +717,7 @@ function TabRenameInput({
     <input
       ref={ref}
       defaultValue={initial}
-      aria-label="Rename tab"
+      aria-label={tr("tabs.rename")}
       className={cn(
         "w-28 min-w-0 rounded-sm bg-background px-1 text-xs text-foreground",
         "outline-none ring-1 ring-border focus:ring-ring",

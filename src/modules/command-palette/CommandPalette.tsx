@@ -7,6 +7,7 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
+import { useT } from "@/modules/i18n";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FileIcon } from "@/modules/explorer/FileIcon";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -59,6 +60,7 @@ export function CommandPalette({
   onOpenContentHit,
   insertCommand,
 }: Props) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [value, setValue] = useState("");
   const [page, setPage] = useState<"root" | "themes">("root");
@@ -214,8 +216,8 @@ export function CommandPalette({
     <CommandDialog
       open={open}
       onOpenChange={handleOpenChange}
-      title="Command Palette"
-      description="Run a command, switch theme, or search your workspace."
+      title={t("palette.title")}
+      description={t("palette.description")}
       className="top-1/2 w-[min(680px,calc(100vw-32px))] -translate-y-1/2"
     >
       <Command
@@ -266,7 +268,7 @@ export function CommandPalette({
                     ) : null}
                   </CommandItem>
                 ))}
-                {themes.length === 0 ? <StatusItem label="No themes" /> : null}
+                {themes.length === 0 ? <StatusItem label={t("palette.noThemes")} /> : null}
               </CommandGroup>
             ) : parsed.mode === "commands" ? (
               rankedCommands.length === 0 ? (
@@ -295,9 +297,9 @@ export function CommandPalette({
             ) : parsed.mode === "content" ? (
               <CommandGroup heading="Contents">
                 {!workspaceRoot ? (
-                  <StatusItem label="No workspace root" />
+                  <StatusItem label={t("palette.noWorkspaceRoot")} />
                 ) : parsed.term.length < CONTENT_SEARCH_MIN_QUERY ? (
-                  <StatusItem label="Type at least 2 characters" />
+                  <StatusItem label={t("palette.typeMore")} />
                 ) : (
                   <AsyncBody
                     loading={content.loading}
@@ -331,7 +333,7 @@ export function CommandPalette({
             ) : parsed.mode === "history" ? (
               <CommandGroup heading="Command history">
                 {!insertCommand ? (
-                  <StatusItem label="Open a terminal to run history" />
+                  <StatusItem label={t("palette.openTerminal")} />
                 ) : (
                   <AsyncBody
                     loading={history.loading}
@@ -456,17 +458,18 @@ function AsyncBody({
   onRetry: () => void;
   children: React.ReactNode;
 }) {
+  const t = useT();
   if (error) {
     return (
       <>
-        <StatusItem label="Search failed" tone="error" />
+        <StatusItem label={t("palette.searchFailed")} tone="error" />
         <CommandItem value="retry" onSelect={onRetry} className="text-[12.5px]">
           <span>Retry</span>
         </CommandItem>
       </>
     );
   }
-  if (empty && loading) return <StatusItem label="Searching..." />;
+  if (empty && loading) return <StatusItem label={t("palette.searching")} />;
   if (empty) return <StatusItem label={emptyLabel} />;
   return <>{children}</>;
 }

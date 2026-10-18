@@ -1,3 +1,4 @@
+import { useT } from "@/modules/i18n";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -59,6 +60,7 @@ type Props = {
 
 export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
   function PreviewAddressBar({ url, onSubmit, onReload }, ref) {
+  const t = useT();
     const [draft, setDraft] = useState(url);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -117,7 +119,7 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
           variant="ghost"
           size="icon"
           onClick={onReload}
-          title="Reload"
+          title={t("preview.reload")}
           className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <HugeiconsIcon
@@ -132,7 +134,7 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
               type="button"
               variant="ghost"
               size="sm"
-              title="Common dev-server ports"
+              title={t("preview.commonPorts")}
               className="h-7 shrink-0 gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <HugeiconsIcon
@@ -191,7 +193,7 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
           onClick={() => {
             if (url) void openUrl(url).catch(console.error);
           }}
-          title="Open in system browser"
+          title={t("preview.openBrowser")}
           className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           disabled={!url}
         >

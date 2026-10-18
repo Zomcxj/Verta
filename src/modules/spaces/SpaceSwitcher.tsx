@@ -1,3 +1,4 @@
+import { useT } from "@/modules/i18n";
 import { Kbd } from "@/components/ui/kbd";
 import {
   Popover,
@@ -382,6 +383,7 @@ function SpaceRow({
   onJumpTab,
   onCloseTab,
 }: SpaceRowProps) {
+  const t = useT();
   const isDragging = dragging?.kind === "space" && dragging.id === space.id;
   const moveTarget = drop?.kind === "into-space" && drop.spaceId === space.id;
   const reorderEdge =
@@ -456,14 +458,14 @@ function SpaceRow({
             >
               <RowAction
                 icon={PencilEdit02Icon}
-                label="Rename space"
+                label={t("spaces.rename")}
                 onClick={onStartRename}
               />
-              <RowAction icon={PlusSignIcon} label="New tab" onClick={onNewTab} />
+              <RowAction icon={PlusSignIcon} label={t("spaces.newTab")} onClick={onNewTab} />
               {canDelete && (
                 <RowAction
                   icon={Delete02Icon}
-                  label="Delete space"
+                  label={t("spaces.delete")}
                   destructive
                   onClick={onDelete}
                 />
@@ -522,6 +524,7 @@ function TabRow({
   onJump: () => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const subtitle = subtitleFor(tab);
   const isDragging = dragging?.kind === "tab" && dragging.id === tab.id;
   const reorderEdge =
@@ -569,7 +572,7 @@ function TabRow({
             e.stopPropagation();
             onClose();
           }}
-          aria-label="Close tab"
+          aria-label={t("spaces.closeTab")}
           className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/tab:opacity-70 hover:opacity-100"
         >
           <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />

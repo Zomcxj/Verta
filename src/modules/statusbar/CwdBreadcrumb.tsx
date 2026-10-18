@@ -1,3 +1,4 @@
+import { useT } from "@/modules/i18n";
 import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
@@ -257,6 +258,7 @@ function CollapsedSegments({
   segments: { fullPath: string; label: string; isHome: boolean }[];
   onCd: (p: string) => void;
 }) {
+  const t = useT();
   return (
     <span className="contents md:hidden">
       <BreadcrumbItem>
@@ -264,7 +266,7 @@ function CollapsedSegments({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              title="Show hidden folders"
+              title={t("statusbar.showHidden")}
               className="flex items-center rounded-sm px-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <HugeiconsIcon
