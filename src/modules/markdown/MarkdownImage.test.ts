@@ -5,7 +5,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string) => `asset://${path}`,
 }));
 
-const { resolveImageSrc } = await import("./MarkdownImage");
+const { resolveImageSrc } = await import("./imagePath");
 
 describe("resolveImageSrc", () => {
   const base = "F:\\VibeCoding_workspace\\PasteLabel";
