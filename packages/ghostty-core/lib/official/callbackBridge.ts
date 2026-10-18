@@ -9,6 +9,10 @@ type WritePtyHandler = (bytes: Uint8Array) => void;
 //   (import "terax" "write_pty" (func (param i32 i32 i32 i32)))
 //   (export "write_pty" (func 0)))
 //
+// The import module is named `terax` because that is what libghostty's
+// prebuilt wasm asks for, and the same name is spelled out byte by byte in
+// CALLBACK_MODULE_BYTES below (0x74 0x65 0x72 0x61 0x78). Renaming it would
+// mean rebuilding that wasm, so the name stays.
 // Exporting the typed import turns a JavaScript callback into a WebAssembly
 // function reference. That reference can safely be installed in libghostty's
 // exported indirect function table without relying on WebAssembly.Function.

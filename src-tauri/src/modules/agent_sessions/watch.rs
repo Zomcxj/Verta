@@ -19,7 +19,7 @@ use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watche
 use tauri::{AppHandle, Emitter};
 
 /// Emitted with no payload: the frontend re-reads the list when it hears it.
-pub const CHANGED_EVENT: &str = "terax://agent-sessions-changed";
+pub const CHANGED_EVENT: &str = "verta://agent-sessions-changed";
 
 /// Quiet period before reporting. Long enough to fold one sqlite commit and its
 /// WAL siblings into a single event, short enough to feel immediate.

@@ -2,7 +2,7 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const label = (el) => (el?.textContent ?? "").replace(/\s+/g, " ").trim();
   await sleep(500);
-  const pane = document.querySelector('[class*="terax-pane"]');
+  const pane = document.querySelector('[class*="verta-pane"]');
   const out = [`侧栏 pane 存在: ${!!pane}`];
   // 找含文件名的行（docs 目录是第一层）
   const rows = [...document.querySelectorAll('div[role="treeitem"], [data-explorer-row], li')];

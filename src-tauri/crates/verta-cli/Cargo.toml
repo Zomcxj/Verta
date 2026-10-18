@@ -1,18 +1,18 @@
 [package]
-name = "terax-cli"
+name = "verta-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
 
 [[bin]]
-name = "terax-cli"
+name = "verta-cli"
 path = "src/main.rs"
 
 [dependencies]
 dirs = "7"
 serde_json = "1"
-terax-control-protocol = { path = "../terax-control-protocol" }
+verta-control-protocol = { path = "../verta-control-protocol" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

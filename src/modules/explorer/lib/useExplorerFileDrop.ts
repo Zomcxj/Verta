@@ -101,7 +101,7 @@ export function useExplorerFileDrop({
         else unlisten = fn;
       })
       .catch((err) =>
-        console.error("[terax] explorer drop listen failed:", err),
+        console.error("[verta] explorer drop listen failed:", err),
       );
 
     return () => {

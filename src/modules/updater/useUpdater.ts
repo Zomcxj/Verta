@@ -4,10 +4,13 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useCallback, useEffect, useState } from "react";
 import { IS_LINUX } from "@/lib/platform";
 
-const LAST_CHECK_KEY = "terax:updater:last-check";
+const LAST_CHECK_KEY = "verta:updater:last-check";
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
-const GITHUB_LATEST_RELEASE =
-  "https://api.github.com/repos/crynta/terax-ai/releases/latest";
+/** 你的 GitHub 仓库（`owner/name`）。留空时更新检查直接给出「还没配置」。 */
+const UPDATE_REPO = "";
+const GITHUB_LATEST_RELEASE = UPDATE_REPO
+  ? `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`
+  : "";
 
 export interface ManualUpdateInfo {
   version: string;
@@ -85,6 +88,14 @@ export function useUpdater({ autoCheck = true }: HookOptions = {}) {
   const [status, setStatus] = useState<UpdaterStatus>({ kind: "idle" });
 
   const runCheck = useCallback(async ({ manual }: Options = {}) => {
+    if (!GITHUB_LATEST_RELEASE) {
+      // 发布前这里没有地址：如实说明，而不是去问一个不属于本项目的更新源。
+      setStatus({
+        kind: "error",
+        message: "更新源还没配置：发布时在 useUpdater.ts 里填上自己的仓库",
+      });
+      return;
+    }
     if (!manual) {
       const last = Number(localStorage.getItem(LAST_CHECK_KEY) ?? 0);
       if (Date.now() - last < CHECK_INTERVAL_MS) return;

@@ -97,7 +97,7 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
-    void listen("terax://agent-sessions-changed", () => {
+    void listen("verta://agent-sessions-changed", () => {
       if (!disposed && !pausedRef.current) void refresh({ silent: true });
     })
       .then((stop) => {

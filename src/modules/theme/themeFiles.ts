@@ -5,8 +5,8 @@ import { appConfigDir, join } from "@tauri-apps/api/path";
 import type { Theme } from "./types";
 import { validateTheme, type ValidationResult } from "./validateTheme";
 
-const THEME_FILE_EXT = ".terax-theme";
-const THEME_EDIT_EVENT = "terax://theme-edit";
+const THEME_FILE_EXT = ".verta-theme";
+const THEME_EDIT_EVENT = "verta://theme-edit";
 
 export type ThemeEditRequest =
   | { action: "create" }
@@ -130,13 +130,13 @@ export async function handOffThemeEdit(
   try {
     await emitRequest(req);
   } catch (error) {
-    console.error("[terax] theme edit request failed:", error);
+    console.error("[verta] theme edit request failed:", error);
     return false;
   }
   try {
     await closeWindow();
   } catch (error) {
-    console.error("[terax] could not close settings window:", error);
+    console.error("[verta] could not close settings window:", error);
   }
   return true;
 }

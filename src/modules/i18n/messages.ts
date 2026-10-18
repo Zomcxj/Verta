@@ -301,7 +301,7 @@ const zh = {
   "settings.themes.title": "主题",
   "settings.themes.description": "主题、背景图片与自定义。",
   "settings.themes.create": "新建",
-  "settings.themes.import": "导入 .terax-theme",
+  "settings.themes.import": "导入 .verta-theme",
   "settings.themes.editorTheme.title": "编辑器配色",
   "settings.themes.editorTheme.description": "代码编辑器的语法配色。自动则跟随应用主题。",
   "settings.themes.editorTheme.auto": "自动（跟随应用主题）",
@@ -661,7 +661,7 @@ const en: Record<MessageKey, string> = {
   "settings.themes.title": "Themes",
   "settings.themes.description": "Theme, background image, and customization.",
   "settings.themes.create": "Create",
-  "settings.themes.import": "Import .terax-theme",
+  "settings.themes.import": "Import .verta-theme",
   "settings.themes.editorTheme.title": "Editor colors",
   "settings.themes.editorTheme.description":
     "Syntax colors for the code editor. Auto follows the app theme.",

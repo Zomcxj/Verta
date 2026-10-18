@@ -128,9 +128,9 @@ import { useAppCloseGuard } from "./hooks/useAppCloseGuard";
 import { useTabCloseGuards } from "./hooks/useTabCloseGuards";
 import { useWorkspaceSwitcher } from "./hooks/useWorkspaceSwitcher";
 
-// Real-application benchmark driver (scripts/app-lab). `__TERAX_BENCH__` is the literal `false`
+// Real-application benchmark driver (scripts/app-lab). `__VERTA_BENCH__` is the literal `false`
 // in a normal build, so this is `null` and neither the import nor its chunk is emitted.
-const BenchBridge = __TERAX_BENCH__
+const BenchBridge = __VERTA_BENCH__
   ? lazy(() => import("@/bench/BenchBridge"))
   : null;
 
@@ -533,7 +533,7 @@ export default function App() {
       try {
         command = resumeCommand(session);
       } catch (error) {
-        console.error("[terax] refusing to build a resume command", error);
+        console.error("[verta] refusing to build a resume command", error);
         return;
       }
       const { leafId } = newAgentTab(session.cwd, session.title);
@@ -541,7 +541,7 @@ export default function App() {
       void (async () => {
         await whenSessionReady(leafId);
         if (!writeToSession(leafId, `${command}\r`)) {
-          console.error(`[terax] terminal ${leafId} closed before resume`);
+          console.error(`[verta] terminal ${leafId} closed before resume`);
         }
       })();
     },
@@ -607,7 +607,7 @@ export default function App() {
     let unlisten: (() => void) | undefined;
     let disposed = false;
     (async () => {
-      const off = await listen<string[]>("terax:open-file", (e) => {
+      const off = await listen<string[]>("verta:open-file", (e) => {
         openLaunchFiles(e.payload);
       });
       if (disposed) off();
@@ -1302,10 +1302,10 @@ export default function App() {
                 }}
               >
                 <div className="h-full min-h-0 pl-2 pr-0.5">
-                  <div className="terax-pane flex h-full min-h-0 flex-col">
+                  <div className="verta-pane flex h-full min-h-0 flex-col">
                     <div
                       key={sidebarView}
-                      className="min-h-0 flex-1 terax-panel-in"
+                      className="min-h-0 flex-1 verta-panel-in"
                     >
                       {sidebarView === "launcher" ? (
                         <LauncherPanel
@@ -1358,7 +1358,7 @@ export default function App() {
               <ResizableHandle className="w-1 rounded-full bg-transparent transition-colors duration-[var(--dur-fast)] after:w-4 hover:bg-border" />
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
                 <div className="h-full min-h-0 pl-0.5 pr-2">
-                  <div className="terax-pane flex h-full min-h-0 flex-col">
+                  <div className="verta-pane flex h-full min-h-0 flex-col">
                     <div className="relative min-h-0 flex-1">
                       <WorkspaceSurface
                         tabs={tabs}

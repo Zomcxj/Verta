@@ -1,8 +1,8 @@
 # 在 Verta 窗口的客户区坐标做一次真实点击，用于验收需要交互的界面。
 # 只做一次按下/抬起，并在结束时把光标还原到点击前的位置。
 param(
-    [string]$ProcName = "terax",
-    [string]$ExeMatch = "target\debug\terax.exe",
+    [string]$ProcName = "verta",
+    [string]$ExeMatch = "target\debug\verta.exe",
     [int]$X = 0,
     [int]$Y = 0,
     [int]$SettleMs = 900,

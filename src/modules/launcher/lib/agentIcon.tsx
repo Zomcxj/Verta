@@ -79,7 +79,7 @@ export function AgentIcon({
   if (agent.toLowerCase().includes("opencode")) {
     return <OpenCodeIcon size={size} className={className} />;
   }
-  if (agent.toLowerCase().includes("terax")) {
+  if (agent.toLowerCase().includes("verta")) {
     return (
       <img
         src="/logo.png"

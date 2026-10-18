@@ -11,9 +11,9 @@ import type { SidebarViewId } from "./types";
 const SIDEBAR_DEFAULT_WIDTH = 260;
 export const SIDEBAR_MIN_WIDTH = 220;
 export const SIDEBAR_MAX_WIDTH = 480;
-const SIDEBAR_WIDTH_STORAGE_KEY = "terax.sidebar.width";
-const SIDEBAR_VIEW_STORAGE_KEY = "terax.sidebar.view";
-const SIDEBAR_COLLAPSED_STORAGE_KEY = "terax.sidebar.collapsed";
+const SIDEBAR_WIDTH_STORAGE_KEY = "verta.sidebar.width";
+const SIDEBAR_VIEW_STORAGE_KEY = "verta.sidebar.view";
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "verta.sidebar.collapsed";
 
 export function shouldPersistSidebarWidth(
   width: number,

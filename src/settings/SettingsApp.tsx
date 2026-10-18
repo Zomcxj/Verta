@@ -102,7 +102,7 @@ export function SettingsApp() {
       }
     };
     const unlistenPromise = getCurrentWebviewWindow().listen<string>(
-      "terax:settings-tab",
+      "verta:settings-tab",
       (e) => apply(e.payload),
     );
     return () => {

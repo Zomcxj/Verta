@@ -320,7 +320,7 @@ pub(super) fn spawn_with(
     let spawn_error =
         |what: &str, e: std::io::Error| format!("could not start PTY {what} thread: {e}");
     thread::Builder::new()
-        .name("terax-pty-writer".into())
+        .name("verta-pty-writer".into())
         .stack_size(WRITER_STACK)
         .spawn(move || {
             let mut dump = super::dump::PtyDump::writes(id);
@@ -341,7 +341,7 @@ pub(super) fn spawn_with(
     let dump_id = id;
     let output_r = output.clone();
     let reader_thread = thread::Builder::new()
-        .name("terax-pty-reader".into())
+        .name("verta-pty-reader".into())
         .stack_size(READER_STACK)
         .spawn(move || {
             let mut buf = [0u8; READ_BUF];
@@ -419,7 +419,7 @@ pub(super) fn spawn_with(
     #[cfg(windows)]
     let master_e = session.master.clone();
     thread::Builder::new()
-        .name("terax-pty-waiter".into())
+        .name("verta-pty-waiter".into())
         .stack_size(WAITER_STACK)
         .spawn(move || {
             let code = match child.wait() {

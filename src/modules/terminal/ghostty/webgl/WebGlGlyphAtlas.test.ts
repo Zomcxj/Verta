@@ -1,4 +1,4 @@
-import { CellFlags } from "@terax/ghostty-core/protocol";
+import { CellFlags } from "@verta/ghostty-core/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { hasIntrinsicColor, WebGlGlyphAtlas } from "./WebGlGlyphAtlas";
 

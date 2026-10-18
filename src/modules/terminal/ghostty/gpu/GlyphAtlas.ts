@@ -299,7 +299,7 @@ export class GlyphAtlas {
     this.coverage = coverage;
     try {
       this.placeholder = this.device.createTexture({
-        label: "Terax terminal color glyph placeholder",
+        label: "Verta terminal color glyph placeholder",
         size: [1, 1],
         format: "rgba8unorm",
         usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
@@ -341,7 +341,7 @@ export class GlyphAtlas {
     const sizes = allSizes.filter((size) => size <= limit);
     const size = sizes[0] ?? allSizes[0];
     const texture = this.device.createTexture({
-      label: `Terax terminal glyph ${label} atlas`,
+      label: `Verta terminal glyph ${label} atlas`,
       size: [size, size],
       format,
       usage:
@@ -376,7 +376,7 @@ export class GlyphAtlas {
     const previousSize = plane.allocator.width;
     const size = plane.sizes[plane.step + 1];
     const texture = this.device.createTexture({
-      label: `Terax terminal glyph ${plane.format === "r8unorm" ? "coverage" : "color"} atlas`,
+      label: `Verta terminal glyph ${plane.format === "r8unorm" ? "coverage" : "color"} atlas`,
       size: [size, size],
       format: plane.format,
       usage:
@@ -390,7 +390,7 @@ export class GlyphAtlas {
       // Submitted on its own so it runs after every earlier writeTexture and
       // before any glyph written into the larger texture afterwards.
       const encoder = this.device.createCommandEncoder({
-        label: "Terax terminal glyph atlas growth",
+        label: "Verta terminal glyph atlas growth",
       });
       encoder.copyTextureToTexture({ texture: plane.texture }, { texture }, [
         previousSize,
@@ -417,7 +417,7 @@ export class GlyphAtlas {
 
   private createTable(entries: number): GPUBuffer {
     return this.device.createBuffer({
-      label: "Terax terminal glyph table",
+      label: "Verta terminal glyph table",
       size: entries * GLYPH_ENTRY_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });

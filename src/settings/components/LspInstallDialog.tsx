@@ -67,7 +67,7 @@ export function LspInstallDialog({ server, onClose }: Props) {
         <DialogHeader>
           <DialogTitle>Install {server.name} language server</DialogTitle>
           <DialogDescription>
-            Terax could not find{" "}
+            Verta could not find{" "}
             <code className="font-mono text-foreground">{server.command}</code>{" "}
             on your PATH. Install it, then check again to enable this language
             server.

@@ -4,10 +4,10 @@ export {
   ADAPTED_GHOSTTY_SCALAR_WASM_SHA256,
   supportsWasmSimd,
   ADAPTED_RESTTY_COMMIT,
-  TeraxGhostty,
-  TeraxGhosttyInstance,
-  TeraxGhosttyTerminal,
-} from "./TeraxGhostty";
+  VertaGhostty,
+  VertaGhosttyInstance,
+  VertaGhosttyTerminal,
+} from "./VertaGhostty";
 export {
   GPU_ATTR_BLINK,
   GPU_ATTR_OVERLINE,
@@ -22,24 +22,24 @@ export {
   GPU_GLYPH_ITALIC,
   decodeGpuCell,
 } from "./gpuCells";
-export type { TeraxGhosttyGpuCell } from "./gpuCells";
+export type { VertaGhosttyGpuCell } from "./gpuCells";
 export { GpuGlyphBatch } from "./gpuGlyphs";
 export type {
-  TeraxGhosttyCursor,
-  TeraxGhosttyGpuGlyph,
-  TeraxGhosttyGpuGlyphBatch,
-  TeraxGhosttyGpuRenderState,
-  TeraxGhosttyLine,
-  TeraxGhosttyRenderBase,
-  TeraxGhosttyRenderFormat,
-  TeraxGhosttyInstantiate,
-  TeraxGhosttyLoadOptions,
-  TeraxGhosttyMemoryStats,
-  TeraxGhosttyKeyEvent,
-  TeraxGhosttyRenderState,
-  TeraxGhosttySearchStatus,
-  TeraxGhosttySearchViewportSpan,
-  TeraxGhosttySelection,
-  TeraxGhosttyTerminalOptions,
-  TeraxGhosttyTerminalResourceStats,
+  VertaGhosttyCursor,
+  VertaGhosttyGpuGlyph,
+  VertaGhosttyGpuGlyphBatch,
+  VertaGhosttyGpuRenderState,
+  VertaGhosttyLine,
+  VertaGhosttyRenderBase,
+  VertaGhosttyRenderFormat,
+  VertaGhosttyInstantiate,
+  VertaGhosttyLoadOptions,
+  VertaGhosttyMemoryStats,
+  VertaGhosttyKeyEvent,
+  VertaGhosttyRenderState,
+  VertaGhosttySearchStatus,
+  VertaGhosttySearchViewportSpan,
+  VertaGhosttySelection,
+  VertaGhosttyTerminalOptions,
+  VertaGhosttyTerminalResourceStats,
 } from "./types";

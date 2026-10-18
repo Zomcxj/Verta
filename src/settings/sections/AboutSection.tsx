@@ -9,8 +9,12 @@ import { arch, platform } from "@tauri-apps/plugin-os";
 import { useEffect, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 
-const REPO_URL = "https://github.com/crynta/terax-ai";
-const WEBSITE = "https://terax.app";
+/**
+ * 你的仓库地址与站点。留空时 About 页的「源码 / 网站」行与「报告问题」按钮都不显示，
+ * 发布时把地址填在这里即可。
+ */
+const REPO_URL = "";
+const WEBSITE = "";
 
 const PLATFORM_LABEL: Record<string, string> = {
   macos: "macOS",
@@ -24,7 +28,7 @@ const PLATFORM_LABEL: Record<string, string> = {
 export function AboutSection() {
   const t = useT();
   const [version, setVersion] = useState("");
-  const [name, setName] = useState("Terax");
+  const [name, setName] = useState("Verta");
   const [build, setBuild] = useState("");
   const { status, check, install } = useUpdater({ autoCheck: false });
   const checking = status.kind === "checking";
@@ -92,33 +96,41 @@ export function AboutSection() {
         </dd>
 
         <dt className="text-muted-foreground">Bundle ID</dt>
-        <dd className="font-mono text-[11.5px]">app.crynta.terax</dd>
+        <dd className="font-mono text-[11.5px]">app.verta</dd>
 
         <dt className="text-muted-foreground">License</dt>
         <dd>Apache 2.0</dd>
 
-        <dt className="text-muted-foreground">Source code</dt>
-        <dd>
-          <button
-            type="button"
-            onClick={() => void openUrl(REPO_URL)}
-            className="inline-flex items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:text-foreground hover:underline"
-          >
-            <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
-            crynta/terax-ai
-          </button>
-        </dd>
-        <dt className="text-muted-foreground">Website</dt>
-        <dd>
-          <button
-            type="button"
-            onClick={() => void openUrl(WEBSITE)}
-            className="inline-flex items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:text-foreground hover:underline"
-          >
-            <HugeiconsIcon icon={Globe02Icon} size={12} strokeWidth={1.75} />
-            terax.app
-          </button>
-        </dd>
+        {REPO_URL ? (
+          <>
+            <dt className="text-muted-foreground">Source code</dt>
+            <dd>
+              <button
+                type="button"
+                onClick={() => void openUrl(REPO_URL)}
+                className="inline-flex items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:text-foreground hover:underline"
+              >
+                <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
+                {REPO_URL}
+              </button>
+            </dd>
+          </>
+        ) : null}
+        {WEBSITE ? (
+          <>
+            <dt className="text-muted-foreground">Website</dt>
+            <dd>
+              <button
+                type="button"
+                onClick={() => void openUrl(WEBSITE)}
+                className="inline-flex items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:text-foreground hover:underline"
+              >
+                <HugeiconsIcon icon={Globe02Icon} size={12} strokeWidth={1.75} />
+                {WEBSITE}
+              </button>
+            </dd>
+          </>
+        ) : null}
       </dl>
 
       <div className="flex flex-col gap-1.5">
@@ -130,22 +142,26 @@ export function AboutSection() {
           >
             {checkLabel}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void openUrl(REPO_URL)}
-            className="gap-1.5"
-          >
-            <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
-            {t("settings.about.github")}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void openUrl(`${REPO_URL}/issues/new`)}
-          >
-            {t("settings.about.issue")}
-          </Button>
+          {REPO_URL ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void openUrl(REPO_URL)}
+                className="gap-1.5"
+              >
+                <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
+                {t("settings.about.github")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void openUrl(`${REPO_URL}/issues/new`)}
+              >
+                {t("settings.about.issue")}
+              </Button>
+            </>
+          ) : null}
         </div>
         {status.kind === "error" && (
           <p className="font-mono text-[10.5px] break-all text-destructive/80">

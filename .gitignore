@@ -57,3 +57,5 @@ scripts/dev/ptydump/
 /docs/README.md
 /docs/*.png
 /terax-icon.png
+/verta-icon.png
+/scripts/dev/upstream-drift.sh

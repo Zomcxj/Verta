@@ -1,8 +1,8 @@
 # 按进程名 + 可执行文件路径抓窗口截图，用于逐期验收（PrintWindow，不依赖前台焦点）。
-# 必须按路径过滤：本机同时装着正式版 terax 时，只按进程名会抓到别人的窗口。
+# 必须按路径过滤：本机同时装着正式版 verta 时，只按进程名会抓到别人的窗口。
 param(
-    [string]$ProcName = "terax",
-    [string]$ExeMatch = "target\debug\terax.exe",
+    [string]$ProcName = "verta",
+    [string]$ExeMatch = "target\debug\verta.exe",
     [string]$Out = "docs\superpowers\shots\shot.png",
     [int]$WaitMs = 9000
 )

@@ -23,7 +23,7 @@
   // 再走应用自己的“打开文件”入口
   const before = document.querySelectorAll('[data-testid="editor-tab"]').length;
   let dispatched = false;
-  for (const name of ["__teraxOpenFile", "terax:open-file"]) {
+  for (const name of ["__vertaOpenFile", "verta:open-file"]) {
     const handle = window[name];
     if (typeof handle === "function") {
       try {
@@ -37,9 +37,9 @@
   }
   if (!dispatched) {
     window.dispatchEvent(
-      new CustomEvent("terax:open-file", { detail: IMAGE }),
+      new CustomEvent("verta:open-file", { detail: IMAGE }),
     );
-    lines.push("派发 terax:open-file 事件（可能无人监听）");
+    lines.push("派发 verta:open-file 事件（可能无人监听）");
   }
   await sleep(2500);
 

@@ -4816,78 +4816,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "terax"
-version = "0.9.0"
-dependencies = [
- "block2",
- "bytes",
- "dirs",
- "fsevent-sys",
- "futures-util",
- "getrandom 0.4.3",
- "globset",
- "grep-regex",
- "grep-searcher",
- "gtk",
- "ignore",
- "keyring",
- "libc",
- "log",
- "memchr",
- "notify",
- "nucleo-matcher",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "portable-pty",
- "proptest",
- "reqwest",
- "rusqlite",
- "rustls",
- "serde",
- "serde_json",
- "shared_child",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-log",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tauri-plugin-os",
- "tauri-plugin-process",
- "tauri-plugin-store",
- "tauri-plugin-updater",
- "tauri-plugin-window-state",
- "tempfile",
- "terax-control-protocol",
- "tokio",
- "wasmparser",
- "which",
- "window-vibrancy 0.6.0",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "terax-cli"
-version = "0.9.0"
-dependencies = [
- "dirs",
- "libc",
- "serde_json",
- "tempfile",
- "terax-control-protocol",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "terax-control-protocol"
-version = "0.9.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5381,6 +5309,78 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "verta"
+version = "0.0.1"
+dependencies = [
+ "block2",
+ "bytes",
+ "dirs",
+ "fsevent-sys",
+ "futures-util",
+ "getrandom 0.4.3",
+ "globset",
+ "grep-regex",
+ "grep-searcher",
+ "gtk",
+ "ignore",
+ "keyring",
+ "libc",
+ "log",
+ "memchr",
+ "notify",
+ "nucleo-matcher",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "portable-pty",
+ "proptest",
+ "reqwest",
+ "rusqlite",
+ "rustls",
+ "serde",
+ "serde_json",
+ "shared_child",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-log",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tauri-plugin-os",
+ "tauri-plugin-process",
+ "tauri-plugin-store",
+ "tauri-plugin-updater",
+ "tauri-plugin-window-state",
+ "tempfile",
+ "tokio",
+ "verta-control-protocol",
+ "wasmparser",
+ "which",
+ "window-vibrancy 0.6.0",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "verta-cli"
+version = "0.0.1"
+dependencies = [
+ "dirs",
+ "libc",
+ "serde_json",
+ "tempfile",
+ "verta-control-protocol",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "verta-control-protocol"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "vswhom"
