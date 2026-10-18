@@ -111,6 +111,13 @@ export type GitHistoryTab = TabBase & {
   repoRoot: string;
 };
 
+/** 项目列表标签页。一个空间只开一个，没有 repoRoot 之外的状态。 */
+export type ProjectsTab = TabBase & {
+  id: number;
+  kind: "projects";
+  title: string;
+};
+
 export type GitCommitFileDiffTab = TabBase & {
   id: number;
   kind: "git-commit-file";
@@ -131,6 +138,7 @@ export type Tab =
   | AiDiffTab
   | GitDiffTab
   | GitHistoryTab
+  | ProjectsTab
   | GitCommitFileDiffTab;
 
 export type TabPatch = Partial<{
@@ -518,6 +526,39 @@ export function planCommitHistoryOpen(
   };
 }
 
+/**
+ * 项目列表标签页：一个空间只开一个。清单是全应用共享的，所以不需要按仓库去重，
+ * 但每个空间各开一个更符合「一个空间一套标签」的既有规则。
+ */
+export function planProjectsOpen(
+  tabs: Tab[],
+  spaceId: string,
+  title: string,
+  allocId: () => number,
+): { tabs: Tab[]; targetId: number } {
+  const existing = tabs.find(
+    (tab) => tab.kind === "projects" && tab.spaceId === spaceId,
+  );
+  if (existing) {
+    if (existing.title === title) return { tabs, targetId: existing.id };
+    return {
+      tabs: tabs.map((tab) =>
+        tab.id === existing.id ? { ...existing, title } : tab,
+      ),
+      targetId: existing.id,
+    };
+  }
+
+  const id = allocId();
+  return {
+    tabs: [
+      ...tabs,
+      { id, kind: "projects", spaceId, title } satisfies ProjectsTab,
+    ],
+    targetId: id,
+  };
+}
+
 function coldTerminalTab(
   tabId: number,
   leafId: number,
@@ -629,24 +670,29 @@ export function useTabs(initial?: Partial<TerminalTab>) {
 
   // Appends a cold terminal tab to a space without stealing focus, so the
   // overview can populate a space in place; it spawns when first opened.
-  const newTabInSpace = useCallback((spaceId: string, cwd?: string) => {
-    const tabId = nextIdRef.current++;
-    const leafId = nextIdRef.current++;
-    setTabs((curr) => [
-      ...curr,
-      {
-        id: tabId,
-        kind: "terminal",
-        spaceId,
-        cold: true,
-        title: cwd ? basename(cwd) : "shell",
-        cwd,
-        paneTree: { kind: "leaf", id: leafId, cwd },
-        activeLeafId: leafId,
-      },
-    ]);
-    return tabId;
-  }, []);
+  const newTabInSpace = useCallback(
+    (spaceId: string, cwd?: string, workspace?: WorkspaceEnv) => {
+      const tabId = nextIdRef.current++;
+      const leafId = nextIdRef.current++;
+      setTabs((curr) => [
+        ...curr,
+        {
+          id: tabId,
+          kind: "terminal",
+          spaceId,
+          cold: true,
+          title: cwd ? basename(cwd) : "shell",
+          cwd,
+          // 叶子自己带环境：spawn 用的是它，不必等空间切换的环境落地，
+          // 否则在别处的空间里点开 WSL 项目会先在本机起一个终端。
+          paneTree: { kind: "leaf", id: leafId, cwd, workspace },
+          activeLeafId: leafId,
+        },
+      ]);
+      return tabId;
+    },
+    [],
+  );
 
   // Reassigns a tab to another space. Returns true when the moved tab was active
   // and emptied its source space, so the caller should follow it into the target.
@@ -1090,6 +1136,23 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [],
   );
 
+  /** 打开项目列表标签页；一个空间只开一个。 */
+  const openProjectsTab = useCallback((title: string) => {
+    const curr = tabsRef.current;
+    const plan = planProjectsOpen(
+      curr,
+      activeSpaceIdRef.current,
+      title,
+      () => nextIdRef.current++,
+    );
+    if (plan.tabs !== curr) {
+      tabsRef.current = plan.tabs;
+      setTabs(plan.tabs);
+    }
+    setActiveId(plan.targetId);
+    return plan.targetId;
+  }, []);
+
   const openCommitFileDiffTab = useCallback(
     (input: {
       repoRoot: string;
@@ -1450,6 +1513,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     openAiDiffTab,
     openGitDiffTab,
     openCommitHistoryTab,
+    openProjectsTab,
     openCommitFileDiffTab,
     setAiDiffStatus,
     closeAiDiffTab,

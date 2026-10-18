@@ -13,6 +13,7 @@ import { listen } from "@tauri-apps/api/event";
 import { type MessageKey, useT } from "@/modules/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { relativeTime } from "../lib/relativeTime";
+import { AGENT_TOOLS } from "../lib/tools";
 import {
   type DeletionSummary,
   deletionSummary,
@@ -28,7 +29,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useWorkspaceEnvStore } from "@/modules/workspace";
 import { SessionList } from "./SessionList";
 
-const TOOLS: AgentTool[] = ["opencode", "pi"];
+const TOOLS: AgentTool[] = AGENT_TOOLS;
 
 type PendingDelete = {
   targets: SessionTarget[];

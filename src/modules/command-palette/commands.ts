@@ -6,6 +6,7 @@ import {
   DashboardSquare01Icon,
   FileEditIcon,
   FileSearchIcon,
+  Folder01Icon,
   Globe02Icon,
   IncognitoIcon,
   KeyboardIcon,
@@ -42,6 +43,7 @@ export type CommandPaletteActionContext = {
   openNewPrivate: () => void;
   openNewEditor: () => void;
   openNewPreview: () => void;
+  openProjects: () => void;
   openGitGraph: () => void;
   toggleSourceControl: () => void;
   closeActiveTabOrPane: () => void;
@@ -149,6 +151,14 @@ export function createCommandItems(
       keywords: ["blocks", "warp", "command blocks", "terminal"],
       icon: DashboardSquare01Icon,
       run: ctx.openNewBlock,
+    },
+    {
+      id: "tab.newProjects",
+      title: "cmd.newProjects",
+      group: "cmdGroup.Tabs",
+      keywords: ["projects", "repos", "repositories", "git status", "sessions"],
+      icon: Folder01Icon,
+      run: ctx.openProjects,
     },
     {
       id: "tab.newPrivate",

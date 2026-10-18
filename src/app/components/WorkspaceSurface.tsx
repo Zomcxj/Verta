@@ -1,6 +1,9 @@
 import { cn } from "@/lib/utils";
 import { EditorStack, GitDiffStack } from "@/modules/editor";
 import { GitHistoryStack } from "@/modules/git-history";
+import { ProjectsView } from "@/modules/projects";
+import type { ProjectEntry } from "@/modules/projects";
+import type { AgentSession, AgentTool } from "@/modules/launcher";
 import { MarkdownStack } from "@/modules/markdown";
 import { PreviewStack } from "@/modules/preview";
 import type { Tab } from "@/modules/tabs";
@@ -29,6 +32,10 @@ type Props = {
   onOpenCommitFile: GitHistoryStackProps["onOpenCommitFile"];
   onGitHistorySearchHandle: GitHistoryStackProps["onSearchHandle"];
   onSetMarkdownView: EditorStackProps["onSetMarkdownView"];
+  onOpenProject: (entry: ProjectEntry) => void;
+  onOpenProjectSession: (session: AgentSession) => void;
+  onOpenProjectTerminal: (entry: ProjectEntry) => void;
+  onNewProjectSession: (entry: ProjectEntry, tool: AgentTool) => void;
 };
 
 const LAYER = "absolute inset-0";
@@ -58,6 +65,10 @@ export function WorkspaceSurface({
   onOpenCommitFile,
   onGitHistorySearchHandle,
   onSetMarkdownView,
+  onOpenProject,
+  onOpenProjectSession,
+  onOpenProjectTerminal,
+  onNewProjectSession,
 }: Props) {
   const kind = activeTab?.kind;
   const isTerminalTab = kind === "terminal";
@@ -66,6 +77,7 @@ export function WorkspaceSurface({
   const isMarkdownTab = kind === "markdown";
   const isGitDiffTab = kind === "git-diff" || kind === "git-commit-file";
   const isGitHistoryTab = kind === "git-history";
+  const isProjectsTab = kind === "projects";
 
   return (
     <div className="relative h-full min-h-0">
@@ -139,6 +151,22 @@ export function WorkspaceSurface({
           activeId={activeId}
           onOpenCommitFile={onOpenCommitFile}
           onSearchHandle={onGitHistorySearchHandle}
+        />
+      </div>
+      <div
+        className={cn(
+          LAYER,
+          "px-1 pt-1 pb-2",
+          !isProjectsTab && "invisible pointer-events-none",
+        )}
+        aria-hidden={!isProjectsTab}
+      >
+        <ProjectsView
+          active={isProjectsTab}
+          onOpenSession={onOpenProjectSession}
+          onOpenWorkspace={onOpenProject}
+          onOpenTerminal={onOpenProjectTerminal}
+          onNewSession={onNewProjectSession}
         />
       </div>
     </div>

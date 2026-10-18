@@ -56,6 +56,27 @@ export type GitChangedFile = {
   statusLabel: string;
 };
 
+/** 项目列表：扫描与状态查询的线格式。 */
+export type WireProjectTarget = {
+  path: string;
+  workspace: WorkspaceEnv;
+};
+
+export type WireProjectStatus = {
+  path: string;
+  name: string;
+  workspace: WorkspaceEnv;
+  kind: "repo" | "notRepo" | "missing" | "error";
+  branch: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  detached: boolean;
+  dirty: number;
+  stashed: number;
+  error: string | null;
+};
+
 export type GitStatusSnapshot = {
   repoRoot: string;
   branch: string;
@@ -269,6 +290,15 @@ export const native = {
       cwd,
       workspace: envForPath(cwd),
     }),
+  /** 扫描 root 之下 depth 层以内的 git 仓库（默认 2）。 */
+  projectsScan: (root: string, depth?: number) =>
+    invoke<string[]>("projects_scan", {
+      root,
+      maxDepth: depth ?? null,
+    }),
+  /** 批量取项目状态；每条独立成败，失败原因在该行的 error 里。 */
+  projectsStatus: (items: WireProjectTarget[]) =>
+    invoke<WireProjectStatus[]>("projects_status", { items }),
   gitPanelSnapshot: (cwd: string) =>
     invoke<GitPanelSnapshot>("git_panel_snapshot", {
       cwd,

@@ -3,7 +3,7 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent_sessions, control, fs, git, history, lsp, net, pty, secrets, shell, vibrancy,
+    agent_sessions, control, fs, git, history, lsp, net, projects, pty, secrets, shell, vibrancy,
     workspace,
 };
 use std::path::PathBuf;
@@ -315,6 +315,8 @@ pub fn run() {
             fs::grep::fs_grep_interactive,
             fs::grep::fs_glob,
             git::commands::git_resolve_repo,
+            projects::commands::projects_scan,
+            projects::commands::projects_status,
             git::commands::git_panel_snapshot,
             git::commands::git_status,
             git::commands::git_diff,

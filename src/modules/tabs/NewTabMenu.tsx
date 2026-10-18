@@ -14,6 +14,7 @@ import { IS_WINDOWS, fmtShortcut, MOD_KEY, SHIFT_KEY } from "@/lib/platform";
 import { LOCAL_WORKSPACE, type WorkspaceEnv } from "@/modules/workspace";
 import {
   ComputerTerminal02Icon,
+  Folder01Icon,
   GitBranchIcon,
   Globe02Icon,
   IncognitoIcon,
@@ -45,6 +46,7 @@ type Props = {
   onNewPreview: () => void;
   onNewEditor: () => void;
   onNewGitGraph: () => void;
+  onNewProjects: () => void;
 };
 
 export function NewTabMenu({
@@ -55,6 +57,7 @@ export function NewTabMenu({
   onNewPreview,
   onNewEditor,
   onNewGitGraph,
+  onNewProjects,
 }: Props) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -192,6 +195,10 @@ export function NewTabMenu({
           <DropdownMenuItem onSelect={onNewGitGraph}>
             <HugeiconsIcon icon={GitBranchIcon} size={14} strokeWidth={1.75} />
             <span className="flex-1">{t("tabs.new.gitGraph")}</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onNewProjects}>
+            <HugeiconsIcon icon={Folder01Icon} size={14} strokeWidth={1.75} />
+            <span className="flex-1">{t("tabs.new.projects")}</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

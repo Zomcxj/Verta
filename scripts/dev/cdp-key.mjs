@@ -74,6 +74,18 @@ const count = Number.parseInt(times, 10) || 1;
 if (CLICK) {
   const x = Number(CLICK[1]);
   const y = Number(CLICK[2]);
+  if (rest.includes("--hover")) {
+    // 只移动指针：用来触发 Radix 的悬停浮层，不点下去。
+    await send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x,
+      y,
+      button: "none",
+    });
+    socket.close();
+    console.log(`已移动到 ${x},${y}（悬停）`);
+    process.exit(0);
+  }
   await send("Input.dispatchMouseEvent", {
     type: "mousePressed",
     x,

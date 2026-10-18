@@ -35,6 +35,14 @@ import {
 import { setLspNavigator } from "@/modules/lsp";
 import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
+import { useT } from "@/modules/i18n";
+import {
+  basename as projectBasename,
+  samePath as sameProjectPath,
+  type ProjectEntry,
+} from "@/modules/projects";
+import { newSessionCommand } from "@/modules/launcher/lib/resumeCommand";
+import type { AgentTool } from "@/modules/launcher";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setShowHidden } from "@/modules/settings/store";
 import {
@@ -168,6 +176,7 @@ export default function App() {
     setOverrideLanguage,
     openGitDiffTab,
     openCommitHistoryTab,
+    openProjectsTab,
     openCommitFileDiffTab,
     closeTab,
     closeTabs,
@@ -243,6 +252,7 @@ export default function App() {
   });
 
   const activeSpaceId = useSpaces((s) => s.activeId);
+  const t = useT();
   const spacesHydrated = useSpaces((s) => s.hydrated);
   const activeSpaceIdRef = useRef(activeSpaceId);
   useLayoutEffect(() => {
@@ -590,6 +600,11 @@ export default function App() {
     });
   }, [openTerminalChoice]);
 
+  /** 项目列表标签页（中间区域，一个空间一个）。 */
+  const openProjects = useCallback(() => {
+    openProjectsTab(t("tabs.new.projects"));
+  }, [openProjectsTab, t]);
+
   const openNewPrivateTab = useCallback(() => {
     newPrivateTab(inheritedCwdForNewTab());
   }, [newPrivateTab, inheritedCwdForNewTab]);
@@ -622,6 +637,58 @@ export default function App() {
       })();
     },
     [newAgentTab],
+  );
+
+  const handleNewProjectSession = useCallback(
+    (entry: ProjectEntry, tool: AgentTool) => {
+      const distro = entry.workspace.kind === "wsl" ? entry.workspace.distro : null;
+      const command = newSessionCommand(tool, distro);
+      const { leafId } = newAgentTab(
+        entry.path,
+        projectBasename(entry.path),
+        entry.workspace,
+      );
+      void (async () => {
+        await whenSessionReady(leafId);
+        if (!writeToSession(leafId, `${command}\r`)) {
+          console.error(`[verta] terminal ${leafId} closed before starting ${tool}`);
+        }
+      })();
+    },
+    [newAgentTab],
+  );
+
+  /** 项目行里的「在终端中打开」：只是在该目录开一个普通终端标签。 */
+  const handleOpenProjectTerminal = useCallback(
+    (entry: ProjectEntry) => {
+      newTab(entry.path, { workspace: entry.workspace });
+    },
+    [newTab],
+  );
+
+  /**
+   * 单击项目行：切到以该项目为根的空间；没有就新建一个，并在该目录开一个终端标签，
+   * 免得进去看到空白空间。
+   */
+  const handleOpenProject = useCallback(
+    (entry: ProjectEntry) => {
+      const { spaces, create, setActive } = useSpaces.getState();
+      const existing = spaces.find(
+        (space) => space.root !== null && sameProjectPath(space.root, entry.path),
+      );
+      if (existing) {
+        setActive(existing.id);
+        return;
+      }
+      const meta = create({
+        name: projectBasename(entry.path),
+        root: entry.path,
+        env: entry.workspace,
+      });
+      setActive(meta.id);
+      newTabInSpace(meta.id, entry.path, entry.workspace);
+    },
+    [newTabInSpace],
   );
 
   /** The markdown preview draws a "Run" button on fenced commands; it sends to
@@ -1193,6 +1260,7 @@ export default function App() {
             openNewPrivate: openNewPrivateTab,
             openNewEditor: () => setNewEditorOpen(true),
             openNewPreview: () => openPreviewTab(""),
+            openProjects,
             openGitGraph: openGitGraphFromContext,
             toggleSourceControl,
             closeActiveTabOrPane: handleCloseTabOrPane,
@@ -1337,6 +1405,7 @@ export default function App() {
               onNewPreview={() => openPreviewTab("")}
               onNewEditor={() => setNewEditorOpen(true)}
               onNewGitGraph={openGitGraphFromContext}
+              onNewProjects={openProjects}
               onClose={handleClose}
               onCloseTabsToRight={handleCloseTabsToRight}
               onCloseOtherTabs={handleCloseOtherTabs}
@@ -1454,6 +1523,10 @@ export default function App() {
                         onOpenCommitFile={openCommitFileDiffTab}
                         onGitHistorySearchHandle={setGitHistoryHandle}
                         onSetMarkdownView={setMarkdownView}
+                        onOpenProject={handleOpenProject}
+                        onOpenProjectSession={handleOpenSession}
+                        onOpenProjectTerminal={handleOpenProjectTerminal}
+                        onNewProjectSession={handleNewProjectSession}
                       />
                     </div>
 

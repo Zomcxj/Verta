@@ -22,6 +22,20 @@ const WSL_OPENCODE =
   'env PATH="$HOME/.opencode/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH" opencode';
 
 /**
+ * 新建会话用的命令：只启动 agent 本身，不带 `--session`。
+ *
+ * 发行版里的 opencode 往往是 Windows 那个 exe（interop），它按自身所在的文件系统解析主目录，
+ * 于是会读写另一个库，所以新建会话也要像 resume 一样把发行版内的安装放到 PATH 前面。
+ */
+export function newSessionCommand(
+  tool: AgentTool,
+  distro?: string | null,
+): string {
+  if (tool === "opencode") return distro ? WSL_OPENCODE : "opencode";
+  return "pi";
+}
+
+/**
  * 会话 id 会被直接拼进命令行，所以先按白名单校验；任何不合规的字符都拒绝执行，
  * 而不是转义后放行。
  */

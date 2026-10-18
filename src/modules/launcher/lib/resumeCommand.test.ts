@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resumeCommand } from "./resumeCommand";
+import { newSessionCommand, resumeCommand } from "./resumeCommand";
 
 describe("resumeCommand (opencode)", () => {
   it("passes the id and the directory", () => {
@@ -91,5 +91,18 @@ describe("resumeCommand (WSL)", () => {
       distro: "Ubuntu-22.04",
     });
     expect(command).toMatch(/^env PATH="\$HOME\/\.opencode\/bin:.*opencode --session ses_1 /);
+  });
+});
+
+describe("newSessionCommand", () => {
+  it("starts the agent without a session id", () => {
+    expect(newSessionCommand("opencode")).toBe("opencode");
+    expect(newSessionCommand("pi")).toBe("pi");
+    expect(newSessionCommand("opencode")).not.toContain("--session");
+  });
+
+  it("puts the distro's own installs ahead of PATH there too", () => {
+    const command = newSessionCommand("opencode", "Ubuntu-22.04");
+    expect(command).toMatch(/^env PATH="\$HOME\/\.opencode\/bin:.*opencode$/);
   });
 });

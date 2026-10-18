@@ -160,6 +160,17 @@ fn status_inner(repo_root: &ResolvedGitDirectory) -> Result<GitStatusSnapshot> {
     })
 }
 
+/// 储藏条数。`git stash list` 的每一行是一条储藏，数行数即可。
+pub fn stash_count(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<u32> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    let lines = git_stdout_lines(&repo_root.workspace, &repo_root.git_path, ["stash", "list"])?;
+    Ok(lines.len() as u32)
+}
+
 /// Files git reports as untracked (and not ignored) under `dir`, or `None` when
 /// there are more than `budget` or the listing fails. The walk is abandoned as
 /// soon as the output exceeds what `budget` entries could need.

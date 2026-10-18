@@ -317,7 +317,7 @@ fn compute_appimage_env_overrides(
     out
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum WorkspaceEnv {
     #[default]

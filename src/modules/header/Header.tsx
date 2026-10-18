@@ -35,6 +35,7 @@ type Props = {
   onNewPreview: () => void;
   onNewEditor: () => void;
   onNewGitGraph: () => void;
+  onNewProjects: () => void;
   onClose: (id: number) => void;
   /** Chrome-style: close every tab to the right of the given tab. */
   onCloseTabsToRight: (id: number) => void;
@@ -68,6 +69,7 @@ export function Header({
   onNewPreview,
   onNewEditor,
   onNewGitGraph,
+  onNewProjects,
   onClose,
   onCloseTabsToRight,
   onCloseOtherTabs,
@@ -170,6 +172,7 @@ export function Header({
           onNewPreview={onNewPreview}
           onNewEditor={onNewEditor}
           onNewGitGraph={onNewGitGraph}
+          onNewProjects={onNewProjects}
           onClose={onClose}
           onCloseTabsToRight={onCloseTabsToRight}
           onCloseOtherTabs={onCloseOtherTabs}

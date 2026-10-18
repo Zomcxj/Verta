@@ -12,6 +12,7 @@ pub mod lsp;
 pub mod net;
 pub mod proc;
 pub mod pty;
+pub mod projects;
 pub mod runtime;
 pub mod secrets;
 pub mod shell;
