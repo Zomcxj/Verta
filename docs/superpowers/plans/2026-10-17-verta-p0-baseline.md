@@ -337,7 +337,7 @@ Expected: 列出 `pwsh.exe` / `powershell.exe` / `cmd.exe`（或 conhost 派生�
 
 - [x] **Step 5: 留存截图**
 
-P0 验收证据提交进仓库：`docs/superpowers/shots/p0-01-window.png`（≤ 数百 KB 的 PNG，可接受）。
+P0 验收截图留在本机 `docs/superpowers/shots/`（该目录不进版本库）。
 
 ---
 
@@ -375,7 +375,7 @@ Expected: 提交成功；`git status --porcelain` 无输出。
 2. `git log --oneline` 中基线提交存在，且 `git status --porcelain` 干净
 3. `pnpm install --frozen-lockfile` 成功且 `pnpm-lock.yaml` 未被改动
 4. `cargo build -j 2` 成功，`src-tauri/target/debug/terax.exe` 存在
-5. `pnpm tauri dev` 起得来，截图 `docs/superpowers/shots/p0-01-window.png` 显示正常界面
+5. `pnpm tauri dev` 起得来，界面显示正常（截图在本机 `docs/superpowers/shots/`，不进版本库）
 6. 终端标签能开出真实 shell 子进程
 
 ---

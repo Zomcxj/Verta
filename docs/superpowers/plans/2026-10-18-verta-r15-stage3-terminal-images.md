@@ -10,7 +10,7 @@ agent（opencode）在终端里跑的时候，会话上下文里的图片要**�
 1. **我们的终端从未应答 `CSI 14 t`**（询问文本区像素尺寸）。
    opencode 启动时会问一次（`pty-1.bin` 偏移 860 处），拿不到就静默放弃图片。
 2. **应答之后 opencode 会画图片**，但它只会画**色块马赛克**（`█` `▄` `▛` 配 24 位背景色）。
-   现场截图 `docs/superpowers/shots/r15-stage3-after.png` 两张图都画出来了。
+   现场截图（本机存于 `docs/superpowers/shots/r15-stage3-after.png`）两张图都画出来了。
 3. **opencode 的位图通道在我们这里走不通**。以下组合全部得到 0 字节位图数据
    （既无 DCS `ESC P`、也无 APC `ESC _`、也无 base64 PNG）：
    - 伪造终端身份：kitty / WezTerm / ghostty / Windows Terminal（含 `WT_SESSION`）

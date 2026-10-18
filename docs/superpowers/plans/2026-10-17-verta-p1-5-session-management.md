@@ -1033,10 +1033,7 @@ git commit -m "feat(launcher): manage and delete sessions from one view"
 ## Task 7: 验收（已完成，2026-10-17）
 
 **Files:**
-- Create: `docs/superpowers/shots/p1-08-list.png`（普通态）
-- Create: `docs/superpowers/shots/p1-09-manage.png`（管理态）
-- Create: `docs/superpowers/shots/p1-11-selected.png`（勾选 1 条）
-- Create: `docs/superpowers/shots/p1-12-confirm.png`（确认框这次没截到，见下）
+- 截图存本机 `docs/superpowers/shots/`（该目录不进版本库）：普通态、管理态、勾选 1 条；确认框这次没截到，见下
 - Create: `scripts/dev/webview-eval.mjs` + `scripts/dev/probes/*.js`（DOM 级验收工具）
 
 ### 结果

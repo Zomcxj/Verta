@@ -1767,7 +1767,7 @@ git commit -m "feat(launcher): open a terminal at the session cwd from the sideb
 ## Task 11: 端到端验收
 
 **Files:**
-- Create: `docs/superpowers/shots/p1-01-sessions.png`
+- 截图存本机 `docs/superpowers/shots/`（该目录不进版本库）
 
 - [x] **Step 1: 起应用**
 
@@ -1799,8 +1799,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/shot-window.ps1 
 
 ```bash
 cd /f/VibeCoding_workspace/Verta
-git add docs/superpowers/shots/p1-01-sessions.png
-git commit -m "docs: add the P1 session list screenshot"
+截图只留本机：`docs/superpowers/shots/` 已在 `.gitignore` 里，不再提交。
 ```
 
 ---
@@ -1812,7 +1811,7 @@ git commit -m "docs: add the P1 session list screenshot"
 3. opencode 与 pi 两个页签都能列出真实会话，且列表里的数据与直接查库/读文件一致
 4. 点会话能在正确目录 resume（opencode 不新建会话，pi 用 id 恢复）
 5. 三类失败（库打不开、目录不存在、单行解析失败）都在界面上可见，没有一处静默变成空列表
-6. 截图存档在 `docs/superpowers/shots/`
+6. 截图存档在本机 `docs/superpowers/shots/`（该目录不进版本库）
 
 ---
 
@@ -1842,12 +1841,12 @@ git commit -m "docs: add the P1 session list screenshot"
 
 | 验收项 | 结果 | 证据 |
 |---|---|---|
-| opencode 列出真实会话 | 8 条顶层（子代理按用户要求隐藏） | `shots/p1-05-state.png` |
-| pi 列出真实会话 | 4 条，标题为 `ModelHarber2` / `daily talk` / `pelican` / `项目分析` | `shots/p1-06-pi-fixed.png` |
-| 点会话在该目录 resume | 标签标题为会话名；终端提示符与面包屑是 `F:\VibeCoding_workspace\PasteLabel`；TUI 恢复出该会话历史 | `shots/p1-02-resume.png`；dev 日志 `pty cwd: F:\VibeCoding_workspace\PasteLabel` |
+| opencode 列出真实会话 | 8 条顶层（子代理按用户要求隐藏） | 本机截图 `p1-05-state.png` |
+| pi 列出真实会话 | 4 条，标题为 `ModelHarber2` / `daily talk` / `pelican` / `项目分析` | 本机截图 `p1-06-pi-fixed.png` |
+| 点会话在该目录 resume | 标签标题为会话名；终端提示符与面包屑是 `F:\VibeCoding_workspace\PasteLabel`；TUI 恢复出该会话历史 | 本机截图 `p1-02-resume.png`；dev 日志 `pty cwd: F:\VibeCoding_workspace\PasteLabel` |
 | 不静默新建会话 | 点击前后 `session_v2` 都是 18 行；被恢复的会话 `time_updated` 从 10-13 变为当天 21:47 | 见下 |
 | 失败不伪装成空列表 | 3 个单测钉住（库不存在 / 目录不存在 / 无已知表） | `opencode.rs`、`pi.rs` |
-| 会话名进入标签 | 标签 `PasteLabel Go` | `shots/p1-02-resume.png` |
+| 会话名进入标签 | 标签 `PasteLabel Go` | 本机截图 `p1-02-resume.png` |
 
 「不新建会话」的核对方式：点击前后各跑一次 `SELECT COUNT(*) FROM session_v2`，都是 18；同时 `SELECT time_updated FROM session_v2 WHERE id='ses_0be16f2c8ffeFnRn5CVN2D7Xay'` 从 2026-10-13 变成 2026-10-17T21:47:24，证明是它被恢复而不是新建。
 

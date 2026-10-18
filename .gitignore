@@ -38,3 +38,6 @@ __pycache__/
 
 # 终端原始字节抓包（dev 用，见 src-tauri/src/modules/pty/dump.rs）
 scripts/dev/ptydump/
+
+# 本机验收截图（不进版本库，见 docs/superpowers/plans 各计划的说明）
+docs/superpowers/shots/
