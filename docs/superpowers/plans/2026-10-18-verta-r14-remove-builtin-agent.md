@@ -37,6 +37,12 @@
    - **测试里的 `vi.mock("../lib/native", ...)`**（`edit` / `search` / `shell` 三个测试）。这条最隐蔽：类型检查完全通过，但 mock 接不上真实模块，测试会跑真实实现并失败（本机 10 个用例失败）。统一改成 `vi.mock("@/lib/native", ...)`
 2. **搬 `agentIcon.tsx` → `launcher/lib/`**，改 1 个使用点（`SessionList`），跑测试。
 3. **搬 `markdown-code.tsx` → `src/components/`**，改 `MarkdownPreviewPane` 的 import，跑测试。
+
+   **这一步比计划想的深，实际做了四件事**：
+   - `markdown-code.tsx` 依赖 `./chat-code`，`chat-code.tsx` 依赖 `./chat-code-lezer` 与 `./shimmer`，所以这三个一起搬到 `src/components/`（`markdown-code`、`chat-code`、`chat-code-lezer`、`shimmer`）。
+   - `chat-code.tsx` 里的"Run in active terminal"按钮原来直接读 `useChatStore.getState().live.injectIntoActivePty`。改成 **`RunCommandProvider` 注入回调**：没有提供回调时按钮直接不渲染，避免出现"点了没反应"的假按钮。`App.tsx` 用 `activeLeafId` + `writeToSession` 提供实现。
+   - **启动体积预算被打破**：把 `RunCommandProvider` 挂到 `App` 根上后，`chat-code-lezer` 的**同步** `import { StringStream } from "@codemirror/language"` 与 `@lezer/highlight` 被拉进了启动图，`eager-budget` 报 `"@codemirror <- src/components/chat-code-lezer.ts"`。修法是把这三个值改成**首次使用时动态 import**（与 `explorer/lib/iconResolver.ts` 的既有做法一致），只留 `import type`。
+   - 教训：**把任何渲染组件挂到 `App` 根上，都会把它整条依赖链带进启动包**。挂 Provider 之前先看它是否间接依赖 CodeMirror / iconify 这类重包。
 4. **摘 Rust**：删 `ai_sessions.rs`、`agent.rs`，去掉 `mod`、`manage`、命令注册、`emit_conout_marker` 调用；`cargo clippy -D warnings` + 全量 Rust 测试。
 5. **摘前端连线**（按文件，每改完一批就 `check-types`）：
    - `App.tsx`：`AiComposerProvider`、`panelOpen`/`useChatStore`、AI diff 审批回调、`agent_enable_hooks` 调用、`nextAttentionTarget`

@@ -1,7 +1,6 @@
 "use client";
 
 import { isValidElement, type ReactNode } from "react";
-
 import { ChatCodeBlock } from "./chat-code";
 
 export function markdownCodeText(children?: ReactNode): string {

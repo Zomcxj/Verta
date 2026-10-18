@@ -1,3 +1,4 @@
+import { RunCommandProvider } from "@/components/chat-code";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -6,6 +7,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { consumeLaunchFiles, getLaunchDir } from "@/lib/launchDir";
+import { native } from "@/lib/native";
 import { IS_MAC } from "@/lib/platform";
 import { quoteShellArg } from "@/lib/shellQuote";
 import { usePresence } from "@/lib/usePresence";
@@ -29,7 +31,6 @@ import {
   useSelectionAskAi,
 } from "@/modules/ai";
 import { AiComposerProvider } from "@/modules/ai/lib/composer";
-import { native } from "@/lib/native";
 import { CommandPalette, createCommandItems } from "@/modules/command-palette";
 import { useControlBridge } from "@/modules/control";
 import {
@@ -45,12 +46,12 @@ import {
   type SearchInlineHandle,
   type SearchTarget,
 } from "@/modules/header";
-import { setLspNavigator } from "@/modules/lsp";
 import {
   type AgentSession,
   LauncherPanel,
   resumeCommand,
 } from "@/modules/launcher";
+import { setLspNavigator } from "@/modules/lsp";
 import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -80,8 +81,8 @@ import {
 } from "@/modules/spaces";
 import { StatusBar } from "@/modules/statusbar";
 import {
-  TabSwitcherHud,
   type CloseTabsPlan,
+  TabSwitcherHud,
   useTabSwitcher,
   useTabs,
   useWindowTitle,
@@ -104,9 +105,9 @@ import {
   whenSessionReady,
   writeToSession,
 } from "@/modules/terminal";
-import type { TerminalSearchController } from "@/modules/terminal/search/TerminalSearchController";
 import { bindTerminalWindowFocus } from "@/modules/terminal/ghostty/renderScheduling";
 import { subscribeWindowPresentation } from "@/modules/terminal/ghostty/windowPresentation";
+import type { TerminalSearchController } from "@/modules/terminal/search/TerminalSearchController";
 import {
   LivePageResizeBridge,
   ThemeProvider,
@@ -139,12 +140,12 @@ import {
   WorkspaceInputBar,
 } from "./components/WorkspaceInputBar";
 import { WorkspaceSurface } from "./components/WorkspaceSurface";
-import { useAppCloseGuard } from "./hooks/useAppCloseGuard";
 import {
   hasOpenPathTab,
   renamedPath,
   spacesEmptiedByTabs,
 } from "./hooks/tabCloseGuards";
+import { useAppCloseGuard } from "./hooks/useAppCloseGuard";
 import { useTabCloseGuards } from "./hooks/useTabCloseGuards";
 import { useWorkspaceSwitcher } from "./hooks/useWorkspaceSwitcher";
 
@@ -678,6 +679,14 @@ export default function App() {
       })();
     },
     [newAgentTab],
+  );
+
+  /** The markdown preview draws a "Run" button on fenced commands; it sends to
+   * whichever terminal is active, the same way a resumed session does. */
+  const runInActiveTerminal = useCallback(
+    (command: string) =>
+      activeLeafId !== null && writeToSession(activeLeafId, `${command}\r`),
+    [activeLeafId],
   );
 
   const sendCd = useCallback(
@@ -1699,5 +1708,9 @@ export default function App() {
     </ThemeProvider>
   );
 
-  return <AiComposerProvider>{shell}</AiComposerProvider>;
+  return (
+    <RunCommandProvider value={runInActiveTerminal}>
+      <AiComposerProvider>{shell}</AiComposerProvider>
+    </RunCommandProvider>
+  );
 }

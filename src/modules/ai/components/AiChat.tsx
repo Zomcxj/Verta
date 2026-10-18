@@ -10,7 +10,7 @@ import {
   MessageResponse,
   type MessageResponseProps,
 } from "@/components/ai-elements/message";
-import { MarkdownCode } from "@/components/ai-elements/markdown-code";
+import { MarkdownCode } from "@/components/markdown-code";
 import {
   MarkdownLink,
   type MarkdownLinkProps,

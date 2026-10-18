@@ -21,7 +21,7 @@ const ShimmerComponent = ({
 }: TextShimmerProps) => {
   const dynamicSpread = useMemo(
     () => (children?.length ?? 0) * spread,
-    [children, spread]
+    [children, spread],
   );
 
   return createElement(
@@ -29,14 +29,14 @@ const ShimmerComponent = ({
     {
       className: cn(
         "terax-shimmer relative inline-block bg-clip-text text-transparent",
-        className
+        className,
       ),
       style: {
         "--shimmer-spread": `${dynamicSpread}px`,
         "--shimmer-duration": `${duration}s`,
       } as CSSProperties,
     },
-    children
+    children,
   );
 };
 

@@ -1,6 +1,25 @@
 import type { Language, StreamParser } from "@codemirror/language";
-import { StringStream } from "@codemirror/language";
-import { classHighlighter, highlightCode } from "@lezer/highlight";
+
+// The highlighter itself is loaded on first use: a synchronous import here put
+// CodeMirror and Lezer into the startup graph of every window, which the
+// startup budget test forbids.
+type LezerRuntime = {
+  StringStream: typeof import("@codemirror/language").StringStream;
+  classHighlighter: typeof import("@lezer/highlight").classHighlighter;
+  highlightCode: typeof import("@lezer/highlight").highlightCode;
+};
+let lezerRuntime: Promise<LezerRuntime> | null = null;
+function runtime(): Promise<LezerRuntime> {
+  lezerRuntime ??= Promise.all([
+    import("@codemirror/language"),
+    import("@lezer/highlight"),
+  ]).then(([language, highlight]) => ({
+    StringStream: language.StringStream,
+    classHighlighter: highlight.classHighlighter,
+    highlightCode: highlight.highlightCode,
+  }));
+  return lezerRuntime;
+}
 
 export type HighlightedNode =
   | { kind: "text"; value: string; cls: string }
@@ -192,6 +211,7 @@ async function getStream(
 function highlightStream(
   code: string,
   parser: StreamParser<unknown>,
+  { StringStream }: LezerRuntime,
 ): HighlightedNode[] {
   const state = parser.startState ? parser.startState(2) : ({} as unknown);
   const out: HighlightedNode[] = [];
@@ -296,15 +316,16 @@ export async function highlight(
 ): Promise<HighlightedNode[] | null> {
   const r = resolve(rawLang);
   if (!r) return null;
+  const rt = await runtime();
 
   if (r.kind === "lezer") {
     const language = await getLezer(r.key);
     const tree = language.parser.parse(code);
     const out: HighlightedNode[] = [];
-    highlightCode(
+    rt.highlightCode(
       code,
       tree,
-      classHighlighter,
+      rt.classHighlighter,
       (text: string, cls: string) => {
         out.push({ kind: "text", value: text, cls });
       },
@@ -316,5 +337,5 @@ export async function highlight(
   }
 
   const parser = await getStream(r.key);
-  return highlightStream(code, parser);
+  return highlightStream(code, parser, rt);
 }

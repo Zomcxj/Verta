@@ -2,7 +2,6 @@
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useChatStore } from "@/modules/ai/store/chatStore";
 import {
   ArrowRight01Icon,
   CheckmarkCircle01Icon,
@@ -10,16 +9,36 @@ import {
   TerminalIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { createContext, memo, useContext, useEffect, useRef, useState } from "react";
-
+import {
+  createContext,
+  memo,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  type HighlightedNode,
+  highlight,
+  isHighlightable,
+} from "./chat-code-lezer";
 import { Shimmer } from "./shimmer";
-import { highlight, isHighlightable, type HighlightedNode } from "./chat-code-lezer";
 
 // True while the parent message is still streaming from the model. We hide
 // fenced-code contents during this phase: parsing partial code is wasted
 // work and a flashing skeleton is calmer UI than text that grows char-by-char.
 const StreamingCtx = createContext(false);
 export const ChatStreamingProvider = StreamingCtx.Provider;
+
+/**
+ * Runs a fenced command in whatever terminal the app considers active. Passed in
+ * rather than imported so this renderer stays usable outside the chat surface
+ * (the markdown preview uses it too) without reaching into chat state.
+ */
+const RunCommandCtx = createContext<((command: string) => boolean) | null>(
+  null,
+);
+export const RunCommandProvider = RunCommandCtx.Provider;
 
 const POSIX_SHELL = new Set([
   "bash",
@@ -41,14 +60,16 @@ const WINDOWS_SHELL = new Set([
 const SHELL_LANGS = new Set([...POSIX_SHELL, ...WINDOWS_SHELL]);
 
 function shellPrompt(lang: string): string {
-  if (WINDOWS_SHELL.has(lang)) return lang === "cmd" || lang === "bat" || lang === "batch" ? ">" : "PS>";
+  if (WINDOWS_SHELL.has(lang))
+    return lang === "cmd" || lang === "bat" || lang === "batch" ? ">" : "PS>";
   return "$";
 }
 
 function normalizeLangLabel(raw: string): string {
   const lower = raw.toLowerCase();
   if (POSIX_SHELL.has(lower)) return "bash";
-  if (lower === "pwsh" || lower === "ps1" || lower === "ps") return "powershell";
+  if (lower === "pwsh" || lower === "ps1" || lower === "ps")
+    return "powershell";
   if (lower === "bat" || lower === "batch") return "cmd";
   return lower || "text";
 }
@@ -215,9 +236,13 @@ function CommandCard({ code, lang }: { code: string; lang: string }) {
 function RunInTerminalButton({ command }: { command: string }) {
   const [sent, setSent] = useState(false);
   const tRef = useRef<number>(0);
+  const runCommand = useContext(RunCommandCtx);
   useEffect(() => () => window.clearTimeout(tRef.current), []);
+  // Without a handler there is no active terminal to send to, so the button
+  // would lie about having done something.
+  if (!runCommand) return null;
   const onRun = () => {
-    const ok = useChatStore.getState().live.injectIntoActivePty(command);
+    const ok = runCommand(command);
     if (!ok) return;
     setSent(true);
     tRef.current = window.setTimeout(() => setSent(false), 1500);
