@@ -17,7 +17,7 @@ import {
   unbindLeafPty,
 } from "@/modules/terminal/lib/ptyPresentation";
 import { tokenBytes } from "@/modules/terminal/lib/ptyWire";
-import { currentWorkspaceEnv } from "@/modules/workspace";
+import { currentWorkspaceEnv, type WorkspaceEnv } from "@/modules/workspace";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 
@@ -106,6 +106,8 @@ export async function openPty(
   blocks?: boolean,
   shell?: string,
   paneId?: number,
+  /** 这个终端跑在哪个环境里；缺省跟随当前工作区。 */
+  workspace?: WorkspaceEnv,
 ): Promise<PtySession> {
   const stream = outputHub();
   let id: number | null = null;
@@ -158,7 +160,7 @@ export async function openPty(
       cols,
       rows,
       cwd: cwd ?? null,
-      workspace: currentWorkspaceEnv(),
+      workspace: workspace ?? currentWorkspaceEnv(),
       blocks: blocks ?? false,
       shell: shell ?? null,
       paneId: paneId ?? null,

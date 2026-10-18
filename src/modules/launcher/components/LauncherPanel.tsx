@@ -24,6 +24,8 @@ import {
 import { deleteAgentSessions, listAgentSessions } from "../lib/sessions";
 import type { AgentSession, AgentTool, SessionTarget } from "../lib/types";
 import { topLevelSessions } from "../lib/visibleSessions";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import { useWorkspaceEnvStore } from "@/modules/workspace";
 import { SessionList } from "./SessionList";
 
 const TOOLS: AgentTool[] = ["opencode", "pi"];
@@ -60,32 +62,57 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
   const pausedRef = useRef(false);
   pausedRef.current = managing || deleting || pendingDelete !== null;
 
-  const refresh = useCallback(async (options?: { silent?: boolean }) => {
-    // A background refresh must not flash the list: the spinner is for people
-    // who asked, not for a change that arrived on its own.
-    if (!options?.silent) setLoading(true);
-    setError(null);
-    const results = await Promise.allSettled(
-      TOOLS.map((tool) => listAgentSessions(tool)),
-    );
-    const merged: AgentSession[] = [];
-    const nextWarnings: string[] = [];
-    const failures: string[] = [];
-    results.forEach((result, index) => {
-      if (result.status === "fulfilled") {
-        merged.push(...result.value.sessions);
-        nextWarnings.push(...result.value.warnings);
-      } else {
-        // One unreadable store must not hide the other tool's sessions.
-        failures.push(`${TOOLS[index]}：${String(result.reason)}`);
-      }
-    });
-    merged.sort((left, right) => right.updatedAtMs - left.updatedAtMs);
-    setSessions(merged);
-    setWarnings(nextWarnings);
-    setError(failures.length > 0 ? failures.join("\n") : null);
-    setLoading(false);
-  }, []);
+  const wslEnabled = usePreferencesStore((s) => s.wslEnabled);
+  const wslDistros = useWorkspaceEnvStore((s) => s.distros);
+  const refreshDistros = useWorkspaceEnvStore((s) => s.refreshDistros);
+
+  // 只有开关打开时才去问发行版；关着的时候连发行版列表都不枚举。
+  useEffect(() => {
+    if (wslEnabled) void refreshDistros();
+  }, [wslEnabled, refreshDistros]);
+
+  /** 会话来源：本机，加上开关打开时的每个发行版。 */
+  const sources = useMemo<(string | null)[]>(
+    () => (wslEnabled ? [null, ...wslDistros.map((d) => d.name)] : [null]),
+    [wslEnabled, wslDistros],
+  );
+
+  const refresh = useCallback(
+    async (options?: { silent?: boolean }) => {
+      // A background refresh must not flash the list: the spinner is for people
+      // who asked, not for a change that arrived on its own.
+      if (!options?.silent) setLoading(true);
+      setError(null);
+      const requests = sources.flatMap((distro) =>
+        TOOLS.map((tool) => ({ tool, distro })),
+      );
+      const results = await Promise.allSettled(
+        requests.map((request) =>
+          listAgentSessions(request.tool, request.distro),
+        ),
+      );
+      const merged: AgentSession[] = [];
+      const nextWarnings: string[] = [];
+      const failures: string[] = [];
+      results.forEach((result, index) => {
+        const { tool, distro } = requests[index];
+        if (result.status === "fulfilled") {
+          merged.push(...result.value.sessions);
+          nextWarnings.push(...result.value.warnings);
+        } else {
+          // One unreadable store must not hide the others.
+          const source = distro ? `${tool}（${distro}）` : tool;
+          failures.push(`${source}：${String(result.reason)}`);
+        }
+      });
+      merged.sort((left, right) => right.updatedAtMs - left.updatedAtMs);
+      setSessions(merged);
+      setWarnings(nextWarnings);
+      setError(failures.length > 0 ? failures.join("\n") : null);
+      setLoading(false);
+    },
+    [sources],
+  );
 
   useEffect(() => {
     void refresh();
@@ -133,6 +160,25 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
   }, [query, listed]);
 
   const visibleKeys = useMemo(() => visible.map(sessionKey), [visible]);
+
+  /**
+   * 按来源分组（本机 / 各发行版）。只有一个来源时不显示分组标题，外观与从前一致；
+   * 空列表也保留一个空分组，好让列表自身的空状态文案照常出现。
+   */
+  const groups = useMemo(() => {
+    const bySource = new Map<string, AgentSession[]>();
+    for (const session of visible) {
+      const key = session.distro ?? "";
+      const bucket = bySource.get(key);
+      if (bucket) bucket.push(session);
+      else bySource.set(key, [session]);
+    }
+    const entries = [...bySource.entries()].map(([key, sessions]) => ({
+      distro: key === "" ? null : key,
+      sessions,
+    }));
+    return entries.length > 0 ? entries : [{ distro: null, sessions: [] }];
+  }, [visible]);
 
   const toggleManaging = useCallback(() => {
     setManaging((was) => !was);
@@ -233,19 +279,32 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {error && visible.length === 0 ? null : (
-          <SessionList
-            sessions={visible}
-            activeId={activeSessionId}
-            onOpen={onOpenSession}
-            formatTime={(updatedAtMs) => relativeTime(nowMs, updatedAtMs)}
-            selectable={managing}
-            selected={selected}
-            onToggle={(session) =>
-              setSelected((was) => toggleSelection(was, sessionKey(session)))
-            }
-          />
-        )}
+        {error && visible.length === 0
+          ? null
+          : groups.map((group) => (
+              <div key={group.distro ?? "local"}>
+                {groups.length > 1 ? (
+                  <div className="px-3 pt-1.5 pb-0.5 text-[10px] font-medium text-muted-foreground">
+                    {group.distro
+                      ? t("launcher.sourceWsl", { distro: group.distro })
+                      : t("launcher.sourceLocal")}
+                  </div>
+                ) : null}
+                <SessionList
+                  sessions={group.sessions}
+                  activeId={activeSessionId}
+                  onOpen={onOpenSession}
+                  formatTime={(updatedAtMs) => relativeTime(nowMs, updatedAtMs)}
+                  selectable={managing}
+                  selected={selected}
+                  onToggle={(session) =>
+                    setSelected((was) =>
+                      toggleSelection(was, sessionKey(session)),
+                    )
+                  }
+                />
+              </div>
+            ))}
       </div>
 
       {managing ? (

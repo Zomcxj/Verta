@@ -171,6 +171,8 @@ const zh = {
   "launcher.manage": "管理",
   "launcher.done": "完成",
   "launcher.refresh": "刷新",
+  "launcher.sourceLocal": "本机",
+  "launcher.sourceWsl": "WSL：{distro}",
   "launcher.loading": "读取中",
   "launcher.search": "搜索标题或目录",
   "launcher.delete": "删除",
@@ -208,6 +210,17 @@ const zh = {
   "settings.zoom": "缩放",
   "settings.uiZoomLevel": "界面缩放比例",
   "settings.explorer": "资源管理器",
+  "settings.wsl": "WSL",
+  "settings.wslEnabled.title": "显示 WSL 内的项目与会话",
+  "settings.wslEnabled.description":
+    "开启后 Verta 会在发行版内查询 opencode 会话并列出 WSL 的项目；关闭则不向发行版发出任何请求。",
+  "settings.wslShutdown.title": "关闭时同时关掉 WSL",
+  "settings.wslShutdown.description":
+    "开启后，关掉上面的开关会执行 wsl --shutdown：那会停掉所有发行版与 WSL2 工具 VM，包括 Docker Desktop 的 WSL 后端。",
+  "settings.wslShutdown.running": "正在关闭 WSL…",
+  "settings.wslShutdown.done":
+    "已执行 wsl --shutdown：所有发行版与 WSL2 工具 VM 都停了。",
+  "settings.wslShutdown.failed": "执行 wsl --shutdown 失败：{message}",
   "settings.showHidden.title": "显示隐藏文件",
   "settings.showHidden.description":
     "在文件树与搜索中包含以点开头的文件和文件夹（.env、.gitignore、.config）。",
@@ -522,6 +535,8 @@ const en: Record<MessageKey, string> = {
   "launcher.manage": "Manage",
   "launcher.done": "Done",
   "launcher.refresh": "Refresh",
+  "launcher.sourceLocal": "This machine",
+  "launcher.sourceWsl": "WSL: {distro}",
   "launcher.loading": "Reading",
   "launcher.search": "Search title or folder",
   "launcher.delete": "Delete",
@@ -562,6 +577,17 @@ const en: Record<MessageKey, string> = {
   "settings.zoom": "Zoom",
   "settings.uiZoomLevel": "UI zoom level",
   "settings.explorer": "Explorer",
+  "settings.wsl": "WSL",
+  "settings.wslEnabled.title": "Show projects and sessions inside WSL",
+  "settings.wslEnabled.description":
+    "When on, Verta queries opencode sessions inside the distro and lists its projects; when off it asks the distro nothing.",
+  "settings.wslShutdown.title": "Also shut WSL down when switched off",
+  "settings.wslShutdown.description":
+    "When on, turning the switch above off runs wsl --shutdown, which stops every distro and the WSL2 utility VM, including Docker Desktop's WSL backend.",
+  "settings.wslShutdown.running": "Shutting WSL down…",
+  "settings.wslShutdown.done":
+    "Ran wsl --shutdown: every distro and the WSL2 utility VM stopped.",
+  "settings.wslShutdown.failed": "wsl --shutdown failed: {message}",
   "settings.showHidden.title": "Show hidden files",
   "settings.showHidden.description":
     "Include dot-prefixed files and folders (.env, .gitignore, .config) in the file explorer and search.",

@@ -1,4 +1,5 @@
 import type { PaneNode } from "@/modules/terminal";
+import type { WorkspaceEnv } from "@/modules/workspace";
 
 /** How many panes a grouped terminal tab opens with. */
 export type PaneCount = 1 | 2 | 3 | 4;
@@ -16,6 +17,7 @@ export function createPanePlan(
   count: PaneCount,
   allocateId: () => number,
   cwd?: string,
+  workspace?: WorkspaceEnv,
 ): PanePlan {
   if (!Number.isInteger(count) || count < 1 || count > 4) {
     throw new RangeError("Pane count must be between 1 and 4.");
@@ -25,6 +27,7 @@ export function createPanePlan(
     kind: "leaf" as const,
     id: allocateId(),
     cwd,
+    workspace,
   }));
   const split = (dir: "row" | "col", children: PaneNode[]): PaneNode => ({
     kind: "split",

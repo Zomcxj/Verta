@@ -10,8 +10,17 @@ export type PaneBounds = {
   bottom: number;
 };
 
+import type { WorkspaceEnv } from "@/modules/workspace";
+
 export type PaneNode =
-  | { kind: "leaf"; id: PaneId; slotId?: PaneId; cwd?: string }
+  | {
+      kind: "leaf";
+      id: PaneId;
+      slotId?: PaneId;
+      cwd?: string;
+      /** 这个叶子在哪个环境里跑：缺省是本机，WSL 会话恢复时是那个发行版。 */
+      workspace?: WorkspaceEnv;
+    }
   | {
       kind: "split";
       id: PaneId;

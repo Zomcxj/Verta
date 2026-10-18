@@ -8,6 +8,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { IS_WINDOWS } from "@/lib/platform";
 import { type MessageKey, useLanguage, useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { ThemePref } from "@/modules/settings/store";
@@ -18,6 +19,8 @@ import {
   setExplorerGitDecorations,
   setRestoreWindowState,
   setShowHidden,
+  setWslEnabled,
+  setWslShutdownOnDisable,
   setTerminalCursorBlink,
   setTerminalCursorStyle,
   setTerminalFontFamily,
@@ -78,6 +81,34 @@ export function GeneralSection() {
   const { mode, setMode } = useTheme();
 
   const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
+  const wslEnabled = usePreferencesStore((s) => s.wslEnabled);
+  const wslShutdownOnDisable = usePreferencesStore(
+    (s) => s.wslShutdownOnDisable,
+  );
+  const [wslResult, setWslResult] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
+
+  /**
+   * 关掉开关时先停掉 Verta 自己的查询，再按设置决定是否真的关掉 WSL。
+   * 关掉 WSL 会中断里面所有东西（含 Docker Desktop 的后端），所以成功与失败都要如实说出来。
+   */
+  const applyWslEnabled = async (value: boolean) => {
+    await setWslEnabled(value);
+    setWslResult(null);
+    if (value || !wslShutdownOnDisable) return;
+    setWslResult({ ok: true, text: t("settings.wslShutdown.running") });
+    try {
+      await invoke("wsl_shutdown");
+      setWslResult({ ok: true, text: t("settings.wslShutdown.done") });
+    } catch (error) {
+      setWslResult({
+        ok: false,
+        text: t("settings.wslShutdown.failed", { message: String(error) }),
+      });
+    }
+  };
   const showHidden = usePreferencesStore((s) => s.showHidden);
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
@@ -192,6 +223,40 @@ export function GeneralSection() {
           />
         </SettingRow>
       </div>
+
+      {IS_WINDOWS ? (
+        <div className="flex flex-col gap-2">
+          <Label>{t("settings.wsl")}</Label>
+          <SettingRow
+            title={t("settings.wslEnabled.title")}
+            description={t("settings.wslEnabled.description")}
+          >
+            <Switch
+              checked={wslEnabled}
+              onCheckedChange={(value) => void applyWslEnabled(value)}
+            />
+          </SettingRow>
+          <SettingRow
+            title={t("settings.wslShutdown.title")}
+            description={t("settings.wslShutdown.description")}
+          >
+            <Switch
+              checked={wslShutdownOnDisable}
+              onCheckedChange={(value) => void setWslShutdownOnDisable(value)}
+            />
+          </SettingRow>
+          {wslResult ? (
+            <p
+              className={cn(
+                "text-[11px]",
+                wslResult.ok ? "text-muted-foreground" : "text-destructive",
+              )}
+            >
+              {wslResult.text}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-2">
         <Label>{t("settings.terminal")}</Label>

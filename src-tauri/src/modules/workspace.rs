@@ -563,6 +563,42 @@ pub async fn wsl_list_distros() -> Result<Vec<WslDistro>, String> {
     }
 }
 
+/// 关掉所有发行版与 WSL2 工具 VM。只有用户明确打开「关闭时同时关掉 WSL」才会走到这里，
+/// 所以不额外弹确认框；成功与失败都如实回报给界面（沿用 §5.5 不静默失败）。
+#[tauri::command]
+pub async fn wsl_shutdown() -> Result<(), String> {
+    #[cfg(not(windows))]
+    {
+        Err("只有 Windows 上的 Verta 能执行 wsl --shutdown".to_string())
+    }
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(shutdown_blocking)
+            .await
+            .map_err(|e| e.to_string())?
+    }
+}
+
+#[cfg(windows)]
+fn shutdown_blocking() -> Result<(), String> {
+    let mut cmd = std::process::Command::new("wsl.exe");
+    cmd.arg("--shutdown");
+    crate::modules::proc::hide_console(&mut cmd);
+    let out = cmd
+        .output()
+        .map_err(|e| format!("执行 wsl --shutdown 失败：{e}"))?;
+    if !out.status.success() {
+        let stderr = decode_command_output(&out.stderr);
+        let message = stderr.trim();
+        return Err(if message.is_empty() {
+            format!("wsl --shutdown 返回失败状态：{}", out.status)
+        } else {
+            format!("wsl --shutdown 失败：{message}")
+        });
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn wsl_default_distro() -> Result<Option<String>, String> {
     #[cfg(not(windows))]

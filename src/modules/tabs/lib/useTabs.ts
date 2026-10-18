@@ -1,5 +1,6 @@
 import { isMarkdownPath } from "@/lib/utils";
 import { type PaneCount, createPanePlan } from "./panePlan";
+import type { WorkspaceEnv } from "@/modules/workspace";
 import {
   findLeafCwd,
   hasLeaf,
@@ -772,12 +773,18 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   }, [newBlockTab]);
 
   const newAgentGroupTab = useCallback(
-    (cwd: string | undefined, title: string, instances: PaneCount) => {
+    (
+      cwd: string | undefined,
+      title: string,
+      instances: PaneCount,
+      workspace?: WorkspaceEnv,
+    ) => {
       const tabId = nextIdRef.current++;
       const { paneTree, leafIds: agentLeafIds } = createPanePlan(
         instances,
         () => nextIdRef.current++,
         cwd,
+        workspace,
       );
       setTabs((t) => [
         ...t,
@@ -799,8 +806,13 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   );
 
   const newAgentTab = useCallback(
-    (cwd: string | undefined, title: string) => {
-      const { tabId, leafIds: agentLeafIds } = newAgentGroupTab(cwd, title, 1);
+    (cwd: string | undefined, title: string, workspace?: WorkspaceEnv) => {
+      const { tabId, leafIds: agentLeafIds } = newAgentGroupTab(
+        cwd,
+        title,
+        1,
+        workspace,
+      );
       return { tabId, leafId: agentLeafIds[0] };
     },
     [newAgentGroupTab],

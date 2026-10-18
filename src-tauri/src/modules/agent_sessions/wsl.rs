@@ -13,6 +13,7 @@
 //! survive that.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Deserialize;
 
@@ -135,10 +136,17 @@ fn script() -> String {
 
 /// Writes the query somewhere the distro can read it. The platform temp
 /// directory is on the Windows drive, which every distro has under `/mnt`.
+///
+/// The name carries a per-call counter as well as the process id: the panel
+/// refreshes can overlap, and with a name derived from the process alone one
+/// call's cleanup would delete the file out from under the other (measured: the
+/// second query failed with "can't open file ... No such file or directory").
 fn write_script() -> Result<PathBuf, String> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
     let path = std::env::temp_dir().join(format!(
-        "verta-wsl-sessions-{}.py",
-        std::process::id()
+        "verta-wsl-sessions-{}-{}.py",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
     ));
     std::fs::write(&path, script())
         .map_err(|e| format!("写临时查询脚本失败（{}）：{e}", path.display()))?;
@@ -243,6 +251,18 @@ mod tests {
     fn refuses_a_path_with_no_drive() {
         assert_eq!(wsl_path(Path::new(r"\\server\share\q.py")), None);
         assert_eq!(wsl_path(Path::new("relative/q.py")), None);
+    }
+
+    #[test]
+    fn two_writes_never_share_one_file() {
+        // 面板的刷新会重叠；同名文件会被先跑完的那次删掉，另一条就找不到脚本。
+        let first = write_script().expect("first script");
+        let second = write_script().expect("second script");
+        assert_ne!(first, second);
+        assert!(first.exists(), "{} 应该已写下", first.display());
+        assert!(second.exists(), "{} 应该已写下", second.display());
+        std::fs::remove_file(&first).expect("cleanup");
+        std::fs::remove_file(&second).expect("cleanup");
     }
 
     #[test]

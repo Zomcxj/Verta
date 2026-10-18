@@ -529,14 +529,18 @@ export default function App() {
 
   const handleOpenSession = useCallback(
     (session: AgentSession) => {
+      // 发行版的会话要开在 WSL 终端里，cwd 是 Linux 路径，引号也要按 POSIX 来。
+      const workspace: WorkspaceEnv | undefined = session.distro
+        ? { kind: "wsl", distro: session.distro }
+        : undefined;
       let command: string;
       try {
-        command = resumeCommand(session);
+        command = resumeCommand(session, workspace ? false : undefined);
       } catch (error) {
         console.error("[verta] refusing to build a resume command", error);
         return;
       }
-      const { leafId } = newAgentTab(session.cwd, session.title);
+      const { leafId } = newAgentTab(session.cwd, session.title, workspace);
       setActiveSessionId(session.id);
       void (async () => {
         await whenSessionReady(leafId);

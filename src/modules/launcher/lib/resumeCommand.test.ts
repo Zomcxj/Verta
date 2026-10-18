@@ -67,3 +67,29 @@ describe("resumeCommand (id validation)", () => {
     ).toThrow();
   });
 });
+
+describe("resumeCommand (WSL)", () => {
+  it("quotes a Linux path the POSIX way, whatever the host platform is", () => {
+    const command = resumeCommand(
+      {
+        tool: "opencode",
+        id: "ses_1",
+        cwd: "/home/cxj/workspace/mem0_chat_fastapi",
+        distro: "Ubuntu-22.04",
+      },
+      true,
+    );
+    expect(command).toContain("--session ses_1 '/home/cxj/workspace/mem0_chat_fastapi'");
+  });
+
+  it("puts the distro's own installs ahead of PATH", () => {
+    // 发行版里 PATH 上的 opencode 可能是 Windows 那个 exe，读的是另一个库。
+    const command = resumeCommand({
+      tool: "opencode",
+      id: "ses_1",
+      cwd: "/home/cxj",
+      distro: "Ubuntu-22.04",
+    });
+    expect(command).toMatch(/^env PATH="\$HOME\/\.opencode\/bin:.*opencode --session ses_1 /);
+  });
+});

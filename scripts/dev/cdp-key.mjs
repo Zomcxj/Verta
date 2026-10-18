@@ -22,9 +22,13 @@ const KEYS = {
 
 /** Click the point, then turn the wheel there, as a person would. */
 const CLICK = /^(\d+),(\d+)$/.exec(key);
-const spec = CLICK ? null : KEYS[key];
-if (!spec && !CLICK) {
-  console.error(`未定义的键：${key}。可用：${Object.keys(KEYS).join(", ")}，或 x,y 作为点击坐标`);
+/** Type a whole line and press Enter, as characters the terminal accepts. */
+const TYPE = /^--type=(.*)$/.exec(key);
+const spec = CLICK || TYPE ? null : KEYS[key];
+if (!spec && !CLICK && !TYPE) {
+  console.error(
+    `未定义的键：${key}。可用：${Object.keys(KEYS).join(", ")}，或 x,y 作为点击坐标，或 --type=<要输入的整行>`,
+  );
   process.exit(2);
 }
 
@@ -99,6 +103,36 @@ if (CLICK) {
   }
   socket.close();
   console.log(`已在 ${x},${y} 点击并滚轮 ${count} 次（deltaY ${delta}）`);
+  process.exit(0);
+}
+
+if (TYPE) {
+  const text = TYPE[1];
+  if (!text) {
+    console.error("--type= 后面要有内容");
+    process.exit(2);
+  }
+  // 终端只认真按键，所以逐字符发 keyDown + text；最后单独发 \r 作为回车。
+  for (const character of text) {
+    await send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key: character,
+      text: character,
+      unmodifiedText: character,
+    });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key: character });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  }
+  const enter = {
+    key: "Enter",
+    code: "Enter",
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  };
+  await send("Input.dispatchKeyEvent", { type: "keyDown", ...enter, text: "\r" });
+  await send("Input.dispatchKeyEvent", { type: "keyUp", ...enter });
+  socket.close();
+  console.log(`已输入 ${text.length} 个字符并回车`);
   process.exit(0);
 }
 

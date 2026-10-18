@@ -12,6 +12,7 @@ const session = (
   id: string,
   tool: AgentSession["tool"] = "opencode",
   parentId: string | null = null,
+  distro: string | null = null,
 ): AgentSession => ({
   tool,
   id,
@@ -19,12 +20,22 @@ const session = (
   cwd: "F:/x",
   updatedAtMs: 1,
   parentId,
+  distro,
 });
 
 describe("sessionKey", () => {
-  it("qualifies an id with its tool", () => {
-    expect(sessionKey(session("ses_1"))).toBe("opencode:ses_1");
-    expect(sessionKey(session("01a147ad", "pi"))).toBe("pi:01a147ad");
+  it("qualifies an id with its tool and its source", () => {
+    expect(sessionKey(session("ses_1"))).toBe("opencode::ses_1");
+    expect(sessionKey(session("01a147ad", "pi"))).toBe("pi::01a147ad");
+  });
+
+  it("keeps the same id in two stores apart", () => {
+    expect(sessionKey(session("ses_1", "opencode", null, "Ubuntu-22.04"))).toBe(
+      "opencode:Ubuntu-22.04:ses_1",
+    );
+    expect(sessionKey(session("ses_1"))).not.toBe(
+      sessionKey(session("ses_1", "opencode", null, "Ubuntu-22.04")),
+    );
   });
 });
 
@@ -63,20 +74,29 @@ describe("updateSelection", () => {
 });
 
 describe("selectedTargets", () => {
-  it("returns tool and id in list order, never a path", () => {
-    const sessions = [session("a"), session("b", "pi"), session("c")];
-    const selected = new Set(["opencode:c", "opencode:a", "pi:b"]);
+  it("returns tool, id and source in list order, never a path", () => {
+    const sessions = [
+      session("a"),
+      session("b", "pi"),
+      session("c", "opencode", null, "Ubuntu-22.04"),
+    ];
+    const selected = new Set([
+      "opencode::c",
+      "opencode::a",
+      "pi::b",
+      "opencode:Ubuntu-22.04:c",
+    ]);
     expect(selectedTargets(sessions, selected)).toEqual([
-      { tool: "opencode", id: "a" },
-      { tool: "pi", id: "b" },
-      { tool: "opencode", id: "c" },
+      { tool: "opencode", id: "a", distro: null },
+      { tool: "pi", id: "b", distro: null },
+      { tool: "opencode", id: "c", distro: "Ubuntu-22.04" },
     ]);
   });
 
   it("ignores a selected key that is no longer listed", () => {
-    expect(selectedTargets([session("a")], new Set(["opencode:gone"]))).toEqual(
-      [],
-    );
+    expect(
+      selectedTargets([session("a")], new Set(["opencode::gone"])),
+    ).toEqual([]);
   });
 
   it("returns nothing for an empty selection", () => {

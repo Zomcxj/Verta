@@ -2,11 +2,13 @@ import type { AgentSession, AgentTool, SessionTarget } from "./types";
 
 /**
  * Selection identity. The two tools mint ids in different shapes, but a key is
- * still qualified by tool so a collision could never select a session the user
- * did not click.
+ * still qualified by tool and by source so a collision could never select a
+ * session the user did not click, and the same id in two stores stays distinct.
  */
-export function sessionKey(session: Pick<AgentSession, "tool" | "id">): string {
-  return `${session.tool}:${session.id}`;
+export function sessionKey(
+  session: Pick<AgentSession, "tool" | "id" | "distro">,
+): string {
+  return `${session.tool}:${session.distro ?? ""}:${session.id}`;
 }
 
 export type SelectionMode = "all" | "none";
@@ -44,7 +46,11 @@ export function selectedTargets(
 ): SessionTarget[] {
   return sessions
     .filter((session) => selected.has(sessionKey(session)))
-    .map((session) => ({ tool: session.tool, id: session.id }));
+    .map((session) => ({
+      tool: session.tool,
+      id: session.id,
+      distro: session.distro,
+    }));
 }
 
 export type DeletionSummary = {

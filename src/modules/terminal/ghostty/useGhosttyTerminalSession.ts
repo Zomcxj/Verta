@@ -10,6 +10,7 @@ import { openExternalUrl } from "@/lib/external-link";
 import { ensureMonoFontsLoaded, resolveFontFamily } from "@/lib/fonts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { TerminalBackendKind } from "@/modules/terminal/backend/contracts";
+import type { WorkspaceEnv } from "@/modules/workspace";
 import { setLeafPresentation } from "@/modules/terminal/lib/ptyPresentation";
 import { PtyResizeDelivery } from "@/modules/terminal/lib/ptyResizeDelivery";
 import { useTerminalFont } from "@/modules/terminal/lib/useTerminalFont";
@@ -64,6 +65,7 @@ type GhosttySession = {
   readonly leafId: number;
   readonly backend: GhosttyBackend;
   initialCwd: string | undefined;
+  workspace: WorkspaceEnv | undefined;
   lastCwd: string | null;
   model: GhosttyTerminalModelApi | null;
   surface: GhosttySurface | null;
@@ -136,6 +138,8 @@ type Options = {
   visible: boolean;
   focused: boolean;
   initialCwd?: string;
+  /** 该叶子在哪个环境里跑：缺省是本机，WSL 会话恢复时是那个发行版。 */
+  workspace?: WorkspaceEnv;
   blocks?: boolean;
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
@@ -149,6 +153,7 @@ export function useGhosttyTerminalSession({
   visible,
   focused,
   initialCwd,
+  workspace,
   blocks = false,
   onSearchReady,
   onExit,
@@ -176,6 +181,8 @@ export function useGhosttyTerminalSession({
   const callbackRef = useRef({ onSearchReady, onExit, onCwd });
   callbackRef.current = { onSearchReady, onExit, onCwd };
   const initialCwdRef = useRef(initialCwd);
+  // 环境在标签创建时就定了，恢复 WSL 会话后不会变，所以跟 cwd 一样只取首次的值。
+  const workspaceRef = useRef(workspace);
 
   useEffect(() => {
     const session = ensureSession(
@@ -183,6 +190,7 @@ export function useGhosttyTerminalSession({
       backend,
       initialCwdRef.current,
       fontRef.current,
+      workspaceRef.current,
     );
     if (blocks) ensureGhosttyBlocks(leafId);
     const node = container.current;
@@ -542,6 +550,7 @@ function ensureSession(
   backend: GhosttyBackend,
   initialCwd?: string,
   font?: TerminalFontSpec,
+  workspace?: WorkspaceEnv,
 ): GhosttySession {
   const existing = sessions.get(leafId);
   if (existing) {
@@ -562,6 +571,7 @@ function ensureSession(
     leafId,
     backend,
     initialCwd,
+    workspace,
     lastCwd: null,
     model: null,
     surface: null,
@@ -870,6 +880,7 @@ async function initializeSessionGeneration(
     !!ghosttyBlocks(session.leafId),
     preferences.terminalShell || undefined,
     session.leafId,
+    session.workspace,
   );
   if (session.disposed || generation !== session.generation) {
     await pty.close();

@@ -14,6 +14,7 @@ const session = (
   cwd: "F:/x",
   updatedAtMs,
   parentId,
+  distro: null,
 });
 
 describe("topLevelSessions", () => {
