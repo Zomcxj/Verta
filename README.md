@@ -63,11 +63,13 @@ cargo clippy --all-targets -- -D warnings   # 内存紧张时加 -j 2
 cargo test --lib
 ```
 
-## 文档
+## 工作记录
 
-- 需求台账：`docs/superpowers/requirements-log.md`
-- 设计文档：`docs/superpowers/specs/`
-- 施工计划：`docs/superpowers/plans/`
+需求台账、设计文档与施工计划保存在本机 `.superpowers/` 下，不进版本库：
+
+- 需求台账：`.superpowers/requirements-log.md`
+- 设计文档：`.superpowers/specs/`
+- 施工计划：`.superpowers/plans/`
 
 ## 许可
 
