@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Verta 图标（绶带款，对应参考图 1）：深色圆角底 + 一条折起来的白色绶带 V。
+
+  几何与简洁款同源（左端 306,318、底 512,690、右端 726,318），额外做两件事：
+  左臂顶端不是圆头，而是一小截「折过来」的绶带（带折痕高光与下方阴影）；
+  底部左臂的圆头压在右臂之上，交接处有一条折缝。
+  方框之外透明：圆角方框由本图自己画。
+
+  要微调主要改折角那段路径（flap）。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="plate" cx="40%" cy="26%" r="82%">
+      <stop offset="0" stop-color="#202024"/>
+      <stop offset="58%" stop-color="#131316"/>
+      <stop offset="100%" stop-color="#0a0a0c"/>
+    </radialGradient>
+
+    <linearGradient id="rim" x1="140" y1="110" x2="900" y2="930" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9a9aa6" stop-opacity="0.6"/>
+      <stop offset="42%" stop-color="#55555f" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#2a2a30" stop-opacity="0.55"/>
+    </linearGradient>
+
+    <linearGradient id="armLeft" x1="306" y1="252" x2="512" y2="756" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="72%" stop-color="#f8f8fb"/>
+      <stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+    <linearGradient id="armRight" x1="726" y1="252" x2="512" y2="756" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f6f6fa"/>
+      <stop offset="55%" stop-color="#d2d2db"/>
+      <stop offset="100%" stop-color="#a8a8b3"/>
+    </linearGradient>
+
+    <!-- 折过来的那一小截：靠折线一侧更亮，末端收灰 -->
+    <linearGradient id="flap" x1="300" y1="270" x2="500" y2="350" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="62%" stop-color="#f2f2f6"/>
+      <stop offset="100%" stop-color="#cfcfd8"/>
+    </linearGradient>
+
+    <filter id="crossShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+    <filter id="flapShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+  </defs>
+
+  <rect x="92" y="92" width="840" height="840" rx="190" fill="url(#plate)"/>
+  <rect x="93.5" y="93.5" width="837" height="837" rx="188.5" fill="none"
+        stroke="url(#rim)" stroke-width="3"/>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M726 318 L512 690" stroke="url(#armRight)" stroke-width="118"/>
+    <path d="M306 318 L512 690" stroke="#050506" stroke-opacity="0.34" stroke-width="150"
+          transform="translate(13 9)" filter="url(#crossShadow)"/>
+    <path d="M306 318 L512 690" stroke="url(#armLeft)" stroke-width="136"/>
+  </g>
+
+  <!-- 左臂顶端折过来的一小截：从左上角起笔，向右下扫出一道圆润的尖端 -->
+  <path d="M271 262
+           C336 234 430 240 494 286
+           C520 304 526 330 512 352
+           C492 384 452 388 424 372
+           C404 360 380 348 356 340
+           C330 331 300 316 271 262 Z"
+        fill="#050506" fill-opacity="0.3" filter="url(#flapShadow)"
+        transform="translate(6 8)"/>
+  <path d="M271 262
+           C336 234 430 240 494 286
+           C520 304 526 330 512 352
+           C492 384 452 388 424 372
+           C404 360 380 348 356 340
+           C330 331 300 316 271 262 Z"
+        fill="url(#flap)"/>
+  <!-- 折痕：沿这一小截的下缘压一道细线 -->
+  <path d="M356 340 C382 348 404 360 424 372 C452 388 492 384 512 352"
+        fill="none" stroke="#9a9aa6" stroke-opacity="0.4" stroke-width="3"/>
+</svg>
