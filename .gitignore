@@ -14,9 +14,7 @@ dist-ssr
 stats.html
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
+.vscode/
 .idea
 .DS_Store
 *.suo
@@ -24,6 +22,9 @@ stats.html
 *.njsproj
 *.sln
 *.sw?
+
+# Superpowers 工作目录（本机 agent 的交接笔记，不进版本库）
+.superpowers/
 
 *.tsbuildinfo
 vite.config.js
