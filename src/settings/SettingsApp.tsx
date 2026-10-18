@@ -16,43 +16,45 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { type JSX, useEffect, useState } from "react";
 import { AboutSection } from "./sections/AboutSection";
 import { EditorSection } from "./sections/EditorSection";
+import { type MessageKey, useT } from "@/modules/i18n";
 import { GeneralSection } from "./sections/GeneralSection";
 import { ShortcutsSection } from "./sections/ShortcutsSection";
 import { ThemesSection } from "./sections/ThemesSection";
 
 const TABS: {
   id: SettingsTab;
-  label: string;
+  /** Message key: the tab strip is part of the interface, not content. */
+  label: MessageKey;
   icon: typeof Settings01Icon;
   component: () => JSX.Element;
 }[] = [
   {
     id: "general",
-    label: "General",
+    label: "settings.general.title",
     icon: Settings01Icon,
     component: GeneralSection,
   },
   {
     id: "editor",
-    label: "Editor",
+    label: "settings.editor.title",
     icon: SourceCodeIcon,
     component: EditorSection,
   },
   {
     id: "themes",
-    label: "Themes",
+    label: "settings.themes.title",
     icon: PaintBoardIcon,
     component: ThemesSection,
   },
   {
     id: "shortcuts",
-    label: "Shortcuts",
+    label: "settings.shortcuts.title",
     icon: KeyboardIcon,
     component: ShortcutsSection,
   },
   {
     id: "about",
-    label: "About",
+    label: "settings.about.title",
     icon: InformationCircleIcon,
     component: AboutSection,
   },
@@ -79,6 +81,8 @@ function readInitialTab(): SettingsTab {
 }
 
 export function SettingsApp() {
+  // Named `tr` because the tab map below already uses `t` for the tab.
+  const tr = useT();
   const [active, setActive] = useState<SettingsTab>(readInitialTab);
   const init = usePreferencesStore((s) => s.init);
   const ActiveSection = TABS.find((t) => t.id === active)?.component;
@@ -129,7 +133,7 @@ export function SettingsApp() {
                 className="h-6 gap-1.5 px-2.5 text-[11.5px]"
               >
                 <HugeiconsIcon icon={t.icon} size={12} strokeWidth={1.75} />
-                <span>{t.label}</span>
+                <span>{tr(t.label)}</span>
               </TabsTrigger>
             ))}
           </TabsList>

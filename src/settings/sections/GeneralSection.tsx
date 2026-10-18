@@ -8,11 +8,10 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { useLanguage, useT } from "@/modules/i18n";
+import { type MessageKey, useLanguage, useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { ThemePref } from "@/modules/settings/store";
 import {
-  setAutostart,
   setLanguage,
   setConfirmCloseRunningTerminal,
   setDefaultWorkspaceEnv,
@@ -41,19 +40,19 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
-import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 
 const APPEARANCE: {
   id: ThemePref;
-  label: string;
+  /** Message key, resolved where it is drawn. */
+  label: MessageKey;
   icon: typeof ComputerIcon;
 }[] = [
-  { id: "system", label: "System", icon: ComputerIcon },
-  { id: "light", label: "Light", icon: Sun03Icon },
-  { id: "dark", label: "Dark", icon: Moon02Icon },
+  { id: "system", label: "settings.mode.system", icon: ComputerIcon },
+  { id: "light", label: "settings.mode.light", icon: Sun03Icon },
+  { id: "dark", label: "settings.mode.dark", icon: Moon02Icon },
 ];
 
 const TERMINAL_FONT_WEIGHTS = [
@@ -75,9 +74,9 @@ const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 2.0;
 const ZOOM_STEP = 0.05;
 export function GeneralSection() {
+  const t = useT();
   const { mode, setMode } = useTheme();
 
-  const autostart = usePreferencesStore((s) => s.autostart);
   const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
   const showHidden = usePreferencesStore((s) => s.showHidden);
   const explorerGitDecorations = usePreferencesStore(
@@ -105,21 +104,6 @@ export function GeneralSection() {
   );
   const zoomLevel = usePreferencesStore((s) => s.zoomLevel);
   useEffect(() => {
-    let alive = true;
-    void isEnabled()
-      .then((on) => {
-        if (!alive) return;
-        if (on !== usePreferencesStore.getState().autostart) {
-          void setAutostart(on);
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
     void invoke<ShellInfo[]>("pty_list_shells")
       .then(setShells)
       .catch(() => {});
@@ -128,27 +112,17 @@ export function GeneralSection() {
       .catch(() => {});
   }, []);
 
-  const onToggleAutostart = async (next: boolean) => {
-    try {
-      if (next) await enable();
-      else await disable();
-      await setAutostart(next);
-    } catch (e) {
-      console.error("autostart toggle failed", e);
-    }
-  };
-
   return (
     <div className="flex flex-col gap-6">
       <SectionHeader
-        title="General"
-        description="Mode, terminal, and startup."
+        title={t("settings.general.title")}
+        description={t("settings.general.description")}
       />
 
       <LanguageSetting />
 
       <div className="flex flex-col gap-2">
-        <Label>Appearance</Label>
+        <Label>{t("settings.appearance")}</Label>
         <div className="grid grid-cols-3 gap-2">
           {APPEARANCE.map((o) => (
             <button
@@ -163,22 +137,25 @@ export function GeneralSection() {
               )}
             >
               <HugeiconsIcon icon={o.icon} size={18} strokeWidth={1.5} />
-              <span className="text-[11.5px]">{o.label}</span>
+              <span className="text-[11.5px]">{t(o.label)}</span>
             </button>
           ))}
         </div>
         <p className="text-[11px] text-muted-foreground">
-          For theme, background and customization, see the{" "}
-          <strong className="font-medium text-foreground">Themes</strong> tab.
+          {t("settings.appearanceHint")}{" "}
+          <strong className="font-medium text-foreground">
+            {t("settings.themes")}
+          </strong>{" "}
+          {t("settings.appearanceHintTail")}
         </p>
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Zoom</Label>
+        <Label>{t("settings.zoom")}</Label>
         <div className="flex flex-col gap-3 rounded-lg border border-border/60 p-3">
           <div className="flex items-center justify-between gap-3">
             <span className="text-[11.5px] text-muted-foreground">
-              UI zoom level
+              {t("settings.uiZoomLevel")}
             </span>
             <span className="tabular-nums text-[11px] text-muted-foreground">
               {Math.round(zoomLevel * 100)}%
@@ -195,10 +172,10 @@ export function GeneralSection() {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Explorer</Label>
+        <Label>{t("settings.explorer")}</Label>
         <SettingRow
-          title="Show hidden files"
-          description="Include dot-prefixed files and folders (.env, .gitignore, .config) in the file explorer and search."
+          title={t("settings.showHidden.title")}
+          description={t("settings.showHidden.description")}
         >
           <Switch
             checked={showHidden}
@@ -206,8 +183,8 @@ export function GeneralSection() {
           />
         </SettingRow>
         <SettingRow
-          title="Git decorations"
-          description="Tint changed files and dim gitignored entries in the file explorer."
+          title={t("settings.gitDecorations.title")}
+          description={t("settings.gitDecorations.description")}
         >
           <Switch
             checked={explorerGitDecorations}
@@ -217,10 +194,10 @@ export function GeneralSection() {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Terminal</Label>
+        <Label>{t("settings.terminal")}</Label>
         <SettingRow
-          title="Terminal renderer"
-          description="Automatic uses WebGPU with WebGL fallback. Choose WebGL for graphics compatibility. Applies to new terminals."
+          title={t("settings.terminalRenderer.title")}
+          description={t("settings.terminalRenderer.description")}
         >
           <Select
             value={terminalRenderer}
@@ -232,14 +209,16 @@ export function GeneralSection() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="auto">Automatic</SelectItem>
+              <SelectItem value="auto">
+                {t("settings.terminalRenderer.auto")}
+              </SelectItem>
               <SelectItem value="webgl">WebGL</SelectItem>
             </SelectContent>
           </Select>
         </SettingRow>
         <SettingRow
-          title="Screen reader support"
-          description="Expose terminal output as accessible text. Page Up and Page Down browse history when the output region is focused."
+          title={t("settings.screenReader.title")}
+          description={t("settings.screenReader.description")}
         >
           <Switch
             checked={terminalScreenReader}
@@ -247,8 +226,8 @@ export function GeneralSection() {
           />
         </SettingRow>
         <SettingRow
-          title="Cursor blinking"
-          description="Blink the terminal cursor. Off by default for lower idle CPU, matching VS Code and the macOS terminal."
+          title={t("settings.cursorBlink.title")}
+          description={t("settings.cursorBlink.description")}
         >
           <Switch
             checked={terminalCursorBlink}
@@ -256,8 +235,8 @@ export function GeneralSection() {
           />
         </SettingRow>
         <SettingRow
-          title="Cursor style"
-          description="Shape of the terminal cursor."
+          title={t("settings.cursorStyle.title")}
+          description={t("settings.cursorStyle.description")}
         >
           <Select
             value={terminalCursorStyle}
@@ -287,8 +266,8 @@ export function GeneralSection() {
           onCommit={(v) => void setTerminalFontFamily(v)}
         />
         <SettingRow
-          title="Font weight"
-          description="Thickness of terminal characters"
+          title={t("settings.fontWeight.title")}
+          description={t("settings.fontWeight.description")}
         >
           <Select
             value={terminalFontWeight}
@@ -314,13 +293,13 @@ export function GeneralSection() {
           </Select>
         </SettingRow>
         <SettingRow
-          title="Integrated terminal shell"
+          title={t("settings.shell.title")}
           description={
             shells.find((s) => s.path === terminalShell)?.integrated === false
-              ? "Command blocks and directory tracking are unavailable for this shell."
+              ? t("settings.shell.noBlocks")
               : wslDistros.length > 0
-                ? "Shell for the integrated terminal. WSL spaces use the distro login shell. Existing tabs keep their shell."
-                : "Shell for new terminal tabs. Existing tabs keep their shell."
+                ? t("settings.shell.wslHint")
+                : t("settings.shell.hint")
           }
         >
           <Select
@@ -337,7 +316,7 @@ export function GeneralSection() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={SHELL_AUTO} className="text-[12px]">
-                Auto
+                {t("settings.shell.auto")}
               </SelectItem>
               {shells.map((s) => (
                 <SelectItem key={s.path} value={s.path} className="text-[12px]">
@@ -349,8 +328,8 @@ export function GeneralSection() {
         </SettingRow>
         {(wslDistros.length > 0 || defaultWorkspaceEnv !== "local") && (
           <SettingRow
-            title="Workspace environment"
-            description="Where new spaces run, terminal and AI agent alike: Windows or a WSL distro. Existing spaces keep theirs; switch any from the status bar."
+            title={t("settings.workspaceEnv.title")}
+            description={t("settings.workspaceEnv.description")}
           >
             <Select
               value={defaultWorkspaceEnv}
@@ -364,7 +343,7 @@ export function GeneralSection() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="local" className="text-[12px]">
-                  Windows
+                  {t("settings.workspaceEnv.windows")}
                 </SelectItem>
                 {wslDistros.map((d) => (
                   <SelectItem
@@ -391,8 +370,8 @@ export function GeneralSection() {
           </SettingRow>
         )}
         <SettingRow
-          title="Letter spacing"
-          description="Extra horizontal space between characters (px). Use negative values to tighten Nerd Fonts."
+          title={t("settings.letterSpacing.title")}
+          description={t("settings.letterSpacing.description")}
         >
           <Select
             value={String(terminalLetterSpacing)}
@@ -410,7 +389,10 @@ export function GeneralSection() {
             </SelectContent>
           </Select>
         </SettingRow>
-        <SettingRow title="Font size" description="Terminal text size.">
+        <SettingRow
+          title={t("settings.fontSize.title")}
+          description={t("settings.fontSize.description")}
+        >
           <Select
             value={String(terminalFontSize)}
             onValueChange={(v) => void setTerminalFontSize(Number(v))}
@@ -432,8 +414,8 @@ export function GeneralSection() {
           </Select>
         </SettingRow>
         <SettingRow
-          title="Scrollback"
-          description="Lines of history kept per terminal. Higher uses more RAM (~3 KB / line)."
+          title={t("settings.scrollback.title")}
+          description={t("settings.scrollback.description")}
         >
           <Select
             value={String(terminalScrollback)}
@@ -449,15 +431,17 @@ export function GeneralSection() {
                   value={String(lines)}
                   className="text-[12px]"
                 >
-                  {lines.toLocaleString()} lines
+                  {t("settings.scrollback.lines", {
+                    count: lines.toLocaleString(),
+                  })}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </SettingRow>
         <SettingRow
-          title="Confirm before killing a running process"
-          description="Ask before closing a terminal tab or quitting while a command is still running. Unsaved editor changes are always confirmed."
+          title={t("settings.confirmKill.title")}
+          description={t("settings.confirmKill.description")}
         >
           <Switch
             checked={confirmCloseRunningTerminal}
@@ -467,20 +451,11 @@ export function GeneralSection() {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Startup</Label>
+        <Label>{t("settings.startup")}</Label>
         <div className="flex flex-col gap-2">
           <SettingRow
-            title="Launch at login"
-            description="Open Terax automatically when you sign in."
-          >
-            <Switch
-              checked={autostart}
-              onCheckedChange={(v) => void onToggleAutostart(v)}
-            />
-          </SettingRow>
-          <SettingRow
-            title="Restore window position & size"
-            description="Reopen the main window where you left it. Applies on next launch."
+            title={t("settings.restoreWindow.title")}
+            description={t("settings.restoreWindow.description")}
           >
             <Switch
               checked={restoreWindowState}
@@ -508,6 +483,7 @@ function FontFamilyInput({
   value: string;
   onCommit: (v: string) => void;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState(value);
 
   useEffect(() => {
@@ -524,13 +500,13 @@ function FontFamilyInput({
 
   return (
     <SettingRow
-      title="Font family"
-      description='Nerd Font name for icons (e.g. "CaskaydiaCove Nerd Font Mono"). Leave blank to auto-detect.'
+      title={t("settings.fontFamily.title")}
+      description={t("settings.fontFamily.description")}
     >
       <input
         type="text"
         value={draft}
-        placeholder="Auto-detect"
+        placeholder={t("settings.fontFamily.placeholder")}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {

@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { useT } from "@/modules/i18n";
 import { useUpdater } from "@/modules/updater";
 import { GithubIcon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -21,6 +22,7 @@ const PLATFORM_LABEL: Record<string, string> = {
 };
 
 export function AboutSection() {
+  const t = useT();
   const [version, setVersion] = useState("");
   const [name, setName] = useState("Terax");
   const [build, setBuild] = useState("");
@@ -66,7 +68,7 @@ export function AboutSection() {
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionHeader title="About" description="" />
+      <SectionHeader title={t("settings.about.title")} description="" />
 
       <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-card/60 p-5">
         <img src="/logo.png" alt="" className="size-12" draggable={false} />
@@ -75,7 +77,7 @@ export function AboutSection() {
             {name}
           </span>
           <span className="text-[11px] text-muted-foreground">
-            Open-source AI-native terminal emulator
+            {t("settings.about.tagline")}
           </span>
           <span className="mt-1 font-mono text-[11px] text-muted-foreground">
             v{version || "—"}
@@ -135,14 +137,14 @@ export function AboutSection() {
             className="gap-1.5"
           >
             <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
-            View on GitHub
+            {t("settings.about.github")}
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => void openUrl(`${REPO_URL}/issues/new`)}
           >
-            Report an issue
+            {t("settings.about.issue")}
           </Button>
         </div>
         {status.kind === "error" && (

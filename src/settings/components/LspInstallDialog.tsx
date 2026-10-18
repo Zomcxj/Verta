@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useT } from "@/modules/i18n";
 import { redetectBinary, type LspPreset } from "@/modules/lsp";
 import { setLspActivation } from "@/modules/settings/store";
 import {
@@ -24,6 +25,7 @@ type Props = {
 };
 
 export function LspInstallDialog({ server, onClose }: Props) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const [checking, setChecking] = useState(false);
   const [notFound, setNotFound] = useState(false);
@@ -81,7 +83,7 @@ export function LspInstallDialog({ server, onClose }: Props) {
               type="button"
               className="shrink-0 cursor-pointer rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
               onClick={() => void copyInstallCommand()}
-              title="Copy install command"
+              title={t("settings.lsp.copyCommand")}
             >
               <HugeiconsIcon
                 icon={copied ? Tick02Icon : Copy01Icon}
