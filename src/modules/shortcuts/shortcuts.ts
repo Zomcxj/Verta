@@ -29,7 +29,6 @@ export type ShortcutId =
   | "pane.swapDown"
   | "pane.source"
   | "terminal.clear"
-  | "terminal.toggleInput"
   | "blocks.prev"
   | "blocks.next"
   | "search.focus"
@@ -49,7 +48,6 @@ export type ShortcutId =
   | "editor.undo"
   | "editor.redo"
   | "editor.save"
-  | "editor.aiComplete"
   | "editor.codeComplete";
 
 export type ShortcutGroup =
@@ -197,12 +195,6 @@ export const SHORTCUTS: Shortcut[] = [
     // macOS — on other platforms Ctrl+K is readline's kill-line, so we leave it
     // unbound and let users assign their own in settings.
     defaultBindings: IS_MAC ? [{ meta: true, key: "k" }] : [],
-  },
-  {
-    id: "terminal.toggleInput",
-    label: "Toggle Shell / AI input",
-    group: "Terminal",
-    defaultBindings: [{ [MOD_PROP]: true, key: "u" }],
   },
   {
     id: "blocks.prev",
@@ -377,12 +369,6 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Save file",
     group: "Editor",
     defaultBindings: [{ [MOD_PROP]: true, key: "s" }],
-  },
-  {
-    id: "editor.aiComplete",
-    label: "Trigger AI completion",
-    group: "Editor",
-    defaultBindings: [{ alt: true, key: "\\" }],
   },
   {
     id: "editor.codeComplete",

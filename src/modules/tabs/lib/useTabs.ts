@@ -1,8 +1,5 @@
 import { isMarkdownPath } from "@/lib/utils";
-import {
-  type AgentInstanceCount,
-  createAgentPanePlan,
-} from "@/modules/agents/lib/launcher";
+import { type PaneCount, createPanePlan } from "./panePlan";
 import {
   findLeafCwd,
   hasLeaf,
@@ -775,9 +772,9 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   }, [newBlockTab]);
 
   const newAgentGroupTab = useCallback(
-    (cwd: string | undefined, title: string, instances: AgentInstanceCount) => {
+    (cwd: string | undefined, title: string, instances: PaneCount) => {
       const tabId = nextIdRef.current++;
-      const { paneTree, leafIds: agentLeafIds } = createAgentPanePlan(
+      const { paneTree, leafIds: agentLeafIds } = createPanePlan(
         instances,
         () => nextIdRef.current++,
         cwd,

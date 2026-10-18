@@ -23,11 +23,12 @@ import {
 // Complements eager-budget.test.ts. That one walks the *source* import graph;
 // this one reads what the bundler actually emitted, because chunk assignment
 // can drag heavy code into the startup graph even when the source graph is
-// clean (observed: React's CJS interop landed in the lazy `ai-sdk-shared`
-// chunk, so the always-eager `react` chunk imported it, and with it every AI
-// provider SDK and zod, in both windows). Preloaded bytes are paid by every
-// launch, so the AI SDK, zod, Streamdown, CodeMirror and the icon set must stay
-// reachable only through dynamic `import()`.
+// clean (observed: React's CJS interop landed in a lazy chunk, so the
+// always-eager `react` chunk imported it, and with it everything that chunk
+// carried, in both windows). Preloaded bytes are paid by every launch, so
+// CodeMirror and the icon set must stay reachable only through dynamic
+// `import()`. The forbidden-package list below is unchanged: it names what must
+// never be preloaded, which now includes packages this fork no longer ships.
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -197,13 +198,10 @@ describe("built startup graph", () => {
         ...analyzeDist(outDir, [html])[html].trace.files.keys(),
       ]),
     );
-    for (const stem of [
-      "ai-sdk-shared",
-      "ai-anthropic",
-      "streamdown",
-      "codemirror",
-      "iconEngine",
-    ]) {
+    // The in-app agent is gone, so the chunks it needed (the AI SDK and
+    // Streamdown) are not built at all: asserting they exist would pin code this
+    // fork deleted. What remains heavy still has to stay off the startup path.
+    for (const stem of ["codemirror", "iconEngine"]) {
       const file = chunks.find((f) => chunkName(f) === stem);
       expect(file, `${stem} chunk should be emitted`).toBeDefined();
       expect(startup.has(`assets/${file}`), `${stem} must not be startup`).toBe(

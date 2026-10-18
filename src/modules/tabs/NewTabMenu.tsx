@@ -5,17 +5,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-} from "@/components/ui/popover";
 import { fmtShortcut, MOD_KEY, SHIFT_KEY } from "@/lib/platform";
-import { AgentLauncherPanel } from "@/modules/agents/components/AgentLauncherPanel";
-import type { AgentLaunchRequest } from "@/modules/agents/lib/launcher";
 import {
-  AiBrowserIcon,
-  ArrowRight01Icon,
   ComputerTerminal02Icon,
   GitBranchIcon,
   Globe02Icon,
@@ -24,7 +15,7 @@ import {
   PlusSignIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 type Props = {
   onNew: () => void;
@@ -33,7 +24,6 @@ type Props = {
   onNewPreview: () => void;
   onNewEditor: () => void;
   onNewGitGraph: () => void;
-  onLaunchAgents: (request: AgentLaunchRequest) => void;
 };
 
 export function NewTabMenu({
@@ -43,34 +33,14 @@ export function NewTabMenu({
   onNewPreview,
   onNewEditor,
   onNewGitGraph,
-  onLaunchAgents,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [launcherOpen, setLauncherOpen] = useState(false);
-  const openLauncherAfterMenuClose = useRef(false);
-  const openMenuAfterLauncherClose = useRef(false);
-
   const onMenuOpenChange = (next: boolean) => {
-    if (next) {
-      openLauncherAfterMenuClose.current = false;
-      setLauncherOpen(false);
-    }
     setMenuOpen(next);
   };
 
-  const openLauncher = () => {
-    openLauncherAfterMenuClose.current = true;
-  };
-
-  const backToMenu = () => {
-    openMenuAfterLauncherClose.current = true;
-    setLauncherOpen(false);
-  };
-
   return (
-    <Popover open={launcherOpen} onOpenChange={setLauncherOpen}>
-      <PopoverAnchor asChild>
-        <span className="inline-flex">
+    <span className="inline-flex">
           <DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange}>
             <DropdownMenuTrigger asChild>
               <Button
@@ -87,10 +57,6 @@ export function NewTabMenu({
               className="min-w-44"
               onCloseAutoFocus={(event) => {
                 event.preventDefault();
-                if (!openLauncherAfterMenuClose.current) return;
-
-                openLauncherAfterMenuClose.current = false;
-                requestAnimationFrame(() => setLauncherOpen(true));
               }}
             >
               <DropdownMenuItem onSelect={onNew}>
@@ -114,20 +80,6 @@ export function NewTabMenu({
                 <span className="text-xs text-muted-foreground">
                   {fmtShortcut(MOD_KEY, SHIFT_KEY, "T")}
                 </span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={openLauncher}>
-                <HugeiconsIcon
-                  icon={AiBrowserIcon}
-                  size={14}
-                  strokeWidth={1.75}
-                />
-                <span className="flex-1">Agents</span>
-                <HugeiconsIcon
-                  icon={ArrowRight01Icon}
-                  size={14}
-                  strokeWidth={1.75}
-                  className="text-muted-foreground"
-                />
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={onNewPrivate}>
                 <HugeiconsIcon
@@ -172,28 +124,6 @@ export function NewTabMenu({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </span>
-      </PopoverAnchor>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
-          if (!openMenuAfterLauncherClose.current) return;
-
-          openMenuAfterLauncherClose.current = false;
-          requestAnimationFrame(() => setMenuOpen(true));
-        }}
-        className="w-[340px] gap-0 overflow-hidden rounded-2xl p-1.5"
-      >
-        <AgentLauncherPanel
-          onBack={backToMenu}
-          onLaunch={(request) => {
-            setLauncherOpen(false);
-            onLaunchAgents(request);
-          }}
-        />
-      </PopoverContent>
-    </Popover>
+    </span>
   );
 }

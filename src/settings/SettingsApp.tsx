@@ -5,22 +5,18 @@ import type { SettingsTab } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { WindowActivityBridge } from "@/modules/theme";
 import {
-  AiScanIcon,
   InformationCircleIcon,
   KeyboardIcon,
   PaintBoardIcon,
   Settings01Icon,
   SourceCodeIcon,
-  UserMultiple02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { type JSX, useEffect, useState } from "react";
 import { AboutSection } from "./sections/AboutSection";
-import { AgentsSection } from "./sections/AgentsSection";
 import { EditorSection } from "./sections/EditorSection";
 import { GeneralSection } from "./sections/GeneralSection";
-import { ModelsSection } from "./sections/ModelsSection";
 import { ShortcutsSection } from "./sections/ShortcutsSection";
 import { ThemesSection } from "./sections/ThemesSection";
 
@@ -53,13 +49,6 @@ const TABS: {
     label: "Shortcuts",
     icon: KeyboardIcon,
     component: ShortcutsSection,
-  },
-  { id: "models", label: "Models", icon: AiScanIcon, component: ModelsSection },
-  {
-    id: "agents",
-    label: "Agents",
-    icon: UserMultiple02Icon,
-    component: AgentsSection,
   },
   {
     id: "about",
