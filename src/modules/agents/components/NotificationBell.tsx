@@ -16,7 +16,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { useMemo, useState } from "react";
-import { AgentIcon } from "../lib/agentIcon";
+import { AgentIcon } from "@/modules/launcher/lib/agentIcon";
 import { displayAgent } from "../lib/format";
 import type { AgentNotification, AgentStatus } from "../lib/types";
 import { useAgentStore } from "../store/agentStore";

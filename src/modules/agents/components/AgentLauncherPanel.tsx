@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { AgentIcon } from "@/modules/agents/lib/agentIcon";
+import { AgentIcon } from "@/modules/launcher/lib/agentIcon";
 import {
   AGENT_LAUNCHERS,
   type AgentInstanceCount,

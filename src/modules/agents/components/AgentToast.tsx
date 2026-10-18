@@ -1,6 +1,6 @@
 import { shortcutLabel } from "@/modules/shortcuts";
 import { toast } from "sonner";
-import { AgentIcon } from "../lib/agentIcon";
+import { AgentIcon } from "@/modules/launcher/lib/agentIcon";
 
 type AgentToastArgs = {
   agent: string;

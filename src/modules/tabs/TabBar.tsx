@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { AgentIcon } from "@/modules/agents/lib/agentIcon";
+import { AgentIcon } from "@/modules/launcher/lib/agentIcon";
 import type { AgentLaunchRequest } from "@/modules/agents/lib/launcher";
 import {
   ALL_LANGUAGES,
