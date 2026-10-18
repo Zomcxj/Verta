@@ -30,7 +30,7 @@ import {
 import {
   type AgentSession,
   LauncherPanel,
-  resumeCommand,
+  planSessionOpen,
 } from "@/modules/launcher";
 import { setLspNavigator } from "@/modules/lsp";
 import type { PreviewPaneHandle } from "@/modules/preview";
@@ -180,6 +180,7 @@ export default function App() {
     openGitDiffTab,
     openCommitHistoryTab,
     openProjectsTab,
+    openRemoteReposTab,
     openCommitFileDiffTab,
     closeTab,
     closeTabs,
@@ -617,6 +618,11 @@ export default function App() {
     openProjectsTab(t("tabs.new.projects"));
   }, [openProjectsTab, t]);
 
+  /** 远程仓库标签页（中间区域，一个空间一个，内容是本机 gh 读到的账号级列表）。 */
+  const openRemotes = useCallback(() => {
+    openRemoteReposTab(t("remotes.tabTitle"));
+  }, [openRemoteReposTab, t]);
+
   const openNewPrivateTab = useCallback(() => {
     newPrivateTab(inheritedCwdForNewTab());
   }, [newPrivateTab, inheritedCwdForNewTab]);
@@ -628,22 +634,18 @@ export default function App() {
 
   const handleOpenSession = useCallback(
     (session: AgentSession) => {
-      // 发行版的会话要开在 WSL 终端里，cwd 是 Linux 路径，引号也要按 POSIX 来。
-      const workspace: WorkspaceEnv | undefined = session.distro
-        ? { kind: "wsl", distro: session.distro }
-        : undefined;
-      let command: string;
-      try {
-        command = resumeCommand(session, workspace ? false : undefined);
-      } catch (error) {
-        console.error("[verta] refusing to build a resume command", error);
+      // 环境与命令一起由会话自己定：本机会话就得开在本机终端里，别让终端去猜
+      // 当前环境（在 WSL 终端上点本机会话，命令是本机的、shell 是发行版的）。
+      const plan = planSessionOpen(session);
+      if (!plan) {
+        console.error("[verta] refusing to build a resume command", session.id);
         return;
       }
-      const { leafId } = newAgentTab(session.cwd, session.title, workspace);
+      const { leafId } = newAgentTab(plan.cwd, session.title, plan.workspace);
       setActiveSessionId(session.id);
       void (async () => {
         await whenSessionReady(leafId);
-        if (!writeToSession(leafId, `${command}\r`)) {
+        if (!writeToSession(leafId, `${plan.command}\r`)) {
           console.error(`[verta] terminal ${leafId} closed before resume`);
         }
       })();
@@ -1272,6 +1274,7 @@ export default function App() {
             openNewEditor: () => setNewEditorOpen(true),
             openNewPreview: () => openPreviewTab(""),
             openProjects,
+            openRemotes,
             openGitGraph: openGitGraphFromContext,
             toggleSourceControl: toggleRightPanel,
             closeActiveTabOrPane: handleCloseTabOrPane,
@@ -1417,6 +1420,7 @@ export default function App() {
               onNewEditor={() => setNewEditorOpen(true)}
               onNewGitGraph={openGitGraphFromContext}
               onNewProjects={openProjects}
+              onOpenRemotes={openRemotes}
               onClose={handleClose}
               onCloseTabsToRight={handleCloseTabsToRight}
               onCloseOtherTabs={handleCloseOtherTabs}
