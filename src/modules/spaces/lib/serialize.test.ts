@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PaneNode } from "@/modules/terminal/lib/panes";
 import type { Tab } from "@/modules/tabs/lib/useTabs";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { hydrateTabs, serializeTabs, type SerializedTab } from "./serialize";
 
 function counter(start = 100): () => number {
@@ -72,9 +73,70 @@ describe("serializeTabs", () => {
       expect(node.tree.children[0]).not.toHaveProperty("active");
     }
   });
+
+  it("keeps the environment and shell of a leaf, so a restore is faithful", () => {
+    const tree: PaneNode = {
+      kind: "leaf",
+      id: 11,
+      cwd: "/home/aj",
+      workspace: { kind: "wsl", distro: "Ubuntu-22.04" },
+      shell: "/bin/fish",
+    };
+    const [s] = serializeTabs([term({ paneTree: tree, activeLeafId: 11 })]);
+    const node = s as Extract<SerializedTab, { kind: "terminal" }>;
+    if (node.tree.kind !== "leaf") throw new Error("expected a leaf");
+    expect(node.tree.workspace).toEqual({
+      kind: "wsl",
+      distro: "Ubuntu-22.04",
+    });
+    expect(node.tree.shell).toBe("/bin/fish");
+  });
 });
 
 describe("hydrateTabs", () => {
+  it("gives an old leaf without a workspace one derived from its cwd", () => {
+    // 老数据只有 cwd：空间记着本机、标签停在发行版，恢复时要按 cwd 补上发行版。
+    // 真实使用里「上次用过的发行版」是持久化的，这里照做。
+    usePreferencesStore.setState({ lastWslDistro: "Ubuntu-22.04" });
+    const serialized: SerializedTab[] = [
+      {
+        kind: "terminal",
+        tree: { kind: "leaf", cwd: "/home/aj", active: true },
+      },
+    ];
+    const [tab] = hydrateTabs(serialized, "s1", counter(), {
+      kind: "local",
+    });
+    usePreferencesStore.setState({ lastWslDistro: null });
+    if (tab?.kind !== "terminal") throw new Error("expected a terminal");
+    expect(tab.paneTree).toMatchObject({
+      cwd: "/home/aj",
+      workspace: { kind: "wsl", distro: "Ubuntu-22.04" },
+    });
+  });
+
+  it("keeps the workspace a leaf already had", () => {
+    const serialized: SerializedTab[] = [
+      {
+        kind: "terminal",
+        tree: {
+          kind: "leaf",
+          cwd: "C:/work",
+          workspace: { kind: "wsl", distro: "Debian" },
+          shell: "/bin/fish",
+          active: true,
+        },
+      },
+    ];
+    const [tab] = hydrateTabs(serialized, "s1", counter(), {
+      kind: "local",
+    });
+    if (tab?.kind !== "terminal") throw new Error("expected a terminal");
+    expect(tab.paneTree).toMatchObject({
+      workspace: { kind: "wsl", distro: "Debian" },
+      shell: "/bin/fish",
+    });
+  });
   it("round-trips structure, cwd, blocks and active leaf", () => {
     const tree: PaneNode = {
       kind: "split",

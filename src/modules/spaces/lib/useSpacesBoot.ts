@@ -4,9 +4,13 @@ import type { Tab } from "@/modules/tabs";
 import { defaultSpaceName } from "@/modules/i18n/spaceName";
 import { DEFAULT_SPACE_ID } from "@/modules/tabs/lib/useTabs";
 import { isLeaf, type PaneNode } from "@/modules/terminal/lib/panes";
-import { parseWorkspaceScopeKey, type WorkspaceEnv } from "@/modules/workspace";
+import {
+  envForPath,
+  parseWorkspaceScopeKey,
+  type WorkspaceEnv,
+} from "@/modules/workspace";
 import { useEffect, useRef } from "react";
-import { activeSpaceEnv, freshTabCwd } from "./activeSpace";
+import { activeSpaceEnv, freshTabCwd, tabEnvironment } from "./activeSpace";
 import { freshTerminalTab, hydrateTabs } from "./serialize";
 import { loadAll, type SpaceMeta, saveActiveId, saveSpacesList } from "./store";
 import { useSpaces } from "./useSpaces";
@@ -88,7 +92,16 @@ export function useSpacesBoot({
         for (const space of spaces) {
           const st = states.get(space.id);
           if (!st) continue;
-          restored.push(...hydrateTabs(st.tabs, space.id, allocId));
+          // 每个空间用它自己的环境兜底：老数据只存了 cwd，这里按 cwd 补上叶子的环境，
+          // 恢复出来的终端才会各自在自己的环境里启动。
+          restored.push(
+            ...hydrateTabs(
+              st.tabs,
+              space.id,
+              allocId,
+              activeSpaceEnv(spaces, space.id),
+            ),
+          );
         }
 
         const active =
@@ -99,17 +112,28 @@ export function useSpacesBoot({
 
         // Apply the space's env+home before the fresh-tab fallback and spawns
         // below; env is set synchronously so cwd resolution picks WSL vs local.
-        const env = activeSpaceEnv(spaces, active);
+        // 但存下来的标签可能停在另一个环境里（空间一直在本机，标签却在发行版），所以要按活动
+        // 标签的 cwd 修正一次，否则那些终端会带着 Linux 路径去本机启动。
+        const spaceEnv = activeSpaceEnv(spaces, active);
+        const idx = states.get(active)?.activeTabIndex ?? 0;
+        const inActiveBefore = restored.filter((t) => t.spaceId === active);
+        const restoredActive =
+          inActiveBefore[idx] ?? inActiveBefore[0] ?? null;
+        const env =
+          (restoredActive && tabEnvironment(restoredActive, spaceEnv)) ||
+          spaceEnv;
         const restoredHome = await adoptWorkspaceEnv(env);
 
         // Active space must never be empty, else its tab list shows nothing.
-        if (!restored.some((t) => t.spaceId === active)) {
+        if (inActiveBefore.length === 0) {
           const cwd = freshTabCwd(env, restoredHome, launchCwd, home);
           restored.push(freshTerminalTab(active, cwd, allocId));
         }
 
         await Promise.allSettled(
-          uniqueCwds(restored).map((cwd) => native.workspaceAuthorize(cwd)),
+          uniqueCwds(restored).map((cwd) =>
+            native.workspaceAuthorize(cwd, envForPath(cwd, env)),
+          ),
         );
 
         const initialActiveIndex: Record<string, number> = {};
@@ -118,7 +142,6 @@ export function useSpacesBoot({
         useSpaces.getState().hydrate(spaces, active, initialActiveIndex);
 
         const inActive = restored.filter((t) => t.spaceId === active);
-        const idx = states.get(active)?.activeTabIndex ?? 0;
         const activeTab = inActive[idx] ?? inActive[0] ?? restored[0];
         replaceTabs(restored, activeTab.id);
       } catch (e) {

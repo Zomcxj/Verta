@@ -10,9 +10,19 @@ import type {
   Tab,
   TerminalTab,
 } from "@/modules/tabs/lib/useTabs";
+import type { WorkspaceEnv } from "@/modules/workspace";
+import { envForPath } from "@/modules/workspace";
 
 type SerializedNode =
-  | { kind: "leaf"; cwd?: string; active?: boolean }
+  | {
+      kind: "leaf";
+      cwd?: string;
+      /** 存下来，恢复时才知道这个叶子该开在本机还是哪个发行版里。 */
+      workspace?: WorkspaceEnv;
+      /** 存下来，恢复时用的还是当初那个 shell，而不是设置里的默认终端。 */
+      shell?: string;
+      active?: boolean;
+    }
   | { kind: "split"; dir: SplitDir; children: SerializedNode[] };
 
 export type SerializedTab =
@@ -44,6 +54,8 @@ function serializeNode(node: PaneNode, activeLeafId: number): SerializedNode {
     return {
       kind: "leaf",
       ...(node.cwd !== undefined && { cwd: node.cwd }),
+      ...(node.workspace !== undefined && { workspace: node.workspace }),
+      ...(node.shell !== undefined && { shell: node.shell }),
       ...(node.id === activeLeafId && { active: true }),
     };
   }
@@ -103,10 +115,23 @@ type HydratedTree = {
   firstLeafCwd?: string;
 };
 
+/**
+ * 老数据里叶子只存了 cwd。按 cwd 把环境补回去，恢复出来的每个终端才会在自己的环境里启动；
+ * 少了这一步，空间记着本机、标签却停在发行版里的那些终端会带着 Linux 路径去本机启动。
+ */
+function restoredLeafEnv(
+  cwd: string | undefined,
+  fallback: WorkspaceEnv | undefined,
+): { workspace?: WorkspaceEnv } {
+  if (!cwd || !fallback) return {};
+  return { workspace: envForPath(cwd, fallback) };
+}
+
 function hydrateNode(
   node: SerializedNode,
   allocId: () => number,
   acc: { activeLeafId: number | null },
+  fallbackEnv?: WorkspaceEnv,
 ): PaneNode {
   if (node.kind === "leaf") {
     const id = allocId();
@@ -115,9 +140,15 @@ function hydrateNode(
       kind: "leaf",
       id,
       ...(node.cwd !== undefined && { cwd: node.cwd }),
+      ...(node.workspace !== undefined
+        ? { workspace: node.workspace }
+        : restoredLeafEnv(node.cwd, fallbackEnv)),
+      ...(node.shell !== undefined && { shell: node.shell }),
     };
   }
-  const children = node.children.map((c) => hydrateNode(c, allocId, acc));
+  const children = node.children.map((c) =>
+    hydrateNode(c, allocId, acc, fallbackEnv),
+  );
   if (children.length === 0) return { kind: "leaf", id: allocId() };
   if (children.length === 1) return children[0];
   return { kind: "split", id: allocId(), dir: node.dir, children };
@@ -126,9 +157,10 @@ function hydrateNode(
 function hydrateTree(
   tree: SerializedNode,
   allocId: () => number,
+  fallbackEnv?: WorkspaceEnv,
 ): HydratedTree {
   const acc: { activeLeafId: number | null } = { activeLeafId: null };
-  const paneTree = hydrateNode(tree, allocId, acc);
+  const paneTree = hydrateNode(tree, allocId, acc, fallbackEnv);
   const leaves = collectLeaves(paneTree);
   const activeLeafId = acc.activeLeafId ?? leaves[0]?.id ?? allocId();
   const firstLeafCwd =
@@ -145,10 +177,15 @@ function hydrateTab(
   s: SerializedTab,
   spaceId: string,
   allocId: () => number,
+  fallbackEnv?: WorkspaceEnv,
 ): Tab | null {
   switch (s.kind) {
     case "terminal": {
-      const { tree, activeLeafId, firstLeafCwd } = hydrateTree(s.tree, allocId);
+      const { tree, activeLeafId, firstLeafCwd } = hydrateTree(
+        s.tree,
+        allocId,
+        fallbackEnv,
+      );
       const title =
         s.customTitle ??
         (firstLeafCwd ? basename(firstLeafCwd) : s.blocks ? "blocks" : "shell");
@@ -221,12 +258,13 @@ export function hydrateTabs(
   serialized: SerializedTab[],
   spaceId: string,
   allocId: () => number,
+  fallbackEnv?: WorkspaceEnv,
 ): Tab[] {
   if (!Array.isArray(serialized)) return [];
   const out: Tab[] = [];
   for (const s of serialized) {
     try {
-      const tab = hydrateTab(s, spaceId, allocId);
+      const tab = hydrateTab(s, spaceId, allocId, fallbackEnv);
       if (tab) out.push(tab);
     } catch {
       // Skip corrupted entries rather than failing the whole restore.
