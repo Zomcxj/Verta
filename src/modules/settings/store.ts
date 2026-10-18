@@ -1,3 +1,4 @@
+import type { LanguagePref } from "@/modules/i18n/language";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { LazyStore } from "@tauri-apps/plugin-store";
@@ -127,6 +128,11 @@ export type Preferences = {
   confirmCloseRunningTerminal: boolean;
   lastWslDistro: string | null;
   zoomLevel: number;
+  /**
+   * Interface language. `system` follows the OS locale, which is what a fresh
+   * install should do; the explicit values are the user overriding it.
+   */
+  language: LanguagePref;
   defaultWorkspaceEnv: string;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
   editorAutoSave: boolean;
@@ -196,6 +202,7 @@ const KEY_TERMINAL_SCROLLBACK = "terminalScrollback";
 const KEY_CONFIRM_CLOSE_RUNNING_TERMINAL = "confirmCloseRunningTerminal";
 const KEY_LAST_WSL_DISTRO = "lastWslDistro";
 const KEY_ZOOM_LEVEL = "zoomLevel";
+const KEY_LANGUAGE = "language";
 const KEY_DEFAULT_WORKSPACE_ENV = "defaultWorkspaceEnv";
 const KEY_SHORTCUTS = "shortcuts";
 const KEY_EDITOR_AUTO_SAVE = "editorAutoSave";
@@ -266,6 +273,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   confirmCloseRunningTerminal: true,
   lastWslDistro: null,
   zoomLevel: 1.0,
+  language: "system",
   defaultWorkspaceEnv: "local",
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
   editorAutoSave: false,
@@ -376,6 +384,7 @@ export async function loadPreferences(): Promise<Preferences> {
       get<string | null>(KEY_LAST_WSL_DISTRO) ??
       DEFAULT_PREFERENCES.lastWslDistro,
     zoomLevel: get<number>(KEY_ZOOM_LEVEL) ?? DEFAULT_PREFERENCES.zoomLevel,
+    language: get<LanguagePref>(KEY_LANGUAGE) ?? DEFAULT_PREFERENCES.language,
     defaultWorkspaceEnv:
       get<string>(KEY_DEFAULT_WORKSPACE_ENV) ??
       DEFAULT_PREFERENCES.defaultWorkspaceEnv,
@@ -613,6 +622,10 @@ export async function setZoomLevel(value: number): Promise<void> {
   await writePref(KEY_ZOOM_LEVEL, value);
 }
 
+export async function setLanguage(value: LanguagePref): Promise<void> {
+  await writePref(KEY_LANGUAGE, value);
+}
+
 export const AUTO_SAVE_DELAY_MIN = 100;
 export const AUTO_SAVE_DELAY_MAX = 60000;
 
@@ -700,6 +713,7 @@ export async function onPreferencesChange(
     [KEY_CONFIRM_CLOSE_RUNNING_TERMINAL]: "confirmCloseRunningTerminal",
     [KEY_LAST_WSL_DISTRO]: "lastWslDistro",
     [KEY_ZOOM_LEVEL]: "zoomLevel",
+    [KEY_LANGUAGE]: "language",
     [KEY_DEFAULT_WORKSPACE_ENV]: "defaultWorkspaceEnv",
     [KEY_SHORTCUTS]: "shortcuts",
     [KEY_EDITOR_AUTO_SAVE]: "editorAutoSave",

@@ -8,10 +8,12 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { useLanguage, useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { ThemePref } from "@/modules/settings/store";
 import {
   setAutostart,
+  setLanguage,
   setConfirmCloseRunningTerminal,
   setDefaultWorkspaceEnv,
   setExplorerGitDecorations,
@@ -142,6 +144,8 @@ export function GeneralSection() {
         title="General"
         description="Mode, terminal, and startup."
       />
+
+      <LanguageSetting />
 
       <div className="flex flex-col gap-2">
         <Label>Appearance</Label>
@@ -535,5 +539,44 @@ function FontFamilyInput({
         className="h-8 w-48 rounded-md border border-border bg-background px-2.5 text-[12px] outline-none focus:border-foreground/40"
       />
     </SettingRow>
+  );
+}
+
+/**
+ * Interface language.
+ *
+ * "System" is the default and resolves against the OS locale at render time, so
+ * switching it back costs nothing; the two explicit options are the override.
+ */
+function LanguageSetting() {
+  const t = useT();
+  const language = useLanguage();
+  const pref = usePreferencesStore((s) => s.language);
+  return (
+    <div className="flex flex-col gap-2">
+      <Label>{t("settings.language")}</Label>
+      <SettingRow title="" description={t("settings.languageHint")}>
+        <Select
+          value={pref ?? "system"}
+          onValueChange={(v) => void setLanguage(v as "system" | "zh" | "en")}
+        >
+          <SelectTrigger size="sm" className="h-8 w-32 text-[12px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="system">
+              {t("settings.languageSystem")}
+            </SelectItem>
+            <SelectItem value="zh">中文</SelectItem>
+            <SelectItem value="en">English</SelectItem>
+          </SelectContent>
+        </Select>
+      </SettingRow>
+      <p className="text-[11px] text-muted-foreground">
+        {t("settings.languageActive", {
+          language: language === "zh" ? "中文" : "English",
+        })}
+      </p>
+    </div>
   );
 }

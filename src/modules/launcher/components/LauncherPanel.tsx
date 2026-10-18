@@ -9,6 +9,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { type MessageKey, useT } from "@/modules/i18n";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { relativeTime } from "../lib/relativeTime";
 import {
@@ -39,6 +40,7 @@ type Props = {
 
 export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
   const [query, setQuery] = useState("");
+  const t = useT();
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -127,20 +129,26 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
       await refresh();
       if (failures.length > 0) {
         setError(
-          `有 ${failures.length} 条没能删除：\n${failures
-            .map(
-              (outcome) =>
-                `${outcome.tool} ${outcome.id}：${outcome.reason ?? "未知原因"}`,
-            )
-            .join("\n")}`,
+          t("launcher.deleteFailed", {
+            count: failures.length,
+            failures: failures
+              .map((outcome) =>
+                t("launcher.failureLine", {
+                  tool: outcome.tool,
+                  id: outcome.id,
+                  reason: outcome.reason ?? t("launcher.unknownReason"),
+                }),
+              )
+              .join("\n"),
+          }),
         );
       }
     } catch (failure) {
-      setError(`删除请求失败：${String(failure)}`);
+      setError(t("launcher.deleteRequestFailed", { message: String(failure) }));
     } finally {
       setDeleting(false);
     }
-  }, [pendingDelete, refresh]);
+  }, [pendingDelete, refresh, t]);
 
   const nowMs = Date.now();
 
@@ -148,14 +156,14 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-1 px-2 py-1.5">
         <span className="text-[11px] font-medium text-muted-foreground">
-          Sessions
+          {t("rail.sessions")}
         </span>
         <button
           type="button"
           onClick={toggleManaging}
           className="ml-auto cursor-pointer rounded-md px-2 py-1 text-[11px] text-muted-foreground outline-none transition-colors duration-[var(--dur-base)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
         >
-          {managing ? "完成" : "管理"}
+          {managing ? t("launcher.done") : t("launcher.manage")}
         </button>
         <button
           type="button"
@@ -163,7 +171,7 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
           onClick={() => void refresh()}
           className="cursor-pointer rounded-md px-2 py-1 text-[11px] text-muted-foreground outline-none transition-colors duration-[var(--dur-base)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-50"
         >
-          {loading ? "读取中" : "刷新"}
+          {loading ? t("launcher.loading") : t("launcher.refresh")}
         </button>
       </div>
 
@@ -171,7 +179,7 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索标题或目录"
+          placeholder={t("launcher.search")}
           className="w-full rounded-md border border-border/60 bg-transparent px-2 py-1 text-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
         />
       </div>
@@ -205,7 +213,7 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
 
       {managing ? (
         <div className="flex shrink-0 items-center gap-1 border-t border-border/60 px-2 py-1 text-[10px] text-muted-foreground">
-          <span>已选 {selected.size} 条</span>
+          <span>{t("launcher.selectedCount", { count: selected.size })}</span>
           <button
             type="button"
             onClick={() =>
@@ -213,7 +221,7 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
             }
             className="cursor-pointer rounded px-1.5 py-0.5 outline-none transition-colors duration-[var(--dur-base)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
           >
-            全选
+            {t("launcher.selectAll")}
           </button>
           <button
             type="button"
@@ -222,7 +230,7 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
             }
             className="cursor-pointer rounded px-1.5 py-0.5 outline-none transition-colors duration-[var(--dur-base)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
           >
-            清空
+            {t("launcher.clear")}
           </button>
           <button
             type="button"
@@ -230,15 +238,20 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
             onClick={openDeleteDialog}
             className="ml-auto cursor-pointer rounded-md px-2 py-1 text-[11px] text-destructive outline-none transition-colors duration-[var(--dur-base)] hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:opacity-40"
           >
-            {deleting ? "删除中" : "删除"}
+            {deleting ? t("launcher.deleting") : t("launcher.delete")}
           </button>
         </div>
       ) : (
         <div className="shrink-0 border-t border-border/60 px-2 py-1 text-[10px] text-muted-foreground">
           {visible.length === topLevel.length
-            ? `${topLevel.length} 条`
-            : `${visible.length} / ${topLevel.length} 条`}
-          {warnings.length > 0 ? `，${warnings.length} 个文件无法解析` : ""}
+            ? t("launcher.countAll", { total: topLevel.length })
+            : t("launcher.count", {
+                shown: visible.length,
+                total: topLevel.length,
+              })}
+          {warnings.length > 0
+            ? t("launcher.unparsed", { count: warnings.length })
+            : ""}
         </div>
       )}
 
@@ -248,15 +261,15 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>删除会话？</AlertDialogTitle>
+            <AlertDialogTitle>{t("launcher.deleteTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingDelete === null ? "" : deleteWarning(pendingDelete)}
+              {pendingDelete === null ? "" : deleteWarning(pendingDelete, t)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogCancel>{t("launcher.cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={() => void confirmDelete()}>
-              删除
+              {t("launcher.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -266,14 +279,21 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
 }
 
 /** Every consequence of the click, in one place, before anything is removed. */
-function deleteWarning(pending: PendingDelete): string {
+function deleteWarning(
+  pending: PendingDelete,
+  t: (key: MessageKey, values?: Record<string, string | number>) => string,
+): string {
   const { total, byTool, subagents, hasSubagents } = pending.summary;
   const parts = [
-    `将从本机永久删除 ${total} 条会话记录（opencode ${byTool.opencode} 条、pi ${byTool.pi} 条），无法撤销。`,
-    "删除 opencode 的父会话会连带删除它的子会话。",
-    "删除 pi 会话时会连同该会话的产物目录一起删除。",
+    t("launcher.deleteBody", {
+      total,
+      opencode: byTool.opencode,
+      pi: byTool.pi,
+    }),
+    t("launcher.deleteWarnOpencode"),
+    t("launcher.deleteWarnPi"),
   ];
-  if (hasSubagents) parts.push(`其中 ${subagents} 条是子代理或分叉会话。`);
-  if (pending.includesActive) parts.push("其中包含当前已在终端打开的会话。");
+  if (hasSubagents) parts.push(t("launcher.deleteSubagents", { count: subagents }));
+  if (pending.includesActive) parts.push(t("launcher.deleteWarnActive"));
   return parts.join("");
 }

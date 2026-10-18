@@ -52,15 +52,18 @@ export function useSpacesBoot({
 
     void (async () => {
       try {
+        // Always hydrate: preferences carry the interface language and window
+        // behavior, which an existing workspace needs just as much as a fresh
+        // one. Doing it only when no workspace existed left every returning
+        // user on default preferences.
+        await usePreferencesStore
+          .getState()
+          .init()
+          .catch(() => {});
         const { spaces, activeId, states } = await loadAll();
 
         if (spaces.length === 0) {
           const root = launchCwd ?? home ?? null;
-          // Hydrate prefs before reading the saved workspace env.
-          await usePreferencesStore
-            .getState()
-            .init()
-            .catch(() => {});
           const meta: SpaceMeta = {
             id: DEFAULT_SPACE_ID,
             name: "Default",

@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { type MessageKey, useT } from "@/modules/i18n";
 import {
   FolderGitTwoIcon,
   FolderTreeIcon,
@@ -11,7 +12,8 @@ const SIDEBAR_RAIL_HEIGHT = 36;
 
 type RailItem = {
   id: SidebarViewId;
-  label: string;
+  /** Message key, not text: the rail is the first thing a user sees. */
+  label: MessageKey;
   icon: Parameters<typeof HugeiconsIcon>[0]["icon"];
   badge?: number;
 };
@@ -23,12 +25,13 @@ type Props = {
 };
 
 export function SidebarRail({ activeView, onSelectView, changedCount }: Props) {
+  const t = useT();
   const items: RailItem[] = [
-    { id: "launcher", label: "Sessions", icon: MessageMultiple01Icon },
-    { id: "explorer", label: "Files", icon: FolderTreeIcon },
+    { id: "launcher", label: "rail.sessions", icon: MessageMultiple01Icon },
+    { id: "explorer", label: "rail.files", icon: FolderTreeIcon },
     {
       id: "source-control",
-      label: "Git",
+      label: "rail.git",
       icon: FolderGitTwoIcon,
       badge: changedCount,
     },
@@ -46,7 +49,7 @@ export function SidebarRail({ activeView, onSelectView, changedCount }: Props) {
           <button
             key={item.id}
             type="button"
-            aria-label={item.label}
+            aria-label={t(item.label)}
             aria-pressed={isActive}
             onClick={() => onSelectView(item.id)}
             className={cn(
@@ -63,7 +66,7 @@ export function SidebarRail({ activeView, onSelectView, changedCount }: Props) {
               strokeWidth={isActive ? 2 : 1.75}
               className="shrink-0 transition-[stroke-width] duration-[var(--dur-base)]"
             />
-            <span>{item.label}</span>
+            <span>{t(item.label)}</span>
             {showBadge ? (
               <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border/60 bg-card px-1 text-[9px] font-semibold leading-none tabular-nums text-muted-foreground/95">
                 {item.badge! > 99 ? "99+" : item.badge}
