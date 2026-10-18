@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "@/modules/i18n";
 import {
   findImageReferences,
+  nameRanks,
   type ImageReference,
   type ScreenRow,
 } from "@/modules/terminal/ghostty/terminalImages";
@@ -57,35 +58,40 @@ const misses = new Map<string, { at: number; attempts: number }>();
 const MISS_TTL_MS = 2500;
 const MAX_ATTEMPTS = 3;
 
-function lookupImage(name: string, directory: string | null): Promise<string | null> {
-  const cached = resolved.get(name);
+function lookupImage(
+  name: string,
+  directory: string | null,
+  skip: number,
+): Promise<string | null> {
+  const key = `${skip}|${name}`;
+  const cached = resolved.get(key);
   if (cached !== undefined) return Promise.resolve(cached);
-  const missed = misses.get(name);
+  const missed = misses.get(key);
   if (missed) {
     if (missed.attempts >= MAX_ATTEMPTS || Date.now() - missed.at < MISS_TTL_MS) {
       return Promise.resolve(null);
     }
   }
-  const pending = inFlight.get(name);
+  const pending = inFlight.get(key);
   if (pending) return pending;
-  const request = invoke<string | null>("agent_sessions_image", { name, directory })
+  const request = invoke<string | null>("agent_sessions_image", { name, directory, skip })
     .then((url) => {
       if (url) {
-        resolved.set(name, url);
-        misses.delete(name);
+        resolved.set(key, url);
+        misses.delete(key);
       } else {
-        misses.set(name, { at: Date.now(), attempts: (missed?.attempts ?? 0) + 1 });
+        misses.set(key, { at: Date.now(), attempts: (missed?.attempts ?? 0) + 1 });
       }
       return url;
     })
     .catch(() => {
-      misses.set(name, { at: Date.now(), attempts: (missed?.attempts ?? 0) + 1 });
+      misses.set(key, { at: Date.now(), attempts: (missed?.attempts ?? 0) + 1 });
       return null;
     })
     .finally(() => {
-      inFlight.delete(name);
+      inFlight.delete(key);
     });
-  inFlight.set(name, request);
+  inFlight.set(key, request);
   return request;
 }
 
@@ -137,8 +143,14 @@ export default function GhosttyImageOverlay({ leafId }: { leafId: number }) {
     }
 
     const directory = ghosttyCwdForLeaf(leafId);
+    // The newest attachment of a repeated name is the one lowest on the screen:
+    // images pasted from the clipboard are all called `clipboard`, so the name
+    // alone does not say which one a row is showing.
+    const ranks = nameRanks(references);
     void Promise.all(
-      references.map((reference) => lookupImage(reference.name, directory)),
+      references.map((reference, index) =>
+        lookupImage(reference.name, directory, ranks[index]),
+      ),
     ).then((urls) => {
       // The screen moved on while the reads were in flight; a later scan owns
       // the result now.

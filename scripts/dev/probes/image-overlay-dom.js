@@ -1,25 +1,27 @@
-// 诊断：叠加层是否挂载、是否拿到了图片数据。只读。
+// 诊断：列出文档里所有 data: 图片与位图按钮的位置，并附上最近一次扫描摘要。
 (async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  await sleep(1000);
   const out = [];
-  for (let i = 0; i < 30; i += 1) {
-    if (document.querySelectorAll("canvas").length > 0) break;
-    await sleep(500);
+  const images = [...document.querySelectorAll("img")];
+  out.push(`img 总数: ${images.length}`);
+  for (const image of images) {
+    const src = image.getAttribute("src") ?? "";
+    if (!src.startsWith("data:image/png")) continue;
+    const rect = image.getBoundingClientRect();
+    out.push(
+      `   y=${Math.round(rect.top)} x=${Math.round(rect.left)} ${Math.round(rect.width)}x${Math.round(rect.height)} ${src.length}字节`,
+    );
   }
-  const images = [...document.querySelectorAll("img")].map((el) => ({
-    src: (el.getAttribute("src") ?? "").slice(0, 40),
-    w: Math.round(el.getBoundingClientRect().width),
-    h: Math.round(el.getBoundingClientRect().height),
-  }));
-  out.push(`img 元素: ${images.length}`);
-  for (const image of images.slice(0, 8)) out.push(`   ${image.w}x${image.h} ${image.src}`);
-
-  const overlays = [...document.querySelectorAll("div")].filter((el) =>
-    (el.className ?? "").toString().includes("pointer-events-none absolute inset-0 z-10"),
+  const button = [...document.querySelectorAll("button")].filter((element) =>
+    (element.querySelector("img")?.getAttribute("src") ?? "").startsWith("data:image/png"),
   );
-  out.push(`叠加层容器: ${overlays.length}`);
-  for (const overlay of overlays.slice(0, 4)) {
-    out.push(`   子元素 ${overlay.children.length}: ${[...overlay.children].map((c) => c.tagName + "." + (c.className ?? "").toString().slice(0, 24)).join(" | ")}`);
-  }
+  out.push(`位图按钮: ${button.length}`);
+  const scan = window.__vertaImageScan;
+  out.push(
+    scan
+      ? `扫描: ${scan.references.length} 条引用, ${scan.tinted.filter((n) => n > 0).length} 行着色`
+      : "扫描: 无",
+  );
   return out.join("\n");
 })();

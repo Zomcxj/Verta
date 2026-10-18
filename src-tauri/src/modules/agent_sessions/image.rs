@@ -11,6 +11,7 @@
 //! in, and the index on that table turns reading one session's messages into a
 //! scan of a few hundred rows.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use rusqlite::{params, Connection};
@@ -44,13 +45,14 @@ const SESSIONS: &str = "session_v2";
 pub(crate) fn data_url_by_name(
     name: &str,
     directory: Option<&str>,
+    skip: usize,
 ) -> Result<Option<String>, String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
         return Ok(None);
     }
     let path = default_db_path().ok_or("找不到用户主目录，无法定位 opencode 数据库")?;
-    lookup(&path, trimmed, directory)
+    lookup(&path, trimmed, directory, skip)
 }
 
 /// How far back the whole-table search looks. Every lookup reasons about a
@@ -59,7 +61,12 @@ pub(crate) fn data_url_by_name(
 /// from scanning gigabytes, which measured ten seconds.
 const FALLBACK_WINDOW_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 
-fn lookup(path: &Path, name: &str, directory: Option<&str>) -> Result<Option<String>, String> {
+fn lookup(
+    path: &Path,
+    name: &str,
+    directory: Option<&str>,
+    skip: usize,
+) -> Result<Option<String>, String> {
     if !path.is_file() {
         return Err(format!(
             "找不到 opencode 数据库：{}。请确认 opencode 已安装并至少运行过一次。",
@@ -68,11 +75,16 @@ fn lookup(path: &Path, name: &str, directory: Option<&str>) -> Result<Option<Str
     }
     let conn = open_read_only(path)?;
     let patterns = name_patterns(name);
+    // One more than asked for: the wanted one is the last of them.
+    let wanted = skip + 1;
+    let mut found: Vec<Attachment> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     if let Some(directory) = directory.map(normalize_directory) {
         for session in sessions_for_directory(&conn, &directory) {
             for pattern in &patterns {
-                if let Some(url) = search_in_session(&conn, &session, pattern, name)? {
-                    return Ok(Some(url));
+                search_in_session(&conn, &session, pattern, name, wanted, &mut found, &mut seen)?;
+                if found.len() >= wanted {
+                    return Ok(found.into_iter().nth(skip).map(|entry| entry.url));
                 }
             }
         }
@@ -81,11 +93,17 @@ fn lookup(path: &Path, name: &str, directory: Option<&str>) -> Result<Option<Str
     // belongs to a session older than the ones consulted above.
     let since = now_millis() - FALLBACK_WINDOW_MS;
     for pattern in &patterns {
-        if let Some(url) = search_recent(&conn, pattern, name, since)? {
-            return Ok(Some(url));
+        search_recent(&conn, pattern, name, since, wanted, &mut found, &mut seen)?;
+        if found.len() >= wanted {
+            break;
         }
     }
-    Ok(None)
+    Ok(found.into_iter().nth(skip).map(|entry| entry.url))
+}
+
+/// One attachment found in the database.
+struct Attachment {
+    url: String,
 }
 
 fn now_millis() -> i64 {
@@ -135,12 +153,15 @@ fn search_in_session(
     session: &str,
     pattern: &str,
     name: &str,
-) -> Result<Option<String>, String> {
+    wanted: usize,
+    found: &mut Vec<Attachment>,
+    seen: &mut HashSet<String>,
+) -> Result<(), String> {
     let sql = format!(
-        "SELECT data FROM {TABLE} WHERE session_id = ?1 AND data LIKE ?2 ESCAPE '\\' \
+        "SELECT id, data FROM {TABLE} WHERE session_id = ?1 AND data LIKE ?2 ESCAPE '\\' \
          ORDER BY time_created DESC LIMIT {MATCH_LIMIT}"
     );
-    collect(conn, &sql, params![session, pattern], name)
+    collect(conn, &sql, params![session, pattern], name, wanted, found, seen)
 }
 
 /// Messages written since a cut-off, newest first. The range uses the index on
@@ -151,12 +172,15 @@ fn search_recent(
     pattern: &str,
     name: &str,
     since: i64,
-) -> Result<Option<String>, String> {
+    wanted: usize,
+    found: &mut Vec<Attachment>,
+    seen: &mut HashSet<String>,
+) -> Result<(), String> {
     let sql = format!(
-        "SELECT data FROM {TABLE} WHERE time_created >= ?1 AND data LIKE ?2 ESCAPE '\\' \
+        "SELECT id, data FROM {TABLE} WHERE time_created >= ?1 AND data LIKE ?2 ESCAPE '\\' \
          ORDER BY time_created DESC LIMIT {MATCH_LIMIT}"
     );
-    collect(conn, &sql, params![since, pattern], name)
+    collect(conn, &sql, params![since, pattern], name, wanted, found, seen)
 }
 
 fn collect<P: rusqlite::Params>(
@@ -164,27 +188,40 @@ fn collect<P: rusqlite::Params>(
     sql: &str,
     parameters: P,
     name: &str,
-) -> Result<Option<String>, String> {
+    wanted: usize,
+    found: &mut Vec<Attachment>,
+    seen: &mut HashSet<String>,
+) -> Result<(), String> {
     let mut statement = match conn.prepare(sql) {
         Ok(statement) => statement,
         // A database old enough to have no such table simply has no image.
-        Err(_) => return Ok(None),
+        Err(_) => return Ok(()),
     };
     let mut rows = statement
         .query(parameters)
         .map_err(|e| format!("读取 opencode 消息失败：{e}"))?;
-    while let Some(row) = rows
-        .next()
-        .map_err(|e| format!("读取 opencode 消息失败：{e}"))?
-    {
-        let raw: String = row
+    while found.len() < wanted {
+        let Some(row) = rows
+            .next()
+            .map_err(|e| format!("读取 opencode 消息失败：{e}"))?
+        else {
+            break;
+        };
+        let message: String = row
             .get(0)
             .map_err(|e| format!("读取 opencode 消息失败：{e}"))?;
-        if let Some(url) = extract(&raw, name) {
-            return Ok(Some(url));
+        if seen.contains(&message) {
+            continue;
+        }
+        seen.insert(message.clone());
+        let raw: String = row
+            .get(1)
+            .map_err(|e| format!("读取 opencode 消息失败：{e}"))?;
+        for url in extract(&raw, name) {
+            found.push(Attachment { url });
         }
     }
-    Ok(None)
+    Ok(())
 }
 
 /// Match patterns for the stored JSON, most specific first. The terminal can
@@ -214,17 +251,27 @@ fn escape_like(value: &str) -> String {
 
 /// Pulls the attachment out of one message. A message can hold several images,
 /// so the entry is chosen by name rather than by position.
-fn extract(raw: &str, name: &str) -> Option<String> {
-    let message: Value = serde_json::from_str(raw).ok()?;
-    for file in message.get("files")?.as_array()? {
-        let candidate = file.get("name")?.as_str()?;
+fn extract(raw: &str, name: &str) -> Vec<String> {
+    let Ok(message) = serde_json::from_str::<Value>(raw) else {
+        return Vec::new();
+    };
+    let Some(files) = message.get("files").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut urls = Vec::new();
+    for file in files {
+        let Some(candidate) = file.get("name").and_then(Value::as_str) else {
+            continue;
+        };
         if !name_matches(candidate, name) {
             continue;
         }
-        let data = file.get("data")?.as_str()?;
-        return Some(format!("data:{};base64,{}", mime_of(data), data));
+        let Some(data) = file.get("data").and_then(Value::as_str) else {
+            continue;
+        };
+        urls.push(format!("data:{};base64,{}", mime_of(data), data));
     }
-    None
+    urls
 }
 
 /// The printed name can be a prefix or a suffix of the stored one, depending on
@@ -314,7 +361,7 @@ mod tests {
         insert_session(&path, "ses_1", DIRECTORY, 10);
         insert_message(&path, "m1", "ses_1", 10, &attachment("图片 131455.png", PNG_HEAD));
         assert_eq!(
-            lookup(&path, "图片 131455.png", Some(DIRECTORY)).expect("lookup"),
+            lookup(&path, "图片 131455.png", Some(DIRECTORY), 0).expect("lookup"),
             Some(png())
         );
     }
@@ -326,7 +373,7 @@ mod tests {
         insert_session(&path, "ses_elsewhere", "F:/other", 20);
         insert_message(&path, "m1", "ses_here", 10, &attachment("图 131455.png", PNG_HEAD));
         assert_eq!(
-            lookup(&path, "图 131455.png", Some(DIRECTORY)).expect("lookup"),
+            lookup(&path, "图 131455.png", Some(DIRECTORY), 0).expect("lookup"),
             Some(png())
         );
     }
@@ -338,7 +385,7 @@ mod tests {
         insert_message(&path, "old", "ses_1", 10, &attachment("图 131455.png", JPEG_HEAD));
         insert_message(&path, "new", "ses_1", 20, &attachment("图 131455.png", PNG_HEAD));
         assert_eq!(
-            lookup(&path, "图 131455.png", Some(DIRECTORY)).expect("lookup"),
+            lookup(&path, "图 131455.png", Some(DIRECTORY), 0).expect("lookup"),
             Some(png())
         );
     }
@@ -350,7 +397,7 @@ mod tests {
         insert_session(&path, "ses_elsewhere", "F:/other", now);
         insert_message(&path, "m1", "ses_elsewhere", now, &attachment("图 131455.png", PNG_HEAD));
         assert_eq!(
-            lookup(&path, "图 131455.png", Some(DIRECTORY)).expect("lookup"),
+            lookup(&path, "图 131455.png", Some(DIRECTORY), 0).expect("lookup"),
             Some(png())
         );
     }
@@ -360,7 +407,7 @@ mod tests {
         let (_dir, path) = temp_db();
         let old = now_millis() - FALLBACK_WINDOW_MS - 60_000;
         insert_message(&path, "m1", "ses_elsewhere", old, &attachment("图 131455.png", PNG_HEAD));
-        assert_eq!(lookup(&path, "图 131455.png", None).expect("lookup"), None);
+        assert_eq!(lookup(&path, "图 131455.png", None, 0).expect("lookup"), None);
     }
 
     #[test]
@@ -369,7 +416,8 @@ mod tests {
         insert_session(&path, "ses_1", DIRECTORY, 10);
         insert_message(&path, "m1", "ses_1", 10, &attachment("图 131455.png", PNG_HEAD));
         assert_eq!(
-            lookup(&path, "图 131455.png", Some(r"F:\VibeCoding_workspace\Verta\")).expect("lookup"),
+            lookup(&path, "图 131455.png", Some(r"F:\VibeCoding_workspace\Verta\"), 0)
+                .expect("lookup"),
             Some(png())
         );
     }
@@ -381,7 +429,7 @@ mod tests {
         insert_message(&path, "m1", "ses_1", 10, &attachment("局部截取_20261018.png", JPEG_HEAD));
         insert_message(&path, "m2", "ses_1", 20, &attachment("局部X截取X20261018.png", PNG_HEAD));
         assert_eq!(
-            lookup(&path, "局部截取_20261018.png", Some(DIRECTORY)).expect("lookup"),
+            lookup(&path, "局部截取_20261018.png", Some(DIRECTORY), 0).expect("lookup"),
             Some(format!("data:image/jpeg;base64,{JPEG_HEAD}AAAA"))
         );
     }
@@ -398,8 +446,47 @@ mod tests {
             &attachment("截取_前面这半截在窄终端里看不到_20261018_153945.png", PNG_HEAD),
         );
         assert_eq!(
-            lookup(&path, "20261018_153945.png", Some(DIRECTORY)).expect("lookup"),
+            lookup(&path, "20261018_153945.png", Some(DIRECTORY), 0).expect("lookup"),
             Some(png())
+        );
+    }
+
+    #[test]
+    fn counts_the_same_name_from_the_newest_attachment() {
+        // Images pasted from the clipboard are all called `clipboard`, so a
+        // name alone does not say which one the terminal is showing.
+        let (_dir, path) = temp_db();
+        insert_session(&path, "ses_1", DIRECTORY, 10);
+        insert_message(&path, "old", "ses_1", 10, &attachment("clipboard", JPEG_HEAD));
+        insert_message(&path, "new", "ses_1", 20, &attachment("clipboard", PNG_HEAD));
+        assert_eq!(
+            lookup(&path, "clipboard", Some(DIRECTORY), 0).expect("lookup"),
+            Some(png())
+        );
+        assert_eq!(
+            lookup(&path, "clipboard", Some(DIRECTORY), 1).expect("lookup"),
+            Some(format!("data:image/jpeg;base64,{JPEG_HEAD}AAAA"))
+        );
+        assert_eq!(lookup(&path, "clipboard", Some(DIRECTORY), 2).expect("lookup"), None);
+    }
+
+    #[test]
+    fn counts_each_picture_of_one_message_separately() {
+        let (_dir, path) = temp_db();
+        insert_session(&path, "ses_1", DIRECTORY, 10);
+        let data = format!(
+            "{{\"text\":\"[Image 1] [Image 2]\",\"files\":[\
+             {{\"name\":\"clipboard\",\"data\":\"{PNG_HEAD}AAAA\"}},\
+             {{\"name\":\"clipboard\",\"data\":\"{JPEG_HEAD}BBBB\"}}]}}"
+        );
+        insert_message(&path, "m1", "ses_1", 10, &data);
+        assert_eq!(
+            lookup(&path, "clipboard", Some(DIRECTORY), 0).expect("lookup"),
+            Some(png())
+        );
+        assert_eq!(
+            lookup(&path, "clipboard", Some(DIRECTORY), 1).expect("lookup"),
+            Some(format!("data:image/jpeg;base64,{JPEG_HEAD}BBBB"))
         );
     }
 
@@ -414,7 +501,7 @@ mod tests {
         );
         insert_message(&path, "m1", "ses_1", 10, &data);
         assert_eq!(
-            lookup(&path, "b_20261018_153951.png", Some(DIRECTORY)).expect("lookup"),
+            lookup(&path, "b_20261018_153951.png", Some(DIRECTORY), 0).expect("lookup"),
             Some(format!("data:image/jpeg;base64,{JPEG_HEAD}BBBB"))
         );
     }
@@ -425,7 +512,7 @@ mod tests {
         insert_session(&path, "ses_1", DIRECTORY, 10);
         insert_message(&path, "m1", "ses_1", 10, &attachment("a_20261018.png", PNG_HEAD));
         assert_eq!(
-            lookup(&path, "b_20261018.png", Some(DIRECTORY)).expect("lookup"),
+            lookup(&path, "b_20261018.png", Some(DIRECTORY), 0).expect("lookup"),
             None
         );
     }
@@ -433,7 +520,7 @@ mod tests {
     #[test]
     fn a_missing_database_is_reported() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let error = lookup(&dir.path().join("absent.db"), "a.png", None).expect_err("error");
+        let error = lookup(&dir.path().join("absent.db"), "a.png", None, 0).expect_err("error");
         assert!(error.contains("找不到 opencode 数据库"), "{error}");
     }
 }

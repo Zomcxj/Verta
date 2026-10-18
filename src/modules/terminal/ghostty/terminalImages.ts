@@ -60,23 +60,66 @@ const MAX_WINDOW = 24;
 const MAX_SPAN = 14;
 
 /**
- * The name a row prints, if it prints one. Names contain spaces, so the name is
- * taken from whatever follows the badge up to the extension rather than from a
- * single whitespace-separated token.
+ * The name a row prints, if it prints one.
+ *
+ * The badge has to be the first thing on the row's own content, after the
+ * message border: that is where opencode puts it, and requiring it is what
+ * keeps prose that merely mentions a file from being read as an attachment.
+ *
+ * The name is everything after the badge up to an extension, or the whole rest
+ * of the row when there is no extension to stop at. opencode names an image
+ * pasted from the clipboard `clipboard` rather than after a file, so an
+ * extension is not something to insist on.
  */
 export function nameInRow(text: string): { name: string; column: number } | null {
-  const extension = IMAGE_EXTENSION.exec(text);
-  if (!extension) return null;
-  const end = extension.index + extension[0].length;
-  const badge = text.lastIndexOf(FILE_BADGE, extension.index);
-  // Without the badge there is no way to tell a filename from prose that
-  // happens to mention one, so the row is left alone.
-  if (badge < 0) return null;
-  let start = badge + FILE_BADGE.length;
-  while (start < end && text[start] === " ") start += 1;
-  const name = text.slice(start, end).trimEnd();
-  if (!name || name.includes("\u0000")) return null;
-  return { name, column: start };
+  const start = contentStart(text);
+  if (!text.startsWith(FILE_BADGE, start)) return null;
+  const after = start + FILE_BADGE.length;
+  const next = text[after];
+  if (next !== undefined && next !== " ") return null;
+  let column = after;
+  while (text[column] === " ") column += 1;
+  const tail = text.slice(column).trimEnd();
+  if (!tail || tail.length > MAX_NAME) return null;
+  const extension = IMAGE_EXTENSION.exec(tail);
+  const name = extension
+    ? tail.slice(0, extension.index + extension[0].length)
+    : tail;
+  if (name.includes("\u0000")) return null;
+  return { name, column };
+}
+
+/** Longest name taken from a row, so a run-on of text is not mistaken for one. */
+const MAX_NAME = 160;
+
+/** Box drawing characters, used for message borders. */
+const BORDER = /[\u2500-\u257f]/;
+
+function contentStart(text: string): number {
+  let index = 0;
+  while (index < text.length && (text[index] === " " || BORDER.test(text[index]))) {
+    index += 1;
+  }
+  return index;
+}
+
+/**
+ * How far back each row has to look among attachments with its own name,
+ * counting from the bottom of the screen. The newest attachment of a repeated
+ * name is the one lowest on the screen, so a row that shares its name with
+ * nothing below it ranks zero. Images pasted from the clipboard are all called
+ * `clipboard`, which is what makes this necessary.
+ */
+export function nameRanks(references: readonly ImageReference[]): number[] {
+  const ranks = new Array<number>(references.length);
+  const seen = new Map<string, number>();
+  for (let index = references.length - 1; index >= 0; index -= 1) {
+    const name = references[index].name;
+    const rank = seen.get(name) ?? 0;
+    ranks[index] = rank;
+    seen.set(name, rank + 1);
+  }
+  return ranks;
 }
 
 export function findImageReferences(rows: readonly ScreenRow[]): ImageReference[] {

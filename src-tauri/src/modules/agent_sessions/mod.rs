@@ -36,6 +36,9 @@ pub async fn agent_sessions_delete(targets: Vec<SessionTarget>) -> DeleteReport 
 pub async fn agent_sessions_image(
     name: String,
     directory: Option<String>,
+    skip: Option<u32>,
 ) -> Result<Option<String>, String> {
-    crate::modules::fs::blocking(move || image::data_url_by_name(&name, directory.as_deref())).await
+    let skip = skip.unwrap_or(0) as usize;
+    crate::modules::fs::blocking(move || image::data_url_by_name(&name, directory.as_deref(), skip))
+        .await
 }

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   findImageReferences,
   nameInRow,
+  nameRanks,
+  type ImageReference,
   type ScreenRow,
 } from "@/modules/terminal/ghostty/terminalImages";
 
@@ -23,10 +25,19 @@ describe("nameInRow", () => {
     });
   });
 
-  it("reads a plain name after the badge", () => {
-    expect(nameInRow(" file 局部截取_20261018_153945.png")).toEqual({
+  it("reads a name after the message border", () => {
+    expect(nameInRow("   ┃   file  局部截取_20261018_153945.png")).toEqual({
       name: "局部截取_20261018_153945.png",
-      column: 6,
+      column: 13,
+    });
+  });
+
+  it("reads a name that carries no extension", () => {
+    // An image pasted from the clipboard is named `clipboard` rather than
+    // after a file, so there is nothing to stop at.
+    expect(nameInRow("   ┃   file  clipboard")).toEqual({
+      name: "clipboard",
+      column: 13,
     });
   });
 
@@ -34,8 +45,51 @@ describe("nameInRow", () => {
     expect(nameInRow("这就是 截图 2026-05-17 131455.png 的说明")).toBeNull();
   });
 
+  it("ignores a row where the badge is only the start of a longer word", () => {
+    expect(nameInRow("files are listed in 2026-05-17 131455.png")).toBeNull();
+  });
+
   it("ignores a row with no filename at all", () => {
     expect(nameInRow("+ Thought · 5.3s")).toBeNull();
+  });
+});
+
+describe("nameRanks", () => {
+  const reference = (name: string, labelLine: number): ImageReference => ({
+    name,
+    labelLine,
+    topLine: labelLine - 8,
+    bottomLine: labelLine - 2,
+    leftColumn: 5,
+    rightColumn: 20,
+  });
+
+  it("leaves a unique name at rank zero", () => {
+    const ranks = nameRanks([
+      reference("a_20260101.png", 20),
+      reference("b_20260101.png", 40),
+    ]);
+    expect(ranks).toEqual([0, 0]);
+  });
+
+  it("ranks a repeated name from the bottom of the screen", () => {
+    // Both rows print `clipboard`; the lower one is the newer attachment, so
+    // the row above it has to look one further back.
+    const ranks = nameRanks([
+      reference("clipboard", 20),
+      reference("clipboard", 40),
+      reference("clipboard", 60),
+    ]);
+    expect(ranks).toEqual([2, 1, 0]);
+  });
+
+  it("counts each name on its own", () => {
+    const ranks = nameRanks([
+      reference("clipboard", 20),
+      reference("shot_1.png", 30),
+      reference("clipboard", 40),
+    ]);
+    expect(ranks).toEqual([1, 0, 0]);
   });
 });
 
