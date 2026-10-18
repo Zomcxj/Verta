@@ -89,7 +89,7 @@ pub(crate) fn session_table(path: &Path) -> Result<String, String> {
 
 /// A WAL database can only be opened read-only when its `-shm` sidecar stays
 /// writable, so a failure here is a real error to show, never an empty list.
-fn open_read_only(path: &Path) -> Result<Connection, String> {
+pub(super) fn open_read_only(path: &Path) -> Result<Connection, String> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| {
         format!(
             "无法只读打开 opencode 数据库 {}：{e}。若 opencode 正在写入，请稍后重试。",

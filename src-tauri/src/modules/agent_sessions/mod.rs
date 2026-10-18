@@ -1,6 +1,7 @@
 pub mod types;
 
 mod delete;
+mod image;
 mod opencode;
 mod pi;
 pub mod watch;
@@ -27,4 +28,14 @@ pub async fn agent_sessions_delete(targets: Vec<SessionTarget>) -> DeleteReport 
     crate::modules::fs::blocking(move || Ok(delete::delete_sessions(&targets)))
         .await
         .unwrap_or_default()
+}
+
+/// Looks up the image a message attached, by the name the terminal printed.
+/// It reads sqlite, so it runs on the blocking pool as well.
+#[tauri::command]
+pub async fn agent_sessions_image(
+    name: String,
+    directory: Option<String>,
+) -> Result<Option<String>, String> {
+    crate::modules::fs::blocking(move || image::data_url_by_name(&name, directory.as_deref())).await
 }

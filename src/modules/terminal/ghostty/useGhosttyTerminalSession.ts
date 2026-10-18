@@ -22,6 +22,7 @@ import { LatestClipboardWrite } from "@/modules/terminal/lib/LatestClipboardWrit
 import { GhosttySemanticEventRouter } from "./core/GhosttySemanticEventRouter";
 import { getGhosttyCoreRuntime } from "./GhosttyCoreRuntime";
 import type { GhosttyTerminalModelApi } from "./GhosttyTerminalModel";
+import { TerminalSizeReports } from "./terminalSizeReports";
 import {
   measureTerminalFont,
   readTerminalGpuTheme,
@@ -100,7 +101,33 @@ type GhosttyStartupTimings = {
 
 const sessions = new Map<number, GhosttySession>();
 const textEncoder = new TextEncoder();
+// Size queries are ASCII, so a byte-per-character view is enough to scan them
+// out of chunks that carry arbitrary terminal output. Unlike a UTF-8 decoder it
+// keeps no state across reads, which is what lets a query be caught when it is
+// split between two of them.
+const byteTextDecoder = new TextDecoder("latin1");
 const oscClipboard = new LatestClipboardWrite(writeTerminalClipboard);
+
+/**
+ * Per-leaf listeners for presented frames. An overlay that draws at screen
+ * positions has to follow scroll and resize, and the terminal already knows
+ * when it repainted: hanging off that keeps the overlay in step without a timer
+ * of its own.
+ */
+const frameListeners = new Map<number, Set<() => void>>();
+
+export function subscribeGhosttyFrame(
+  leafId: number,
+  listener: () => void,
+): () => void {
+  const listeners = frameListeners.get(leafId) ?? new Set<() => void>();
+  listeners.add(listener);
+  frameListeners.set(leafId, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) frameListeners.delete(leafId);
+  };
+}
 
 type Options = {
   leafId: number;
@@ -711,7 +738,10 @@ async function initializeSessionGeneration(
       session.ptyResize.send(cols, rows);
     },
     onFirstFrame: () => mark("firstFrameMs"),
-    onFrame: () => ghosttyBlocks(session.leafId)?.present(),
+    onFrame: () => {
+      ghosttyBlocks(session.leafId)?.present();
+      for (const listener of frameListeners.get(session.leafId) ?? []) listener();
+    },
     onRequestFocus: () => focusGhosttySession(session.leafId),
     onOpenLink: (uri: string) => {
       void openExternalUrl(uri, () => focusGhosttySession(session.leafId));
@@ -796,6 +826,26 @@ async function initializeSessionGeneration(
 
   const startCols = model.cols;
   const startRows = model.rows;
+  // A program that wants to draw a picture asks the terminal how many pixels
+  // it has. Only the surface knows, so the answer is assembled here from the
+  // live cell metrics and the grid size; keeping quiet instead leaves inline
+  // images blank. Metrics are read per query rather than captured once, because
+  // a font change or a zoom resizes the cells under a running program.
+  const sizeReports = new TerminalSizeReports();
+  const reportTerminalSize = (bytes: Uint8Array): void => {
+    const cell = session.surface?.cellSize();
+    if (!cell || cell.width <= 0 || cell.height <= 0) return;
+    const scale = window.devicePixelRatio || 1;
+    const replies = sizeReports.observe(byteTextDecoder.decode(bytes), {
+      cols: model.cols,
+      rows: model.rows,
+      cellWidth: cell.width * scale,
+      cellHeight: cell.height * scale,
+      originX: 0,
+      originY: 0,
+    });
+    if (replies) session.writer.enqueue(textEncoder.encode(replies));
+  };
   const pty = await openPty(
     startCols,
     startRows,
@@ -803,6 +853,7 @@ async function initializeSessionGeneration(
       onData: (bytes) => {
         if (!session.disposed && generation === session.generation) {
           mark("firstOutputMs");
+          reportTerminalSize(bytes);
           model.write(bytes);
           ghosttyBlocks(session.leafId)?.changed();
         }
@@ -919,6 +970,25 @@ function applyBlockInputMode(
  */
 export function ghosttyBlockCellHeight(leafId: number): number {
   return sessions.get(leafId)?.surface?.cellSize().height ?? 0;
+}
+
+/**
+ * The model and the cell metrics of one leaf's live terminal. An overlay that
+ * draws at a screen position needs both to turn lines and columns into pixels;
+ * these are cached reads, so a per-frame subscriber can call them.
+ */
+export function ghosttyModelForLeaf(
+  leafId: number,
+): GhosttyTerminalModelApi | null {
+  return sessions.get(leafId)?.model ?? null;
+}
+
+export function ghosttyCellSize(
+  leafId: number,
+): { width: number; height: number } | null {
+  const size = sessions.get(leafId)?.surface?.cellSize();
+  if (!size || size.width <= 0 || size.height <= 0) return null;
+  return { width: size.width, height: size.height };
 }
 
 /**

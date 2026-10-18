@@ -152,6 +152,14 @@ fn apply_common(
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERAX_TERMINAL", "1");
+    // opencode paints an attached image inside the terminal. It picks how from
+    // what it believes the terminal can do, and its reading of this one lands
+    // on a bitmap protocol the renderer does not implement: the space for the
+    // picture is reserved and then left blank. Blocks are the one form it can
+    // paint with ordinary characters, so ask for that. It is a no-op for every
+    // program that does not know the variable, and it changes nothing for one
+    // that does except to name a protocol this terminal can actually draw.
+    cmd.env("OPENTUI_IMAGE_PROTOCOL", "blocks");
     if blocks {
         cmd.env("TERAX_BLOCKS", "1");
     }
