@@ -102,21 +102,28 @@ export function EditorStack({
             )}
             aria-hidden={!visible}
           >
-            <div className="relative h-full overflow-hidden bg-background">
-              {isMarkdownPath(t.path) && (
-                <MarkdownViewToggle
-                  mode="raw"
-                  onChange={(mode) => onSetMarkdownView(t.id, mode)}
-                  renderedDisabled={t.dirty}
-                  renderedHint="Save to preview"
-                />
-              )}
+            <div className="h-full overflow-hidden bg-background">
               <EditorPane
                 ref={getRefCallback(t.id)}
                 path={t.path}
                 overrideLanguage={t.overrideLanguage}
                 onDirtyChange={getDirtyCallback(t.id)}
                 onClose={getCloseCallback(t.id)}
+                // Passed down rather than drawn here: the toggle has to be
+                // positioned against the editor column, not the whole pane,
+                // or it lands on top of the side preview.
+                renderToggle={
+                  isMarkdownPath(t.path)
+                    ? () => (
+                        <MarkdownViewToggle
+                          mode="raw"
+                          onChange={(mode) => onSetMarkdownView(t.id, mode)}
+                          renderedDisabled={t.dirty}
+                          renderedHint="Save to preview"
+                        />
+                      )
+                    : undefined
+                }
               />
             </div>
           </div>

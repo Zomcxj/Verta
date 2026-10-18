@@ -26,7 +26,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { SidePreview, type ViewportMark, sidePreviewKind } from "./SidePreview";
 import { diagnosticsReporter } from "./lib/diagnosticsReporter";
 import { useDiagnosticsStore } from "./lib/diagnosticsStore";
 import {
@@ -84,6 +86,11 @@ type Props = {
   onDirtyChange?: (dirty: boolean) => void;
   onSaved?: () => void;
   onClose?: () => void;
+  /**
+   * Drawn inside the editor column, so a corner control stays off the side
+   * preview. Rendered only while this pane is the editor for the file.
+   */
+  renderToggle?: () => React.ReactNode;
 };
 
 // Above this, syntax highlighting and LSP are disabled: a multi-MB lezer
@@ -100,7 +107,7 @@ function formatBytes(n: number): string {
 // skip re-rendering entirely when App re-renders (terminal events, tab churn).
 export const EditorPane = memo(
   forwardRef<EditorPaneHandle, Props>(function EditorPane(props, ref) {
-    const { path, overrideLanguage, onDirtyChange, onSaved, onClose } = props;
+    const { path, overrideLanguage, onDirtyChange, onSaved, onClose, renderToggle } = props;
 
     const { doc, onChange, save, reload, adoptDiskText, openAnyway } =
       useDocument({
@@ -131,6 +138,19 @@ export const EditorPane = memo(
     const lspActiveRef = useRef(false);
     const warnedNoLspRef = useRef(false);
     const warnedNoFormatRef = useRef(false);
+
+    // Side preview: off by default so the editor keeps the full width, and only
+    // offered for files it can actually show something for.
+    const previewKind = useMemo(() => sidePreviewKind(path), [path]);
+    const [sideOpen, setSideOpen] = useState(false);
+    const [viewport, setViewport] = useState<ViewportMark | null>(null);
+    const toggleSide = useCallback(() => setSideOpen((open) => !open), []);
+    // A different file starts collapsed again: the setting is per view, and
+    // carrying it over would silently reflow a file the user did not ask for.
+    useEffect(() => {
+      setSideOpen(false);
+    }, [path]);
+    const sideVisible = sideOpen && previewKind !== "none";
 
     const performSave = useCallback(async () => {
       const view = cmRef.current?.view;
@@ -281,6 +301,22 @@ export const EditorPane = memo(
         languageCompartment.of([]),
         lspCompartment.of([]),
         diagnosticsReporter(() => pathRef.current),
+        // Report which part of the document is on screen, for the side preview.
+        EditorView.updateListener.of((update) => {
+          const view = update.view;
+          if (!update.selectionSet && !update.docChanged && !update.geometryChanged) {
+            return;
+          }
+          const scroller = view.scrollDOM;
+          const total = scroller.scrollHeight;
+          if (total <= 0) return setViewport(null);
+          const top = scroller.scrollTop;
+          const height = scroller.clientHeight;
+          setViewport({
+            top: Math.min(1, Math.max(0, top / total)),
+            height: Math.min(1, height / total),
+          });
+        }),
         // An open popup wins Tab over CodeMirror's own accept binding.
         Prec.highest(keymap.of([{ key: "Tab", run: acceptCompletion }])),
         keymap.of([
@@ -542,27 +578,59 @@ export const EditorPane = memo(
     }
 
     return (
-      <div className="flex h-full min-h-0 flex-col zoom-exempt">
-        <CodeMirror
-          ref={cmRef}
-          value={doc.content}
-          onChange={onChange}
-          theme={themeExt}
-          extensions={extensions}
-          height="100%"
-          className="terax-code-editor flex-1 min-h-0 overflow-hidden"
-          basicSetup={{
-            lineNumbers: true,
-            highlightActiveLineGutter: true,
-            foldGutter: true,
-            bracketMatching: true,
-            closeBrackets: true,
-            autocompletion: true,
-            highlightActiveLine: true,
-            highlightSelectionMatches: true,
-            searchKeymap: true,
-          }}
-        />
+      <div className="flex h-full min-h-0 zoom-exempt">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          {renderToggle?.()}
+          {previewKind !== "none" && (
+            <button
+              type="button"
+              onClick={toggleSide}
+              title={sideOpen ? "Hide preview" : "Show preview"}
+              aria-label={sideOpen ? "Hide preview" : "Show preview"}
+              aria-pressed={sideOpen}
+              // Bottom right: the view switch owns the top right corner, and two
+              // groups there overlap. No backdrop blur: it would add a
+              // compositing layer, which the startup budget forbids.
+              className={cn(
+                "absolute right-2 bottom-2 z-10 rounded border border-border/60 bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground",
+                sideOpen && "text-foreground",
+              )}
+            >
+              Preview
+            </button>
+          )}
+          <CodeMirror
+            ref={cmRef}
+            value={doc.content}
+            onChange={onChange}
+            theme={themeExt}
+            extensions={extensions}
+            height="100%"
+            className="terax-code-editor flex-1 min-h-0 overflow-hidden"
+            basicSetup={{
+              lineNumbers: true,
+              highlightActiveLineGutter: true,
+              foldGutter: true,
+              bracketMatching: true,
+              closeBrackets: true,
+              autocompletion: true,
+              highlightActiveLine: true,
+              highlightSelectionMatches: true,
+              searchKeymap: true,
+            }}
+          />
+        </div>
+        {previewKind !== "none" && (
+          <SidePreview
+            kind={previewKind}
+            content={doc.content}
+            path={path}
+            imageSrc={previewKind === "image" ? convertFileSrc(path) : null}
+            viewport={sideVisible ? viewport : null}
+            onToggle={toggleSide}
+            visible={sideVisible}
+          />
+        )}
       </div>
     );
   }),

@@ -1,11 +1,8 @@
-import { MarkdownCode } from "@/components/markdown-code";
 import { cn } from "@/lib/utils";
 import { currentWorkspaceEnv } from "@/modules/workspace";
 import { invoke } from "@tauri-apps/api/core";
-import { type ComponentProps, useEffect, useMemo, useState } from "react";
-import { Streamdown } from "streamdown";
-import { MarkdownImage } from "./MarkdownImage";
-import { MarkdownLink } from "./MarkdownLink";
+import { useEffect, useState } from "react";
+import { MarkdownRender } from "./MarkdownRender";
 import { MarkdownViewToggle } from "./MarkdownViewToggle";
 
 type ReadResult =
@@ -26,27 +23,8 @@ type Props = {
   onSetView: (mode: "rendered" | "raw") => void;
 };
 
-/** The directory a relative image reference resolves against. */
-function directoryOf(path: string): string {
-  const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  return cut > 0 ? path.slice(0, cut) : "";
-}
-
 export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
   const [status, setStatus] = useState<Status>({ kind: "loading" });
-  const baseDir = useMemo(() => directoryOf(path), [path]);
-  // Images resolve against the document, so the override is per file.
-  const components = useMemo(
-    () => ({
-      a: MarkdownLink,
-      code: MarkdownCode,
-      img: (props: ComponentProps<typeof MarkdownImage>) => (
-        <MarkdownImage {...props} baseDir={baseDir} />
-      ),
-    }),
-    [baseDir],
-  );
-
   useEffect(() => {
     let cancelled = false;
     setStatus({ kind: "loading" });
@@ -76,8 +54,11 @@ export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
     <div
       className={cn(
         "relative flex h-full w-full flex-col overflow-hidden bg-background",
-        !visible && "pointer-events-none",
+        // Hidden, not just inert: a pane left visible keeps painting its view
+        // toggle over whatever is actually on screen.
+        !visible && "invisible pointer-events-none",
       )}
+      aria-hidden={!visible}
     >
       <MarkdownViewToggle mode="rendered" onChange={onSetView} />
       <div className="flex-1 overflow-auto">
@@ -101,14 +82,7 @@ export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
             </p>
           )}
           {status.kind === "ready" && (
-            <Streamdown
-              className="markdown-rendered select-text [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
-              components={components}
-              mode="static"
-              parseIncompleteMarkdown={false}
-            >
-              {status.content}
-            </Streamdown>
+            <MarkdownRender content={status.content} path={path} />
           )}
         </div>
       </div>

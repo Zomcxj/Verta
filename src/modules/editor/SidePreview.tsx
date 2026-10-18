@@ -1,5 +1,6 @@
+import { MarkdownRender } from "@/modules/markdown/MarkdownRender";
 import { cn } from "@/lib/utils";
-import { useMemo } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type SidePreviewKind = "markdown" | "image" | "none";
 
@@ -17,35 +18,56 @@ export function sidePreviewKind(path: string): SidePreviewKind {
   return "none";
 }
 
-/** Line numbers worth marking in the scrollbar: the visible viewport. */
+/** A span of a document, expressed as fractions so it survives resizing. */
 export type ViewportMark = { top: number; height: number };
 
 export type SidePreviewProps = {
   kind: SidePreviewKind;
-  /** Rendered markdown, already resolved against the document. */
-  rendered: React.ReactNode;
+  /** Current editor text, so the preview follows typing. */
+  content: string;
+  path: string;
   imageSrc: string | null;
+  /** Which part of the editor is on screen, top-down. */
   viewport: ViewportMark | null;
-  onSeek: (fraction: number) => void;
+  onToggle: () => void;
   visible: boolean;
 };
 
 /**
- * A narrow column beside the editor showing the same document another way,
- * following the cursor through `viewport` and letting a click jump there.
+ * A column beside the editor showing the same document another way.
+ *
+ * It follows the editor: the markdown is rendered from the live buffer, and the
+ * bar on the right shows which part of the document is on screen. Clicking the
+ * preview scrolls the editor to that place, which is the one thing a rendered
+ * view cannot do by itself.
  */
 export function SidePreview({
   kind,
-  rendered,
+  content,
+  path,
   imageSrc,
   viewport,
-  onSeek,
+  onToggle,
   visible,
 }: SidePreviewProps) {
-  const style = useMemo(
-    () => ({ width: visible ? "min(42%, 520px)" : "0px" }),
-    [visible],
-  );
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState<ViewportMark | null>(null);
+
+  // Scroll the preview along with the editor, so both show the same place.
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box || !visible || !viewport) return;
+    const target = viewport.top * (box.scrollHeight - box.clientHeight);
+    if (Math.abs(box.scrollTop - target) > 4) box.scrollTop = target;
+  }, [viewport, visible]);
+
+  const seekWithin = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const rect = box.getBoundingClientRect();
+    const fraction = (event.clientY - rect.top + box.scrollTop) / Math.max(1, box.scrollHeight);
+    setHover({ top: fraction, height: 0 });
+  }, []);
 
   if (kind === "none") return null;
 
@@ -53,45 +75,86 @@ export function SidePreview({
     <aside
       aria-hidden={!visible}
       data-side-preview
+      data-state={visible ? "open" : "closed"}
       className={cn(
-        "relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-border/60 bg-background/60",
-        "transition-[width] duration-[var(--dur-base)]",
-        !visible && "pointer-events-none",
+        "relative flex h-full min-h-0 flex-col overflow-hidden border-l border-border/60 bg-background/60",
+        // Width, not display: the transition still has something to animate.
+        visible ? "w-[min(42%,520px)]" : "w-0",
+        !visible && "pointer-events-none border-l-0",
       )}
-      style={style}
+      style={{ transition: "width var(--dur-base) ease-out" }}
     >
-      <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border/50 px-2 text-[10px] tracking-wide text-muted-foreground uppercase">
-        Preview
+      <div className="flex h-7 shrink-0 items-center justify-between gap-2 border-b border-border/50 pr-1 pl-2">
+        <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
+          Preview
+        </span>
+        <button
+          type="button"
+          onClick={onToggle}
+          title="Hide preview"
+          aria-label="Hide preview"
+          className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <svg viewBox="0 0 16 16" className="size-3" aria-hidden="true">
+            <path
+              d="M6 3.5 10.5 8 6 12.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div
+        ref={scrollRef}
+        onMouseMove={seekWithin}
+        onMouseLeave={() => setHover(null)}
+        className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+      >
         {kind === "image" && imageSrc ? (
-          <div className="flex h-full items-center justify-center overflow-auto p-2">
+          <div className="flex min-h-full items-center justify-center p-2">
             <img
               src={imageSrc}
               alt=""
-              className="max-h-full max-w-full rounded-sm border border-border object-contain"
+              className="max-w-full rounded-sm border border-border object-contain"
             />
           </div>
         ) : (
-          <div className="h-full overflow-y-auto px-3 py-2 text-[12px] leading-relaxed [&_img]:max-w-full [&_table]:text-[11px]">
-            {rendered}
+          <div className="px-3 py-2 text-[12px] leading-relaxed">
+            <MarkdownRender
+              content={content}
+              path={path}
+              // The buffer is mid-edit by definition, so half-written tables and
+              // lists have to be repaired or the preview flickers while typing.
+              incomplete
+              // Smaller than the full preview: this column is a glance, not a read.
+              className="markdown-rendered select-text text-[12px] [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-[13px] [&_img]:max-w-full [&_p]:my-1 [&_table]:text-[11px] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+            />
           </div>
         )}
-
-        {viewport && (
-          <button
-            type="button"
-            aria-label="Scroll to the visible part"
-            onClick={() => onSeek(viewport.top)}
-            className="absolute right-0 w-1.5 cursor-pointer rounded-full bg-foreground/25 transition-colors hover:bg-foreground/45"
-            style={{
-              top: `${viewport.top * 100}%`,
-              height: `${Math.max(viewport.height * 100, 2)}%`,
-            }}
-          />
-        )}
       </div>
+
+      {/* Where the editor is looking, drawn on the preview's own scrollbar. */}
+      {viewport && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute right-0 w-1 bg-foreground/20"
+          style={{
+            top: `${viewport.top * 100}%`,
+            height: `${Math.max(viewport.height * 100, 1.5)}%`,
+          }}
+        />
+      )}
+      {hover && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute right-0 w-1 bg-foreground/40"
+          style={{ top: `${hover.top * 100}%`, height: "2px" }}
+        />
+      )}
     </aside>
   );
 }
