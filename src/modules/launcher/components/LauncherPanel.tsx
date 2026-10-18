@@ -338,7 +338,12 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
           </button>
         </div>
       ) : (
-        <div className="shrink-0 border-t border-border/60 px-2 py-1 text-[10px] text-muted-foreground">
+        <div
+          className="shrink-0 border-t border-border/60 px-2 py-1 text-[10px] text-muted-foreground"
+          // 提示可能来自任何来源（解析失败、发行版里没有某个工具的库），文字要能读到，
+          // 不能只留一个数字。
+          title={warnings.length > 0 ? warnings.join("\n") : undefined}
+        >
           {visible.length === topLevel.length
             ? t("launcher.countAll", { total: topLevel.length })
             : t("launcher.count", {

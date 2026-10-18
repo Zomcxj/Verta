@@ -189,7 +189,7 @@ const zh = {
   "launcher.selectedCount": "已选 {count} 条",
   "launcher.count": "{shown} / {total} 条",
   "launcher.countAll": "{total} 条",
-  "launcher.unparsed": "，{count} 个文件无法解析",
+  "launcher.unparsed": "，另有 {count} 条提示",
   "launcher.deleteFailed": "有 {count} 条没能删除：\n{failures}",
   "launcher.deleteRequestFailed": "删除请求失败：{message}",
   "launcher.deleteTitle": "删除会话？",
@@ -213,7 +213,7 @@ const zh = {
   "settings.wsl": "WSL",
   "settings.wslEnabled.title": "显示 WSL 内的项目与会话",
   "settings.wslEnabled.description":
-    "开启后 Verta 会在发行版内查询 opencode 会话并列出 WSL 的项目；关闭则不向发行版发出任何请求。",
+    "开启后 Verta 会在发行版内查询 agent 会话并列出 WSL 的项目；关闭则不向发行版发出任何请求。",
   "settings.wslShutdown.title": "关闭时同时关掉 WSL",
   "settings.wslShutdown.description":
     "开启后，关掉上面的开关会执行 wsl --shutdown：那会停掉所有发行版与 WSL2 工具 VM，包括 Docker Desktop 的 WSL 后端。",
@@ -556,7 +556,7 @@ const en: Record<MessageKey, string> = {
   "launcher.selectedCount": "{count} selected",
   "launcher.count": "{shown} / {total}",
   "launcher.countAll": "{total}",
-  "launcher.unparsed": ", {count} unreadable files",
+  "launcher.unparsed": ", {count} notices",
   "launcher.deleteFailed": "{count} could not be deleted:\n{failures}",
   "launcher.deleteRequestFailed": "Delete failed: {message}",
   "launcher.deleteTitle": "Delete session?",
@@ -580,7 +580,7 @@ const en: Record<MessageKey, string> = {
   "settings.wsl": "WSL",
   "settings.wslEnabled.title": "Show projects and sessions inside WSL",
   "settings.wslEnabled.description":
-    "When on, Verta queries opencode sessions inside the distro and lists its projects; when off it asks the distro nothing.",
+    "When on, Verta queries agent sessions inside the distro and lists its projects; when off it asks the distro nothing.",
   "settings.wslShutdown.title": "Also shut WSL down when switched off",
   "settings.wslShutdown.description":
     "When on, turning the switch above off runs wsl --shutdown, which stops every distro and the WSL2 utility VM, including Docker Desktop's WSL backend.",
