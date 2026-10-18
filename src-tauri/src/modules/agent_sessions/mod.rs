@@ -5,18 +5,27 @@ mod image;
 mod opencode;
 mod pi;
 pub mod watch;
+mod wsl;
 
 use delete::{DeleteReport, SessionTarget};
 use types::AgentSessionsPayload;
 
 /// Reads sqlite and session files, so it runs on the blocking pool: Tauri runs a
 /// non-async command inline in the IPC handler (the main thread on macOS).
+///
+/// `distro` picks whose store to read: `None` is this machine, `Some(name)` is
+/// that WSL distro's, which is read by running the query inside it.
 #[tauri::command]
-pub async fn agent_sessions_list(tool: String) -> Result<AgentSessionsPayload, String> {
-    crate::modules::fs::blocking(move || match tool.as_str() {
-        opencode::TOOL => opencode::list(),
-        pi::TOOL => pi::list(),
-        other => Err(format!("不支持的会话工具：{other}")),
+pub async fn agent_sessions_list(
+    tool: String,
+    distro: Option<String>,
+) -> Result<AgentSessionsPayload, String> {
+    crate::modules::fs::blocking(move || match (tool.as_str(), distro.as_deref()) {
+        (opencode::TOOL, Some(distro)) => wsl::list(distro),
+        (opencode::TOOL, None) => opencode::list(),
+        (pi::TOOL, Some(distro)) => Ok(wsl::pi_is_absent(distro)),
+        (pi::TOOL, None) => pi::list(),
+        (other, _) => Err(format!("不支持的会话工具：{other}")),
     })
     .await
 }

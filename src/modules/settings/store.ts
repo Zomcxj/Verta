@@ -126,6 +126,12 @@ export type Preferences = {
   terminalScrollback: number;
   confirmCloseRunningTerminal: boolean;
   lastWslDistro: string | null;
+  /** Whether Verta also lists WSL projects and sessions. Off by default, so a
+   * fresh install never reaches into a distro until asked. */
+  wslEnabled: boolean;
+  /** What turning the switch off does. `false` only stops Verta's own queries;
+   * `true` runs `wsl --shutdown`, which also ends whatever else runs in WSL. */
+  wslShutdownOnDisable: boolean;
   zoomLevel: number;
   /**
    * Interface language. `system` follows the OS locale, which is what a fresh
@@ -186,6 +192,8 @@ const KEY_EDITOR_WORD_WRAP = "editorWordWrap";
 const KEY_EDITOR_WORD_WRAP_COLUMN = "editorWordWrapColumn";
 const KEY_SHOW_HIDDEN = "showHidden";
 const LEGACY_KEY_SHOW_HIDDEN_DIRS = "showHiddenDirectories";
+const KEY_WSL_ENABLED = "wslEnabled";
+const KEY_WSL_SHUTDOWN_ON_DISABLE = "wslShutdownOnDisable";
 const KEY_EXPLORER_GIT_DECORATIONS = "explorerGitDecorations";
 const KEY_TERMINAL_RENDERER = "terminalRenderer";
 const KEY_TERMINAL_SCREEN_READER = "terminalScreenReader";
@@ -269,6 +277,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   terminalScrollback: TERMINAL_SCROLLBACK_DEFAULT,
   confirmCloseRunningTerminal: true,
   lastWslDistro: null,
+  wslEnabled: false,
+  wslShutdownOnDisable: false,
   zoomLevel: 1.0,
   language: "system",
   defaultWorkspaceEnv: "local",
@@ -379,6 +389,10 @@ export async function loadPreferences(): Promise<Preferences> {
     lastWslDistro:
       get<string | null>(KEY_LAST_WSL_DISTRO) ??
       DEFAULT_PREFERENCES.lastWslDistro,
+    wslEnabled: get<boolean>(KEY_WSL_ENABLED) ?? DEFAULT_PREFERENCES.wslEnabled,
+    wslShutdownOnDisable:
+      get<boolean>(KEY_WSL_SHUTDOWN_ON_DISABLE) ??
+      DEFAULT_PREFERENCES.wslShutdownOnDisable,
     zoomLevel: get<number>(KEY_ZOOM_LEVEL) ?? DEFAULT_PREFERENCES.zoomLevel,
     language: get<LanguagePref>(KEY_LANGUAGE) ?? DEFAULT_PREFERENCES.language,
     defaultWorkspaceEnv:
@@ -527,6 +541,14 @@ export async function setShowHidden(value: boolean): Promise<void> {
 
 export async function setExplorerGitDecorations(value: boolean): Promise<void> {
   await writePref(KEY_EXPLORER_GIT_DECORATIONS, value);
+}
+
+export async function setWslEnabled(value: boolean): Promise<void> {
+  await writePref(KEY_WSL_ENABLED, value);
+}
+
+export async function setWslShutdownOnDisable(value: boolean): Promise<void> {
+  await writePref(KEY_WSL_SHUTDOWN_ON_DISABLE, value);
 }
 
 export async function setTerminalRenderer(
@@ -691,6 +713,8 @@ export async function onPreferencesChange(
     [KEY_EDITOR_WORD_WRAP]: "editorWordWrap",
     [KEY_EDITOR_WORD_WRAP_COLUMN]: "editorWordWrapColumn",
     [KEY_SHOW_HIDDEN]: "showHidden",
+    [KEY_WSL_ENABLED]: "wslEnabled",
+    [KEY_WSL_SHUTDOWN_ON_DISABLE]: "wslShutdownOnDisable",
     [KEY_EXPLORER_GIT_DECORATIONS]: "explorerGitDecorations",
     [KEY_TERMINAL_RENDERER]: "terminalRenderer",
     [KEY_TERMINAL_SCREEN_READER]: "terminalScreenReader",

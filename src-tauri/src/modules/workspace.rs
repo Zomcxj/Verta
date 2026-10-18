@@ -926,7 +926,13 @@ mod auth_tests {
         #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, &link).expect("symlink");
         #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(&outside, &link).expect("symlink");
+        if let Err(error) = std::os::windows::fs::symlink_dir(&outside, &link) {
+            // Windows only lets an elevated account or one with Developer Mode
+            // create directory symlinks. That is a property of the machine, not
+            // of the check under test, so say so rather than fail the suite.
+            eprintln!("跳过：这台机器不允许创建目录符号链接（{error}）");
+            return;
+        }
         let reg = WorkspaceRegistry::default();
         reg.authorize(&allowed).expect("authorize root");
         let s = link.to_string_lossy().into_owned();
