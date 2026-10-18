@@ -8,6 +8,7 @@ import {
   CommandIcon,
   Settings01Icon,
   SidebarLeftIcon,
+  SidebarRightIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -49,6 +50,10 @@ type Props = {
   onReorder: (fromId: number, toGapIndex: number) => void;
   onOverrideLanguage?: (id: number, lang: string | null) => void;
   onToggleSidebar: () => void;
+  /** 右侧 Git 面板：与左上角那个按钮同款，位置上对称。 */
+  onToggleGitPanel: () => void;
+  /** 未提交改动数，显示在右上角按钮上（原先在左栏的 Git 项上）。 */
+  changedCount: number;
   onOpenCommandPalette: () => void;
   onOpenSettings: () => void;
   spaceSwitcher: ReactNode;
@@ -78,6 +83,8 @@ export function Header({
   onReorder,
   onOverrideLanguage,
   onToggleSidebar,
+  onToggleGitPanel,
+  changedCount,
   onOpenCommandPalette,
   onOpenSettings,
   spaceSwitcher,
@@ -186,6 +193,21 @@ export function Header({
       </div>
 
       <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
+
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        onClick={onToggleGitPanel}
+        title={t("header.toggleGitPanel")}
+        className="relative shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        <HugeiconsIcon icon={SidebarRightIcon} size={18} strokeWidth={1.75} />
+        {changedCount > 0 ? (
+          <span className="absolute -top-0.5 -right-0.5 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground tabular-nums">
+            {changedCount > 99 ? "99+" : changedCount}
+          </span>
+        ) : null}
+      </Button>
 
       {IS_MAC && settingsButton}
 

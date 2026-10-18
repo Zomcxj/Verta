@@ -52,9 +52,12 @@ import {
   useGlobalShortcuts,
 } from "@/modules/shortcuts";
 import {
+  RIGHT_MAX_WIDTH,
+  RIGHT_MIN_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   SidebarRail,
+  useRightPanel,
   useSidebarPanel,
 } from "@/modules/sidebar";
 import {
@@ -325,11 +328,20 @@ export default function App() {
     persistSidebarView,
     persistSidebarCollapsed,
     toggleSidebar,
-    cycleSidebarView,
     openSidebarView,
     persistSidebarWidth,
     toggleExplorerFocus,
   } = useSidebarPanel(explorerRef);
+
+  const {
+    rightRef: rightPanelRef,
+    rightWidthRef,
+    rightCollapsed,
+    initialRightCollapsed,
+    persistRightCollapsed,
+    persistRightWidth,
+    toggleRightPanel,
+  } = useRightPanel();
 
   const [newEditorOpen, setNewEditorOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -833,8 +845,8 @@ export default function App() {
     [],
   );
   const openSourceControl = useCallback(() => {
-    openSidebarView("source-control");
-  }, [openSidebarView]);
+    toggleRightPanel();
+  }, [toggleRightPanel]);
   const toggleHiddenFiles = useCallback(() => {
     openSidebarView("explorer");
     void setShowHidden(!usePreferencesStore.getState().showHidden);
@@ -854,8 +866,7 @@ export default function App() {
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
   );
-  const { sourceControl, toggleSourceControl, openGitGraphFromContext } =
-    useSourceControlContext({
+  const { sourceControl, openGitGraphFromContext } = useSourceControlContext({
       activeTab,
       tabs,
       activeTerminalLeafCwd,
@@ -865,9 +876,9 @@ export default function App() {
       home,
       sidebarView,
       sidebarCollapsed,
+      gitPanelOpen: !rightCollapsed,
       explorerGitDecorations,
       repositoryTarget: sourceControlRepositoryTarget,
-      cycleSidebarView,
       openCommitHistoryTab,
     });
 
@@ -953,7 +964,7 @@ export default function App() {
       "pane.swapRight": () => swapActivePane("right"),
       "pane.swapUp": () => swapActivePane("up"),
       "pane.swapDown": () => swapActivePane("down"),
-      "pane.source": toggleSourceControl,
+      "pane.source": toggleRightPanel,
       "terminal.clear": () => {
         clearFocusedTerminal();
       },
@@ -995,7 +1006,7 @@ export default function App() {
       splitActivePaneInActiveTab,
       focusNextPaneInTab,
       swapActivePane,
-      toggleSourceControl,
+      toggleRightPanel,
       toggleSidebar,
       toggleExplorerFocus,
       toggleHiddenFiles,
@@ -1262,7 +1273,7 @@ export default function App() {
             openNewPreview: () => openPreviewTab(""),
             openProjects,
             openGitGraph: openGitGraphFromContext,
-            toggleSourceControl,
+            toggleSourceControl: toggleRightPanel,
             closeActiveTabOrPane: handleCloseTabOrPane,
             splitPaneRight: () => splitActivePaneInActiveTab("row"),
             splitPaneDown: () => splitActivePaneInActiveTab("col"),
@@ -1291,7 +1302,7 @@ export default function App() {
       openNewPrivateTab,
       openPreviewTab,
       openGitGraphFromContext,
-      toggleSourceControl,
+      toggleRightPanel,
       handleCloseTabOrPane,
       splitActivePaneInActiveTab,
       toggleSidebar,
@@ -1413,6 +1424,8 @@ export default function App() {
               onRename={handleRenameTab}
               onReorder={reorderTabByGap}
               onToggleSidebar={toggleSidebar}
+              onToggleGitPanel={toggleRightPanel}
+              changedCount={sourceControl.changedCount}
               onOpenCommandPalette={() => openCommandPalette("commands")}
               onOpenSettings={() => void openSettingsWindow()}
               spaceSwitcher={spaceSwitcher}
@@ -1429,6 +1442,9 @@ export default function App() {
               onLayoutChanged={(_, { isUserInteraction }) => {
                 const width = sidebarRef.current?.getSize().inPixels ?? 0;
                 persistSidebarWidth(width, isUserInteraction);
+                const rightWidth =
+                  rightPanelRef.current?.getSize().inPixels ?? 0;
+                persistRightWidth(rightWidth, isUserInteraction);
               }}
             >
               <ResizablePanel
@@ -1478,25 +1494,11 @@ export default function App() {
                           pathDropTarget={terminalPathDropTarget}
                           visible={!sidebarCollapsed}
                         />
-                      ) : (
-                        <SourceControlPanel
-                          open
-                          sourceControl={sourceControl}
-                          onOpenDiff={openGitDiffTab}
-                          onOpenGitGraph={openGitGraphFromContext}
-                          onOpenFile={handleOpenFile}
-                          onNavigateToPath={cdInNewTab}
-                          repositoryTarget={sourceControlRepositoryTarget}
-                          onFollowRepositoryContext={
-                            handleFollowRepositoryContext
-                          }
-                        />
-                      )}
+                      ) : null}
                     </div>
                     <SidebarRail
                       activeView={sidebarView}
                       onSelectView={persistSidebarView}
-                      changedCount={sourceControl.changedCount}
                     />
                   </div>
                 </div>
@@ -1537,6 +1539,40 @@ export default function App() {
                       cwd={activeCwd}
                       home={home}
                     />
+                  </div>
+                </div>
+              </ResizablePanel>
+              <ResizableHandle className="w-1 rounded-full bg-transparent transition-colors duration-[var(--dur-fast)] after:w-4 hover:bg-border" />
+              <ResizablePanel
+                id="gitPanel"
+                panelRef={rightPanelRef}
+                defaultSize={
+                  initialRightCollapsed ? "0px" : `${rightWidthRef.current}px`
+                }
+                minSize={`${RIGHT_MIN_WIDTH}px`}
+                maxSize={`${RIGHT_MAX_WIDTH}px`}
+                collapsible
+                collapsedSize={0}
+                onResize={(size) => {
+                  persistRightCollapsed(size.inPixels <= 0);
+                }}
+              >
+                <div className="h-full min-h-0 pl-0.5 pr-2">
+                  <div className="verta-pane flex h-full min-h-0 flex-col">
+                    <div className="min-h-0 flex-1 verta-panel-in">
+                      <SourceControlPanel
+                        open
+                        sourceControl={sourceControl}
+                        onOpenDiff={openGitDiffTab}
+                        onOpenGitGraph={openGitGraphFromContext}
+                        onOpenFile={handleOpenFile}
+                        onNavigateToPath={cdInNewTab}
+                        repositoryTarget={sourceControlRepositoryTarget}
+                        onFollowRepositoryContext={
+                          handleFollowRepositoryContext
+                        }
+                      />
+                    </div>
                   </div>
                 </div>
               </ResizablePanel>

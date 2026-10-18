@@ -44,12 +44,10 @@ function readSidebarWidth(): number {
 function readSidebarView(): SidebarViewId {
   try {
     const stored = window.localStorage.getItem(SIDEBAR_VIEW_STORAGE_KEY);
-    if (
-      stored === "explorer" ||
-      stored === "source-control" ||
-      stored === "launcher"
-    )
-      return stored;
+    if (stored === "explorer" || stored === "launcher") return stored;
+    // Git 视图搬去右栏后，老存档里的 "source-control" 要落到文件树，
+    // 否则升级后会停在一个已经不存在的视图上。
+    if (stored === "source-control") return "explorer";
   } catch {
     // ignore
   }

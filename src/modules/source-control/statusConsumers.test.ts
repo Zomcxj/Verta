@@ -3,6 +3,7 @@ import type { SidebarViewId } from "@/modules/sidebar";
 import { isGitTabKind, isStatusLive, statusConsumers } from "./statusConsumers";
 
 const base = {
+  gitPanelOpen: false,
   sidebarCollapsed: false,
   sidebarView: "explorer" as SidebarViewId,
   activeTabKind: "terminal" as string | undefined,
@@ -18,11 +19,13 @@ describe("statusConsumers", () => {
     expect(live({ activeTabKind: undefined })).toBe(false);
   });
 
-  it("goes live for the Source Control panel only while the sidebar is expanded", () => {
-    expect(live({ sidebarView: "source-control" })).toBe(true);
+  it("goes live for the Git panel while it is expanded", () => {
+    // Git 面板搬到右侧后，它是不是活的只看自己展开没有，与左栏无关。
+    expect(live({ gitPanelOpen: true })).toBe(true);
     expect(
-      live({ sidebarView: "source-control", sidebarCollapsed: true }),
-    ).toBe(false);
+      statusConsumers({ ...base, gitPanelOpen: true, sidebarCollapsed: true })
+        .panel,
+    ).toBe(true);
   });
 
   it("goes live for a visible git tab even with the sidebar collapsed", () => {
@@ -38,17 +41,17 @@ describe("statusConsumers", () => {
     expect(live({ explorerGitDecorations: true, sidebarCollapsed: true })).toBe(
       false,
     );
-    // Source Control replaces the explorer in the sidebar: no decorations drawn.
+    // 会话列表在屏幕上时文件树不在，也就没有装饰要画。
     expect(
       statusConsumers({
         ...base,
-        sidebarView: "source-control",
+        sidebarView: "launcher",
         explorerGitDecorations: true,
       }).explorerDecorations,
     ).toBe(false);
   });
 
-  it("does not count the rail badge as a consumer", () => {
+  it("does not count the header badge as a consumer", () => {
     // Explorer open, decorations off, plain terminal tab: only the badge is
     // visible, and the badge refreshes lazily instead of on every focus.
     expect(statusConsumers({ ...base, explorerGitDecorations: false })).toEqual(

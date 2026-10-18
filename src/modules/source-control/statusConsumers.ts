@@ -35,6 +35,8 @@ export function isGitTabKind(kind: string | undefined): boolean {
 }
 
 export function statusConsumers(input: {
+  /** 右侧 Git 面板是否展开。 */
+  gitPanelOpen: boolean;
   sidebarCollapsed: boolean;
   sidebarView: SidebarViewId;
   activeTabKind: string | undefined;
@@ -42,7 +44,7 @@ export function statusConsumers(input: {
 }): StatusConsumers {
   const sidebarShown = !input.sidebarCollapsed;
   return {
-    panel: sidebarShown && input.sidebarView === "source-control",
+    panel: input.gitPanelOpen,
     gitTab: isGitTabKind(input.activeTabKind),
     explorerDecorations:
       sidebarShown &&

@@ -125,6 +125,7 @@ const zh = {
 
   "header.settings": "设置",
   "header.toggleSidebar": "显示/隐藏侧栏",
+  "header.toggleGitPanel": "显示/隐藏 Git 面板",
   "header.commandPalette": "命令面板",
   "header.clearSearch": "清除搜索",
 
@@ -547,6 +548,7 @@ const en: Record<MessageKey, string> = {
 
   "header.settings": "Settings",
   "header.toggleSidebar": "Toggle sidebar",
+  "header.toggleGitPanel": "Toggle the Git panel",
   "header.commandPalette": "Command palette",
   "header.clearSearch": "Clear search",
 

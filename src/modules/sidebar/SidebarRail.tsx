@@ -1,7 +1,6 @@
 import { cn } from "@/lib/utils";
 import { type MessageKey, useT } from "@/modules/i18n";
 import {
-  FolderGitTwoIcon,
   FolderTreeIcon,
   MessageMultiple01Icon,
 } from "@hugeicons/core-free-icons";
@@ -15,26 +14,19 @@ type RailItem = {
   /** Message key, not text: the rail is the first thing a user sees. */
   label: MessageKey;
   icon: Parameters<typeof HugeiconsIcon>[0]["icon"];
-  badge?: number;
 };
 
 type Props = {
   activeView: SidebarViewId;
   onSelectView: (view: SidebarViewId) => void;
-  changedCount: number;
 };
 
-export function SidebarRail({ activeView, onSelectView, changedCount }: Props) {
+export function SidebarRail({ activeView, onSelectView }: Props) {
   const t = useT();
+  // Git 不在这里：它在右侧面板，入口是右上角那个按钮（改动数徽标也跟过去了）。
   const items: RailItem[] = [
     { id: "launcher", label: "rail.sessions", icon: MessageMultiple01Icon },
     { id: "explorer", label: "rail.files", icon: FolderTreeIcon },
-    {
-      id: "source-control",
-      label: "rail.git",
-      icon: FolderGitTwoIcon,
-      badge: changedCount,
-    },
   ];
 
   return (
@@ -44,7 +36,6 @@ export function SidebarRail({ activeView, onSelectView, changedCount }: Props) {
     >
       {items.map((item) => {
         const isActive = item.id === activeView;
-        const showBadge = !!item.badge && item.badge > 0;
         return (
           <button
             key={item.id}
@@ -67,11 +58,6 @@ export function SidebarRail({ activeView, onSelectView, changedCount }: Props) {
               className="shrink-0 transition-[stroke-width] duration-[var(--dur-base)]"
             />
             <span>{t(item.label)}</span>
-            {showBadge ? (
-              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border/60 bg-card px-1 text-[9px] font-semibold leading-none tabular-nums text-muted-foreground/95">
-                {item.badge! > 99 ? "99+" : item.badge}
-              </span>
-            ) : null}
           </button>
         );
       })}

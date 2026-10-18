@@ -1,4 +1,3 @@
-import type { SidebarViewId } from "@/modules/sidebar";
 import type { Tab } from "@/modules/tabs";
 
 export type SourceControlRepositoryTarget =
@@ -87,36 +86,33 @@ export function activeRepositoryContextPath({
 export function sourceControlRepositoryPath({
   contextPath,
   badgeContextPath,
-  sidebarView,
+  gitPanelOpen,
   hasOpenGitTab,
   target,
 }: {
   contextPath: string | null;
   badgeContextPath: string | null;
-  sidebarView: SidebarViewId;
+  /** 右侧 Git 面板开着的时候，看的就是它自己的仓库。 */
+  gitPanelOpen: boolean;
   hasOpenGitTab: boolean;
   target: SourceControlRepositoryTarget;
 }): string | null {
-  if (sidebarView === "source-control" && target.mode === "fixed") {
+  if (gitPanelOpen && target.mode === "fixed") {
     return target.repoRoot;
   }
-  return hasOpenGitTab || sidebarView === "source-control"
-    ? contextPath
-    : badgeContextPath;
+  return hasOpenGitTab || gitPanelOpen ? contextPath : badgeContextPath;
 }
 
 export function gitGraphRepositoryPath({
   contextPath,
-  sidebarView,
+  gitPanelOpen,
   target,
 }: {
   contextPath: string | null;
-  sidebarView: SidebarViewId;
+  gitPanelOpen: boolean;
   target: SourceControlRepositoryTarget;
 }): string | null {
-  return sidebarView === "source-control" && target.mode === "fixed"
-    ? target.repoRoot
-    : contextPath;
+  return gitPanelOpen && target.mode === "fixed" ? target.repoRoot : contextPath;
 }
 
 export function repositoryTargetIsPending({

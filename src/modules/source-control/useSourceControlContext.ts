@@ -20,12 +20,13 @@ type Params = {
   launchCwdResolved: boolean;
   home: string | null;
   sidebarView: SidebarViewId;
+  /** 右侧 Git 面板是否展开。 */
+  gitPanelOpen: boolean;
   /** The sidebar panel is collapsed to 0 px (still mounted, not on screen). */
   sidebarCollapsed: boolean;
   /** The `explorerGitDecorations` preference. */
   explorerGitDecorations: boolean;
   repositoryTarget: SourceControlRepositoryTarget;
-  cycleSidebarView: (view: SidebarViewId) => void;
   openCommitHistoryTab: (args: {
     repoRoot: string;
     branch: string | null;
@@ -47,9 +48,9 @@ export function useSourceControlContext({
   home,
   sidebarView,
   sidebarCollapsed,
+  gitPanelOpen,
   explorerGitDecorations,
   repositoryTarget,
-  cycleSidebarView,
   openCommitHistoryTab,
 }: Params) {
   const workspaceFallbackPath = launchCwdResolved
@@ -78,19 +79,20 @@ export function useSourceControlContext({
   const sourceControlPath = sourceControlRepositoryPath({
     contextPath: sourceControlContextPath,
     badgeContextPath,
-    sidebarView,
+    gitPanelOpen,
     hasOpenGitTab,
     target: repositoryTarget,
   });
   const graphContextPath = gitGraphRepositoryPath({
     contextPath: sourceControlContextPath,
-    sidebarView,
+    gitPanelOpen,
     target: repositoryTarget,
   });
   // `git status` runs on focus / context changes only while something that
   // shows git state is on screen; otherwise the next consumer refreshes it.
   const live = isStatusLive(
     statusConsumers({
+      gitPanelOpen,
       sidebarCollapsed,
       sidebarView,
       activeTabKind: activeTab?.kind,
@@ -99,16 +101,12 @@ export function useSourceControlContext({
   );
   const sourceControl = useSourceControl(sourceControlPath, true, { live });
 
-  const toggleSourceControl = useCallback(() => {
-    cycleSidebarView("source-control");
-  }, [cycleSidebarView]);
-
   const openGitGraphFromContext = useCallback(async () => {
     // A snapshot nobody is refreshing may predate a branch switch or a cd, so
     // only a live one is trusted; otherwise resolve the repo afresh below.
     const known = live && sourceControl.hasRepo ? sourceControl.repo : null;
     const fixedTargetIsLoaded =
-      sidebarView !== "source-control" ||
+      !gitPanelOpen ||
       repositoryTarget.mode !== "fixed" ||
       known?.repoRoot === repositoryTarget.repoRoot;
     if (known && fixedTargetIsLoaded) {
@@ -134,8 +132,8 @@ export function useSourceControlContext({
     live,
     graphContextPath,
     repositoryTarget,
-    sidebarView,
+    gitPanelOpen,
   ]);
 
-  return { sourceControl, toggleSourceControl, openGitGraphFromContext };
+  return { sourceControl, openGitGraphFromContext };
 }

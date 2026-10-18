@@ -174,7 +174,7 @@ describe("sourceControlRepositoryPath", () => {
       sourceControlRepositoryPath({
         contextPath: "/repos/active",
         badgeContextPath: "/repos/explorer",
-        sidebarView: "source-control",
+        gitPanelOpen: true,
         hasOpenGitTab: false,
         target: fixed,
       }),
@@ -186,7 +186,7 @@ describe("sourceControlRepositoryPath", () => {
       sourceControlRepositoryPath({
         contextPath: "/repos/active",
         badgeContextPath: "/repos/explorer",
-        sidebarView: "explorer",
+        gitPanelOpen: false,
         hasOpenGitTab: false,
         target: fixed,
       }),
@@ -198,7 +198,7 @@ describe("sourceControlRepositoryPath", () => {
       sourceControlRepositoryPath({
         contextPath: "/repos/history",
         badgeContextPath: "/repos/explorer",
-        sidebarView: "explorer",
+        gitPanelOpen: false,
         hasOpenGitTab: true,
         target: fixed,
       }),
@@ -209,14 +209,14 @@ describe("sourceControlRepositoryPath", () => {
     expect(
       gitGraphRepositoryPath({
         contextPath: "/repos/active",
-        sidebarView: "source-control",
+        gitPanelOpen: true,
         target: fixed,
       }),
     ).toBe("/repos/fixed");
     expect(
       gitGraphRepositoryPath({
         contextPath: "/repos/active",
-        sidebarView: "explorer",
+        gitPanelOpen: false,
         target: fixed,
       }),
     ).toBe("/repos/active");
