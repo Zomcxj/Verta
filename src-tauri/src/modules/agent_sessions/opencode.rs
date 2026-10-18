@@ -429,7 +429,7 @@ mod tests {
         // at spawn time with "no stdout pipe", which is how the first real delete
         // attempt ended.
         #[cfg(windows)]
-        let mut command = {
+        let command = {
             let mut command = Command::new("cmd");
             command.args(["/C", "echo", "hi"]);
             command

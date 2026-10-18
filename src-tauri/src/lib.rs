@@ -3,7 +3,7 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent, agent_sessions, control, fs, git, history, lsp, net, pty, secrets, shell, vibrancy,
+    agent_sessions, control, fs, git, history, lsp, net, pty, secrets, shell, vibrancy,
     workspace,
 };
 use std::path::PathBuf;
@@ -169,9 +169,6 @@ pub fn run() {
     {
         let args: Vec<String> = std::env::args().collect();
         if args.get(1).map(String::as_str) == Some("__terax_notify") {
-            if let (Some(agent), Some(event)) = (args.get(2), args.get(3)) {
-                agent::emit_conout_marker(agent, event);
-            }
             use std::io::Write;
             let mut out = std::io::stdout();
             let _ = out.write_all(b"{}");
@@ -251,7 +248,6 @@ pub fn run() {
         })
         .manage(pty::PtyState::default())
         .manage(net::AiStreamState::default())
-        .manage(modules::ai_sessions::SessionFilesState::default())
         .manage(modules::window_presentation::WindowPresentationState::default())
         .manage(control_state)
         .manage(shell::ShellState::default())
@@ -348,8 +344,6 @@ pub fn run() {
             get_launch_dir,
             get_launch_files,
             open_settings_window,
-            agent::agent_enable_hooks,
-            agent::agent_hooks_status,
             agent_sessions::agent_sessions_list,
             agent_sessions::agent_sessions_delete,
             secrets::secrets_get,
@@ -360,11 +354,6 @@ pub fn run() {
             net::ai_http_stream,
             net::ai_http_cancel,
             net::ai_http_ack,
-            modules::ai_sessions::ai_session_load,
-            modules::ai_sessions::ai_session_save,
-            modules::ai_sessions::ai_session_delete,
-            modules::ai_sessions::ai_session_finish_migration,
-            modules::ai_sessions::ai_session_prune_backup,
             history::history_suggest,
             history::history_commands,
             history::history_record,
