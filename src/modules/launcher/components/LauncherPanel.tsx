@@ -9,8 +9,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { listen } from "@tauri-apps/api/event";
 import { type MessageKey, useT } from "@/modules/i18n";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { relativeTime } from "../lib/relativeTime";
 import {
   type DeletionSummary,
@@ -51,9 +52,18 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
     null,
   );
   const [deleting, setDeleting] = useState(false);
+  /**
+   * Reading the list while the user picks rows for deletion makes the list jump
+   * as sessions re-sort, and a mis-tick on a destructive action is not
+   * recoverable. Freshness waits until the selection is finished.
+   */
+  const pausedRef = useRef(false);
+  pausedRef.current = managing || deleting || pendingDelete !== null;
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async (options?: { silent?: boolean }) => {
+    // A background refresh must not flash the list: the spinner is for people
+    // who asked, not for a change that arrived on its own.
+    if (!options?.silent) setLoading(true);
     setError(null);
     const results = await Promise.allSettled(
       TOOLS.map((tool) => listAgentSessions(tool)),
@@ -80,6 +90,33 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // The backend watches both session stores and reports a change once per
+  // burst. That is what makes a session started in a terminal appear here
+  // without pressing Refresh.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    void listen("terax://agent-sessions-changed", () => {
+      if (!disposed && !pausedRef.current) void refresh({ silent: true });
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {
+        // No watcher available: the manual Refresh button still works.
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [refresh]);
+
+  // Leaving the selection flow catches up on whatever arrived while paused.
+  useEffect(() => {
+    if (!managing) void refresh({ silent: true });
+  }, [managing, refresh]);
 
   const topLevel = useMemo(() => topLevelSessions(sessions), [sessions]);
   // Managing deliberately shows the subagent sessions this list otherwise hides.

@@ -66,7 +66,7 @@ describe("createCommandItems", () => {
   it("disables split when there is no terminal tab", () => {
     const editorTab = { ...terminalTab(1), kind: "editor" } as unknown as Tab;
     expect(reasonById({ tabs: [editorTab] }, "pane.splitRight")).toBe(
-      "No terminal tab",
+      "cmd.noTerminalTab",
     );
   });
 
@@ -82,7 +82,7 @@ describe("createCommandItems", () => {
 
   it("disables content search when there is no searchable view", () => {
     expect(reasonById({ searchTarget: null as never }, "search.focus")).toBe(
-      "No searchable view",
+      "cmd.noSearchableView",
     );
   });
 
@@ -97,6 +97,8 @@ describe("createCommandItems", () => {
       { spaces: [{ id: "sp1", name: "One" }], activeSpaceId: "sp1" },
       "spaces.switch.sp1",
     );
-    expect(reason).toBe("Current space");
+    // A message key, not the text: the row resolves it so the hint follows the
+    // interface language like everything else in the palette.
+    expect(reason).toBe("cmd.currentSpace");
   });
 });

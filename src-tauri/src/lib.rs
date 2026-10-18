@@ -231,6 +231,14 @@ pub fn run() {
             if let Err(error) = control::start(_app.handle().clone(), control_for_setup.clone()) {
                 log::warn!("could not start Terax control server: {error}");
             }
+            // Kept alive by app state; dropping it stops watching. A failure is
+            // not fatal: Refresh still works, so warn and keep going.
+            match agent_sessions::watch::start(_app.handle().clone()) {
+                Ok(watcher) => {
+                    _app.manage(watcher);
+                }
+                Err(error) => log::warn!("agent session watch not started: {error}"),
+            }
             #[cfg(target_os = "macos")]
             if let Some(main) = _app.get_webview_window("main") {
                 let handle = _app.handle().clone();

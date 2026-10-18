@@ -7,7 +7,8 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
-import { useT } from "@/modules/i18n";
+import { type MessageKey, useT } from "@/modules/i18n";
+import { spaceDisplayName } from "@/modules/i18n/spaceName";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FileIcon } from "@/modules/explorer/FileIcon";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -85,8 +86,8 @@ export function CommandPalette({
 
   const rankedCommands = useMemo(() => {
     if (inThemes || parsed.mode !== "commands") return [];
-    return rankCommands(commandItems, parsed.term, mru);
-  }, [commandItems, parsed.term, parsed.mode, inThemes, mru]);
+    return rankCommands(commandItems, parsed.term, mru, t);
+  }, [commandItems, parsed.term, parsed.mode, inThemes, mru, t]);
 
   const themes = useMemo(() => {
     if (!inThemes) return [];
@@ -278,7 +279,10 @@ export function CommandPalette({
                   const rows = rankedCommands.filter((a) => a.group === group);
                   if (rows.length === 0) return null;
                   return (
-                    <CommandGroup key={group} heading={group}>
+                    <CommandGroup
+                      key={group}
+                      heading={t(group)}
+                    >
                       {rows.map((item) => (
                         <ActionItem
                           key={item.id}
@@ -391,13 +395,25 @@ function rankCommands(
   items: PaletteItem[],
   term: string,
   mru: Record<string, number>,
+  lookup: (key: MessageKey, values?: Record<string, string | number>) => string,
 ): PaletteItem[] {
   if (!term) {
     return [...items].sort((a, b) => mruRank(mru, b.id) - mruRank(mru, a.id));
   }
   const scored: { item: PaletteItem; s: number }[] = [];
   for (const item of items) {
-    const s = fuzzyBest(term, [item.title, item.group, ...(item.keywords ?? [])]);
+    // Match what is on screen: titles and group headings are keys now, so
+    // searching the raw key would never find "设置" or "Settings".
+    const visibleTitle =
+      item.title === "cmd.switchToSpace"
+        ? lookup("cmd.switchToSpace", { name: spaceDisplayName(item.spaceName ?? "") })
+        : lookup(item.title);
+    const visibleGroup = lookup(item.group);
+    const s = fuzzyBest(term, [
+      visibleTitle,
+      visibleGroup,
+      ...(item.keywords ?? []),
+    ]);
     if (s !== null) scored.push({ item, s });
   }
   scored.sort(
@@ -415,7 +431,11 @@ function ActionItem({
   shortcutLabel: string | null;
   onRun: () => void;
 }) {
-  const rightLabel = item.disabledReason ?? item.trailing ?? shortcutLabel;
+  const t = useT();
+  const rightLabel =
+    item.disabledReason
+      ? t(item.disabledReason as MessageKey)
+      : (item.trailing ?? shortcutLabel);
   return (
     <CommandItem
       value={`cmd:${item.id}`}
@@ -431,7 +451,11 @@ function ActionItem({
           className="text-muted-foreground"
         />
       ) : null}
-      <span className="truncate">{item.title}</span>
+      <span className="truncate">
+        {item.title === "cmd.switchToSpace"
+          ? t("cmd.switchToSpace", { name: spaceDisplayName(item.spaceName ?? "") })
+          : t(item.title)}
+      </span>
       {rightLabel ? (
         <CommandShortcut
           className={item.disabledReason ? "normal-case tracking-normal" : ""}

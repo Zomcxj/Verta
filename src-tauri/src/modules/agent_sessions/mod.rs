@@ -3,6 +3,7 @@ pub mod types;
 mod delete;
 mod opencode;
 mod pi;
+pub mod watch;
 
 use delete::{DeleteReport, SessionTarget};
 use types::AgentSessionsPayload;
