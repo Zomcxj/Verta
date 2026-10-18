@@ -485,22 +485,10 @@ export const EditorPane = memo(
 
       if (isImage || isVideo || isAudio || isPdf) {
         const assetUrl = convertFileSrc(path);
+        const name = path.split(/[\\/]/).pop() ?? path;
         return (
           <div className="flex h-full min-h-0 flex-col items-center justify-center bg-background p-4 overflow-auto">
-            {isImage && (
-              <img
-                src={assetUrl}
-                loading="lazy"
-                decoding="async"
-                className="max-w-full max-h-full object-contain rounded-md border border-border shadow-sm"
-                style={{
-                  backgroundImage:
-                    "conic-gradient(var(--muted) 0.25turn, transparent 0.25turn 0.5turn, var(--muted) 0.5turn 0.75turn, transparent 0.75turn)",
-                  backgroundSize: "20px 20px",
-                }}
-                alt={path.split("/").pop()}
-              />
-            )}
+            {isImage && <ImagePreview src={assetUrl} path={path} name={name} />}
             {isVideo && (
               // biome-ignore lint/a11y/useMediaCaption: local media preview opens arbitrary files with no caption track
               <video
@@ -579,3 +567,75 @@ export const EditorPane = memo(
     );
   }),
 );
+
+/**
+ * A picture opened as a file. Fits the window by default so a huge screenshot
+ * is readable at a glance, and 1:1 on request for checking detail; the original
+ * pixel size is shown either way so it is obvious what is being looked at.
+ */
+function ImagePreview({
+  src,
+  path,
+  name,
+}: {
+  src: string;
+  path: string;
+  name: string;
+}) {
+  const [fit, setFit] = useState(true);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <div className="flex flex-col items-center gap-1 text-center">
+        <div className="text-sm text-destructive">Could not read this image</div>
+        <div className="text-xs text-muted-foreground">{path}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col items-center gap-2">
+      <div className="flex w-full shrink-0 items-center gap-2 px-1 text-[11px] text-muted-foreground">
+        <span className="truncate text-foreground">{name}</span>
+        {size && (
+          <span className="shrink-0 tabular-nums">
+            {size.w} x {size.h}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => setFit((was) => !was)}
+          className="ml-auto shrink-0 cursor-pointer rounded px-1.5 py-0.5 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+        >
+          {fit ? "Original size" : "Fit to window"}
+        </button>
+      </div>
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center overflow-auto">
+        <img
+          src={src}
+          alt={name}
+          decoding="async"
+          onLoad={(event) =>
+            setSize({
+              w: event.currentTarget.naturalWidth,
+              h: event.currentTarget.naturalHeight,
+            })
+          }
+          onError={() => setFailed(true)}
+          className={
+            fit
+              ? "max-h-full max-w-full rounded-md border border-border object-contain shadow-sm"
+              : "rounded-md border border-border shadow-sm"
+          }
+          style={{
+            backgroundImage:
+              "conic-gradient(var(--muted) 0.25turn, transparent 0.25turn 0.5turn, var(--muted) 0.5turn 0.75turn, transparent 0.75turn)",
+            backgroundSize: "20px 20px",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
