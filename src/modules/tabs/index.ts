@@ -1,4 +1,5 @@
 export { TabBar, TabIcon } from "./TabBar";
+export type { TerminalChoice } from "./NewTabMenu";
 export { TabSwitcherHud } from "./TabSwitcherHud";
 export { useTabSwitcher } from "./lib/useTabSwitcher";
 export { labelFor } from "./lib/tabLabel";

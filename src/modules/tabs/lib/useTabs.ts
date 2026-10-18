@@ -726,24 +726,33 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [],
   );
 
-  const newTab = useCallback((cwd?: string) => {
-    const tabId = nextIdRef.current++;
-    const leafId = nextIdRef.current++;
-    setTabs((t) => [
-      ...t,
-      {
-        id: tabId,
-        kind: "terminal",
-        spaceId: activeSpaceIdRef.current,
-        title: "shell",
-        cwd,
-        paneTree: { kind: "leaf", id: leafId, cwd },
-        activeLeafId: leafId,
-      },
-    ]);
-    setActiveId(tabId);
-    return tabId;
-  }, []);
+  const newTab = useCallback(
+    (cwd?: string, options?: { workspace?: WorkspaceEnv; shell?: string }) => {
+      const tabId = nextIdRef.current++;
+      const leafId = nextIdRef.current++;
+      setTabs((t) => [
+        ...t,
+        {
+          id: tabId,
+          kind: "terminal",
+          spaceId: activeSpaceIdRef.current,
+          title: "shell",
+          cwd,
+          paneTree: {
+            kind: "leaf",
+            id: leafId,
+            cwd,
+            workspace: options?.workspace,
+            shell: options?.shell,
+          },
+          activeLeafId: leafId,
+        },
+      ]);
+      setActiveId(tabId);
+      return tabId;
+    },
+    [],
+  );
 
   const newBlockTab = useCallback((cwd?: string) => {
     const tabId = nextIdRef.current++;

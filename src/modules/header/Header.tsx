@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { WindowControls } from "@/components/WindowControls";
 import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import type { Tab } from "@/modules/tabs";
-import { TabBar } from "@/modules/tabs";
+import { TabBar, type TerminalChoice } from "@/modules/tabs";
 import {
   CommandIcon,
   Settings01Icon,
@@ -28,6 +28,8 @@ type Props = {
   activeId: number;
   onSelect: (id: number) => void;
   onNew: () => void;
+  /** 明确选一个终端（本机某个 shell，或某个发行版的终端）。 */
+  onNewTerminal: (choice: TerminalChoice) => void;
   onNewBlock: () => void;
   onNewPrivate: () => void;
   onNewPreview: () => void;
@@ -60,6 +62,7 @@ export function Header({
   activeId,
   onSelect,
   onNew,
+  onNewTerminal,
   onNewBlock,
   onNewPrivate,
   onNewPreview,
@@ -161,6 +164,7 @@ export function Header({
           activeId={activeId}
           onSelect={onSelect}
           onNew={onNew}
+          onNewTerminal={onNewTerminal}
           onNewBlock={onNewBlock}
           onNewPrivate={onNewPrivate}
           onNewPreview={onNewPreview}

@@ -54,6 +54,7 @@ export function PaneTreeView(props: Props) {
           focused={focused}
           initialCwd={node.cwd}
           workspace={node.workspace}
+          shell={node.shell}
           blocks={blocks}
           ref={b.setRef}
           onSearchReady={b.onSearchReady}

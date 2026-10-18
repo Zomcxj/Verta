@@ -89,9 +89,11 @@ if (CLICK) {
     clickCount: 1,
   });
   // A wheel turn is a mouse report the program itself handles, which is how a
-  // TUI in the alternate screen scrolls.
+  // TUI in the alternate screen scrolls. 点 UI（菜单之类）时用 --no-wheel 跳过：
+  // 那一滚会被菜单当成外部滚动，把刚打开的菜单关掉。
   const delta = rest.includes("--down") ? 120 : -120;
-  for (let index = 0; index < count; index += 1) {
+  const turns = rest.includes("--no-wheel") ? 0 : count;
+  for (let index = 0; index < turns; index += 1) {
     await send("Input.dispatchMouseEvent", {
       type: "mouseWheel",
       x,

@@ -18,6 +18,7 @@ export function createPanePlan(
   allocateId: () => number,
   cwd?: string,
   workspace?: WorkspaceEnv,
+  shell?: string,
 ): PanePlan {
   if (!Number.isInteger(count) || count < 1 || count > 4) {
     throw new RangeError("Pane count must be between 1 and 4.");
@@ -28,6 +29,7 @@ export function createPanePlan(
     id: allocateId(),
     cwd,
     workspace,
+    shell,
   }));
   const split = (dir: "row" | "col", children: PaneNode[]): PaneNode => ({
     kind: "split",

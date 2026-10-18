@@ -44,13 +44,15 @@ import {
 } from "react";
 import { labelFor } from "./lib/tabLabel";
 import type { EditorTab, Tab, TerminalTab } from "./lib/useTabs";
-import { NewTabMenu } from "./NewTabMenu";
+import { NewTabMenu, type TerminalChoice } from "./NewTabMenu";
 
 type Props = {
   tabs: Tab[];
   activeId: number;
   onSelect: (id: number) => void;
   onNew: () => void;
+  /** 明确选一个终端（本机某个 shell，或某个发行版的终端）。 */
+  onNewTerminal: (choice: TerminalChoice) => void;
   onNewBlock: () => void;
   onNewPrivate: () => void;
   onNewPreview: () => void;
@@ -76,6 +78,7 @@ export function TabBar({
   activeId,
   onSelect,
   onNew,
+  onNewTerminal,
   onNewBlock,
   onNewPrivate,
   onNewPreview,
@@ -577,6 +580,7 @@ export function TabBar({
         </Tabs>
         <NewTabMenu
           onNew={onNew}
+          onNewTerminal={onNewTerminal}
           onNewBlock={onNewBlock}
           onNewPrivate={onNewPrivate}
           onNewPreview={onNewPreview}

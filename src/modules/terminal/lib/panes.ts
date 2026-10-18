@@ -20,6 +20,8 @@ export type PaneNode =
       cwd?: string;
       /** 这个叶子在哪个环境里跑：缺省是本机，WSL 会话恢复时是那个发行版。 */
       workspace?: WorkspaceEnv;
+      /** 指定这个叶子跑哪个 shell；缺省用设置里的默认终端。 */
+      shell?: string;
     }
   | {
       kind: "split";
@@ -45,12 +47,7 @@ export function firstLeafSlotId(n: PaneNode): PaneId {
 }
 
 export function findLeafCwd(n: PaneNode, id: PaneId): string | undefined {
-  if (isLeaf(n)) return n.id === id ? n.cwd : undefined;
-  for (const c of n.children) {
-    const found = findLeafCwd(c, id);
-    if (found !== undefined) return found;
-  }
-  return undefined;
+  return findLeaf(n, id)?.cwd ?? undefined;
 }
 
 export function setLeafCwd(
@@ -240,7 +237,11 @@ function directionalTarget(
   return candidates[0]?.id ?? null;
 }
 
-function findLeaf(node: PaneNode, id: PaneId): Extract<PaneNode, { kind: "leaf" }> | null {
+/** 按 id 找叶子节点本身，供读取叶子级的设置（cwd / 环境 / shell）。 */
+export function findLeaf(
+  node: PaneNode,
+  id: PaneId,
+): Extract<PaneNode, { kind: "leaf" }> | null {
   if (isLeaf(node)) return node.id === id ? node : null;
   for (const child of node.children) {
     const found = findLeaf(child, id);

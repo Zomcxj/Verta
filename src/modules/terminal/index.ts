@@ -3,6 +3,7 @@ export {
   useAgentActivityStore,
 } from "./lib/agentActivity";
 export {
+  findLeaf,
   findLeafCwd,
   hasLeaf,
   leafIds,

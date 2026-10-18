@@ -66,6 +66,7 @@ type GhosttySession = {
   readonly backend: GhosttyBackend;
   initialCwd: string | undefined;
   workspace: WorkspaceEnv | undefined;
+  shell: string | undefined;
   lastCwd: string | null;
   model: GhosttyTerminalModelApi | null;
   surface: GhosttySurface | null;
@@ -140,6 +141,8 @@ type Options = {
   initialCwd?: string;
   /** 该叶子在哪个环境里跑：缺省是本机，WSL 会话恢复时是那个发行版。 */
   workspace?: WorkspaceEnv;
+  /** 该叶子跑哪个 shell；缺省用设置里的默认终端。 */
+  shell?: string;
   blocks?: boolean;
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
@@ -154,6 +157,7 @@ export function useGhosttyTerminalSession({
   focused,
   initialCwd,
   workspace,
+  shell,
   blocks = false,
   onSearchReady,
   onExit,
@@ -183,6 +187,7 @@ export function useGhosttyTerminalSession({
   const initialCwdRef = useRef(initialCwd);
   // 环境在标签创建时就定了，恢复 WSL 会话后不会变，所以跟 cwd 一样只取首次的值。
   const workspaceRef = useRef(workspace);
+  const shellRef = useRef(shell);
 
   useEffect(() => {
     const session = ensureSession(
@@ -191,6 +196,7 @@ export function useGhosttyTerminalSession({
       initialCwdRef.current,
       fontRef.current,
       workspaceRef.current,
+      shellRef.current,
     );
     if (blocks) ensureGhosttyBlocks(leafId);
     const node = container.current;
@@ -551,6 +557,7 @@ function ensureSession(
   initialCwd?: string,
   font?: TerminalFontSpec,
   workspace?: WorkspaceEnv,
+  shell?: string,
 ): GhosttySession {
   const existing = sessions.get(leafId);
   if (existing) {
@@ -572,6 +579,7 @@ function ensureSession(
     backend,
     initialCwd,
     workspace,
+    shell,
     lastCwd: null,
     model: null,
     surface: null,
@@ -878,7 +886,8 @@ async function initializeSessionGeneration(
     },
     session.initialCwd,
     !!ghosttyBlocks(session.leafId),
-    preferences.terminalShell || undefined,
+    // 叶子指定的 shell 优先，其次才是设置里的默认终端。
+    session.shell ?? (preferences.terminalShell || undefined),
     session.leafId,
     session.workspace,
   );

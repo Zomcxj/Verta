@@ -37,6 +37,8 @@ export type TerminalPaneProps = {
   initialCwd?: string;
   /** 该叶子在哪个环境里跑：缺省是本机，WSL 会话恢复时是那个发行版。 */
   workspace?: WorkspaceEnv;
+  /** 该叶子跑哪个 shell；缺省用设置里的默认终端。 */
+  shell?: string;
   /** Enable command-block decorations (OSC 133) for this terminal. */
   blocks?: boolean;
   onSearchReady?: (leafId: number, addon: TerminalSearchController) => void;
@@ -63,6 +65,7 @@ const GhosttyTerminalPane = memo(
       focused = true,
       initialCwd,
       workspace,
+      shell,
       blocks = false,
       onSearchReady,
       onExit,
@@ -85,6 +88,7 @@ const GhosttyTerminalPane = memo(
       focused,
       initialCwd,
       workspace,
+      shell,
       blocks,
       onSearchReady: (search) => onSearchReady?.(leafId, search),
       onExit: (code) => onExit?.(leafId, code),

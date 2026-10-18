@@ -61,6 +61,14 @@ const zh = {
   "spaces.closeTab": "关闭标签页",
 
   "tabs.newTab": "新建标签页",
+  "tabs.new.terminal": "终端",
+  "tabs.new.terminalDefault": "默认终端",
+  "tabs.new.terminalWsl": "WSL：{distro}",
+  "tabs.new.blocks": "命令块",
+  "tabs.new.privacy": "隐私终端",
+  "tabs.new.editor": "编辑器",
+  "tabs.new.preview": "预览",
+  "tabs.new.gitGraph": "提交图",
   "tabs.unsaved": "有未保存的更改",
   "tabs.close": "关闭标签页",
   "tabs.rename": "重命名标签页",
@@ -78,7 +86,6 @@ const zh = {
   "lsp.copyCommand": "复制命令",
 
   "statusbar.showHidden": "显示隐藏文件夹",
-  "statusbar.workspaceEnv": "工作区环境",
 
   "shortcut.openPalette": "打开命令面板",
   "shortcut.findInFiles": "在工作区文件中搜索",
@@ -425,6 +432,14 @@ const en: Record<MessageKey, string> = {
   "spaces.closeTab": "Close tab",
 
   "tabs.newTab": "New tab",
+  "tabs.new.terminal": "Terminal",
+  "tabs.new.terminalDefault": "Default terminal",
+  "tabs.new.terminalWsl": "WSL: {distro}",
+  "tabs.new.blocks": "Blocks",
+  "tabs.new.privacy": "Private",
+  "tabs.new.editor": "Editor",
+  "tabs.new.preview": "Preview",
+  "tabs.new.gitGraph": "Git Graph",
   "tabs.unsaved": "Unsaved changes",
   "tabs.close": "Close tab",
   "tabs.rename": "Rename tab",
@@ -442,7 +457,6 @@ const en: Record<MessageKey, string> = {
   "lsp.copyCommand": "Copy command",
 
   "statusbar.showHidden": "Show hidden folders",
-  "statusbar.workspaceEnv": "Workspace environment",
 
   "shortcut.openPalette": "Open command palette",
   "shortcut.findInFiles": "Find in files",

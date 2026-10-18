@@ -63,6 +63,7 @@ import {
 import { StatusBar } from "@/modules/statusbar";
 import {
   type CloseTabsPlan,
+  type TerminalChoice,
   TabSwitcherHud,
   useTabSwitcher,
   useTabs,
@@ -73,6 +74,7 @@ import { DEFAULT_SPACE_ID } from "@/modules/tabs/lib/useTabs";
 import {
   clearFocusedTerminal,
   disposeSession,
+  findLeaf,
   findLeafCwd,
   hasLeaf,
   isTerminalSurfaceTarget,
@@ -98,11 +100,15 @@ import {
 } from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
 import {
+  envForRoot,
+  getWslHome,
+  parseWorkspaceScopeKey,
   useWorkspaceEnvStore,
   type WorkspaceEnv,
   workspaceScopeKey,
 } from "@/modules/workspace";
 import { listen } from "@tauri-apps/api/event";
+import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   lazy,
@@ -225,7 +231,6 @@ export default function App() {
     home,
     launchCwd,
     launchCwdResolved,
-    switchWorkspace,
     adoptWorkspaceEnv,
   } = useWorkspaceSwitcher({
     tabsRef,
@@ -244,16 +249,6 @@ export default function App() {
     activeSpaceIdRef.current = activeSpaceId;
   }, [tabs, activeId, activeSpaceId]);
   const sourceControlSpaceId = activeSpaceId ?? DEFAULT_SPACE_ID;
-
-  const handleWorkspaceChange = useCallback(
-    async (env: WorkspaceEnv) => {
-      const switched = await switchWorkspace(env);
-      if (switched && activeSpaceId) {
-        useSpaces.getState().setEnv(activeSpaceId, env);
-      }
-    },
-    [switchWorkspace, activeSpaceId],
-  );
 
   useSpacesBoot({
     ready: launchCwdResolved,
@@ -283,7 +278,10 @@ export default function App() {
     const meta = useSpaces
       .getState()
       .spaces.find((s) => s.id === activeSpaceId);
-    if (meta) void adoptWorkspaceEnv(meta.env);
+    if (meta) {
+      // 环境跟着项目走：根路径落在 WSL 里就用 WSL，落在盘上就用本机。
+      void adoptWorkspaceEnv(envForRoot(meta.root, meta.env));
+    }
     const inSpace = tabsRef.current.filter((t) => t.spaceId === activeSpaceId);
     if (inSpace.length === 0) return;
     // Keep the active tab if it already belongs to the newly active space (a
@@ -339,6 +337,37 @@ export default function App() {
   const isBlockTab = activeTerminalTab?.blocks === true;
   const isEditorTab = activeTab?.kind === "editor";
   const isGitHistoryTab = activeTab?.kind === "git-history";
+
+  /**
+   * 终端在哪个环境，工作区就跟到哪个环境。文件树的根就是当前终端的 cwd，两边对不上时它会拿
+   * Linux 路径去本机的文件系统里找（报「指定的路径无效」），所以两个方向都要跟。
+   */
+  const followTerminalEnv = useCallback(
+    async (env: WorkspaceEnv) => {
+      const current = useWorkspaceEnvStore.getState().env;
+      const same =
+        current.kind === "local"
+          ? env.kind === "local"
+          : env.kind === "wsl" && env.distro === current.distro;
+      if (same) return;
+      await adoptWorkspaceEnv(env);
+    },
+    [adoptWorkspaceEnv],
+  );
+
+  const activeLeafEnv = useMemo(() => {
+    if (activeTab?.kind !== "terminal") return null;
+    const leaf = findLeaf(activeTab.paneTree, activeTab.activeLeafId);
+    if (!leaf) return null;
+    // 叶子自己记了环境就用它；旧标签只记了 cwd，就从路径反推（盘符是 Windows 存储，/home 是发行版）。
+    return (
+      leaf.workspace ?? (leaf.cwd ? envForRoot(leaf.cwd, workspaceEnv) : null)
+    );
+  }, [activeTab, workspaceEnv]);
+
+  useEffect(() => {
+    if (activeLeafEnv) void followTerminalEnv(activeLeafEnv);
+  }, [activeLeafEnv, followTerminalEnv]);
 
   useEditorFileSync({ tabs, tabsRef, editorRefs });
   useThemeFileEditing({ tabsRef, openFileTab });
@@ -514,9 +543,48 @@ export default function App() {
     return null;
   }, [tabs, activeId]);
 
+  /**
+   * 本机新终端的 cwd。别继承 WSL 的路径：那是发行版里的目录，交给 PowerShell 是无效路径。
+   */
+  const localCwdForNewTab = useCallback(async () => {
+    const inherited = inheritedCwdForNewTab();
+    if (inherited && /^[A-Za-z]:[\\/]/.test(inherited)) return inherited;
+    try {
+      return (await homeDir()).replace(/\\/g, "/");
+    } catch {
+      return undefined;
+    }
+  }, [inheritedCwdForNewTab]);
+
+  /**
+   * 从加号的悬浮窗里挑一个具体终端。选 WSL 时用发行版自己的家目录当 cwd：本机路径对它没有
+   * 意义，而留空会让文件树退回上一次终端的路径，去 WSL 环境里找 Windows 目录。
+   */
+  const openTerminalChoice = useCallback(
+    async ({ shell, env }: TerminalChoice) => {
+      // 先切环境、再开标签：反过来的话文件树会拿新 cwd 去旧环境里找。
+      await followTerminalEnv(env);
+      const cwd =
+        env.kind === "wsl"
+          ? await getWslHome(env.distro).catch(() => undefined)
+          : await localCwdForNewTab();
+      newTab(cwd, { shell, workspace: env });
+    },
+    [newTab, followTerminalEnv, localCwdForNewTab],
+  );
+
+  /**
+   * 普通新建终端（Ctrl+T、命令面板、加号里的「默认终端」）。环境按设置里的默认环境来：
+   * 工作区环境会跟着已打开的终端漂到 WSL，但「默认终端」是设置说了算的那一个，不该跟着漂，
+   * 否则在一个 WSL 项目里点本机终端也会开出发行版里的 shell。
+   */
   const openNewTab = useCallback(() => {
-    newTab(inheritedCwdForNewTab());
-  }, [newTab, inheritedCwdForNewTab]);
+    void openTerminalChoice({
+      env: parseWorkspaceScopeKey(
+        usePreferencesStore.getState().defaultWorkspaceEnv,
+      ),
+    });
+  }, [openTerminalChoice]);
 
   const openNewPrivateTab = useCallback(() => {
     newPrivateTab(inheritedCwdForNewTab());
@@ -1259,6 +1327,7 @@ export default function App() {
               activeId={activeId}
               onSelect={setActiveId}
               onNew={openNewTab}
+              onNewTerminal={openTerminalChoice}
               onNewBlock={openNewBlockTab}
               onNewPrivate={openNewPrivateTab}
               onNewPreview={() => openPreviewTab("")}
@@ -1403,7 +1472,6 @@ export default function App() {
               filePath={activeFilePath}
               home={home}
               onCd={sendCd}
-              onWorkspaceChange={handleWorkspaceChange}
               privateActive={
                 activeTab?.kind === "terminal" && activeTab.private === true
               }
