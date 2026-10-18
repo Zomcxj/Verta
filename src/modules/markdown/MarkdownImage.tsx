@@ -130,6 +130,20 @@ export function MarkdownImage({
         ? Number(height)
         : undefined;
 
+  // A markdown table usually asks for a height and leaves the width to the
+  // image. That height is a maximum here, so a row of pictures lines up while a
+  // narrow column can still shrink a picture without distorting it: the browser
+  // keeps the ratio and the height follows.
+  const sized =
+    numericHeight === undefined
+      ? undefined
+      : {
+          width: "auto",
+          maxHeight: `${numericHeight}px`,
+          maxWidth: "100%",
+          objectFit: "contain" as const,
+        };
+
   return (
     <img
       {...rest}
@@ -137,14 +151,17 @@ export function MarkdownImage({
       alt={alt ?? ""}
       decoding="async"
       loading="lazy"
-      height={numericHeight}
-      style={{
-        maxWidth: "100%",
-        height: numericHeight === undefined ? "auto" : undefined,
-        objectFit: "contain",
-        ...style,
+      // Height is expressed in CSS, not as an attribute: the attribute wins over
+      // any max-height, which is what squashed the wide screenshots.
+      className={
+        numericHeight === undefined
+          ? "block h-auto max-w-full rounded-sm"
+          : "block h-auto max-w-full rounded-sm"
+      }
+      style={{ ...sized, ...style }}
+      onLoad={(event: SyntheticEvent<HTMLImageElement>) => {
+        rest.onLoad?.(event);
       }}
-      className="block h-auto max-w-full rounded-sm"
       onError={(event: SyntheticEvent<HTMLImageElement>) => {
         setFailed(true);
         rest.onError?.(event);
