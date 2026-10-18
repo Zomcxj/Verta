@@ -3,7 +3,7 @@ import type { CustomEndpoint } from "../config";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
 import type { ProviderKeys, CustomEndpointKeys } from "./keyring";
 import { formatAiError } from "./errors";
-import { native } from "./native";
+import { native } from "@/lib/native";
 import type { ToolContext } from "../tools/tools";
 
 const TERAX_MD_MAX_BYTES = 32 * 1024;

@@ -17,7 +17,7 @@ const securityMock = vi.hoisted(() => ({
   >(() => ({ ok: true })),
 }));
 
-vi.mock("../lib/native", () => ({ native: nativeMock }));
+vi.mock("@/lib/native", () => ({ native: nativeMock }));
 vi.mock("../lib/security", () => securityMock);
 vi.mock("@/modules/workspace", () => ({
   currentWorkspaceEnv: () => ({ kind: "local" }),
