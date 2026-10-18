@@ -101,7 +101,7 @@ itself is dragged, else the window; capped by the device limit), then compacts a
 release, so a drag costs at most one growth and one compaction. The WebGL
 fallback defers the same way per pane (top-anchored).
 
-The WebGPU path (renderer v2, `docs/architecture/terminal-renderer-v2.md`) runs
+The WebGPU path (renderer v2, `src/modules/terminal/ghostty/gpu/`) runs
 no per-cell JavaScript. Ghostty encodes 16-byte cell records natively and
 reports only rows whose bytes changed. The surface uploads those ranges straight
 from WASM memory (`consumeGpuFrame`) into a storage buffer, and nothing may call
@@ -216,7 +216,7 @@ the webview supports. Scalar validation explicitly disables SIMD instructions
 and types. This avoids changing OS minimums solely for the WASM SIMD requirement;
 actual older WKWebView and WebKitGTK compatibility still needs platform tests.
 
-PTY output is one multiplexed pull stream per window (`docs/architecture/pty-transport-v2.md`),
+PTY output is one multiplexed pull stream per window (`src-tauri/src/modules/pty/` plus `src/modules/terminal/lib/pty-bridge.ts`),
 not a channel per terminal. The async `verta-pty` URI scheme (`pty/protocol.rs`) has two POST
 endpoints: `poll`, kept outstanding exactly once per webview, and `ack`. One process-wide hub
 thread (`pty/hub.rs`, scheduler in plain data driven by explicit time) holds the poll's responder
@@ -307,11 +307,12 @@ WKWebView, including optional four-pane layouts and live visual inspection.
 the canvas back as exact pixels for comparison.
 `pnpm test:ipc:macos` verifies binary AI streaming, cancellation, and conversation
 storage in a separate Tauri profile with synthetic local HTTP responses.
-Resource evidence and limitations live in
-`docs/architecture/ghostty-resource-efficiency.md`.
+Resource measurements come from the lab scripts under
+`scripts/renderer-profile/`, `scripts/terminal-visual/` and `scripts/ipc-profile/`.
 
-The release gates and current verification evidence are in
-`docs/architecture/ghostty-release-readiness.md`. Automated checks alone do not
+The release gates are the checks listed in `README.md`, plus the budgets that
+`src/app/eager-budget.test.ts`, `src/app/dist-budget.test.ts` and
+`src/styles/compositingBudget.test.ts` lock. Automated checks alone do not
 establish production readiness, platform parity, or multi-day resource stability.
 
 ## Conventions
@@ -412,7 +413,7 @@ BYOK. Cloud providers via `@ai-sdk/*`: **OpenAI, Anthropic, Google, xAI, Cerebra
 - **Tailwind v4** - no `tailwind.config.*`, config is in `src/App.css` via `@theme`. Use `cn()` from `@/lib/utils`.
 - Animation: `motion` (Framer Motion successor). Resizable layout: `react-resizable-panels`.
 - **Animation cost**: nothing animates forever at display rate. Tailwind `animate-spin`/`animate-pulse` are redefined in `globals.css` with `steps()` (12 and ~4 fps), the text shimmer uses 40 steps per sweep, recording indicators use `.verta-blink`, a pending tool approval uses the finite `.verta-attention-pulse`, and persisted history (`bash_background`) never animates. `modules/theme/windowActivity.ts` sets `html[data-window-inactive]` while the window is unfocused, hidden or occluded (DOM focus, document visibility and the terminal's shared native presentation feed, no extra native listener); that attribute pauses every CSS animation and an animated background image freezes on a still frame (`surfaceFrame.ts`). `prefers-reduced-motion` still removes the rest.
-- **Compositing budget**: every composited layer costs a backing store, and WebKit allocates a new one per window-resize step for each layer that follows the window. At rest the shell has three layers with contents (page tile, terminal canvas, the terminal's hidden textarea); everything else is clip layers without backing. Do not add `will-change`, 3D transforms (`translateZ`, `transform-gpu`), `backdrop-filter`/`backdrop-blur` or blur filters to anything mounted by default; popovers, HUDs and chips use an opaque `bg-popover`/`bg-card` instead of a translucent blurred one. Only the allowlist in `src/styles/compositingBudget.test.ts` (modal scrims, the background-image overlay, ...) may, each with a reason. A static background image gets no layer (`surfaceOwnsLayer`). While a window drag is live, `html[data-live-resize]` (`modules/theme/livePageResize`, macOS only) gives the document an invisible size rounded up to 512 px so WebKit keeps one page tile size across the drag instead of one per step (`docs/architecture/app-lab.md`, "Compositing layers").
+- **Compositing budget**: every composited layer costs a backing store, and WebKit allocates a new one per window-resize step for each layer that follows the window. At rest the shell has three layers with contents (page tile, terminal canvas, the terminal's hidden textarea); everything else is clip layers without backing. Do not add `will-change`, 3D transforms (`translateZ`, `transform-gpu`), `backdrop-filter`/`backdrop-blur` or blur filters to anything mounted by default; popovers, HUDs and chips use an opaque `bg-popover`/`bg-card` instead of a translucent blurred one. Only the allowlist in `src/styles/compositingBudget.test.ts` (modal scrims, the background-image overlay, ...) may, each with a reason. A static background image gets no layer (`surfaceOwnsLayer`). While a window drag is live, `html[data-live-resize]` (`modules/theme/livePageResize`, macOS only) gives the document an invisible size rounded up to 512 px so WebKit keeps one page tile size across the drag instead of one per step.
 - **Startup graph**: neither window may preload the AI SDK, zod, Streamdown, CodeMirror or the icon set. `vite.config.ts` splits chunks with two prioritised `codeSplitting` groups (eager `react`/`radix`/`ghostty-vt` outrank lazy features, because a lazy chunk's recursive dependency capture once swallowed React's CJS entry and made the eager `react` chunk import every AI provider). `src/app/dist-budget.test.ts` builds into a temp dir with sourcemaps and fails if any forbidden package or chunk is reachable from `index.html`/`settings.html`; `pnpm check:dist` runs the same check on `dist/`. `eager-budget.test.ts` keeps the source-graph check.
 - **Long AI chats**: messages older than the newest two get `content-visibility: auto` with an estimated `contain-intrinsic-size` (`messageHeightEstimate.ts`), so layout and paint cost tracks what is near the viewport.
 - **Window vibrancy**: the `windowVibrancy` pref drives `WindowVibrancyBridge` (main window only - `window_set_backdrop` targets its caller). `html[data-vibrancy="on"]` (off by default; an explicitly stored choice always wins) makes `<html>`/`<body>` transparent and redefines `--frame` with alpha, so only the chrome frosts; panes keep `--background` so terminal text stays on a solid surface and the terminal canvas still matches its container. The opaque colour the pre-paint script parks on `<html>` would cover the backdrop, so `applyVibrancy` clears it while the effect is on; there is deliberately no localStorage fast path, since pre-declaring the effect would show a see-through window on any launch where the native call has not landed yet. Repeat applications are deduped, and only Mica is rebuilt on a light/dark flip (NSVisualEffectView adapts on its own).
@@ -454,16 +455,10 @@ BYOK. Cloud providers via `@ai-sdk/*`: **OpenAI, Anthropic, Google, xAI, Cerebra
 - **React 19 strict mode** double-mounts `useEffect` in dev → terminals spawn twice on first render. The first PTY is cleaned up almost immediately. The `CONPTY_LIFECYCLE_LOCK` mutex serializes this; don't be alarmed by `pty opened id=1` followed by `pty closed id=1` in dev logs.
 - **Windows PowerShell process lifecycle**: `killer.kill()` from `portable-pty` only kills the immediate child. Descendants (e.g. `npm run dev` started inside pwsh) survive unless something else takes them down. The Job Object in `pty/job.rs` handles this for the Verta-process-death case; an explicit `pty_close` from JS also kills only the immediate child + relies on the Job to take the rest. Don't disable the Job without a replacement.
 - **Tab `cwd` storage**: comes from OSC 7 with forward slashes (after `parseOsc7` strips `/C:` → `C:`). Anything that consumes `tab.cwd` and passes it to a Rust fs command on Windows must normalize separators or accept both forms - `apply_common` in `pty::shell_init` handles this for PTY spawn; other call sites must do their own.
+- **Two identifiers stay in the source project's spelling**, because they are compiled into the prebuilt libghostty wasm and renaming them means rebuilding it with zig: the import module `terax` that `packages/ghostty-core/lib/official/callbackBridge.ts` has to supply (the name is also spelled out as bytes in that file), and the `terax_blocks=0` marker compared inside `packages/ghostty-core/adapted/ghostty-vt.wasm`(and kept in step in `packages/ghostty-core/adapted/wasm/src/verta.zig`, the shell init scripts and the tests). Everything else is named Verta; do not "finish the rename" by touching these two.
 
 ## Further reading
 
-Long-form contributor guides live under `docs/`. These guides elaborate on `VERTA.md`; if anything conflicts, `VERTA.md` wins.
-
-- `docs/README.md` - index of contributor guides
-- `docs/architecture/two-process-model.md` - IPC boundary and command reference
-- `docs/architecture/pty-shell-integration.md` - PTY, shell init scripts, OSC, ConPTY, Job Object
-- `docs/architecture/pty-transport-v2.md` - multiplexed PTY output stream: hub, wire format, presentation classes, credit; `scripts/pty-smoke/` drives it in a real debug app (`python3 scripts/pty-smoke/run.py`)
-- `docs/architecture/security-model.md` - consolidated security model and boundaries
-- `docs/architecture/ai-subsystem.md` - AI stack, sessions, tools, adding a provider
-- `docs/architecture/terminal-renderer-pool.md` - model ownership and presentation pool invariants
-- `docs/contributing/testing.md` - testing contract and core-subsystem invariants
+This repository does not carry long-form contributor guides: what applies here is
+this file and the code itself. Working records (requirements, design, plans) are
+kept on this machine under `.superpowers/` and are not tracked.

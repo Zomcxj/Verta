@@ -1,9 +1,10 @@
 # 按进程名 + 可执行文件路径抓窗口截图，用于逐期验收（PrintWindow，不依赖前台焦点）。
-# 必须按路径过滤：本机同时装着正式版 verta 时，只按进程名会抓到别人的窗口。
+# 必须按路径过滤：本机同时装着正式版 Terax（`D:\Softwaredata\Terax\terax.exe`）时，只按进程名会抓到别人的窗口。
+# 选窗口也不能用 MainWindowHandle：本应用还带一个 16x16 的辅助窗，它会挑错，所以取该进程面积最大的可见窗。
 param(
     [string]$ProcName = "verta",
     [string]$ExeMatch = "target\debug\verta.exe",
-    [string]$Out = "docs\superpowers\shots\shot.png",
+    [string]$Out = ".superpowers\shots\shot.png",
     [int]$WaitMs = 9000
 )
 
@@ -12,32 +13,57 @@ Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public class Win {
+    public delegate bool EnumProc(IntPtr h, IntPtr l);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+
+    public static IntPtr LargestVisibleWindow(uint target) {
+        IntPtr best = IntPtr.Zero;
+        long bestArea = 0;
+        EnumWindows(delegate(IntPtr h, IntPtr l) {
+            uint pid;
+            GetWindowThreadProcessId(h, out pid);
+            if (pid != target || !IsWindowVisible(h)) return true;
+            RECT r;
+            if (!GetWindowRect(h, out r)) return true;
+            long area = (long)(r.R - r.L) * (long)(r.B - r.T);
+            if (area > bestArea) { bestArea = area; best = h; }
+            return true;
+        }, IntPtr.Zero);
+        return best;
+    }
 }
 "@
 
 $deadline = (Get-Date).AddMilliseconds($WaitMs)
 $proc = $null
-while (-not $proc -and (Get-Date) -lt $deadline) {
+$h = [IntPtr]::Zero
+while ((Get-Date) -lt $deadline) {
     $proc = Get-Process -Name $ProcName -ErrorAction SilentlyContinue |
-        Where-Object { $_.Path -and $_.Path -like "*$ExeMatch*" -and $_.MainWindowHandle -ne [IntPtr]::Zero } |
+        Where-Object { $_.Path -and $_.Path -like "*$ExeMatch*" } |
         Select-Object -First 1
-    if (-not $proc) { Start-Sleep -Milliseconds 250 }
+    if ($proc) {
+        $h = [Win]::LargestVisibleWindow([uint32]$proc.Id)
+        if ($h -ne [IntPtr]::Zero) { break }
+    }
+    Start-Sleep -Milliseconds 250
 }
-if (-not $proc) {
+if (-not $proc -or $h -eq [IntPtr]::Zero) {
     $seen = Get-Process -Name $ProcName -ErrorAction SilentlyContinue |
-        ForEach-Object { "  pid=$($_.Id) path=$($_.Path) hwnd=$($_.MainWindowHandle)" }
+        ForEach-Object { "  pid=$($_.Id) path=$($_.Path)" }
     Write-Error "未找到匹配 '$ExeMatch' 的 $ProcName 可见窗口。当前同名进程：`n$($seen -join "`n")"
     exit 1
 }
 
 Write-Host "目标进程 pid=$($proc.Id) path=$($proc.Path)"
+Write-Host "窗口句柄 $h"
 
-$h = $proc.MainWindowHandle
 $r = New-Object Win+RECT
 # A minimized window reports its icon-sized rect, and a window that is still
 # being created reports a tiny one, which would silently produce a useless
