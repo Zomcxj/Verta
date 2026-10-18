@@ -1,6 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { ComponentProps, SyntheticEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type MarkdownImageProps = ComponentProps<"img"> & {
   node?: unknown;
@@ -59,7 +59,7 @@ function stripDocumentRoot(value: string): string {
  * Resolves a markdown image reference to something the webview can load.
  *
  * Relative references are joined onto the document's own directory, which is
- * what the author meant by `./demo.png`; absolute paths are used as given.
+ * what the author meant by `./demo.png`; absolute paths are given as written.
  * Remotely hosted images and inline `data:` images pass straight through.
  * Nothing here reads the file: the asset protocol serves it, and it only
  * answers for paths the app has been granted.
@@ -102,15 +102,114 @@ export function requestedHeight(height: ComponentProps<"img">["height"]): number
   return undefined;
 }
 
+type Sizing = { height: number; width: number };
+
+/** Used when the markdown asks for no height, so a picture is still tangible. */
+const FALLBACK_HEIGHT = 260;
+
 /**
- * Markdown `img` override: local paths resolve, broken ones say so, and rows of
- * pictures share one height.
+ * The size a picture takes inside a markdown table.
  *
- * A markdown table asks for a height and leaves the width to each image. Sizing
- * every picture at that height alone makes the row wider than the page once the
- * columns are narrow, so each picture also reports the height at which it would
- * exactly fill its own column; the smallest of those wins for the whole row.
- * That keeps a row flat and inside the table at any window size.
+ * The table is the unit that scales. Its usable width is split evenly between
+ * the columns that hold a picture, and each column's picture fills that width at
+ * its own ratio; the shortest of those heights is then given to every picture in
+ * the table, so rows stay flat while the pictures still cover their cells as far
+ * as their ratio allows. Everything derives from the table's width, so shrinking
+ * the page shrinks the table instead of pushing it off screen.
+ *
+ * Nothing here reads a cell's width to decide a picture's width: a cell sizes
+ * itself from its content, so that would feed back into the table's own width
+ * and either grow it without bound or reach the page edge and stop shrinking.
+ */
+function useTableSizing(
+  ref: React.RefObject<HTMLImageElement | null>,
+  requested: number | undefined,
+): Sizing | null {
+  const [sizing, setSizing] = useState<Sizing | null>(null);
+
+  const measure = useCallback(() => {
+    const img = ref.current;
+    const table = img?.closest("table");
+    if (!img || !table || !img.naturalWidth || !img.naturalHeight) {
+      setSizing(null);
+      return;
+    }
+
+    // Columns that hold a picture are the ones competing for the width.
+    const cells = new Set<Element>();
+    const pictures: HTMLImageElement[] = [];
+    for (const picture of table.querySelectorAll("img")) {
+      const owner = picture.closest("td, th");
+      if (!owner || !picture.naturalWidth || !picture.naturalHeight) continue;
+      cells.add(owner);
+      pictures.push(picture);
+    }
+    if (pictures.length === 0) {
+      setSizing(null);
+      return;
+    }
+
+    // Cell padding is taken by the cell itself, not by the picture.
+    const padding = [...cells].reduce((sum, node) => {
+      const style = getComputedStyle(node);
+      return (
+        sum +
+        (Number.parseFloat(style.paddingLeft) || 0) +
+        (Number.parseFloat(style.paddingRight) || 0)
+      );
+    }, 0);
+
+    // Usable width per picture column. The table's own border adds a couple of
+    // pixels, which the floor below absorbs.
+    const available = table.getBoundingClientRect().width - padding;
+    if (available <= 0) {
+      setSizing(null);
+      return;
+    }
+    const share = available / pictures.length;
+
+    // One height for the whole table: the shortest height at which any picture
+    // still spans its column. A taller picture then leaves a little air beside
+    // it rather than stretching, and the row stays flat.
+    let rowHeight = Number.POSITIVE_INFINITY;
+    for (const picture of pictures) {
+      const own = picture.naturalWidth / picture.naturalHeight;
+      if (own <= 0) continue;
+      rowHeight = Math.min(rowHeight, share / own);
+    }
+    if (!Number.isFinite(rowHeight) || rowHeight <= 0) {
+      setSizing(null);
+      return;
+    }
+    // An author's own height is a ceiling, which lets a document keep pictures
+    // small without breaking the row.
+    const height = Math.max(1, Math.floor(Math.min(rowHeight, requested ?? rowHeight)));
+    const ratio = img.naturalWidth / img.naturalHeight;
+    // Both numbers in px: a percentage width on an auto-sized cell is what made
+    // the table grow past the page.
+    const width = Math.max(1, Math.min(Math.floor(share), Math.round(height * ratio)));
+    setSizing({ height, width });
+  }, [ref, requested]);
+
+  useEffect(() => {
+    const img = ref.current;
+    const table = img?.closest("table");
+    if (!img || !table) {
+      setSizing(null);
+      return;
+    }
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(table);
+    return () => observer.disconnect();
+  }, [measure, ref]);
+
+  return sizing;
+}
+
+/**
+ * Markdown `img` override: local paths resolve, broken ones say so, and pictures
+ * inside a table fill their cells at one shared height.
  */
 export function MarkdownImage({
   src,
@@ -118,75 +217,15 @@ export function MarkdownImage({
   node: _node,
   baseDir,
   style,
+  width,
   height,
   ...props
 }: MarkdownImageProps) {
   const [failed, setFailed] = useState(false);
-  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
-  /** Reported to the row so every picture can agree on one height. */
-  const [fitHeight, setFitHeight] = useState<number | null>(null);
-  const [rowHeight, setRowHeight] = useState<number | null>(null);
   const ref = useRef<HTMLImageElement>(null);
   const resolved = resolveImageSrc(src, baseDir);
   const asked = requestedHeight(height);
-
-  // Publish the height this picture would need to fill its column exactly.
-  useEffect(() => {
-    const img = ref.current;
-    if (!img || !natural) return;
-    const measure = () => {
-      const cell = img.closest("td, th")?.getBoundingClientRect().width ?? 0;
-      const ratio = natural.w / natural.h;
-      if (cell <= 0 || ratio <= 0) {
-        setFitHeight(null);
-        return;
-      }
-      setFitHeight(Math.floor(cell / ratio));
-    };
-    measure();
-    const table = img.closest("table");
-    if (!table) return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(table);
-    return () => observer.disconnect();
-  }, [natural]);
-
-  // Read back the height the row settled on.
-  useEffect(() => {
-    const img = ref.current;
-    const row = img?.closest("tr");
-    if (!row) return;
-    const read = () => {
-      const value = row.getAttribute("data-row-image-height");
-      setRowHeight(value ? Number(value) : null);
-    };
-    read();
-    const observer = new MutationObserver(read);
-    observer.observe(row, { attributes: true, attributeFilter: ["data-row-image-height"] });
-    return () => observer.disconnect();
-  }, []);
-
-  // Offer this picture's constraint to the row.
-  useEffect(() => {
-    const img = ref.current;
-    const row = img?.closest("tr");
-    if (!row || fitHeight === null) return;
-    const key = "data-image-fit-heights";
-    const next = `${row.getAttribute(key) ?? ""} ${fitHeight}`.trim();
-    row.setAttribute(key, next);
-    return () => {
-      const current = row.getAttribute(key) ?? "";
-      const remaining = current
-        .split(/\s+/)
-        .filter(Boolean)
-        .filter((_, index, all) => index !== all.indexOf(String(fitHeight)))
-        .join(" ");
-      if (remaining) row.setAttribute(key, remaining);
-      else row.removeAttribute(key);
-    };
-  }, [fitHeight]);
-
-  const effective = asked ?? rowHeight ?? undefined;
+  const sizing = useTableSizing(ref, asked);
 
   if (!resolved) {
     return <span className="text-muted-foreground">{alt ?? "image"}</span>;
@@ -202,6 +241,17 @@ export function MarkdownImage({
     );
   }
 
+  // In a table the measured box wins: it is what keeps a row flat and the table
+  // inside the page. Outside one the author's size stands, with `max-width`
+  // keeping a wide picture from running past the text.
+  const sized = sizing
+    ? { height: `${sizing.height}px`, width: `${sizing.width}px`, maxWidth: "none" as const }
+    : {
+        ...(asked === undefined ? { height: `${FALLBACK_HEIGHT}px` } : { height: `${asked}px` }),
+        ...(typeof width === "number" ? { width: `${width}px` } : {}),
+        maxWidth: "100%",
+      };
+
   return (
     <img
       {...props}
@@ -210,21 +260,11 @@ export function MarkdownImage({
       alt={alt ?? ""}
       decoding="async"
       loading="lazy"
-      // Height lives in CSS: an HTML height attribute beats the CSS that keeps
-      // the ratio, which is what squashed the wide screenshots.
-      className="block max-w-full rounded-sm"
-      style={{
-        ...(effective === undefined
-          ? {}
-          : { height: `${effective}px`, width: "auto" }),
-        maxWidth: "100%",
-        ...style,
-      }}
+      // Size lives in CSS: an HTML height attribute beats any CSS that keeps the
+      // ratio, which is what squashed the wide screenshots.
+      className="block rounded-sm"
+      style={{ objectFit: "contain", ...sized, ...style }}
       onLoad={(event: SyntheticEvent<HTMLImageElement>) => {
-        const img = event.currentTarget;
-        if (img.naturalWidth && img.naturalHeight) {
-          setNatural({ w: img.naturalWidth, h: img.naturalHeight });
-        }
         props.onLoad?.(event);
       }}
       onError={(event: SyntheticEvent<HTMLImageElement>) => {
