@@ -1,5 +1,5 @@
 # 按进程名 + 可执行文件路径抓窗口截图，用于逐期验收（PrintWindow，不依赖前台焦点）。
-# 必须按路径过滤：本机同时装着正式版 Terax（`D:\Softwaredata\Terax\terax.exe`）时，只按进程名会抓到别人的窗口。
+# 必须按路径过滤：本机同时装着另一个已发布版本时，只按进程名会抓到那个窗口。
 # 选窗口也不能用 MainWindowHandle：本应用还带一个 16x16 的辅助窗，它会挑错，所以取该进程面积最大的可见窗。
 param(
     [string]$ProcName = "verta",

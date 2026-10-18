@@ -278,13 +278,13 @@ mod tests {
         let session = map_row(
             "ses_1",
             None,
-            Some("GitShow Go".to_string()),
-            "F:/VibeCoding_workspace/GitShow",
+            Some("Example App".to_string()),
+            "F:/work/example-app",
             1_791_820_691_308,
         );
         assert_eq!(session.id, "ses_1");
-        assert_eq!(session.title, "GitShow Go");
-        assert_eq!(session.cwd, "F:/VibeCoding_workspace/GitShow");
+        assert_eq!(session.title, "Example App");
+        assert_eq!(session.cwd, "F:/work/example-app");
         assert_eq!(session.parent_id, None);
         assert_eq!(session.tool, "opencode");
     }

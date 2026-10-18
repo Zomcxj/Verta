@@ -8,12 +8,12 @@ describe("resumeCommand (opencode)", () => {
         {
           tool: "opencode",
           id: "ses_f183332f5ffeNGzvkzJ631PU71",
-          cwd: "F:/VibeCoding_workspace/GitShow",
+          cwd: "F:/work/example-project",
         },
         true,
       ),
     ).toBe(
-      "opencode --session ses_f183332f5ffeNGzvkzJ631PU71 'F:/VibeCoding_workspace/GitShow'",
+      "opencode --session ses_f183332f5ffeNGzvkzJ631PU71 'F:/work/example-project'",
     );
   });
 

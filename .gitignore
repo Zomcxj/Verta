@@ -56,6 +56,6 @@ scripts/dev/ptydump/
 /docs/contributing/
 /docs/README.md
 /docs/*.png
-/terax-icon.png
-/verta-icon.png
+# 本地图标草稿不入库；正式图标走 src-tauri/icons 与 public/logo.png
+/*-icon.png
 /scripts/dev/upstream-drift.sh
