@@ -1,185 +1,74 @@
-<div align="center">
-  <img src="public/logo.png" width="144" height="144" alt="Terax" />
-  <h1>Terax</h1>
+# Verta
 
-  <p><strong>Lightweight Terminal-first AI-native dev workspace.</strong></p>
-  <p>
-    <a href="https://terax.app">Website</a>
-    ·
-    <a href="https://terax.app/docs">Docs</a>
-    ·
-    <a href="https://github.com/crynta/Terax-website">Website's source code</a>
-  </p>
+Windows 优先的桌面工作台：把本机 agent 会话的浏览与恢复、终端、编辑器、Git 收在一个窗口里。
 
-  <p>
-    <img src="https://img.shields.io/github/v/release/crynta/terax-ai?label=version&color=blue" alt="version" />
-    <img src="https://img.shields.io/github/downloads/crynta/terax-ai/total?label=downloads&color=blue" alt="downloads" />
-    <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="platform" />
-    <a href="https://discord.gg/tyveTUyEp7"><img src="https://img.shields.io/badge/Discord-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
-    <a href="https://www.youtube.com/@crynta"><img src="https://img.shields.io/badge/Youtube-FF0000?logo=youtube&logoColor=white" alt="YouTube" /></a>
-  </p>
-</div>
+## 能做什么
 
-<p align="center">
-  <a href="docs/readme/README.zh-CN.md">简体中文</a> |
-  <a href="docs/readme/README.es.md">Español</a> |
-  <a href="docs/readme/README.de.md">Deutsch</a> |
-  <a href="docs/readme/README.fr.md">Français</a> |
-  <a href="docs/readme/README.ja.md">日本語</a> |
-  <a href="docs/readme/README.ko.md">한국어</a> |
-  <a href="docs/readme/README.pt-BR.md">Português</a> |
-  <a href="docs/readme/README.pl.md">Polski</a> |
-  <a href="docs/readme/README.ru.md">Русский</a> |
-  <a href="docs/readme/README.id.md">Bahasa Indonesia</a> |
-  <a href="docs/readme/README.hi.md">हिन्दी</a>
-</p>
+**会话面板（打开即见）**
 
----
+- 列出本机 opencode 与 pi 的真实会话；子代理会话不展示，管理模式下才可见。
+- 点一条会话，就在它自己的项目目录里恢复它（opencode 用 `--session <id>` 加目录，pi 用 id 加工作目录），不会静默新建。
+- 多选真删除：删除前后端重新核对，删不掉的原因如实显示出来，失败不会被伪装成成功。
+- 列表随会话文件变化实时更新，不需要手动刷新。
 
-Terax is a lightweight open-source terminal-first AI-native development environment (ADE) built on Tauri 2 + Rust and React 19. A native PTY backend with a WebGL renderer, an agentic AI side-panel that runs against your own keys or fully local models, plus a code editor, file explorer, source control with a git graph, and a web preview pane built in. About 7-8 MB on disk. No telemetry. No account.
+**Windows 与 WSL 并存**
 
-> [!NOTE]
-> Over the past few months, most of my development time went into building [Zephium](https://zephium.app), a new browser-native work environment rebuilt for humans and agents.
->
-> Terax is now returning to active development. A major **v0.9.0** update is already in progress, with some substantial architectural changes, including moving from **xterm.js to libghostty + WebGPU**.
->
-> More updates soon.
+- WSL 侧的数据在发行版内查询（脚本经 `/mnt/c/...` 传入，由发行版自己的 python3 执行），因此不受 9p 上 WAL 锁的限制。
+- 设置里的 WSL 开关默认关：关的时候只停 Verta 自己的查询，不碰 WSL 本身；打开后可以选择关闭时执行 `wsl --shutdown`（那会中断 WSL 里正在跑的一切，包括 Docker Desktop 的后端）。
+- pi 在 WSL 里没有独立数据（它指向 Windows 上的同一个程序），界面会如实说明，而不是显示成空列表。
 
-## Screenshots
+**终端**
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/web-preview.png" alt="Web preview" /><br/><sub>Web preview of local dev servers</sub></td>
-    <td align="center"><img src="docs/ai-workflow.png" alt="AI window" /><br/><sub>Agentic AI workflow with edit diffs in the code editor</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/themes.png" alt="Themes and background image" style="margin-top: 12px;"/><br/><sub>Custom themes, presets, and background images</sub></td>
-    <td align="center"><img src="docs/source-control.png" alt="Source control and git graph" style="margin-top: 12px;"/><br/><sub>Source control panel with git graph in history</sub></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center"><img src="docs/terminal.png" alt="Terminal" style="border-radius: 4px; margin-top: 12px;" /><br/><sub>Block-based WebGL terminal with editor-like input panel</sub></td>
-  </tr>
-</table>
+- 渲染核心是 ghostty（WebGPU 自绘）。
+- agent 运行时，会话上下文里的图片会**显示为真位图**：agent 本身不发送像素数据，所以位图由我们自己从会话库里取出并画在它预留的位置上，点击可看原尺寸大图。
+- 会话列表与终端并存，支持多面板布局。
 
-## Features
+**编辑器与预览**
 
-### Terminal
+- 打开图片直接预览（尺寸信息、缩放、透明棋盘格）。
+- Markdown 里的本地图片按文档所在目录解析，受工作区白名单约束。
+- 编辑器右侧实时预览（Typora 式）。
 
-- xterm.js with WebGL renderer, multi-tab with background streaming
-- GPU-accelerated block-based terminal with editor-like command input
-- Native PTY backend via `portable-pty` (zsh, bash, pwsh, fish, cmd)
-- Split panels (horizontal and vertical)
-- Inline search, link detection, true-color
-- Drag files from the explorer or desktop into a terminal as shell-safe quoted paths
-- Per-tab workspace environments on Windows (Local, or any installed WSL distro)
-- Spaces restore tabs, working directories, and split layouts across launches
+**Git**
 
-### Code editor
+- Git 面板放在页面右侧，可与项目列表同时查看，右侧有与左上角对称的隐藏/展开按钮。
 
-- CodeMirror 6 (supports all popular languages - TS/JS, Rust, Python, Go, C/C++, Java, HTML/CSS, JSON, Markdown, etc.)
-- Inline AI autocomplete with local model support
-- AI edit diffs, accept or reject hunk by hunk
-- Opt-in language server support with diagnostics, navigation, completion, formatting, and custom servers
-- Rendered Markdown plus image, video, audio, and PDF viewing
-- Vim mode
-- Built-in editor themes including Kanagawa, Catppuccin, Rosé Pine, Everforest, Dracula, Solarized, Nord, Tokyo Night, GitHub, and Xcode
+**界面**
 
-### Source control
+- 中文与 English 两种语言，默认跟随系统；只翻译界面可见文案。
 
-- Stage / unstage hunks, commit (Cmd+Enter / Ctrl+Enter), push with upstream awareness
-- Branch display including detached HEAD state
-- Git history pane with a real commit graph (lane rendering for merges and branches)
-- Commit search and filter, click through to the remote commit page
+## 环境要求
 
-### File explorer
+- Windows 10/11（使用系统 WebView2）
+- Node.js 22 以上、pnpm 11
+- Rust 稳定版工具链（构建 Tauri 后端）
 
-- Catppuccin icon theme
-- Fuzzy search, keyboard navigation, inline rename, context actions
-- Live updates when files change on disk
-- Attach files and selections directly to the AI side-panel
+## 开发
 
-### Web preview
-
-- Auto-detects local dev servers and opens them in a preview tab
-- External URL preview via a native child webview
-
-### Themes and customization
-
-- Custom themes built in-app, switch between bundled presets and your own
-- Create your own themes, share them or import from the community
-- Background images with adjustable opacity and blur
-- Editor theme is independent from the app theme
-
-### AI
-
-- **BYOK providers:** OpenAI, Anthropic, Google (Gemini), Groq, xAI (Grok), Cerebras, OpenRouter, DeepSeek, Mistral, plus any OpenAI-compatible endpoint
-- **Local / offline:** LM Studio, MLX, Ollama
-- **Agentic workflow:** plans, sub-agents, project memory via `TERAX.md`, file read / write / edit / multi-edit / grep / glob, bash with approval gating, background processes
-- **Coding-agent orchestration:** spawn Claude Code in a terminal, inspect its output, and send follow-up work through approval-gated tools
-- **Composer:** prompt snippets via `#handle`, files via `@path`, voice input, attach-to-agent from explorer or selection
-- **Custom agents** with their own system prompt and tool subset
-- **Plan mode** for multi-step work, generates and confirms before doing
-
-## Install
-
-Latest installers are on the [Releases](https://github.com/crynta/terax-ai/releases/latest) page. Terax auto-updates from there.
-
-### Windows notes
-
-- Default shell detection: `pwsh.exe` (PowerShell 7+) -> `powershell.exe` (Windows PowerShell 5.1) -> `cmd.exe`.
-- WSL is a first-class workspace environment, not a wrapped subprocess.
-
-### Linux notes
-
-- **Arch / AUR:** `yay -S terax-bin` (or `paru`, etc.). Tracks the latest release.
-- **NixOS / Nix**: use the official flake - `nix profile install github:crynta/terax-ai` (non-NixOS), or import the flake and add `inputs.terax.packages.${pkgs.system}.terax` to `environment.systemPackages` (NixOS). The `nixosModules.terax` output is also available for a simpler setup.
-- **AppImage:** needs FUSE. Without it: `./Terax_*.AppImage --appimage-extract-and-run`. On Wayland with rendering glitches, try `WEBKIT_DISABLE_DMABUF_RENDERER=1`. Otherwise the `.deb` / `.rpm` packages link against the system GTK stack and tend to be smoother.
-
-## Configure AI
-
-1. Open **Settings -> AI**.
-2. Pick a provider and paste your API key. For local inference, point Terax at your LM Studio / MLX / Ollama endpoint.
-3. Keys are written to the OS keychain via `keyring`. They never touch disk or localStorage.
-
-## Build from source
-
-**Prerequisites**
-- Rust (stable), https://rustup.rs
-- Node 22+ and [pnpm](https://pnpm.io)
-- Tauri prerequisites for your platform, https://tauri.app/start/prerequisites/
-
-**Run**
 ```bash
 pnpm install
-pnpm tauri dev          # development
-pnpm tauri build        # production bundle
+pnpm tauri dev      # 开发运行
+pnpm tauri build    # 打包
 ```
 
-**Checks**
+## 门禁
+
 ```bash
-pnpm lint
 pnpm check-types
-pnpm test
-cd src-tauri && cargo clippy --all-targets --locked -- -D warnings   # Rust lint (matches CI)
-cd src-tauri && cargo nextest run --locked                           # or: cargo test --locked
+pnpm lint
+pnpm test                                  # 内存紧张时加 --maxWorkers=2
+
+cd src-tauri
+cargo clippy --all-targets -- -D warnings   # 内存紧张时加 -j 2
+cargo test --lib
 ```
 
-## Tech stack
+## 文档
 
-Tauri 2, Rust, `portable-pty`, React 19, TypeScript, Vite, xterm.js, CodeMirror 6, Vercel AI SDK v6, Tailwind v4, shadcn/ui, Zustand.
+- 需求台账：`docs/superpowers/requirements-log.md`
+- 设计文档：`docs/superpowers/specs/`
+- 施工计划：`docs/superpowers/plans/`
 
-## Contributing
+## 许可
 
-Issues and PRs are welcome! Feel free to open issues, suggest features, or submit pull requests. See [CONTRIBUTING.md](CONTRIBUTING.md) and the [architecture docs](docs/README.md) for more details.
-
-## Code signing
-
-<a href="https://signpath.org"><img src="https://avatars.githubusercontent.com/u/34448643?s=200&v=4" width="80" alt="SignPath" align="left" /></a>
-
-Windows builds are signed with a free code signing certificate provided by [SignPath.io](https://signpath.io), certificate by the [SignPath Foundation](https://signpath.org).
-
-<br clear="left" />
-
-## License
-
-Terax is licensed under the Apache-2.0 License. For more information on our dependencies, see [Apache License 2.0](LICENSE).
+Apache-2.0，见 `LICENSE`。
