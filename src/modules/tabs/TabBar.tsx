@@ -28,6 +28,7 @@ import {
   Clock01Icon,
   ComputerTerminal02Icon,
   Folder01Icon,
+  GithubIcon,
   GitCompareIcon,
   Globe02Icon,
   IncognitoIcon,
@@ -683,6 +684,16 @@ export function TabIcon({ tab }: { tab: Tab }) {
     return (
       <HugeiconsIcon
         icon={Folder01Icon}
+        size={14}
+        strokeWidth={2}
+        className="shrink-0"
+      />
+    );
+  }
+  if (tab.kind === "remotes") {
+    return (
+      <HugeiconsIcon
+        icon={GithubIcon}
         size={14}
         strokeWidth={2}
         className="shrink-0"

@@ -118,6 +118,13 @@ export type ProjectsTab = TabBase & {
   title: string;
 };
 
+/** 远程仓库列表标签页。一个空间只开一个，内容来自一次账号级查询。 */
+export type RemoteReposTab = TabBase & {
+  id: number;
+  kind: "remotes";
+  title: string;
+};
+
 export type GitCommitFileDiffTab = TabBase & {
   id: number;
   kind: "git-commit-file";
@@ -139,6 +146,7 @@ export type Tab =
   | GitDiffTab
   | GitHistoryTab
   | ProjectsTab
+  | RemoteReposTab
   | GitCommitFileDiffTab;
 
 export type TabPatch = Partial<{
@@ -554,6 +562,39 @@ export function planProjectsOpen(
     tabs: [
       ...tabs,
       { id, kind: "projects", spaceId, title } satisfies ProjectsTab,
+    ],
+    targetId: id,
+  };
+}
+
+/**
+ * 远程仓库列表标签页：一个空间只开一个。与项目列表同一套规则，因为两者都只有
+ * 「打开它」这一件事，标题跟着界面语言走。
+ */
+export function planRemoteReposOpen(
+  tabs: Tab[],
+  spaceId: string,
+  title: string,
+  allocId: () => number,
+): { tabs: Tab[]; targetId: number } {
+  const existing = tabs.find(
+    (tab) => tab.kind === "remotes" && tab.spaceId === spaceId,
+  );
+  if (existing) {
+    if (existing.title === title) return { tabs, targetId: existing.id };
+    return {
+      tabs: tabs.map((tab) =>
+        tab.id === existing.id ? { ...existing, title } : tab,
+      ),
+      targetId: existing.id,
+    };
+  }
+
+  const id = allocId();
+  return {
+    tabs: [
+      ...tabs,
+      { id, kind: "remotes", spaceId, title } satisfies RemoteReposTab,
     ],
     targetId: id,
   };
@@ -1153,6 +1194,23 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     return plan.targetId;
   }, []);
 
+  /** 打开远程仓库列表标签页；一个空间只开一个。 */
+  const openRemoteReposTab = useCallback((title: string) => {
+    const curr = tabsRef.current;
+    const plan = planRemoteReposOpen(
+      curr,
+      activeSpaceIdRef.current,
+      title,
+      () => nextIdRef.current++,
+    );
+    if (plan.tabs !== curr) {
+      tabsRef.current = plan.tabs;
+      setTabs(plan.tabs);
+    }
+    setActiveId(plan.targetId);
+    return plan.targetId;
+  }, []);
+
   const openCommitFileDiffTab = useCallback(
     (input: {
       repoRoot: string;
@@ -1514,6 +1572,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     openGitDiffTab,
     openCommitHistoryTab,
     openProjectsTab,
+    openRemoteReposTab,
     openCommitFileDiffTab,
     setAiDiffStatus,
     closeAiDiffTab,

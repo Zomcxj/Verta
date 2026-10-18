@@ -77,6 +77,35 @@ export type WireProjectStatus = {
   error: string | null;
 };
 
+/** 远程仓库：一个仓库的线格式。 */
+export type WireRemoteRepo = {
+  fullName: string;
+  owner: string;
+  name: string;
+  isPrivate: boolean;
+  isFork: boolean;
+  isArchived: boolean;
+  language: string | null;
+  /** GitHub 原样给的 ISO8601，界面自己折成相对时间。 */
+  pushedAt: string | null;
+  description: string | null;
+  webUrl: string;
+};
+
+/**
+ * 远程仓库列表的返回。`kind` 说明这次读到了什么，`ready` 才是真的读到了（哪怕
+ * 列表是空的）；读不到时 `error` 里是 gh 的原话，不伪装成空列表。
+ */
+export type WireRemoteReposPayload = {
+  kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
+  login: string | null;
+  accountName: string | null;
+  repos: WireRemoteRepo[];
+  /** 取到翻页上限，后面的仓库没要。 */
+  truncated: boolean;
+  error: string | null;
+};
+
 export type GitStatusSnapshot = {
   repoRoot: string;
   branch: string;
@@ -299,6 +328,12 @@ export const native = {
   /** 批量取项目状态；每条独立成败，失败原因在该行的 error 里。 */
   projectsStatus: (items: WireProjectTarget[]) =>
     invoke<WireProjectStatus[]>("projects_status", { items }),
+  /**
+   * 本机 gh 读到的远程仓库（自己的 + 协作的 + 组织的），账号级查询，与当前空间无关。
+   * 没装 gh、没登录等状态由返回的 kind 说明，不抛异常。
+   */
+  githubRepos: (limit?: number) =>
+    invoke<WireRemoteReposPayload>("github_repos", { limit: limit ?? null }),
   gitPanelSnapshot: (cwd: string) =>
     invoke<GitPanelSnapshot>("git_panel_snapshot", {
       cwd,

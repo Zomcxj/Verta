@@ -34,6 +34,7 @@ function baseContext(
     openNewEditor: noop,
     openNewPreview: noop,
     openProjects: noop,
+    openRemotes: noop,
     openGitGraph: noop,
     toggleSourceControl: noop,
     closeActiveTabOrPane: noop,

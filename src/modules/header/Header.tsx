@@ -6,6 +6,7 @@ import type { Tab } from "@/modules/tabs";
 import { TabBar, type TerminalChoice } from "@/modules/tabs";
 import {
   CommandIcon,
+  GithubIcon,
   Settings01Icon,
   SidebarLeftIcon,
   SidebarRightIcon,
@@ -52,6 +53,8 @@ type Props = {
   onToggleSidebar: () => void;
   /** 右侧 Git 面板：与左上角那个按钮同款，位置上对称。 */
   onToggleGitPanel: () => void;
+  /** 打开远程仓库列表标签页（本机 gh 读到的账号级仓库）。 */
+  onOpenRemotes: () => void;
   /** 未提交改动数，显示在右上角按钮上（原先在左栏的 Git 项上）。 */
   changedCount: number;
   onOpenCommandPalette: () => void;
@@ -84,6 +87,7 @@ export function Header({
   onOverrideLanguage,
   onToggleSidebar,
   onToggleGitPanel,
+  onOpenRemotes,
   changedCount,
   onOpenCommandPalette,
   onOpenSettings,
@@ -193,6 +197,16 @@ export function Header({
       </div>
 
       <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
+
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        onClick={onOpenRemotes}
+        title={t("header.remotes")}
+        className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        <HugeiconsIcon icon={GithubIcon} size={18} strokeWidth={1.75} />
+      </Button>
 
       <Button
         size="icon-sm"

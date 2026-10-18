@@ -3,6 +3,7 @@ import { EditorStack, GitDiffStack } from "@/modules/editor";
 import { GitHistoryStack } from "@/modules/git-history";
 import { ProjectsView } from "@/modules/projects";
 import type { ProjectEntry } from "@/modules/projects";
+import { RemoteReposView } from "@/modules/remotes";
 import type { AgentSession, AgentTool } from "@/modules/launcher";
 import { MarkdownStack } from "@/modules/markdown";
 import { PreviewStack } from "@/modules/preview";
@@ -78,6 +79,7 @@ export function WorkspaceSurface({
   const isGitDiffTab = kind === "git-diff" || kind === "git-commit-file";
   const isGitHistoryTab = kind === "git-history";
   const isProjectsTab = kind === "projects";
+  const isRemotesTab = kind === "remotes";
 
   return (
     <div className="relative h-full min-h-0">
@@ -168,6 +170,12 @@ export function WorkspaceSurface({
           onOpenTerminal={onOpenProjectTerminal}
           onNewSession={onNewProjectSession}
         />
+      </div>
+      <div
+        className={cn(LAYER, !isRemotesTab && "invisible pointer-events-none")}
+        aria-hidden={!isRemotesTab}
+      >
+        <RemoteReposView active={isRemotesTab} />
       </div>
     </div>
   );
