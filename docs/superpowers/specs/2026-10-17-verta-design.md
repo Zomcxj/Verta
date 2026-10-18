@@ -198,6 +198,16 @@
 
 该需求把 P1 的会话数据与 P2 的项目列表连起来，因此排在 P1.5（会话管理）之后实现。
 
+### 12.3 Git 面板放右侧（布局改动）
+
+现状：git 面板是左栏三个视图之一（`explorer` / `source-control` / `launcher` 互斥），所以看项目列表时看不到 Git。用户要求 **Git 在页面右侧打开**，让「项目列表」与「Git」能同时看，并在右侧加一个与左上角对称的**隐藏/展开按钮**。
+
+落点：
+
+1. `App.tsx` 的 `ResizablePanelGroup` 现在是 `[sidebar | workspace]`，改为 `[sidebar | workspace | rightPanel]`，右面板 `collapsible` + `collapsedSize={0}`，默认收起，宽度与收起态持久化（对应左栏的 `terax.sidebar.*`，新增 `terax.rightPanel.*`）。
+2. 左上角那个按钮是 `Header.tsx:124` 的 `Button variant="ghost" size="icon-sm"` + `HugeiconsIcon icon={SidebarLeftIcon}`；右侧按钮用同一套，图标换 `SidebarRightIcon`（hugeicons 里有）。
+3. 右面板装 git 视图（现有 `SourceControlPanel`，P3 的 git 操作与提交图也进这里）；左栏只留 `explorer` 与 `launcher`，即 `SidebarViewId` 去掉 `source-control`，避免同一个面板有两处入口、两份状态。
+4. 右面板默认收起：不改变现有用户"打开就看到 workspace"的习惯，需要看 Git 时点右上角展开。
 ### 12.4 Windows 与 WSL 并存 + WSL 开关
 
 现状：terax 用 `Space.env = {kind:"windows"} | {kind:"wsl",distro}` 表达工作区环境，由状态栏的 `WorkspaceEnvSelector` 切换（`src/modules/workspace/env.ts:7`、`src/modules/statusbar/WorkspaceEnvSelector.tsx:40`），切换即整体换环境。用户要求**不再切换**：Windows 与 WSL 的**项目与会话同时展示**，并加一个 **WSL 开关**，点了就开启服务并显示 WSL 内的 opencode/pi 项目与会话，不点就关闭服务且不显示。
@@ -270,13 +280,36 @@
 
 安全约束（沿用 §5）：三个阶段都不得绕过工作区鉴权。图片读取一律走已被 `WorkspaceRegistry` 授权的根目录，禁止凭路径直接读任意文件。
 
-### 12.3 Git 面板放右侧（布局改动）
+### 12.7 编辑器右侧实时预览（R16）
 
-现状：git 面板是左栏三个视图之一（`explorer` / `source-control` / `launcher` 互斥），所以看项目列表时看不到 Git。用户要求 **Git 在页面右侧打开**，让「项目列表」与「Git」能同时看，并在右侧加一个与左上角对称的**隐藏/展开按钮**。
+在编辑器右边缘加一个可折叠的预览列，像 Typora 那样边看边改。默认收起，点编辑器右上角的 `Preview` 打开。
+
+| 文件类型 | 预览内容 |
+|---|---|
+| Markdown | 渲染后的文档，跟随编辑实时更新 |
+| 图片 | 缩略图 |
+| 其他 | 不显示这个入口（而不是给一个空面板） |
+
+要点：
+
+1. 预览必须复用同一套渲染（`MarkdownImage` 的路径解析、`MarkdownCode` 的代码块），不能另写一份，否则两边的图片与代码块行为会分叉。
+2. 预览列本身要能滚动，并在滚动条上标出当前可视行位置，点击可跳过去。
+3. 编辑器与被预览的文档共享同一份内容，不重复读盘。
+
+### 12.8 界面语言：中文与英文（R17）
+
+用户要求界面上能切换中文与英文，**不做日韩**。
+
+现状（决定了工作量）：
+
+- 项目里**没有任何 i18n 基建**（没有 `react-intl`、`i18next`、`lingui`）。
+- 需要抽取的文案分布：上游原有英文界面文案约 103 处（`title` / `label` / `placeholder` / `aria-label`），本 fork 新写的中文文案 15 处。
+- 注意 `overrideLanguage` 是"文件语言"（代码高亮），与界面语言无关，不要混用。
 
 落点：
 
-1. `App.tsx` 的 `ResizablePanelGroup` 现在是 `[sidebar | workspace]`，改为 `[sidebar | workspace | rightPanel]`，右面板 `collapsible` + `collapsedSize={0}`，默认收起，宽度与收起态持久化（对应左栏的 `terax.sidebar.*`，新增 `terax.rightPanel.*`）。
-2. 左上角那个按钮是 `Header.tsx:124` 的 `Button variant="ghost" size="icon-sm"` + `HugeiconsIcon icon={SidebarLeftIcon}`；右侧按钮用同一套，图标换 `SidebarRightIcon`（hugeicons 里有）。
-3. 右面板装 git 视图（现有 `SourceControlPanel`，P3 的 git 操作与提交图也进这里）；左栏只留 `explorer` 与 `launcher`，即 `SidebarViewId` 去掉 `source-control`，避免同一个面板有两处入口、两份状态。
-4. 右面板默认收起：不改变现有用户"打开就看到 workspace"的习惯，需要看 Git 时点右上角展开。
+1. 选一个轻量方案（键值表 + `t()` 函数即可，不上重型框架），默认语言取系统语言，存进 `tauri-plugin-store`，与现有偏好同处。
+2. 文案按模块集中到 `zh` / `en` 两份表，`t("launcher.manage")` 这类 key 命名带模块前缀。
+3. 先做**设置页里的语言选项 + 会话面板与侧栏**（改动面小、能立刻验收），再分模块补齐。每补完一个模块，把该模块的写死文案清零。
+4. 日期与相对时间（`relativeTime.ts` 目前输出"13 小时前"这类中文）走同一套切换。
+5. 不做的事：不翻译日志、不改代码注释语言、不翻译 agent 名称与命令名。
