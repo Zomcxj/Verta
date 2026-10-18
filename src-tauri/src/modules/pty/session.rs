@@ -323,7 +323,9 @@ pub(super) fn spawn_with(
         .name("terax-pty-writer".into())
         .stack_size(WRITER_STACK)
         .spawn(move || {
+            let mut dump = super::dump::PtyDump::writes(id);
             while let Some(message) = input_rx.blocking_recv() {
+                dump.write(&message.bytes);
                 let result = writer.write_all(&message.bytes).map_err(|e| {
                     log::debug!("pty write failed: {e}");
                     e.to_string()
@@ -336,6 +338,7 @@ pub(super) fn spawn_with(
         .map_err(|e| spawn_error("writer", e))?;
 
     let spawn_at = Instant::now();
+    let dump_id = id;
     let output_r = output.clone();
     let reader_thread = thread::Builder::new()
         .name("terax-pty-reader".into())
@@ -344,6 +347,7 @@ pub(super) fn spawn_with(
             let mut buf = [0u8; READ_BUF];
             // Reused for every filtered read: no per-chunk allocation.
             let mut filtered: Vec<u8> = Vec::with_capacity(READ_BUF);
+            let mut dump = super::dump::PtyDump::new(dump_id);
             let mut da_filter = DaFilter::new();
             let mut first_byte = false;
             loop {
@@ -364,6 +368,7 @@ pub(super) fn spawn_with(
                             );
                         }
                         let read = &buf[..n];
+                        dump.write(read);
                         let chunk: &[u8] = if da_filter.passes_through(read) {
                             read
                         } else {

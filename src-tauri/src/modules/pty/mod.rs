@@ -1,4 +1,5 @@
 mod da_filter;
+mod dump;
 mod foreground;
 mod gate;
 mod hub;
