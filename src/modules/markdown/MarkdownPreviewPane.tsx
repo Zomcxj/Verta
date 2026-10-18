@@ -81,7 +81,7 @@ export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
     >
       <MarkdownViewToggle mode="rendered" onChange={onSetView} />
       <div className="flex-1 overflow-auto">
-        <div className="px-8 py-6">
+        <div className="markdown-doc px-8 py-6">
           {status.kind === "loading" && (
             <p className="text-[12px] text-muted-foreground">Loading…</p>
           )}
@@ -102,7 +102,7 @@ export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
           )}
           {status.kind === "ready" && (
             <Streamdown
-              className="select-text [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+              className="markdown-rendered select-text [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
               components={components}
               mode="static"
               parseIncompleteMarkdown={false}

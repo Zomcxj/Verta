@@ -609,3 +609,18 @@ html[data-window-inactive] *::after {
     animation: none;
   }
 }
+
+/*
+ * Streamdown caps a table's scroll box at 300px inline. Inline styles cannot be
+ * overridden by a class, so the cap is lifted here: a table taller than 300px
+ * was silently cropped, which cut the bottom off any picture in it. Tables now
+ * grow with their content and only scroll once they exceed the viewport.
+ */
+.markdown-doc .markdown-rendered [style*="max-height"] {
+  max-height: none !important;
+}
+
+/* Give a table its own horizontal scrollbar when a row of images is wider. */
+.markdown-doc .markdown-rendered > div > div.overflow-x-auto {
+  scrollbar-width: thin;
+}
