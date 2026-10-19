@@ -1,41 +1,59 @@
-# Verta
+<div align="center">
+  <img src="public/logo.png" width="144" height="144" alt="Verta" />
+  <h1>Verta</h1>
 
-Windows 优先的桌面工作台：把本机 agent 会话的浏览与恢复、终端、编辑器、Git 收在一个窗口里。
+  <p><strong>Windows 优先的桌面工作台：会话、终端、编辑器与 Git 在一个窗口里。</strong></p>
 
-## 能做什么
+  <p>
+    <img src="https://img.shields.io/badge/platform-Windows-blue" alt="平台" />
+    <img src="https://img.shields.io/badge/license-Apache--2.0-lightgrey" alt="许可" />
+  </p>
+</div>
 
-**会话面板（打开即见）**
+---
 
-- 列出本机 opencode 与 pi 的真实会话；子代理会话不展示，管理模式下才可见。
-- 点一条会话，就在它自己的项目目录里恢复它（opencode 用 `--session <id>` 加目录，pi 用 id 加工作目录），不会静默新建。
-- 多选真删除：删除前后端重新核对，删不掉的原因如实显示出来，失败不会被伪装成成功。
+Verta 是一个终端优先的桌面工作台，围绕「本机已经在用的编码 agent」来做：它不自己实现 agent，而是把你机器上 agent 的真实会话列出来，点一下就在原项目目录里恢复，再把终端、编辑器、Git 收在同一个窗口。基于 Tauri 2 + Rust 与 React 19 构建，渲染核心是 ghostty（WebGPU 自绘）。界面中文与 English 双语，默认跟随系统。
+
+## 功能
+
+### 会话
+
+- 列出本机 agent 的真实会话，读的是它们自己的数据。
+- 点一条会话就在它自己的项目目录里恢复。
+- 子代理会话不展示，管理模式下才可见。
+- 多选删除：删除前后端重新核对，删不掉的原因如实显示，失败不会被伪装成成功。
 - 列表随会话文件变化实时更新，不需要手动刷新。
 
-**Windows 与 WSL 并存**
+### Windows 与 WSL 并存
 
-- WSL 侧的数据在发行版内查询（脚本经 `/mnt/c/...` 传入，由发行版自己的 python3 执行），因此不受 9p 上 WAL 锁的限制。
-- 设置里的 WSL 开关默认关：关的时候只停 Verta 自己的查询，不碰 WSL 本身；打开后可以选择关闭时执行 `wsl --shutdown`（那会中断 WSL 里正在跑的一切，包括 Docker Desktop 的后端）。
-- pi 在 WSL 里没有独立数据（它指向 Windows 上的同一个程序），界面会如实说明，而不是显示成空列表。
+- WSL 侧的数据在发行版内查询，因此不受 `/mnt` 上 WAL 锁的限制。
+- WSL 开关默认关闭：关的时候只停 Verta 自己的查询，不碰 WSL 本身；打开后可以选择关闭时执行 `wsl --shutdown`（那会中断 WSL 里正在跑的一切）。
+- 在 WSL 里没有独立数据时，界面如实说明，而不是显示成空列表。
+- 环境由路径推断，终端、文件树与状态查询始终落在同一侧。
 
-**终端**
+### 终端
 
-- 渲染核心是 ghostty（WebGPU 自绘）。
-- agent 运行时，会话上下文里的图片会**显示为真位图**：agent 本身不发送像素数据，所以位图由我们自己从会话库里取出并画在它预留的位置上，点击可看原尺寸大图。
-- 会话列表与终端并存，支持多面板布局。
+- 渲染核心为 ghostty（WebGPU 自绘），支持多标签与多面板拆分布局。
+- agent 运行时，会话上下文里的图片显示为真位图：位图由我们从会话库取出并画在它预留的位置上，点击可看原尺寸大图。
+- 从浏览器或桌面拖文件进来会转成适合 Shell 的安全引用路径。
+- 会话列表与终端并存。
 
-**编辑器与预览**
+### 编辑器与预览
 
-- 打开图片直接预览（尺寸信息、缩放、透明棋盘格）。
+- CodeMirror 6，支持常用语言。
+- 打开图片直接预览：尺寸信息、缩放、透明棋盘格。
 - Markdown 里的本地图片按文档所在目录解析，受工作区白名单约束。
-- 编辑器右侧实时预览（Typora 式）。
+- 编辑器右侧实时预览。
 
-**Git**
+### Git
 
-- Git 面板放在页面右侧，可与项目列表同时查看，右侧有与左上角对称的隐藏/展开按钮。
+- Git 面板在页面右侧，可与项目列表同时查看，右上角有与左上角对称的展开/收起按钮。
+- 项目列表标签页展示项目、分支、状态、未提交数、上游与储藏数，可筛选与排序。
+- 远程仓库标签页列出账号可访问的仓库，走本机已登录的 `gh`。
 
-**界面**
+### 界面
 
-- 中文与 English 两种语言，默认跟随系统；只翻译界面可见文案。
+- 中文与 English 两种语言，默认跟随系统，只翻译界面可见文案。
 
 ## 环境要求
 
@@ -56,21 +74,21 @@ pnpm tauri build    # 打包
 ```bash
 pnpm check-types
 pnpm lint
-pnpm test                                  # 内存紧张时加 --maxWorkers=2
+pnpm test                                   # 内存紧张时加 --maxWorkers=2
 
 cd src-tauri
 cargo clippy --all-targets -- -D warnings   # 内存紧张时加 -j 2
 cargo test --lib
 ```
 
-## 工作记录
+## 技术栈
 
-需求台账、设计文档与施工计划保存在本机 `.superpowers/` 下，不进版本库：
-
-- 需求台账：`.superpowers/requirements-log.md`
-- 设计文档：`.superpowers/specs/`
-- 施工计划：`.superpowers/plans/`
+Tauri 2、Rust、`portable-pty`、React 19、TypeScript、Vite、ghostty（WebGPU）、CodeMirror 6、Tailwind v4、shadcn/ui、Zustand。
 
 ## 许可
 
-Apache-2.0，见 `LICENSE`。
+Apache-2.0，见 `LICENSE`。版权行同时保留本项目与上游项目，具体见文件开头。
+
+## Acknowledgements
+
+本项目基于 [Terax AI](https://github.com/crynta/terax-ai)（Apache-2.0）二次开发。与上游的差异记录在 `CHANGES.md`。

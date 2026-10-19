@@ -39,23 +39,8 @@ __pycache__/
 # 终端原始字节抓包（dev 用，见 src-tauri/src/modules/pty/dump.rs）
 scripts/dev/ptydump/
 
-# 源项目的记录与基础设施（本仓库不再携带，文件留本机）
-/.github/
-/.coderabbit.yaml
-/nix/
-/flake.nix
-/flake.lock
-/CODE_OF_CONDUCT.md
-/CONTRIBUTING.md
-/SECURITY.md
-/ROADMAP.md
+# 本机的 agent 工作约定（见 AGENTS.md，不进版本库）
 /CLAUDE.md
 /AGENTS.md
-/docs/architecture/
-/docs/readme/
-/docs/contributing/
-/docs/README.md
-/docs/*.png
 # 本地图标草稿不入库；正式图标走 src-tauri/icons 与 public/logo.png
 /*-icon.png
-/scripts/dev/upstream-drift.sh
