@@ -263,7 +263,8 @@ describe("built startup graph", () => {
     );
     // Nothing was emitted by either attempt.
     expect(existsSync(join(outDir, "guarded"))).toBe(false);
-  });
+    // 这条用例内部要跑两次完整构建，几十秒起步；vitest 默认 5 秒会假红。
+  }, 120_000);
 
   it("contains none of the app-lab benchmark driver (VERTA_BENCH is off)", () => {
     // The driver (src/bench) and its Tauri commands exist only in builds made with

@@ -13,7 +13,7 @@ export const RIGHT_MAX_WIDTH = 720;
 const RIGHT_WIDTH_STORAGE_KEY = "verta.rightPanel.width";
 const RIGHT_COLLAPSED_STORAGE_KEY = "verta.rightPanel.collapsed";
 
-export function shouldPersistRightWidth(
+function shouldPersistRightWidth(
   width: number,
   isUserInteraction: boolean,
 ): boolean {

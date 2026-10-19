@@ -2,7 +2,6 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "ignore": [
     "src/components/ui/**",
-    "src/components/ai-elements/**"
   ],
   "ignoreDependencies": [
     "@tauri-apps/plugin-log",
@@ -13,7 +12,6 @@
   ],
   "ignoreBinaries": [
     "footprint",
-    "swiftc"
   ],
   "ignoreIssues": {
     "src/bench/flags.ts": [
