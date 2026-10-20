@@ -6,15 +6,14 @@
 一条改动写一行，说清楚改了什么，不需要写行号和函数名。新增的、改过的、删掉的都记，
 删除整个模块的也记一行，便于日后追溯。
 
-明细按日期折叠：日期仍是普通标题，内容放在 `<details>` 里，GitHub 上渲染成展开/收起箭头，
-纯文本打开也照读。**最新的一天默认 `open`**；换到新的一天时，把上一天的 `open` 去掉即可。
+明细按日期折叠：日期本身就是折叠行的标题（`<details>` + `<summary>`），GitHub 上渲染成日期左侧的
+展开/收起箭头，纯文本打开也照读。**最新的一天默认 `open`**；换到新的一天时，照抄上一段并把日期换成当天、
+上一天的 `open` 去掉即可。
 
 ---
 
-## 2026-10-20
-
 <details open>
-<summary>本日改动</summary>
+<summary><strong>2026-10-20</strong></summary>
 
 **GitHub：CI 状态列（远程仓库列表）**
 
@@ -77,10 +76,8 @@
 
 </details>
 
-## 2026-10-19
-
 <details>
-<summary>本日改动</summary>
+<summary><strong>2026-10-19</strong></summary>
 
 **Git 面板：储藏（stash）**
 
@@ -105,10 +102,8 @@
 
 </details>
 
-## 2026-10-18
-
 <details>
-<summary>本日改动</summary>
+<summary><strong>2026-10-18</strong></summary>
 
 **应用图标（品牌资源）**
 
@@ -235,10 +230,8 @@
 
 </details>
 
-## 2026-10-17
-
 <details>
-<summary>本日改动</summary>
+<summary><strong>2026-10-17</strong></summary>
 
 **会话面板（新功能）**
 
