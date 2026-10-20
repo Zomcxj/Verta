@@ -82,7 +82,11 @@ impl RemoteReposPayload {
 
     /// 翻页中途失败：已经拿到的仓库照样带回去，不白扔。`kind` 已经不是 `ready`，
     /// 前端不会把它当成一份完整列表。
-    pub fn failed_after(kind: &'static str, error: impl Into<String>, repos: Vec<RemoteRepo>) -> Self {
+    pub fn failed_after(
+        kind: &'static str,
+        error: impl Into<String>,
+        repos: Vec<RemoteRepo>,
+    ) -> Self {
         let error = error.into();
         let error = if error.trim().is_empty() {
             NO_DETAIL.to_string()
@@ -152,23 +156,135 @@ impl RepoCiPayload {
     }
 
     pub fn failed(kind: &'static str, repo: impl Into<String>, error: impl Into<String>) -> Self {
-        let error = error.into();
         Self {
             kind,
             repo: repo.into(),
             run: None,
-            error: Some(if error.trim().is_empty() {
-                NO_DETAIL.to_string()
-            } else {
-                error
-            }),
+            error: Some(or_no_detail(error.into())),
         }
     }
 
     pub fn not_installed(repo: impl Into<String>) -> Self {
+        Self::failed(KIND_NOT_INSTALLED, repo, "未安装 gh CLI（找不到 gh 命令）")
+    }
+}
+
+/// 兜底文案：gh 没给出可展示的原文时用它，免得前端拿到空字符串。
+fn or_no_detail(error: String) -> String {
+    if error.trim().is_empty() {
+        NO_DETAIL.to_string()
+    } else {
+        error
+    }
+}
+
+/// 一条 workflow 运行（运行列表里的一行）。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoActionRun {
+    /// GitHub 那边的运行 id：重跑/取消要原样带回去。
+    pub id: u64,
+    pub name: String,
+    pub status: String,
+    pub conclusion: Option<String>,
+    pub run_number: u64,
+    pub head_branch: Option<String>,
+    /// `push` / `pull_request` / `workflow_dispatch` 等，GitHub 原样给的值。
+    pub event: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub url: String,
+}
+
+/// 某个仓库的运行列表。`kind` 与 CI 那条同一套语义（`none` 是「确实没有运行记录」）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoActionRunsPayload {
+    pub kind: &'static str,
+    pub repo: String,
+    pub runs: Vec<RepoActionRun>,
+    pub error: Option<String>,
+}
+
+impl RepoActionRunsPayload {
+    /// 查到了。空列表归 `none`（真没有运行记录），不归 `ready` —— 与 CI 那条一致。
+    pub fn found(repo: impl Into<String>, runs: Vec<RepoActionRun>) -> Self {
+        if runs.is_empty() {
+            return Self::empty(repo);
+        }
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            runs,
+            error: None,
+        }
+    }
+
+    pub fn empty(repo: impl Into<String>) -> Self {
+        Self {
+            kind: KIND_NONE,
+            repo: repo.into(),
+            runs: Vec::new(),
+            error: None,
+        }
+    }
+
+    pub fn failed(kind: &'static str, repo: impl Into<String>, error: impl Into<String>) -> Self {
+        Self {
+            kind,
+            repo: repo.into(),
+            runs: Vec::new(),
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>) -> Self {
+        Self::failed(KIND_NOT_INSTALLED, repo, "未安装 gh CLI（找不到 gh 命令）")
+    }
+}
+
+/// 重跑 / 取消的结果。
+///
+/// 成功不带数据（gh 成功时也没什么有用的输出），失败把 gh 原文照实带回去 —— 比如对一次
+/// 已经跑完的运行点取消，GitHub 会拒绝，那句话就是用户需要看到的东西。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoRunActionResult {
+    pub kind: &'static str,
+    pub repo: String,
+    pub run_id: u64,
+    pub error: Option<String>,
+}
+
+impl RepoRunActionResult {
+    pub fn ok(repo: impl Into<String>, run_id: u64) -> Self {
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            run_id,
+            error: None,
+        }
+    }
+
+    pub fn failed(
+        kind: &'static str,
+        repo: impl Into<String>,
+        run_id: u64,
+        error: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            repo: repo.into(),
+            run_id,
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>, run_id: u64) -> Self {
         Self::failed(
             KIND_NOT_INSTALLED,
             repo,
+            run_id,
             "未安装 gh CLI（找不到 gh 命令）",
         )
     }

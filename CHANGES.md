@@ -15,6 +15,36 @@
 <details open>
 <summary><strong>2026-10-20</strong></summary>
 
+**GitHub：运行列表（含重跑 / 取消）**
+
+- `src-tauri/src/modules/github/actions.rs`：新增。解析运行列表 `repos/{owner}/{repo}/actions/runs?per_page=N`。
+  逐条容错（缺 id / status / html_url 的条目丢掉，其余字段缺了按空处理）；但「返回里本来有条目、最后一条都
+  没留下」按解析失败如实报，不报成「没有运行记录」。带 7 个单测。
+- `src-tauri/src/modules/github/types.rs`：新增 `RepoActionRun` / `RepoActionRunsPayload` /
+  `RepoRunActionResult`，空列表归 `none`（与 CI 那条同一套 kind）；`failed` 的「不返回空错误」收成一个
+  小助手，CI 那条也改用它。
+- `src-tauri/src/modules/github/commands.rs`：新增 `github_repo_runs`（一次一个仓库，条数夹到 1..=50，
+  默认 20）、`github_run_rerun`、`github_run_cancel`（内部走 `gh run rerun/cancel <id> --repo <slug>`）。
+  运行 id 是整数、拼不出选项注入；0 在本地就拒收。
+- `src-tauri/src/lib.rs`、`gh.rs`、`mod.rs`：注册三条命令与 `RUN_ACTION_TIMEOUT_SECS`。
+- `src/modules/remotes/RunListDialog.tsx`：新增。列出最近 20 条运行：状态徽标、workflow · 分支 · #号、
+  事件、原始 conclusion、相对时间，附「打开」跳转。重跑与取消都要二次确认；失败把 gh 原文留在确认框里
+  （成功先收框再刷新，刷新出问题不该让框看起来像失败）。
+- `src/modules/remotes/lib/runs.ts`：新增。一行的视图规则（跑完了才能重跑、没跑完才谈得上取消）与时间解析；
+  带 4 个单测。
+- `src/modules/remotes/lib/ci.ts`：把 `runState` / `runDetail` / `TONE_CLASS` 抽出来给 CI 列与运行列表共用；
+  顺带修掉一处不一致——`timed_out` 原本是红色徽标却写「已结束」，现在按失败说。
+- `src/modules/remotes/RemoteReposView.tsx`：行菜单加「运行记录…」。
+- `src/lib/native.ts`、`src/modules/i18n/messages.ts`：命令包装与中英文案。
+
+**界面文案：补上没适配中文的输入提示词**
+
+- `src/modules/command-palette/CommandPalette.tsx`：命令面板的四个提示词（默认 / 主题 / 文件内容 / 命令历史）
+  改成走 i18n，之前是硬编码英文。
+- `src/modules/header/SearchInline.tsx`：头部搜索框的「Search」与「Git search」改成走 i18n（快捷键后缀照旧拼）。
+- `src/modules/explorer/FileExplorer.tsx`、`src/modules/explorer/TreeRow.tsx`：新建文件 / 新建文件夹的行内
+  占位词改用 `explorer.newFile` / `explorer.newFolder` —— 这两个键早就存在，只是一直没被用上。
+
 **GitHub：CI 状态列（远程仓库列表）**
 
 - `src-tauri/src/modules/github/ci.rs`：新增。解析 `repos/{owner}/{repo}/actions/runs?per_page=1` 的最近一次运行；

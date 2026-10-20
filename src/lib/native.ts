@@ -132,6 +132,37 @@ export type WireRepoCiPayload = {
   error: string | null;
 };
 
+/** 运行列表里的一条（重跑/取消要用 `id`）。 */
+export type WireRepoActionRun = {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  runNumber: number;
+  headBranch: string | null;
+  /** `push` / `pull_request` / `workflow_dispatch` 等，GitHub 原样给的值。 */
+  event: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  url: string;
+};
+
+/** 某个仓库的运行列表；`none` 是查清楚了的「没有运行记录」，不是失败。 */
+export type WireRepoActionRunsPayload = {
+  kind: "ready" | "none" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  runs: WireRepoActionRun[];
+  error: string | null;
+};
+
+/** 重跑 / 取消的结果：成功不带数据，失败时 `error` 是 gh 的原话。 */
+export type WireRepoRunActionResult = {
+  kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  runId: number;
+  error: string | null;
+};
+
 export type GitStatusSnapshot = {
   repoRoot: string;
   branch: string;
@@ -373,6 +404,18 @@ export const native = {
   /** 单个仓库最近一次 CI 运行；由界面按需调用，别对整份列表批量查。 */
   githubRepoCi: (repo: string) =>
     invoke<WireRepoCiPayload>("github_repo_ci", { repo }),
+  /** 某个仓库的运行列表（默认 20 条）。 */
+  githubRepoRuns: (repo: string, limit?: number) =>
+    invoke<WireRepoActionRunsPayload>("github_repo_runs", {
+      repo,
+      limit: limit ?? null,
+    }),
+  /** 重跑一次运行。 */
+  githubRunRerun: (repo: string, runId: number) =>
+    invoke<WireRepoRunActionResult>("github_run_rerun", { repo, runId }),
+  /** 取消一次正在进行的运行。 */
+  githubRunCancel: (repo: string, runId: number) =>
+    invoke<WireRepoRunActionResult>("github_run_cancel", { repo, runId }),
   gitPanelSnapshot: (cwd: string) =>
     invoke<GitPanelSnapshot>("git_panel_snapshot", {
       cwd,

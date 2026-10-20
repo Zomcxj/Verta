@@ -19,6 +19,8 @@ pub const USER_TIMEOUT_SECS: u64 = 20;
 pub const REPOS_TIMEOUT_SECS: u64 = 45;
 /// 一次「最近一次 CI 运行」的等待上限：一条记录，比整页仓库轻。
 pub const CI_TIMEOUT_SECS: u64 = 30;
+/// 重跑 / 取消的等待上限：一次 API 调用，比取列表轻。
+pub const RUN_ACTION_TIMEOUT_SECS: u64 = 30;
 const MAX_TIMEOUT_SECS: u64 = 120;
 /// 一页 100 条仓库的 JSON 大概几百 KiB，留足余量。真被截断的话 JSON 会解析失败，
 /// 那种情况按解析失败如实报出来，不会静悄悄少几条。

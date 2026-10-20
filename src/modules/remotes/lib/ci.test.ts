@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WireRepoCiPayload, WireRepoCiRun } from "@/lib/native";
-import { ciView } from "./ci";
+import { ciView, runDetail, runState } from "./ci";
 
 function run(over: Partial<WireRepoCiRun> = {}): WireRepoCiRun {
   return {
@@ -88,5 +88,47 @@ describe("ciView", () => {
       payload({ run: run({ name: "build", headBranch: null, runNumber: 0 }) }),
     );
     expect(sparse.detail).toBe("build · #0 · success");
+  });
+});
+
+describe("runState", () => {
+  it("把没跑完的状态都归到 running 那一档", () => {
+    for (const status of ["queued", "in_progress", "waiting", "requested", "pending"]) {
+      const state = runState({ status, conclusion: null });
+      expect(state.tone, status).toBe("running");
+    }
+    expect(runState({ status: "in_progress", conclusion: null }).key).toBe(
+      "remotes.ci.running",
+    );
+    expect(runState({ status: "queued", conclusion: null }).key).toBe(
+      "remotes.ci.queued",
+    );
+  });
+
+  it("跑完了就按 conclusion 说，认不出来的结论照实归「已结束」", () => {
+    const cases: [string, string, string][] = [
+      ["success", "remotes.ci.success", "ok"],
+      ["failure", "remotes.ci.failure", "fail"],
+      ["timed_out", "remotes.ci.failure", "fail"],
+      ["cancelled", "remotes.ci.cancelled", "unknown"],
+      ["skipped", "remotes.ci.skipped", "unknown"],
+      ["neutral", "remotes.ci.other", "unknown"],
+    ];
+    for (const [conclusion, key, tone] of cases) {
+      const state = runState({ status: "completed", conclusion });
+      expect(state.key, conclusion).toBe(key);
+      expect(state.tone, conclusion).toBe(tone);
+    }
+  });
+});
+
+describe("runDetail", () => {
+  it("缺的字段不留下多余分隔符", () => {
+    expect(runDetail({ name: "CI", headBranch: "main", runNumber: 7 })).toBe(
+      "CI · main · #7",
+    );
+    expect(runDetail({ name: "CI", headBranch: null, runNumber: 7 })).toBe(
+      "CI · #7",
+    );
   });
 });

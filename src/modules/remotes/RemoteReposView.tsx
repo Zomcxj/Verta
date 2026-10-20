@@ -13,7 +13,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useT, type MessageKey } from "@/modules/i18n";
-import { ciView, type CiView } from "./lib/ci";
+import { RunListDialog } from "./RunListDialog";
+import { TONE_CLASS, ciView, type CiView } from "./lib/ci";
 import { copyTextOf, filterRows, noticeOf, toRows } from "./lib/rows";
 import type { RemoteRepoRow } from "./lib/types";
 
@@ -36,6 +37,8 @@ export function RemoteReposView({ active }: Props) {
   const [filter, setFilter] = useState("");
   /** 已经查过的 CI 结果，按 `owner/name` 存放；查过不再自动重查。 */
   const [ci, setCi] = useState<Record<string, WireRepoCiPayload>>({});
+  /** 正在看运行记录的仓库；null 表示弹窗关着。 */
+  const [runsFor, setRunsFor] = useState<string | null>(null);
   const [ciBusy, setCiBusy] = useState<Record<string, boolean>>({});
 
   /**
@@ -234,12 +237,19 @@ export function RemoteReposView({ active }: Props) {
                   ci={ci[row.fullName] ?? null}
                   ciBusy={Boolean(ciBusy[row.fullName])}
                   onCheckCi={checkCi}
+                  onOpenRuns={setRunsFor}
                 />
               ))}
             </tbody>
           </table>
         </div>
       )}
+      <RunListDialog
+        repo={runsFor}
+        onOpenChange={(open) => {
+          if (!open) setRunsFor(null);
+        }}
+      />
     </div>
   );
 }
@@ -250,12 +260,14 @@ function RepoRow({
   ci,
   ciBusy,
   onCheckCi,
+  onOpenRuns,
 }: {
   row: RemoteRepoRow;
   onCopy: (value: string) => void;
   ci: WireRepoCiPayload | null;
   ciBusy: boolean;
   onCheckCi: (fullName: string, force?: boolean) => void;
+  onOpenRuns: (fullName: string) => void;
 }) {
   const t = useT();
   const open = useCallback(() => {
@@ -329,6 +341,9 @@ function RepoRow({
             >
               {t("remotes.ci.check")}
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onOpenRuns(row.fullName)}>
+              {t("remotes.runs.open")}
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => onCopy(copyTextOf(row, "name"))}>
               {t("remotes.action.copyName")}
@@ -342,13 +357,6 @@ function RepoRow({
     </tr>
   );
 }
-
-const TONE_CLASS: Record<CiView["tone"], string> = {
-  ok: "border-emerald-500/40 text-emerald-600 dark:text-emerald-400",
-  fail: "border-destructive/50 text-destructive",
-  running: "border-sky-500/40 text-sky-600 dark:text-sky-400",
-  unknown: "border-border/60 text-muted-foreground",
-};
 
 /**
  * 一行的 CI 徽标。

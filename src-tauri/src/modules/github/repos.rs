@@ -348,7 +348,10 @@ mod tests {
 
     #[test]
     fn error_excerpt_caps_lines_and_length() {
-        assert_eq!(error_excerpt("gh: Not Found (HTTP 404)"), "gh: Not Found (HTTP 404)");
+        assert_eq!(
+            error_excerpt("gh: Not Found (HTTP 404)"),
+            "gh: Not Found (HTTP 404)"
+        );
         assert_eq!(error_excerpt("\n  \n"), "");
         assert_eq!(
             error_excerpt("a\nb\nc\nd\ne\nf\ng"),

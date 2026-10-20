@@ -808,7 +808,9 @@ export const FileExplorer = memo(
                     <InlineInput
                       initial=""
                       placeholder={
-                        pendingAtRoot.kind === "dir" ? "New folder" : "New file"
+                        pendingAtRoot.kind === "dir"
+                          ? t("explorer.newFolder")
+                          : t("explorer.newFile")
                       }
                       onCommit={tree.commitCreate}
                       onCancel={tree.cancelCreate}

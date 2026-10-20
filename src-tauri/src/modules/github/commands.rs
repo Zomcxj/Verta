@@ -1,11 +1,13 @@
-//! 「远程仓库列表」命令：借本机已登录的 gh CLI 取当前账号能访问的仓库。
+//! GitHub 面板的命令：借本机已登录的 gh CLI 取仓库、CI 状态与运行列表，并能重跑/取消一次运行。
 //!
-//! 现在有两片：仓库列表（`github_repos`）与单个仓库的 CI 状态（`github_repo_ci`）。
-//! Releases / Actions 明细 / 下载留给后续切片。gh 是账号级的东西，一律在主机环境跑，
-//! 与当前空间 / 发行版无关。纯逻辑放在 `repos.rs` / `ci.rs`，这里只做编排。
+//! 现在有四片：仓库列表（`github_repos`）、单个仓库的 CI 状态（`github_repo_ci`）、
+//! 运行列表（`github_repo_runs`）与运行上的重跑/取消（`github_run_rerun` /
+//! `github_run_cancel`）。Releases 与资产下载留给后续切片。gh 是账号级的东西，一律在主机
+//! 环境跑，与当前空间 / 发行版无关。纯逻辑放在 `repos.rs` / `ci.rs` / `actions.rs`，这里只做编排。
 
 use crate::modules::fs::blocking;
 
+use super::actions::{clamp_limit, parse_runs};
 use super::ci::parse_latest_run;
 use super::ci::parse_repo_slug;
 use super::gh::{self, GhRunError, LoginProbe};
@@ -13,7 +15,10 @@ use super::repos::{
     classify_failure, error_excerpt, page_path, parse_login, parse_repos, should_continue_page,
     MAX_PAGES, MAX_PER_PAGE,
 };
-use super::types::{RemoteRepo, RemoteReposPayload, RepoCiPayload, KIND_ERROR};
+use super::types::{
+    RemoteRepo, RemoteReposPayload, RepoActionRunsPayload, RepoCiPayload, RepoRunActionResult,
+    KIND_ERROR,
+};
 
 /// 当前账号能访问的仓库列表（自己的 + 协作的 + 组织成员可见的）。
 ///
@@ -139,4 +144,124 @@ fn read_repo_ci(repo: &str) -> RepoCiPayload {
             format!("gh 返回的运行记录无法解析：{error}"),
         ),
     }
+}
+
+/// 某个仓库最近的运行列表。
+///
+/// 与 CI 状态一样由界面按需触发：`limit` 是这次要几条（夹到 1..=50，默认 20）。
+#[tauri::command]
+pub async fn github_repo_runs(
+    repo: String,
+    limit: Option<usize>,
+) -> Result<RepoActionRunsPayload, String> {
+    blocking(move || Ok(read_repo_runs(&repo, limit))).await
+}
+
+fn read_repo_runs(repo: &str, limit: Option<usize>) -> RepoActionRunsPayload {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => return RepoActionRunsPayload::failed(KIND_ERROR, repo.trim(), message),
+    };
+
+    let per_page = clamp_limit(limit);
+    let path = format!("repos/{slug}/actions/runs?per_page={per_page}");
+    let output = match gh::run(&["api", &path], gh::CI_TIMEOUT_SECS) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return RepoActionRunsPayload::not_installed(&slug),
+        Err(GhRunError::Io(error)) => {
+            return RepoActionRunsPayload::failed(
+                KIND_ERROR,
+                &slug,
+                format!("运行 gh 失败：{error}"),
+            )
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return RepoActionRunsPayload::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            error_excerpt(&text),
+        );
+    }
+
+    match parse_runs(&output.stdout, per_page) {
+        Ok(runs) => RepoActionRunsPayload::found(&slug, runs),
+        Err(error) => RepoActionRunsPayload::failed(
+            KIND_ERROR,
+            &slug,
+            format!("gh 返回的运行列表无法解析：{error}"),
+        ),
+    }
+}
+
+/// 重跑一次运行。
+#[tauri::command]
+pub async fn github_run_rerun(repo: String, run_id: u64) -> Result<RepoRunActionResult, String> {
+    blocking(move || Ok(run_action(&repo, run_id, RunAction::Rerun))).await
+}
+
+/// 取消一次正在进行的运行。
+#[tauri::command]
+pub async fn github_run_cancel(repo: String, run_id: u64) -> Result<RepoRunActionResult, String> {
+    blocking(move || Ok(run_action(&repo, run_id, RunAction::Cancel))).await
+}
+
+/// 重跑与取消只差一个 gh 子命令，预检、失败分类、原文透传完全一样，所以合成一处。
+#[derive(Clone, Copy)]
+enum RunAction {
+    Rerun,
+    Cancel,
+}
+
+impl RunAction {
+    fn subcommand(self) -> &'static str {
+        match self {
+            RunAction::Rerun => "rerun",
+            RunAction::Cancel => "cancel",
+        }
+    }
+}
+
+fn run_action(repo: &str, run_id: u64, action: RunAction) -> RepoRunActionResult {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => {
+            return RepoRunActionResult::failed(KIND_ERROR, repo.trim(), run_id, message)
+        }
+    };
+    // run id 是整数，拼不出选项注入；0 只可能是界面传错了，直接说清楚。
+    if run_id == 0 {
+        return RepoRunActionResult::failed(KIND_ERROR, &slug, run_id, "运行 id 不合法：0");
+    }
+
+    let id = run_id.to_string();
+    let output = match gh::run(
+        &["run", action.subcommand(), &id, "--repo", &slug],
+        gh::RUN_ACTION_TIMEOUT_SECS,
+    ) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return RepoRunActionResult::not_installed(&slug, run_id),
+        Err(GhRunError::Io(error)) => {
+            return RepoRunActionResult::failed(
+                KIND_ERROR,
+                &slug,
+                run_id,
+                format!("运行 gh 失败：{error}"),
+            )
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return RepoRunActionResult::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            run_id,
+            error_excerpt(&text),
+        );
+    }
+
+    RepoRunActionResult::ok(&slug, run_id)
 }

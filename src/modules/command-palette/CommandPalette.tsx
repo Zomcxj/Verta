@@ -206,12 +206,12 @@ export function CommandPalette({
   );
 
   const placeholder = inThemes
-    ? "Search themes..."
+    ? t("palette.placeholder.themes")
     : parsed.mode === "content"
-      ? "Find text in files..."
+      ? t("palette.placeholder.content")
       : parsed.mode === "history"
-        ? "Search command history..."
-        : "Type a command, > for history, # to find in files";
+        ? t("palette.placeholder.history")
+        : t("palette.placeholder.command");
 
   return (
     <CommandDialog
