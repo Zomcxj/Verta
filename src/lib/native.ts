@@ -106,6 +106,32 @@ export type WireRemoteReposPayload = {
   error: string | null;
 };
 
+/** 一个仓库最近一次 workflow 运行。 */
+export type WireRepoCiRun = {
+  /** workflow 名字。 */
+  name: string;
+  /** `queued` / `in_progress` / `completed` 等，GitHub 原样给的值。 */
+  status: string;
+  /** `success` / `failure` / `cancelled` 等；还没跑完时是 null。 */
+  conclusion: string | null;
+  runNumber: number;
+  headBranch: string | null;
+  /** ISO8601，界面自己折成相对时间。 */
+  updatedAt: string | null;
+  url: string;
+};
+
+/**
+ * 单个仓库的 CI 查询结果。
+ * `none` 是查清楚了的「没有运行记录」，不是失败。
+ */
+export type WireRepoCiPayload = {
+  kind: "ready" | "none" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  run: WireRepoCiRun | null;
+  error: string | null;
+};
+
 export type GitStatusSnapshot = {
   repoRoot: string;
   branch: string;
@@ -344,6 +370,9 @@ export const native = {
    */
   githubRepos: (limit?: number) =>
     invoke<WireRemoteReposPayload>("github_repos", { limit: limit ?? null }),
+  /** 单个仓库最近一次 CI 运行；由界面按需调用，别对整份列表批量查。 */
+  githubRepoCi: (repo: string) =>
+    invoke<WireRepoCiPayload>("github_repo_ci", { repo }),
   gitPanelSnapshot: (cwd: string) =>
     invoke<GitPanelSnapshot>("git_panel_snapshot", {
       cwd,

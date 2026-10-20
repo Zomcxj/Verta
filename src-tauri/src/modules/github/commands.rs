@@ -1,16 +1,19 @@
 //! 「远程仓库列表」命令：借本机已登录的 gh CLI 取当前账号能访问的仓库。
 //!
-//! 这一片只做列表，Releases / Actions / CI / 下载都不在这里。gh 是账号级的东西，
-//! 一律在主机环境跑，与当前空间 / 发行版无关。纯逻辑放在 `repos.rs`，这里只做编排。
+//! 现在有两片：仓库列表（`github_repos`）与单个仓库的 CI 状态（`github_repo_ci`）。
+//! Releases / Actions 明细 / 下载留给后续切片。gh 是账号级的东西，一律在主机环境跑，
+//! 与当前空间 / 发行版无关。纯逻辑放在 `repos.rs` / `ci.rs`，这里只做编排。
 
 use crate::modules::fs::blocking;
 
+use super::ci::parse_latest_run;
+use super::ci::parse_repo_slug;
 use super::gh::{self, GhRunError, LoginProbe};
 use super::repos::{
     classify_failure, error_excerpt, page_path, parse_login, parse_repos, should_continue_page,
     MAX_PAGES, MAX_PER_PAGE,
 };
-use super::types::{RemoteRepo, RemoteReposPayload, KIND_ERROR};
+use super::types::{RemoteRepo, RemoteReposPayload, RepoCiPayload, KIND_ERROR};
 
 /// 当前账号能访问的仓库列表（自己的 + 协作的 + 组织成员可见的）。
 ///
@@ -95,4 +98,45 @@ fn list_repos(limit: Option<usize>) -> RemoteReposPayload {
     }
 
     RemoteReposPayload::ready(login, account_name, repos, truncated)
+}
+
+/// 某个仓库最近一次 CI 运行。
+///
+/// 由界面按需触发（一次一个仓库）：列表里每个仓库都去查会把 API 配额烧光。
+#[tauri::command]
+pub async fn github_repo_ci(repo: String) -> Result<RepoCiPayload, String> {
+    blocking(move || Ok(read_repo_ci(&repo))).await
+}
+
+fn read_repo_ci(repo: &str) -> RepoCiPayload {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        // 名字本身不合法：照实说，不用去问 gh。
+        Err(message) => return RepoCiPayload::failed(KIND_ERROR, repo.trim(), message),
+    };
+
+    let path = format!("repos/{slug}/actions/runs?per_page=1");
+    let output = match gh::run(&["api", &path], gh::CI_TIMEOUT_SECS) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return RepoCiPayload::not_installed(&slug),
+        Err(GhRunError::Io(error)) => {
+            return RepoCiPayload::failed(KIND_ERROR, &slug, format!("运行 gh 失败：{error}"))
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return RepoCiPayload::failed(classify_failure(&text).kind(), &slug, error_excerpt(&text));
+    }
+
+    match parse_latest_run(&output.stdout) {
+        Ok(Some(run)) => RepoCiPayload::found(&slug, run),
+        // 查清楚了：这个仓库没有运行记录。
+        Ok(None) => RepoCiPayload::empty(&slug),
+        Err(error) => RepoCiPayload::failed(
+            KIND_ERROR,
+            &slug,
+            format!("gh 返回的运行记录无法解析：{error}"),
+        ),
+    }
 }

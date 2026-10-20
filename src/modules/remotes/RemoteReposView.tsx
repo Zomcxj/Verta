@@ -7,11 +7,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { native, type WireRemoteReposPayload } from "@/lib/native";
+import { native, type WireRemoteReposPayload, type WireRepoCiPayload } from "@/lib/native";
+import { cn } from "@/lib/utils";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useT, type MessageKey } from "@/modules/i18n";
+import { ciView, type CiView } from "./lib/ci";
 import { copyTextOf, filterRows, noticeOf, toRows } from "./lib/rows";
 import type { RemoteRepoRow } from "./lib/types";
 
@@ -32,6 +34,46 @@ export function RemoteReposView({ active }: Props) {
   /** 命令本身失败（连 kind 都拿不到）时的原文，与 gh 报错分开记。 */
   const [failure, setFailure] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  /** 已经查过的 CI 结果，按 `owner/name` 存放；查过不再自动重查。 */
+  const [ci, setCi] = useState<Record<string, WireRepoCiPayload>>({});
+  const [ciBusy, setCiBusy] = useState<Record<string, boolean>>({});
+
+  /**
+   * 查一个仓库的 CI。
+   *
+   * 一次一个仓库：整份列表逐个去查会烧掉 API 配额，所以只查用户真正碰到的行（悬停或
+   * 菜单里点「检查 CI」）。`force` 用于菜单里的重新检查。
+   */
+  const checkCi = useCallback(
+    async (fullName: string, force = false) => {
+      if (!fullName) return;
+      if (ciBusy[fullName]) return;
+      if (!force && ci[fullName]) return;
+      setCiBusy((prev) => ({ ...prev, [fullName]: true }));
+      try {
+        const result = await native.githubRepoCi(fullName);
+        setCi((prev) => ({ ...prev, [fullName]: result }));
+      } catch (e) {
+        // 命令本身失败（不是 gh 报的错）：也放进结果里，让那一行自己说清楚。
+        setCi((prev) => ({
+          ...prev,
+          [fullName]: {
+            kind: "error",
+            repo: fullName,
+            run: null,
+            error: String(e),
+          },
+        }));
+      } finally {
+        setCiBusy((prev) => {
+          const next = { ...prev };
+          delete next[fullName];
+          return next;
+        });
+      }
+    },
+    [ci, ciBusy],
+  );
 
   const read = useCallback(async () => {
     setReading(true);
@@ -174,6 +216,9 @@ export function RemoteReposView({ active }: Props) {
                 <th className="w-[14%] py-1 font-medium">
                   {t("remotes.col.pushed")}
                 </th>
+                <th className="w-[10%] py-1 font-medium">
+                  {t("remotes.col.ci")}
+                </th>
                 <th className="py-1 font-medium">
                   {t("remotes.col.description")}
                 </th>
@@ -182,7 +227,14 @@ export function RemoteReposView({ active }: Props) {
             </thead>
             <tbody>
               {visible.map((row) => (
-                <RepoRow key={row.fullName} row={row} onCopy={copy} />
+                <RepoRow
+                  key={row.fullName}
+                  row={row}
+                  onCopy={copy}
+                  ci={ci[row.fullName] ?? null}
+                  ciBusy={Boolean(ciBusy[row.fullName])}
+                  onCheckCi={checkCi}
+                />
               ))}
             </tbody>
           </table>
@@ -195,19 +247,31 @@ export function RemoteReposView({ active }: Props) {
 function RepoRow({
   row,
   onCopy,
+  ci,
+  ciBusy,
+  onCheckCi,
 }: {
   row: RemoteRepoRow;
   onCopy: (value: string) => void;
+  ci: WireRepoCiPayload | null;
+  ciBusy: boolean;
+  onCheckCi: (fullName: string, force?: boolean) => void;
 }) {
   const t = useT();
   const open = useCallback(() => {
     void openUrl(row.webUrl).catch(console.error);
   }, [row.webUrl]);
+  const view = ciView(ci);
+  // 鼠标停到这一行就去查一次：整份列表不批量查，用户碰到哪行就查哪行。
+  const onHover = useCallback(() => {
+    void onCheckCi(row.fullName);
+  }, [onCheckCi, row.fullName]);
 
   return (
     <tr
       className="cursor-pointer border-t border-border/40 align-top hover:bg-accent/40"
       onClick={open}
+      onMouseEnter={onHover}
     >
       <td className="py-1.5 pr-2">
         <span className="flex min-w-0 items-baseline gap-1.5">
@@ -229,6 +293,15 @@ function RepoRow({
       <td className="truncate py-1.5 pr-2 text-muted-foreground">
         {row.pushed ?? t("remotes.unknown")}
       </td>
+      <td className="truncate py-1.5 pr-2">
+        <CiCell
+          view={view}
+          busy={ciBusy}
+          checkLabel={t("remotes.ci.check")}
+          onCheck={() => onCheckCi(row.fullName, true)}
+          onOpenRun={(url) => void openUrl(url).catch(console.error)}
+        />
+      </td>
       <td className="truncate py-1.5 pr-2 text-muted-foreground">
         {row.description ?? ""}
       </td>
@@ -249,6 +322,14 @@ function RepoRow({
               {t("remotes.action.open")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => {
+                onCheckCi(row.fullName, true);
+              }}
+            >
+              {t("remotes.ci.check")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => onCopy(copyTextOf(row, "name"))}>
               {t("remotes.action.copyName")}
             </DropdownMenuItem>
@@ -259,6 +340,58 @@ function RepoRow({
         </DropdownMenu>
       </td>
     </tr>
+  );
+}
+
+const TONE_CLASS: Record<CiView["tone"], string> = {
+  ok: "border-emerald-500/40 text-emerald-600 dark:text-emerald-400",
+  fail: "border-destructive/50 text-destructive",
+  running: "border-sky-500/40 text-sky-600 dark:text-sky-400",
+  unknown: "border-border/60 text-muted-foreground",
+};
+
+/**
+ * 一行的 CI 徽标。
+ *
+ * 有结果时可点开去看这次运行；没有结果（或正在查）时是个「检查 CI」按钮，点一下现查。
+ * 不管哪种状态，点击都不该冒泡到行上——那会把浏览器转到仓库首页去。
+ */
+function CiCell({
+  view,
+  busy,
+  checkLabel,
+  onCheck,
+  onOpenRun,
+}: {
+  view: CiView;
+  busy: boolean;
+  checkLabel: string;
+  onCheck: () => void;
+  onOpenRun: (url: string) => void;
+}) {
+  const t = useT();
+  const label = busy ? t("remotes.ci.checking") : t(view.key);
+  const className = cn(
+    "rounded border px-1 text-[10px] leading-4",
+    TONE_CLASS[view.tone],
+  );
+
+  return (
+    <button
+      type="button"
+      title={view.detail ?? checkLabel}
+      disabled={busy}
+      className={cn(className, "hover:bg-accent disabled:opacity-60")}
+      // 点击都不该冒泡到行上——那会把浏览器转到仓库首页去。
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (view.url) onOpenRun(view.url);
+        else onCheck();
+      }}
+    >
+      {label}
+    </button>
   );
 }
 

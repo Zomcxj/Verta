@@ -10,6 +10,10 @@ pub const KIND_NOT_INSTALLED: &str = "notInstalled";
 pub const KIND_NOT_LOGGED_IN: &str = "notLoggedIn";
 /// 其它失败（网络、限流、解析不了）。
 pub const KIND_ERROR: &str = "error";
+/// 仓库里没有任何 workflow 运行（要么没配 CI，要么还没跑过）。
+///
+/// 这不是失败：查得清清楚楚「没有」，所以单独一类，界面说「没有 CI」而不是报错。
+pub const KIND_NONE: &str = "none";
 
 /// gh 没有给出任何可展示的原文时的兜底，免得前端拿到空字符串。
 const NO_DETAIL: &str = "gh 没有给出错误输出";
@@ -100,9 +104,96 @@ impl RemoteReposPayload {
     }
 }
 
+/// 一个仓库最近一次 workflow 运行。只带界面要展示与要跳转的字段。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoCiRun {
+    /// workflow 名字（`build`、`CI` 之类）。
+    pub name: String,
+    /// `queued` / `in_progress` / `completed` 等，GitHub 原样给的值。
+    pub status: String,
+    /// `success` / `failure` / `cancelled` 等；还没跑完时为空。
+    pub conclusion: Option<String>,
+    pub run_number: u64,
+    pub head_branch: Option<String>,
+    /// ISO8601，相对时间由前端自己转。
+    pub updated_at: Option<String>,
+    pub url: String,
+}
+
+/// 单个仓库的 CI 查询结果。`kind` 与仓库列表同一套语义，另加 `none`（没有运行记录）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoCiPayload {
+    pub kind: &'static str,
+    /// 查的是哪个仓库（`owner/name`），前端按它把结果放回对应行。
+    pub repo: String,
+    pub run: Option<RepoCiRun>,
+    pub error: Option<String>,
+}
+
+impl RepoCiPayload {
+    pub fn found(repo: impl Into<String>, run: RepoCiRun) -> Self {
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            run: Some(run),
+            error: None,
+        }
+    }
+
+    pub fn empty(repo: impl Into<String>) -> Self {
+        Self {
+            kind: KIND_NONE,
+            repo: repo.into(),
+            run: None,
+            error: None,
+        }
+    }
+
+    pub fn failed(kind: &'static str, repo: impl Into<String>, error: impl Into<String>) -> Self {
+        let error = error.into();
+        Self {
+            kind,
+            repo: repo.into(),
+            run: None,
+            error: Some(if error.trim().is_empty() {
+                NO_DETAIL.to_string()
+            } else {
+                error
+            }),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>) -> Self {
+        Self::failed(
+            KIND_NOT_INSTALLED,
+            repo,
+            "未安装 gh CLI（找不到 gh 命令）",
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ci_payload_never_carries_a_blank_error_or_a_blank_repo() {
+        let payload = RepoCiPayload::failed(KIND_ERROR, "a/b", "   ");
+        assert_eq!(payload.kind, KIND_ERROR);
+        assert_eq!(payload.repo, "a/b");
+        assert_eq!(payload.error.as_deref(), Some(NO_DETAIL));
+        assert!(payload.run.is_none());
+    }
+
+    #[test]
+    fn an_empty_ci_answer_is_not_an_error() {
+        let payload = RepoCiPayload::empty("a/b");
+        assert_eq!(payload.kind, KIND_NONE);
+        assert!(payload.run.is_none());
+        assert!(payload.error.is_none());
+    }
 
     #[test]
     fn failed_payload_never_carries_a_blank_error() {

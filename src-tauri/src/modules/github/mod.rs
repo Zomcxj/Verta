@@ -1,8 +1,9 @@
-//! 远程仓库列表：借本机已登录的 gh CLI 取当前账号能访问的仓库。
+//! GitHub 面板：借本机已登录的 gh CLI 取当前账号能访问的仓库，以及单个仓库的 CI 状态。
 //!
-//! 只做列表（P5 的最小切片）：Releases / Actions / CI / 下载都不在这里。
+//! Releases / Actions 明细 / 下载留给后续切片。
 
 pub mod commands;
+mod ci;
 mod gh;
 mod repos;
 pub mod types;

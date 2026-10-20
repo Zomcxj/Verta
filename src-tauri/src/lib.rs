@@ -317,6 +317,7 @@ pub fn run() {
             projects::commands::projects_scan,
             projects::commands::projects_status,
             github::commands::github_repos,
+            github::commands::github_repo_ci,
             git::commands::git_panel_snapshot,
             git::commands::git_status,
             git::commands::git_diff,

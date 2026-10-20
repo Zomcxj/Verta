@@ -1,0 +1,92 @@
+import { describe, expect, it } from "vitest";
+import type { WireRepoCiPayload, WireRepoCiRun } from "@/lib/native";
+import { ciView } from "./ci";
+
+function run(over: Partial<WireRepoCiRun> = {}): WireRepoCiRun {
+  return {
+    name: "CI",
+    status: "completed",
+    conclusion: "success",
+    runNumber: 7,
+    headBranch: "main",
+    updatedAt: "2026-10-20T12:00:00Z",
+    url: "https://github.com/a/b/actions/runs/1",
+    ...over,
+  };
+}
+
+function payload(over: Partial<WireRepoCiPayload> = {}): WireRepoCiPayload {
+  return { kind: "ready", repo: "a/b", run: run(), error: null, ...over };
+}
+
+describe("ciView", () => {
+  it("says nothing yet before a result arrives", () => {
+    const view = ciView(null);
+    expect(view.key).toBe("remotes.ci.idle");
+    expect(view.url).toBeNull();
+  });
+
+  it("treats a clear empty answer as no CI, not as an error", () => {
+    const view = ciView(payload({ kind: "none", run: null }));
+    expect(view.key).toBe("remotes.ci.none");
+    expect(view.tone).toBe("unknown");
+  });
+
+  it("maps success and failure to their own tone", () => {
+    expect(ciView(payload()).tone).toBe("ok");
+    expect(ciView(payload()).key).toBe("remotes.ci.success");
+    const failed = ciView(payload({ run: run({ conclusion: "failure" }) }));
+    expect(failed.tone).toBe("fail");
+    expect(failed.key).toBe("remotes.ci.failure");
+    // 超时是失败那一档，不是「其它」。
+    expect(ciView(payload({ run: run({ conclusion: "timed_out" }) })).tone).toBe(
+      "fail",
+    );
+  });
+
+  it("keeps a run that has not finished in the running bucket", () => {
+    const progressing = ciView(
+      payload({ run: run({ status: "in_progress", conclusion: null }) }),
+    );
+    expect(progressing.tone).toBe("running");
+    expect(progressing.key).toBe("remotes.ci.running");
+    expect(progressing.url).not.toBeNull();
+
+    const waiting = ciView(
+      payload({ run: run({ status: "queued", conclusion: null }) }),
+    );
+    expect(waiting.tone).toBe("running");
+    expect(waiting.key).toBe("remotes.ci.queued");
+  });
+
+  it("still links to a run whose conclusion it does not know", () => {
+    const odd = ciView(payload({ run: run({ conclusion: "neutral" }) }));
+    expect(odd.key).toBe("remotes.ci.other");
+    expect(odd.url).toBe("https://github.com/a/b/actions/runs/1");
+  });
+
+  it("separates a missing gh from a broken query", () => {
+    expect(ciView(payload({ kind: "notInstalled", run: null })).key).toBe(
+      "remotes.ci.notInstalled",
+    );
+    expect(ciView(payload({ kind: "notLoggedIn", run: null })).key).toBe(
+      "remotes.ci.notLoggedIn",
+    );
+    const broken = ciView(
+      payload({ kind: "error", run: null, error: "rate limited" }),
+    );
+    expect(broken.key).toBe("remotes.ci.error");
+    // 失败的原话要留着，别只给一个「出错了」。
+    expect(broken.detail).toBe("rate limited");
+  });
+
+  it("builds a detail line from name, branch and run number", () => {
+    const view = ciView(payload());
+    expect(view.detail).toBe("CI · main · #7 · success");
+    // 缺字段时不留下多余的分隔符。
+    const sparse = ciView(
+      payload({ run: run({ name: "build", headBranch: null, runNumber: 0 }) }),
+    );
+    expect(sparse.detail).toBe("build · #0 · success");
+  });
+});

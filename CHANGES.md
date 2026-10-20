@@ -6,9 +6,28 @@
 一条改动写一行，说清楚改了什么，不需要写行号和函数名。新增的、改过的、删掉的都记，
 删除整个模块的也记一行，便于日后追溯。
 
+明细按日期折叠：日期仍是普通标题，内容放在 `<details>` 里，GitHub 上渲染成展开/收起箭头，
+纯文本打开也照读。**最新的一天默认 `open`**；换到新的一天时，把上一天的 `open` 去掉即可。
+
 ---
 
 ## 2026-10-20
+
+<details open>
+<summary>本日改动</summary>
+
+**GitHub：CI 状态列（远程仓库列表）**
+
+- `src-tauri/src/modules/github/ci.rs`：新增。解析 `repos/{owner}/{repo}/actions/runs?per_page=1` 的最近一次运行；
+  以及 `owner/repo` 的预检（空值、`-` 开头、没有斜杠、多段、字符集外的值一律本地拒收，不让它们走到 gh）。
+- `src-tauri/src/modules/github/types.rs`：新增 `RepoCiRun` / `RepoCiPayload`，并多一个 `none`：
+  「查清楚了没有运行记录」与失败分开，失败绝不伪装成没有 CI。
+- `src-tauri/src/modules/github/commands.rs`、`gh.rs`、`mod.rs`、`src-tauri/src/lib.rs`：新增 `github_repo_ci`
+  命令（一次一个仓库，30 秒超时），沿用仓库列表那套「没装 gh / 没登录 / 其它失败」的分类与原文透传。
+- `src/modules/remotes/RemoteReposView.tsx`：仓库列表加 CI 列。鼠标停到哪一行才查哪一行（不批量查整份列表，
+  免得烧掉 API 配额），行菜单里另有「检查 CI」用于强制重查；徽标点开是这次运行的地址。
+- `src/modules/remotes/lib/ci.ts`：新增，把 status/conclusion 折成「说什么、什么颜色、点哪里」；带 7 个单测。
+- `src/lib/native.ts`、`src/modules/i18n/messages.ts`：命令包装与中英文案。
 
 **Git 面板：分支增删改、worktree、提交级操作**
 
@@ -35,7 +54,7 @@
 - `src/modules/projects/CloneRepoDialog.tsx`：新增，填仓库地址与目标目录，克隆完顺手加进项目清单。
 - `src/modules/projects/ProjectsView.tsx`：项目页新增「克隆仓库…」入口。
 
-**编辑器：未保存内容备份（P4 的「备份」，让编辑中断后内容不丢）**
+**编辑器：未保存内容备份（编辑中断后内容不丢）**
 
 - `src/modules/editor/lib/drafts.ts`：新增。改动之后把缓冲区镜像进 `verta-drafts.json`：
   单份上限 1 MB、最多 8 份、合计 4 MB，超了丢最旧的；键按路径归一化分隔符但**不**折叠大小写
@@ -56,7 +75,12 @@
 
 - `scripts/dev/probes/click-remotes.js`：删除，远程仓库面板的旧探针，用完即弃。
 
+</details>
+
 ## 2026-10-19
+
+<details>
+<summary>本日改动</summary>
 
 **Git 面板：储藏（stash）**
 
@@ -73,13 +97,18 @@
 - `src/modules/source-control/SourceControlPanel.tsx`：把储藏区接在文件列表下方，操作后刷新面板。
 - `src/modules/i18n/messages.ts`：储藏区的中英文文案。
 
-**安装包文案（提前修，P6 会用到）**
+**安装包文案**
 
 - `src-tauri/tauri.conf.json`：`shortDescription` 与 `longDescription` 还是上游文案（写着 AI 原生终端、
   语音输入、AI agent，这些功能都已删除），改成现在的实际定位；NSIS 增加简体中文并打开语言选择，
   此前安装器只有英文。
 
+</details>
+
 ## 2026-10-18
+
+<details>
+<summary>本日改动</summary>
 
 **应用图标（品牌资源）**
 
@@ -204,7 +233,12 @@
   只注册不使用的空壳；`@tauri-apps/plugin-autostart` 更是只剩前端包，Rust 侧从未注册。
 - `pnpm-lock.yaml`、`src-tauri/Cargo.lock` 随之更新，`node_modules` 里这些包的实体一并清掉。
 
+</details>
+
 ## 2026-10-17
+
+<details>
+<summary>本日改动</summary>
 
 **会话面板（新功能）**
 
@@ -225,3 +259,6 @@
 - `src-tauri/tauri.conf.json`：应用标识改为 Verta 自己的。
 - `.gitattributes`：保证工作树 LF，让前端 lint 门禁在 Windows 上可用。
 - `scripts/dev/**`：新增验收用的截图与探针脚本（不参与打包）。
+
+</details>
+
