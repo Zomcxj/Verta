@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { WireRepoActionRun } from "@/lib/native";
-import { logClock, logLineTone, runRowView, timeLabel, withoutRun } from "./runs";
+import type { WireRepoActionRun, WireRepoActionRunsPayload } from "@/lib/native";
+import {
+  ciFromRuns,
+  logClock,
+  logLineTone,
+  runRowView,
+  timeLabel,
+  withoutRun,
+} from "./runs";
 
 function run(over: Partial<WireRepoActionRun> = {}): WireRepoActionRun {
   return {
@@ -104,5 +111,50 @@ describe("logClock", () => {
   it("认不出来就留空，不编时间", () => {
     expect(logClock("")).toBe("");
     expect(logClock("no timestamp here")).toBe("");
+  });
+});
+
+describe("ciFromRuns", () => {
+  const payload = (over: Partial<WireRepoActionRunsPayload> = {}) => ({
+    kind: "ready" as const,
+    repo: "a/b",
+    runs: [] as WireRepoActionRun[],
+    error: null,
+    ...over,
+  });
+
+  it("最新那条就是徽标，别的字段不带过去", () => {
+    const out = ciFromRuns(
+      payload({
+        runs: [run({ id: 9, runNumber: 9, status: "in_progress", conclusion: null })],
+      }),
+    );
+    expect(out.kind).toBe("ready");
+    expect(out.run).toEqual({
+      name: "CI",
+      status: "in_progress",
+      conclusion: null,
+      runNumber: 9,
+      headBranch: "main",
+      updatedAt: "2026-10-20T10:05:00Z",
+      url: "https://github.com/a/b/actions/runs/1",
+    });
+  });
+
+  it("列表空了就是「没有运行记录」，不是失败", () => {
+    // 把最后一条运行删掉之后正好走这里：徽标该说没有运行记录，而不是继续挂着那条已删的。
+    const out = ciFromRuns(payload({ runs: [] }));
+    expect(out.kind).toBe("none");
+    expect(out.run).toBeNull();
+    expect(out.error).toBeNull();
+  });
+
+  it("查不动原样透传，两种说法不打架", () => {
+    for (const kind of ["none", "notInstalled", "notLoggedIn", "error"] as const) {
+      const out = ciFromRuns(payload({ kind, runs: [run()], error: "gh 原话" }));
+      expect(out.kind).toBe(kind);
+      expect(out.run).toBeNull();
+      expect(out.error).toBe("gh 原话");
+    }
   });
 });

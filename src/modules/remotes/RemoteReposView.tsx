@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { useT, type MessageKey } from "@/modules/i18n";
 import { RunListDialog } from "./RunListDialog";
 import { TONE_CLASS, ciView, type CiView } from "./lib/ci";
+import { ciFromRuns } from "./lib/runs";
 import { copyTextOf, filterRows, noticeOf, toRows } from "./lib/rows";
 import type { RemoteRepoRow } from "./lib/types";
 
@@ -44,8 +45,11 @@ export function RemoteReposView({ active }: Props) {
   /**
    * 查一个仓库的 CI。
    *
-   * 一次一个仓库：整份列表逐个去查会烧掉 API 配额，所以只查用户真正碰到的行（悬停或
-   * 菜单里点「检查 CI」）。`force` 用于菜单里的重新检查。
+   * 一次一个仓库：整份列表逐个去查会烧掉 API 配额，所以只查用户真正碰到的行（悬停，
+   * 或徽标本身没结果时点它一下）。`force` 用于徽标上写明「查不动」时的再试。
+   *
+   * 行菜单里那句「检查 CI」已经去掉：它和「运行记录…」说的是同一件事（徽标就是最新那条），
+   * 留着只会出现两个入口给出两种说法。面板读完会回传最新那条，徽标照它更新。
    */
   const checkCi = useCallback(
     async (fullName: string, force = false) => {
@@ -249,6 +253,10 @@ export function RemoteReposView({ active }: Props) {
         onOpenChange={(open) => {
           if (!open) setRunsFor(null);
         }}
+        onLoaded={(payload) => {
+          // 徽标与面板说同一件事：面板读完就用它最新那条更新那一行的徽标。
+          setCi((prev) => ({ ...prev, [payload.repo]: ciFromRuns(payload) }));
+        }}
       />
     </div>
   );
@@ -334,13 +342,6 @@ function RepoRow({
               {t("remotes.action.open")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={() => {
-                onCheckCi(row.fullName, true);
-              }}
-            >
-              {t("remotes.ci.check")}
-            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onOpenRuns(row.fullName)}>
               {t("remotes.runs.open")}
             </DropdownMenuItem>

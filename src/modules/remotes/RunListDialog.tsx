@@ -31,6 +31,13 @@ type Props = {
   /** 要看运行记录的仓库全名；null 表示弹窗关着。 */
   repo: string | null;
   onOpenChange: (open: boolean) => void;
+  /**
+   * 每次读到运行列表后回传一次。
+   *
+   * 面板是「这个仓库现在什么状态」的唯一来源：列表那一行的 CI 徽标就拿它最新那条来更新，
+   * 免得徽标和面板各说各话。
+   */
+  onLoaded?: (payload: WireRepoActionRunsPayload) => void;
 };
 
 type PendingAction = { run: WireRepoActionRun; what: "rerun" | "cancel" | "delete" };
@@ -64,7 +71,7 @@ const ACTION_TEXT: Record<
  * 所以都先确认；失败时把 gh 的原话留在确认框里，而不是只弹一句「失败了」——比如对一次
  * 已经跑完的运行点取消，GitHub 会给一句明确的话，那正是用户要看的。
  */
-export function RunListDialog({ repo, onOpenChange }: Props) {
+export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
   const t = useT();
   const [payload, setPayload] = useState<WireRepoActionRunsPayload | null>(null);
   const [reading, setReading] = useState(false);
@@ -84,14 +91,17 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
     setReading(true);
     setFatal(null);
     try {
-      setPayload(await native.githubRepoRuns(repo));
+      const payload = await native.githubRepoRuns(repo);
+      setPayload(payload);
+      // 徽标跟着面板走：一个事实一个来源。
+      onLoaded?.(payload);
     } catch (e) {
       setPayload(null);
       setFatal(String(e));
     } finally {
       setReading(false);
     }
-  }, [repo]);
+  }, [repo, onLoaded]);
 
   useEffect(() => {
     if (!repo) {

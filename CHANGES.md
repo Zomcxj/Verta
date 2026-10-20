@@ -15,6 +15,17 @@
 <details open>
 <summary><strong>2026-10-20</strong></summary>
 
+**GitHub：CI 徽标跟运行面板走，去掉重复的入口**
+
+- `src/modules/remotes/lib/runs.ts`：新增 `ciFromRuns`（把运行列表折成那一行 CI 徽标该显示的东西：
+  最新那条就是徽标；列表空了就是查清楚的「没有运行记录」；查不动就原样透传）；带单测。行菜单里那句
+  「检查 CI」和「运行记录…」本来就是一个事实的两种说法——徽标按行缓存，删掉旧运行之后它可能还挂着
+  旧结论，与面板自相矛盾。现在面板是唯一来源。
+- `src/modules/remotes/RunListDialog.tsx`：新增 `onLoaded`，每次读到运行列表（含删除后的重新对账）
+  回传一次。
+- `src/modules/remotes/RemoteReposView.tsx`：接上 `onLoaded`，面板一读完就用它最新那条更新该行徽标；
+  行菜单里重复的「检查 CI」删除（悬停自动查、徽标没结果时点它现查这两条仍在）。
+
 **GitHub：删除运行记录；点击不再跳浏览器**
 
 - `src-tauri/src/modules/github/commands.rs`、`src-tauri/src/lib.rs`：`RunAction` 多一个 `Delete`，新增
