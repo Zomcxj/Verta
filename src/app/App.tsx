@@ -1509,7 +1509,9 @@ export default function App() {
               </ResizablePanel>
               <ResizableHandle className="w-1 rounded-full bg-transparent transition-colors duration-[var(--dur-fast)] after:w-4 hover:bg-border" />
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
-                <div className="h-full min-h-0 pl-0.5 pr-2">
+                {/* 左右两条缝用同一组内边距（各 0.5）：侧栏↔终端与终端↔Git 看上去要一样宽，
+                    窗口两侧的外边距仍由侧栏的 pl-2 与右栏的 pr-2 给。 */}
+                <div className="h-full min-h-0 pl-0.5 pr-0.5">
                   <div className="verta-pane flex h-full min-h-0 flex-col">
                     <div className="relative min-h-0 flex-1">
                       <WorkspaceSurface

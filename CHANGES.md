@@ -15,6 +15,12 @@
 <details open>
 <summary><strong>2026-10-20</strong></summary>
 
+**布局：左右两条缝等宽**
+
+- `src/app/App.tsx`：中间区域的内边距从 `pl-0.5 pr-2` 改成 `pl-0.5 pr-0.5`。之前侧栏↔终端是 0.5+0.5、
+  终端↔Git 是 2+0.5，右边看着宽一倍多；现在两条缝都是 2px + 分隔条 4px + 2px = 7.58px，
+  窗口两侧的外边距仍由侧栏 `pl-2` 与右栏 `pr-2` 各给 8px。
+
 **GitHub：运行列表（含重跑 / 取消）**
 
 - `src-tauri/src/modules/github/actions.rs`：新增。解析运行列表 `repos/{owner}/{repo}/actions/runs?per_page=N`。
