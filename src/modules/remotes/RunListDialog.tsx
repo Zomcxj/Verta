@@ -21,10 +21,10 @@ import {
 } from "@/lib/native";
 import { cn } from "@/lib/utils";
 import { useT } from "@/modules/i18n";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { TONE_CLASS } from "./lib/ci";
+import { RunDetail } from "./RunDetail";
 import { runRowView } from "./lib/runs";
 
 type Props = {
@@ -52,6 +52,8 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
   const [busy, setBusy] = useState(false);
   /** 动作失败时 gh 的原话，留在确认框里。 */
   const [actionError, setActionError] = useState<string | null>(null);
+  /** 展开看详情的某次运行；null 表示还停在列表上。 */
+  const [detail, setDetail] = useState<WireRepoActionRun | null>(null);
 
   const load = useCallback(async () => {
     if (!repo) return;
@@ -74,6 +76,7 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
       setFatal(null);
       setPending(null);
       setActionError(null);
+      setDetail(null);
       return;
     }
     void load();
@@ -119,8 +122,16 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
   return (
     <>
       <Dialog open={repo !== null} onOpenChange={close}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
+        <DialogContent className={detail ? "sm:max-w-3xl" : "sm:max-w-2xl"}>
+          {detail ? (
+            <RunDetail
+              repo={repo ?? ""}
+              run={detail}
+              onBack={() => setDetail(null)}
+            />
+          ) : (
+            <>
+              <DialogHeader>
             <DialogTitle>
               {t("remotes.runs.title", { repo: repo ?? "" })}
             </DialogTitle>
@@ -183,11 +194,9 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
                             variant="ghost"
                             size="sm"
                             className="h-6 px-1.5 text-[11px]"
-                            onClick={() =>
-                              void openUrl(item.url).catch(console.error)
-                            }
+                            onClick={() => setDetail(item)}
                           >
-                            {t("remotes.runs.action.open")}
+                            {t("remotes.runs.action.detail")}
                           </Button>
                           {view.canRerun ? (
                             <Button
@@ -222,6 +231,8 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
                 </tbody>
               </table>
             </div>
+          )}
+            </>
           )}
         </DialogContent>
       </Dialog>

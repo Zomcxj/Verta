@@ -290,6 +290,168 @@ impl RepoRunActionResult {
     }
 }
 
+/// 运行详情里的一个步骤。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoRunStep {
+    pub number: u64,
+    pub name: String,
+    pub status: String,
+    pub conclusion: Option<String>,
+}
+
+/// 运行详情里的一个 job（含它的步骤树）。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoRunJob {
+    pub id: u64,
+    pub name: String,
+    pub status: String,
+    pub conclusion: Option<String>,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub url: Option<String>,
+    /// 跑在哪个 runner 上；GitHub 没给 runner 名时用第一个 label 兜底。
+    pub runner: Option<String>,
+    pub steps: Vec<RepoRunStep>,
+}
+
+/// 一次运行的 job 列表。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoRunJobsPayload {
+    pub kind: &'static str,
+    pub repo: String,
+    pub run_id: u64,
+    pub jobs: Vec<RepoRunJob>,
+    pub error: Option<String>,
+}
+
+impl RepoRunJobsPayload {
+    pub fn found(repo: impl Into<String>, run_id: u64, jobs: Vec<RepoRunJob>) -> Self {
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            run_id,
+            jobs,
+            error: None,
+        }
+    }
+
+    /// 一个 job 都没有（还在排队、或工作流本来就没有任务）：查清楚了的「没有」。
+    pub fn empty(repo: impl Into<String>, run_id: u64) -> Self {
+        Self {
+            kind: KIND_NONE,
+            repo: repo.into(),
+            run_id,
+            jobs: Vec::new(),
+            error: None,
+        }
+    }
+
+    pub fn failed(
+        kind: &'static str,
+        repo: impl Into<String>,
+        run_id: u64,
+        error: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            repo: repo.into(),
+            run_id,
+            jobs: Vec::new(),
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>, run_id: u64) -> Self {
+        Self::failed(
+            KIND_NOT_INSTALLED,
+            repo,
+            run_id,
+            "未安装 gh CLI（找不到 gh 命令）",
+        )
+    }
+}
+
+/// 日志里的一行：前缀拆成 job / step / 时间，正文单独放。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoRunLogLine {
+    pub job: String,
+    pub step: String,
+    /// ISO8601（GitHub 给的是带小数秒的 UTC）；认不出来时为空。
+    pub time: String,
+    pub text: String,
+}
+
+/// 一次运行的日志。
+///
+/// `clipped` 与 `capped` 是两件事，界面上说法也不同：`clipped` 是我们只留了尾部（日志本来更
+/// 长），`capped` 是一次能取的上限就被撑满了（拿到的是开头那一段，后面还有）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoRunLogPayload {
+    pub kind: &'static str,
+    pub repo: String,
+    pub run_id: u64,
+    pub lines: Vec<RepoRunLogLine>,
+    /// 截断前一共多少行。
+    pub total_lines: usize,
+    pub clipped: bool,
+    pub capped: bool,
+    pub error: Option<String>,
+}
+
+impl RepoRunLogPayload {
+    pub fn found(
+        repo: impl Into<String>,
+        run_id: u64,
+        lines: Vec<RepoRunLogLine>,
+        total_lines: usize,
+        clipped: bool,
+        capped: bool,
+    ) -> Self {
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            run_id,
+            lines,
+            total_lines,
+            clipped,
+            capped,
+            error: None,
+        }
+    }
+
+    pub fn failed(
+        kind: &'static str,
+        repo: impl Into<String>,
+        run_id: u64,
+        error: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            repo: repo.into(),
+            run_id,
+            lines: Vec::new(),
+            total_lines: 0,
+            clipped: false,
+            capped: false,
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>, run_id: u64) -> Self {
+        Self::failed(
+            KIND_NOT_INSTALLED,
+            repo,
+            run_id,
+            "未安装 gh CLI（找不到 gh 命令）",
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

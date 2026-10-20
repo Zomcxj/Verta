@@ -321,6 +321,8 @@ pub fn run() {
             github::commands::github_repo_runs,
             github::commands::github_run_rerun,
             github::commands::github_run_cancel,
+            github::commands::github_run_jobs,
+            github::commands::github_run_log,
             git::commands::git_panel_snapshot,
             git::commands::git_status,
             git::commands::git_diff,

@@ -48,3 +48,26 @@ export function timeLabel(iso: string | null, nowMs: number): string | null {
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? relativeTime(nowMs, ms) : null;
 }
+
+/**
+ * 日志行按内容分个色调。
+ *
+ * GitHub 的日志里错误/警告是靠行内标记（`##[error]`）或前缀（`error:`）表达的，没有别的结构；
+ * 认不出来就按普通行，绝不猜。
+ */
+export function logLineTone(text: string): "error" | "warn" | "group" | "plain" {
+  const trimmed = text.trim();
+  if (trimmed.includes("##[error]") || /^error\b/i.test(trimmed)) return "error";
+  if (trimmed.includes("##[warning]") || /^warning\b/i.test(trimmed)) return "warn";
+  if (trimmed.startsWith("##[group]")) return "group";
+  return "plain";
+}
+
+/** 日志行的时间戳（`2026-10-20T14:24:56.87Z`）折成 `14:24:56`；认不出来返回空串。 */
+export function logClock(time: string): string {
+  const t = time.indexOf("T");
+  if (t < 0) return "";
+  const tail = time.slice(t + 1);
+  const end = tail.search(/[.Zz]/);
+  return (end < 0 ? tail : tail.slice(0, end)).trim();
+}

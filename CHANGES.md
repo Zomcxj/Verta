@@ -15,6 +15,26 @@
 <details open>
 <summary><strong>2026-10-20</strong></summary>
 
+**GitHub：运行详情在软件内（job / step / 日志）**
+
+- `src-tauri/src/modules/github/actions.rs`：新增 `parse_jobs`（读 `actions/runs/{id}/jobs`，含步骤树）、
+  `parse_log`（拆 `job\tstep\t<时间> 正文` 三段；认不出前缀的行原样留着，绝不丢行；第一行时间戳前的 BOM
+  剥掉）、`cap_lines`（日志只留最后 `MAX_LOG_LINES = 2000` 行）。带 7 个单测。
+- `src-tauri/src/modules/github/types.rs`：新增 `RepoRunJob` / `RepoRunStep` / `RepoRunJobsPayload` /
+  `RepoRunLogLine` / `RepoRunLogPayload`。日志的两种截断分开报：`clipped`（我们只留了尾部）与 `capped`
+  （撞上一次能取的上限、拿到的是开头），界面上说法不同。
+- `src-tauri/src/modules/github/gh.rs`：`GhOutput` 带上 `stdout_truncated`，并从 `run` 里拆出
+  `run_with_cap`；日志单独给 90 秒与 8 MB 的上限（`LOG_TIMEOUT_SECS` / `LOG_STDOUT_CAP`）。
+- `src-tauri/src/modules/github/commands.rs`、`src-tauri/src/lib.rs`：新增 `github_run_jobs` 与
+  `github_run_log`（`failed_only` 走 `gh run view --log-failed`）。
+- `src/modules/remotes/RunDetail.tsx`：新增。软件内的运行详情：job 与步骤树（每步一个状态）、日志窗格
+  （时间 + 步骤只在变化时显示 + 按 `##[error]` / `##[warning]` 上色）、「只看失败」开关、两种截断各自的
+  提示；「在 GitHub 打开」降为次要出口——只有日志被截断时才真需要它。
+- `src/modules/remotes/RunListDialog.tsx`：行内「打开浏览器」换成「详情」，在同一个弹窗里切视图
+  （不叠弹窗）。
+- `src/modules/remotes/lib/runs.ts`：新增 `logLineTone`（错误/警告/分组/普通）与 `logClock`；带单测。
+- `src/lib/native.ts`、`src/modules/i18n/messages.ts`：命令包装与中英文案。
+
 **布局：左右两条缝等宽**
 
 - `src/app/App.tsx`：中间区域的内边距从 `pl-0.5 pr-2` 改成 `pl-0.5 pr-0.5`。之前侧栏↔终端是 0.5+0.5、

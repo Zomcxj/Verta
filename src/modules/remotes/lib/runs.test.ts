@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WireRepoActionRun } from "@/lib/native";
-import { runRowView, timeLabel } from "./runs";
+import { logClock, logLineTone, runRowView, timeLabel } from "./runs";
 
 function run(over: Partial<WireRepoActionRun> = {}): WireRepoActionRun {
   return {
@@ -59,5 +59,34 @@ describe("timeLabel", () => {
     expect(timeLabel(null, Date.now())).toBeNull();
     expect(timeLabel("", Date.now())).toBeNull();
     expect(timeLabel("2026-10-20T10:00:00Z", Date.parse("2026-10-20T10:05:00Z"))).toBeTruthy();
+  });
+});
+
+describe("logLineTone", () => {
+  it("认出 GitHub 的错误与警告标记", () => {
+    expect(logLineTone("##[error]Process completed with exit code 1.")).toBe("error");
+    expect(logLineTone("error: could not compile `verta`")).toBe("error");
+    expect(logLineTone("##[warning]Node.js 16 actions are deprecated")).toBe("warn");
+    expect(logLineTone("warning: unused import")).toBe("warn");
+    expect(logLineTone("##[group]Run cargo test")).toBe("group");
+  });
+
+  it("认不出来就按普通行，不猜", () => {
+    expect(logLineTone("   Compiling verta v0.0.1")).toBe("plain");
+    expect(logLineTone("")).toBe("plain");
+    // 「error」出现在句中不算错误行，否则几乎所有构建输出都会被涂红。
+    expect(logLineTone("no error found in the log")).toBe("plain");
+  });
+});
+
+describe("logClock", () => {
+  it("从时间戳里取时分秒", () => {
+    expect(logClock("2026-10-20T14:24:56.8724283Z")).toBe("14:24:56");
+    expect(logClock("2026-10-20T14:24:56Z")).toBe("14:24:56");
+  });
+
+  it("认不出来就留空，不编时间", () => {
+    expect(logClock("")).toBe("");
+    expect(logClock("no timestamp here")).toBe("");
   });
 });

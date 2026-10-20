@@ -7,7 +7,7 @@
 
 use crate::modules::fs::blocking;
 
-use super::actions::{clamp_limit, parse_runs};
+use super::actions::{cap_lines, clamp_limit, parse_jobs, parse_log, parse_runs, MAX_LOG_LINES};
 use super::ci::parse_latest_run;
 use super::ci::parse_repo_slug;
 use super::gh::{self, GhRunError, LoginProbe};
@@ -17,7 +17,7 @@ use super::repos::{
 };
 use super::types::{
     RemoteRepo, RemoteReposPayload, RepoActionRunsPayload, RepoCiPayload, RepoRunActionResult,
-    KIND_ERROR,
+    RepoRunJobsPayload, RepoRunLogPayload, KIND_ERROR,
 };
 
 /// 当前账号能访问的仓库列表（自己的 + 协作的 + 组织成员可见的）。
@@ -264,4 +264,120 @@ fn run_action(repo: &str, run_id: u64, action: RunAction) -> RepoRunActionResult
     }
 
     RepoRunActionResult::ok(&slug, run_id)
+}
+
+/// 一次运行的 job 与步骤树。
+#[tauri::command]
+pub async fn github_run_jobs(repo: String, run_id: u64) -> Result<RepoRunJobsPayload, String> {
+    blocking(move || Ok(read_run_jobs(&repo, run_id))).await
+}
+
+fn read_run_jobs(repo: &str, run_id: u64) -> RepoRunJobsPayload {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => {
+            return RepoRunJobsPayload::failed(KIND_ERROR, repo.trim(), run_id, message)
+        }
+    };
+    if run_id == 0 {
+        return RepoRunJobsPayload::failed(KIND_ERROR, &slug, run_id, "运行 id 不合法：0");
+    }
+
+    let path = format!("repos/{slug}/actions/runs/{run_id}/jobs");
+    let output = match gh::run(&["api", &path], gh::CI_TIMEOUT_SECS) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return RepoRunJobsPayload::not_installed(&slug, run_id),
+        Err(GhRunError::Io(error)) => {
+            return RepoRunJobsPayload::failed(
+                KIND_ERROR,
+                &slug,
+                run_id,
+                format!("运行 gh 失败：{error}"),
+            )
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return RepoRunJobsPayload::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            run_id,
+            error_excerpt(&text),
+        );
+    }
+
+    match parse_jobs(&output.stdout) {
+        // 一个 job 都没有：查清楚了，不是失败。
+        Ok(jobs) if jobs.is_empty() => RepoRunJobsPayload::empty(&slug, run_id),
+        Ok(jobs) => RepoRunJobsPayload::found(&slug, run_id, jobs),
+        Err(error) => RepoRunJobsPayload::failed(
+            KIND_ERROR,
+            &slug,
+            run_id,
+            format!("gh 返回的 job 列表无法解析：{error}"),
+        ),
+    }
+}
+
+/// 一次运行的日志（所有 job 合并输出，与 `gh run view --log` 一致）。
+///
+/// `failed_only` 为真时只取失败步骤的日志（`gh run view --log-failed`），失败现场一屏看完。
+#[tauri::command]
+pub async fn github_run_log(
+    repo: String,
+    run_id: u64,
+    failed_only: Option<bool>,
+) -> Result<RepoRunLogPayload, String> {
+    blocking(move || Ok(read_run_log(&repo, run_id, failed_only.unwrap_or(false)))).await
+}
+
+fn read_run_log(repo: &str, run_id: u64, failed_only: bool) -> RepoRunLogPayload {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => return RepoRunLogPayload::failed(KIND_ERROR, repo.trim(), run_id, message),
+    };
+    if run_id == 0 {
+        return RepoRunLogPayload::failed(KIND_ERROR, &slug, run_id, "运行 id 不合法：0");
+    }
+
+    let id = run_id.to_string();
+    let flag = if failed_only { "--log-failed" } else { "--log" };
+    let output = match gh::run_with_cap(
+        &["run", "view", &id, flag, "--repo", &slug],
+        gh::LOG_TIMEOUT_SECS,
+        gh::LOG_STDOUT_CAP,
+    ) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return RepoRunLogPayload::not_installed(&slug, run_id),
+        Err(GhRunError::Io(error)) => {
+            return RepoRunLogPayload::failed(
+                KIND_ERROR,
+                &slug,
+                run_id,
+                format!("运行 gh 失败：{error}"),
+            )
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return RepoRunLogPayload::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            run_id,
+            error_excerpt(&text),
+        );
+    }
+
+    let lines = parse_log(&output.stdout);
+    let (kept, clipped) = cap_lines(&lines, MAX_LOG_LINES);
+    RepoRunLogPayload::found(
+        &slug,
+        run_id,
+        kept,
+        lines.len(),
+        clipped,
+        output.stdout_truncated,
+    )
 }

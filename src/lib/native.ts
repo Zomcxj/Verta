@@ -163,6 +163,61 @@ export type WireRepoRunActionResult = {
   error: string | null;
 };
 
+/** 运行详情里的一个步骤。 */
+export type WireRepoRunStep = {
+  number: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+};
+
+/** 运行详情里的一个 job（含它的步骤树）。 */
+export type WireRepoRunJob = {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  url: string | null;
+  /** 跑在哪个 runner 上；GitHub 没给就用第一个 label 兜底。 */
+  runner: string | null;
+  steps: WireRepoRunStep[];
+};
+
+/** 一次运行的 job 列表；`none` 是「这个运行里一个 job 都没有」。 */
+export type WireRepoRunJobsPayload = {
+  kind: "ready" | "none" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  runId: number;
+  jobs: WireRepoRunJob[];
+  error: string | null;
+};
+
+/** 日志的一行：前缀拆成了 job / step / 时间。 */
+export type WireRepoRunLogLine = {
+  job: string;
+  step: string;
+  /** ISO8601，认不出来时是空串。 */
+  time: string;
+  text: string;
+};
+
+/**
+ * 一次运行的日志。
+ * `clipped` 是我们只留了尾部；`capped` 是一次能取的上限就被撑满了（拿到的是开头）。
+ */
+export type WireRepoRunLogPayload = {
+  kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  runId: number;
+  lines: WireRepoRunLogLine[];
+  totalLines: number;
+  clipped: boolean;
+  capped: boolean;
+  error: string | null;
+};
+
 export type GitStatusSnapshot = {
   repoRoot: string;
   branch: string;
@@ -416,6 +471,16 @@ export const native = {
   /** 取消一次正在进行的运行。 */
   githubRunCancel: (repo: string, runId: number) =>
     invoke<WireRepoRunActionResult>("github_run_cancel", { repo, runId }),
+  /** 一次运行的 job 与步骤树。 */
+  githubRunJobs: (repo: string, runId: number) =>
+    invoke<WireRepoRunJobsPayload>("github_run_jobs", { repo, runId }),
+  /** 一次运行的日志；`failedOnly` 为真时只看失败步骤的日志。 */
+  githubRunLog: (repo: string, runId: number, failedOnly?: boolean) =>
+    invoke<WireRepoRunLogPayload>("github_run_log", {
+      repo,
+      runId,
+      failedOnly: failedOnly ?? false,
+    }),
   gitPanelSnapshot: (cwd: string) =>
     invoke<GitPanelSnapshot>("git_panel_snapshot", {
       cwd,

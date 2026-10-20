@@ -21,6 +21,10 @@ pub const REPOS_TIMEOUT_SECS: u64 = 45;
 pub const CI_TIMEOUT_SECS: u64 = 30;
 /// 重跑 / 取消的等待上限：一次 API 调用，比取列表轻。
 pub const RUN_ACTION_TIMEOUT_SECS: u64 = 30;
+/// 拉一次日志的等待上限：日志要一路下完，比一次 API 调用慢。
+pub const LOG_TIMEOUT_SECS: u64 = 90;
+/// 日志的输出上限：比一般查询宽得多，同时仍然有边界（撞上了就当「撑满上限」报出去）。
+pub const LOG_STDOUT_CAP: usize = 8 * 1024 * 1024;
 const MAX_TIMEOUT_SECS: u64 = 120;
 /// 一页 100 条仓库的 JSON 大概几百 KiB，留足余量。真被截断的话 JSON 会解析失败，
 /// 那种情况按解析失败如实报出来，不会静悄悄少几条。
@@ -32,6 +36,8 @@ pub struct GhOutput {
     pub stderr: String,
     pub exit_code: Option<i32>,
     pub timed_out: bool,
+    /// 输出撞上上限被截过：拉日志时用得上（拿到的是开头，后面还有）。
+    pub stdout_truncated: bool,
 }
 
 impl GhOutput {
@@ -68,6 +74,15 @@ pub enum GhRunError {
 }
 
 pub fn run(args: &[&str], timeout_secs: u64) -> Result<GhOutput, GhRunError> {
+    run_with_cap(args, timeout_secs, STDOUT_CAP)
+}
+
+/// 与 `run` 相同，只是输出上限可以调（日志给得宽一些）。
+pub fn run_with_cap(
+    args: &[&str],
+    timeout_secs: u64,
+    stdout_cap: usize,
+) -> Result<GhOutput, GhRunError> {
     // 参数一条一条传，不拼 shell 字符串。
     let mut cmd = Command::new("gh");
     cmd.args(args)
@@ -89,7 +104,7 @@ pub fn run(args: &[&str], timeout_secs: u64) -> Result<GhOutput, GhRunError> {
         &mut cmd,
         dur,
         Limits {
-            stdout: STDOUT_CAP,
+            stdout: stdout_cap,
             stderr: STDERR_CAP,
             stop_on_stdout_cap: false,
         },
@@ -106,6 +121,7 @@ pub fn run(args: &[&str], timeout_secs: u64) -> Result<GhOutput, GhRunError> {
         stderr: String::from_utf8_lossy(&captured.stderr).into_owned(),
         exit_code: captured.exit_code,
         timed_out: captured.timed_out,
+        stdout_truncated: captured.stdout_truncated,
     })
 }
 
@@ -140,6 +156,7 @@ mod tests {
             stderr: stderr.into(),
             exit_code,
             timed_out: false,
+            stdout_truncated: false,
         }
     }
 
