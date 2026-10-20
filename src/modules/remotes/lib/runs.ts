@@ -19,6 +19,8 @@ export type RunRowView = {
   canRerun: boolean;
   /** 只有还在排队或正在跑才谈得上取消。 */
   canCancel: boolean;
+  /** 只有跑完了才能删记录：GitHub 不允许删正在跑的那条。 */
+  canDelete: boolean;
 };
 
 /// GitHub 的 status 里，这些算「还没结束」。其余（completed）算结束。
@@ -39,6 +41,7 @@ export function runRowView(run: WireRepoActionRun, nowMs: number): RunRowView {
     when: timeLabel(run.updatedAt, nowMs),
     canRerun: run.status === "completed",
     canCancel: UNFINISHED.includes(run.status),
+    canDelete: run.status === "completed",
   };
 }
 
@@ -70,4 +73,17 @@ export function logClock(time: string): string {
   const tail = time.slice(t + 1);
   const end = tail.search(/[.Zz]/);
   return (end < 0 ? tail : tail.slice(0, end)).trim();
+}
+
+/**
+ * 把某次运行从列表里拿掉。
+ *
+ * 删除成功后界面要立刻跟浮层对上（不能浮层说删了、行还杵在那儿等重新拉取）；GitHub 那侧
+ * 有时还会慢一拍，所以拿掉的 id 也记着，刷新回来的结果里再把它滤掉。
+ */
+export function withoutRun(
+  runs: WireRepoActionRun[],
+  id: number,
+): WireRepoActionRun[] {
+  return runs.filter((run) => run.id !== id);
 }

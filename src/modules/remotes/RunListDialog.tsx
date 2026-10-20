@@ -20,12 +20,12 @@ import {
   type WireRepoActionRunsPayload,
 } from "@/lib/native";
 import { cn } from "@/lib/utils";
-import { useT } from "@/modules/i18n";
+import { useT, type MessageKey } from "@/modules/i18n";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { TONE_CLASS } from "./lib/ci";
 import { RunDetail } from "./RunDetail";
-import { runRowView } from "./lib/runs";
+import { runRowView, withoutRun } from "./lib/runs";
 
 type Props = {
   /** 要看运行记录的仓库全名；null 表示弹窗关着。 */
@@ -33,7 +33,29 @@ type Props = {
   onOpenChange: (open: boolean) => void;
 };
 
-type PendingAction = { run: WireRepoActionRun; what: "rerun" | "cancel" };
+type PendingAction = { run: WireRepoActionRun; what: "rerun" | "cancel" | "delete" };
+
+/// 三种动作各自的文案键：确认框标题（带运行号）、说明、成功浮层。
+const ACTION_TEXT: Record<
+  PendingAction["what"],
+  { title: MessageKey; hint: MessageKey; done: MessageKey }
+> = {
+  rerun: {
+    title: "remotes.runs.rerun.title",
+    hint: "remotes.runs.rerun.hint",
+    done: "remotes.runs.done.rerun",
+  },
+  cancel: {
+    title: "remotes.runs.cancel.title",
+    hint: "remotes.runs.cancel.hint",
+    done: "remotes.runs.done.cancel",
+  },
+  delete: {
+    title: "remotes.runs.delete.title",
+    hint: "remotes.runs.delete.hint",
+    done: "remotes.runs.done.delete",
+  },
+};
 
 /**
  * 某个仓库的运行记录。
@@ -54,6 +76,8 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
   const [actionError, setActionError] = useState<string | null>(null);
   /** 展开看详情的某次运行；null 表示还停在列表上。 */
   const [detail, setDetail] = useState<WireRepoActionRun | null>(null);
+  /** 刚删掉的运行 id：列表里立刻拿掉，刷新回来也滤掉（GitHub 那侧会慢一拍）。 */
+  const [deletedIds, setDeletedIds] = useState<number[]>([]);
 
   const load = useCallback(async () => {
     if (!repo) return;
@@ -77,6 +101,7 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
       setPending(null);
       setActionError(null);
       setDetail(null);
+      setDeletedIds([]);
       return;
     }
     void load();
@@ -96,18 +121,23 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
       const result =
         what === "rerun"
           ? await native.githubRunRerun(repo, target.id)
-          : await native.githubRunCancel(repo, target.id);
+          : what === "cancel"
+            ? await native.githubRunCancel(repo, target.id)
+            : await native.githubRunDelete(repo, target.id);
       if (result.kind !== "ready") {
         // 失败不是「停在中间态」，原文留着，再试一次或收手由用户决定。
         setActionError(result.error ?? t("remotes.ci.error"));
         return;
       }
       setPending(null);
-      toast.success(
-        what === "rerun"
-          ? t("remotes.runs.done.rerun")
-          : t("remotes.runs.done.cancel"),
-      );
+      if (what === "delete") {
+        // 删除：行和浮层必须同时消失。刷新只是对账，慢一拍也不该把行弹回来。
+        setDeletedIds((prev) => [...prev, target.id]);
+        setPayload((prev) =>
+          prev ? { ...prev, runs: withoutRun(prev.runs, target.id) } : prev,
+        );
+      }
+      toast.success(t(ACTION_TEXT[what].done));
       // 成功之后先收确认框再刷新：刷新出了问题不该让确认框看起来像失败。
       await load();
     } catch (e) {
@@ -118,6 +148,10 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
   };
 
   const job = pending ? runRowView(pending.run, Date.now()) : null;
+  // 刚删掉的先别显示；刷新回来时 GitHub 可能还带着它。
+  const visibleRuns = (payload?.runs ?? []).filter(
+    (item) => !deletedIds.includes(item.id),
+  );
 
   return (
     <>
@@ -151,7 +185,7 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
             <p className="text-xs text-muted-foreground">
               {t("remotes.runs.loading")}
             </p>
-          ) : payload && payload.runs.length === 0 ? (
+          ) : payload && visibleRuns.length === 0 ? (
             <p className="whitespace-pre-wrap text-xs text-muted-foreground">
               {payload.kind === "ready" || payload.kind === "none"
                 ? t("remotes.runs.empty")
@@ -161,7 +195,7 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
             <div className="max-h-[60vh] overflow-auto">
               <table className="w-full table-fixed border-collapse text-xs">
                 <tbody>
-                  {(payload?.runs ?? []).map((item) => {
+                  {visibleRuns.map((item) => {
                     const view = runRowView(item, Date.now());
                     return (
                       <tr
@@ -224,6 +258,19 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
                               {t("remotes.runs.action.cancel")}
                             </Button>
                           ) : null}
+                          {view.canDelete ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-1.5 text-[11px] text-destructive"
+                              onClick={() => {
+                                setActionError(null);
+                                setPending({ run: item, what: "delete" });
+                              }}
+                            >
+                              {t("remotes.runs.action.delete")}
+                            </Button>
+                          ) : null}
                         </td>
                       </tr>
                     );
@@ -250,19 +297,13 @@ export function RunListDialog({ repo, onOpenChange }: Props) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {pending?.what === "cancel"
-                ? t("remotes.runs.cancel.title", {
-                    number: pending.run.runNumber,
-                  })
-                : t("remotes.runs.rerun.title", {
-                    number: pending?.run.runNumber ?? 0,
-                  })}
+              {t(ACTION_TEXT[pending?.what ?? "rerun"].title, {
+                number: pending?.run.runNumber ?? 0,
+              })}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {job?.detail ? `${job.detail} · ` : ""}
-              {pending?.what === "cancel"
-                ? t("remotes.runs.cancel.hint")
-                : t("remotes.runs.rerun.hint")}
+              {t(ACTION_TEXT[pending?.what ?? "rerun"].hint)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {actionError ? (

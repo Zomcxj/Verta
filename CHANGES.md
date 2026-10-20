@@ -15,6 +15,25 @@
 <details open>
 <summary><strong>2026-10-20</strong></summary>
 
+**GitHub：删除运行记录；点击不再跳浏览器**
+
+- `src-tauri/src/modules/github/commands.rs`、`src-tauri/src/lib.rs`：`RunAction` 多一个 `Delete`，新增
+  `github_run_delete`（`gh run delete <id> --repo <slug>`）。重跑 / 取消 / 删除共用同一条通道，预检、
+  失败分类、原文透传都一样。**删除后回查一次那条运行还在不在**（`repos/{o}/{r}/actions/runs/{id}`）：
+  只有明确 404 才报成功，还在就如实说「可能没删掉」，说不清（限流 / 代理抽风 / 权限）把原因带出去——
+  光看 `gh run delete` 的退出码不够，那条路上任何一环骗我们一次，界面就会把一条其实还在 GitHub 上的
+  记录永久藏起来（行被拿掉、刷新又被滤掉）。
+- `src-tauri/src/modules/github/actions.rs`：新增 `classify_run_probe`（回查结论：没了 / 还在 / 说不清）
+  与 `RunProbe`，带单测。
+- `src/modules/remotes/RunListDialog.tsx`：行内新增「删除」，只在跑完了的运行上给（GitHub 不允许删
+  正在跑的那条）；二次确认写明「日志与结果一起删掉、不可恢复」，失败把 gh 原话留在确认框里。删除
+  **经后端回查确认**后，界面立刻拿掉那一行，再在后台刷新对账——之前是先弹浮层、再等两三秒的刷新，
+  浮层与面板短暂对不上，用户当场看到了；刚删掉的 id 也记下来、刷新时滤掉，免得 GitHub 慢一拍又把
+  行弹回来（只滤「已确认删掉」的那些，失败的一律留在列表里）。
+- `src/modules/remotes/RemoteReposView.tsx`：仓库行点击与 CI 徽标点击都改成在软件内打开该仓库的运行面板
+  （「在浏览器打开」只留在行菜单里）。到此，GitHub 面板里所有「点一下就跳浏览器」的路都没了。
+- `src/modules/remotes/lib/runs.ts`：新增 `canDelete`（跑完了才能删）与 `withoutRun`（按 id 拿掉一行）；带单测。
+
 **GitHub：运行详情在软件内（job / step / 日志）**
 
 - `src-tauri/src/modules/github/actions.rs`：新增 `parse_jobs`（读 `actions/runs/{id}/jobs`，含步骤树）、

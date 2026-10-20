@@ -282,7 +282,7 @@ function RepoRow({
   return (
     <tr
       className="cursor-pointer border-t border-border/40 align-top hover:bg-accent/40"
-      onClick={open}
+      onClick={() => onOpenRuns(row.fullName)}
       onMouseEnter={onHover}
     >
       <td className="py-1.5 pr-2">
@@ -311,7 +311,7 @@ function RepoRow({
           busy={ciBusy}
           checkLabel={t("remotes.ci.check")}
           onCheck={() => onCheckCi(row.fullName, true)}
-          onOpenRun={(url) => void openUrl(url).catch(console.error)}
+          onOpenDetail={() => onOpenRuns(row.fullName)}
         />
       </td>
       <td className="truncate py-1.5 pr-2 text-muted-foreground">
@@ -369,13 +369,14 @@ function CiCell({
   busy,
   checkLabel,
   onCheck,
-  onOpenRun,
+  onOpenDetail,
 }: {
   view: CiView;
   busy: boolean;
   checkLabel: string;
   onCheck: () => void;
-  onOpenRun: (url: string) => void;
+  /** 已有结果时点它是「在软件里看运行」，不是跳浏览器。 */
+  onOpenDetail: () => void;
 }) {
   const t = useT();
   const label = busy ? t("remotes.ci.checking") : t(view.key);
@@ -390,11 +391,11 @@ function CiCell({
       title={view.detail ?? checkLabel}
       disabled={busy}
       className={cn(className, "hover:bg-accent disabled:opacity-60")}
-      // 点击都不该冒泡到行上——那会把浏览器转到仓库首页去。
+      // 点击都不该冒泡到行上（行点击是打开运行面板）。
       onMouseDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation();
-        if (view.url) onOpenRun(view.url);
+        if (view.url) onOpenDetail();
         else onCheck();
       }}
     >

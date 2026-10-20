@@ -7,7 +7,10 @@
 
 use crate::modules::fs::blocking;
 
-use super::actions::{cap_lines, clamp_limit, parse_jobs, parse_log, parse_runs, MAX_LOG_LINES};
+use super::actions::{
+    cap_lines, clamp_limit, classify_run_probe, parse_jobs, parse_log, parse_runs, RunProbe,
+    MAX_LOG_LINES,
+};
 use super::ci::parse_latest_run;
 use super::ci::parse_repo_slug;
 use super::gh::{self, GhRunError, LoginProbe};
@@ -208,11 +211,18 @@ pub async fn github_run_cancel(repo: String, run_id: u64) -> Result<RepoRunActio
     blocking(move || Ok(run_action(&repo, run_id, RunAction::Cancel))).await
 }
 
-/// 重跑与取消只差一个 gh 子命令，预检、失败分类、原文透传完全一样，所以合成一处。
+/// 删掉一次运行的记录（日志与结果一起没，不可恢复）。
+#[tauri::command]
+pub async fn github_run_delete(repo: String, run_id: u64) -> Result<RepoRunActionResult, String> {
+    blocking(move || Ok(run_action(&repo, run_id, RunAction::Delete))).await
+}
+
+/// 重跑 / 取消 / 删除只差一个 gh 子命令，预检、失败分类、原文透传完全一样，所以合成一处。
 #[derive(Clone, Copy)]
 enum RunAction {
     Rerun,
     Cancel,
+    Delete,
 }
 
 impl RunAction {
@@ -220,6 +230,7 @@ impl RunAction {
         match self {
             RunAction::Rerun => "rerun",
             RunAction::Cancel => "cancel",
+            RunAction::Delete => "delete",
         }
     }
 }
@@ -263,7 +274,72 @@ fn run_action(repo: &str, run_id: u64, action: RunAction) -> RepoRunActionResult
         );
     }
 
+    // 删除不可撤销：请求发出去还不算数，回查确认它真的没了才报成功。重跑/取消是「请求已发出
+    // 即完成」的语义，不用回查。
+    if matches!(action, RunAction::Delete) {
+        return confirm_deleted(&slug, run_id);
+    }
     RepoRunActionResult::ok(&slug, run_id)
+}
+
+/// 删除之后回查一次：只有查证它确实没了，才敢说「删掉了」。
+///
+/// 光看 `gh run delete` 的退出码不够——那条路上任何一环骗我们一次，界面就会把一条**其实还在
+/// GitHub 上**的记录永久藏起来（行被拿掉、刷新又被滤掉），这比报个错糟糕得多。所以删完再来
+/// 问一次「它还在吗」：明确 404 才算成功；还在就如实说「可能没删掉」；说不清就把原因带出去。
+fn confirm_deleted(slug: &str, run_id: u64) -> RepoRunActionResult {
+    let path = format!("repos/{slug}/actions/runs/{run_id}");
+    // GitHub 删完是即刻生效的，但万一它慢半拍，先看一眼、再看一眼，别冤枉一次真删掉了的。
+    for attempt in 0..2 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(800));
+        }
+        match gh::run(&["api", &path], gh::CI_TIMEOUT_SECS) {
+            Ok(output) => {
+                let text = output.failure_text();
+                match classify_run_probe(output.is_ok(), &text) {
+                    RunProbe::Gone => return RepoRunActionResult::ok(slug, run_id),
+                    RunProbe::Present if attempt == 0 => continue,
+                    RunProbe::Present => {
+                        return RepoRunActionResult::failed(
+                            KIND_ERROR,
+                            slug,
+                            run_id,
+                            "gh 报告删除成功，但这条记录在 GitHub 上还在（可能没删掉）",
+                        )
+                    }
+                    RunProbe::Unknown if attempt == 0 => continue,
+                    RunProbe::Unknown => {
+                        return RepoRunActionResult::failed(
+                            KIND_ERROR,
+                            slug,
+                            run_id,
+                            format!("删除请求已发出，但没能确认结果：{}", error_excerpt(&text)),
+                        )
+                    }
+                }
+            }
+            // gh 刚才还能跑，回查却起不来：按「说不清」处理，别报成功。
+            Err(GhRunError::NotInstalled) => {
+                return RepoRunActionResult::failed(
+                    KIND_ERROR,
+                    slug,
+                    run_id,
+                    "删除请求已发出，但回查时找不到 gh 命令，没能确认结果",
+                )
+            }
+            Err(GhRunError::Io(error)) => {
+                return RepoRunActionResult::failed(
+                    KIND_ERROR,
+                    slug,
+                    run_id,
+                    format!("删除请求已发出，但回查失败：{error}"),
+                )
+            }
+        }
+    }
+    // 循环里两条分支都会 return，这里只是兜底。
+    RepoRunActionResult::failed(KIND_ERROR, slug, run_id, "删除请求已发出，但没能确认结果")
 }
 
 /// 一次运行的 job 与步骤树。

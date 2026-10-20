@@ -471,6 +471,9 @@ export const native = {
   /** 取消一次正在进行的运行。 */
   githubRunCancel: (repo: string, runId: number) =>
     invoke<WireRepoRunActionResult>("github_run_cancel", { repo, runId }),
+  /** 删掉一次运行的记录（不可恢复）。 */
+  githubRunDelete: (repo: string, runId: number) =>
+    invoke<WireRepoRunActionResult>("github_run_delete", { repo, runId }),
   /** 一次运行的 job 与步骤树。 */
   githubRunJobs: (repo: string, runId: number) =>
     invoke<WireRepoRunJobsPayload>("github_run_jobs", { repo, runId }),

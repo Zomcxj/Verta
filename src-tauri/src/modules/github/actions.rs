@@ -220,6 +220,34 @@ pub fn cap_lines(lines: &[RepoRunLogLine], max: usize) -> (Vec<RepoRunLogLine>, 
     (lines[lines.len() - max..].to_vec(), true)
 }
 
+/// 删除后回查那条运行还在不在的结论。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunProbe {
+    /// 查不到它了：删除真的生效。
+    Gone,
+    /// 还在。
+    Present,
+    /// 说不清（网络、权限、别的错）。
+    Unknown,
+}
+
+/// 把一次「回查运行」的结果翻成结论。
+///
+/// 回查用的是 `gh api repos/{o}/{r}/actions/runs/{id}`：**成功**就说明它还在；失败时只有
+/// 明确是 404 / Not Found 才算「没了」，其余（限流、代理抽风、权限）一律归「说不清」——
+/// 删不掉和没删掉是两件事，不能混。
+pub fn classify_run_probe(exited_ok: bool, failure_text: &str) -> RunProbe {
+    if exited_ok {
+        return RunProbe::Present;
+    }
+    let lower = failure_text.to_ascii_lowercase();
+    if lower.contains("http 404") || lower.contains("not found") {
+        RunProbe::Gone
+    } else {
+        RunProbe::Unknown
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -400,16 +428,37 @@ mod tests {
     #[test]
     fn a_leading_bom_does_not_get_into_the_timestamp() {
         // 实测：GitHub 日志第一行的 BOM 坐在「时间戳」前面（第三段开头），不是行首。
-        let line = format!(
-            "check\tSet up job\t\u{feff}2026-10-20T14:24:56.8724283Z Current runner version\n"
+        let mut lines = parse_log(
+            "check\tSet up job\t\u{feff}2026-10-20T14:24:56.8724283Z Current runner version\n",
         );
-        let lines = parse_log(&line);
         assert_eq!(lines[0].time, "2026-10-20T14:24:56.8724283Z");
         assert_eq!(lines[0].text, "Current runner version");
         // 万一哪天 BOM 跑到行首，也别让它混进 job 名。
-        let lines = parse_log("\u{feff}check\tSet up job\t2026-10-20T14:24:56.8724283Z hi\n");
+        lines = parse_log("\u{feff}check\tSet up job\t2026-10-20T14:24:56.8724283Z hi\n");
         assert_eq!(lines[0].job, "check");
         assert_eq!(lines[0].time, "2026-10-20T14:24:56.8724283Z");
+    }
+
+    #[test]
+    fn a_run_probe_only_claims_gone_on_a_clear_not_found() {
+        assert_eq!(classify_run_probe(true, ""), RunProbe::Present);
+        assert_eq!(
+            classify_run_probe(false, "gh: Not Found (HTTP 404)"),
+            RunProbe::Gone
+        );
+        // 限流、代理抽风、权限不足：都是「说不清」，不能说成「已删除」。
+        assert_eq!(
+            classify_run_probe(false, "gh: API rate limit exceeded (HTTP 403)"),
+            RunProbe::Unknown
+        );
+        assert_eq!(
+            classify_run_probe(
+                false,
+                "Get \"https://api.github.com\": proxyconnect tcp: EOF"
+            ),
+            RunProbe::Unknown
+        );
+        assert_eq!(classify_run_probe(false, ""), RunProbe::Unknown);
     }
 
     #[test]

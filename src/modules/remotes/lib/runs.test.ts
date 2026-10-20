@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WireRepoActionRun } from "@/lib/native";
-import { logClock, logLineTone, runRowView, timeLabel } from "./runs";
+import { logClock, logLineTone, runRowView, timeLabel, withoutRun } from "./runs";
 
 function run(over: Partial<WireRepoActionRun> = {}): WireRepoActionRun {
   return {
@@ -23,13 +23,16 @@ describe("runRowView", () => {
     const view = runRowView(run(), Date.now());
     expect(view.canRerun).toBe(true);
     expect(view.canCancel).toBe(false);
+    // 删除同理：GitHub 不允许删正在跑的那条，所以跑完了才给。
+    expect(view.canDelete).toBe(true);
   });
 
-  it("正在跑或排队时只能取消，不该给重跑", () => {
+  it("正在跑或排队时只能取消，不该给重跑或删除", () => {
     for (const status of ["in_progress", "queued", "waiting", "requested", "pending"]) {
       const view = runRowView(run({ status, conclusion: null }), Date.now());
       expect(view.canCancel, status).toBe(true);
       expect(view.canRerun, status).toBe(false);
+      expect(view.canDelete, status).toBe(false);
     }
   });
 
@@ -51,6 +54,19 @@ describe("runRowView", () => {
     expect(runRowView(run({ updatedAt: "不是时间" }), Date.now()).when).toBeNull();
     expect(runRowView(run({ updatedAt: null }), Date.now()).when).toBeNull();
     expect(runRowView(run(), Date.now()).when).not.toBeNull();
+  });
+});
+
+describe("withoutRun", () => {
+  it("按 id 拿掉一条，其余顺序不变", () => {
+    const runs = [
+      run({ id: 3, runNumber: 3 }),
+      run({ id: 2, runNumber: 2 }),
+      run({ id: 1, runNumber: 1 }),
+    ];
+    expect(withoutRun(runs, 2).map((r) => r.id)).toEqual([3, 1]);
+    // 没有这条时原样返回，不抛错。
+    expect(withoutRun(runs, 99).map((r) => r.id)).toEqual([3, 2, 1]);
   });
 });
 
