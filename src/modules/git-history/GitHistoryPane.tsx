@@ -32,6 +32,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { CommitActions } from "./CommitActions";
 import { GraphRail, MAX_VISIBLE_LANES, railWidth } from "./GraphRail";
 import {
   EMPTY_GRAPH_STATE,
@@ -660,11 +661,13 @@ export function GitHistoryPane({
                   return (
                     <CommitDetail
                       commit={commit}
+                      repoRoot={repoRoot}
                       filesEntry={openFilesEntry}
                       remoteWeb={remoteWeb}
                       onCopySha={copyToClipboard}
                       onOpenFile={handleFileOpen}
                       onRetryFiles={() => void fetchFiles(openAnchor.sha)}
+                      onChanged={handleRefresh}
                     />
                   );
                 })()
@@ -807,6 +810,8 @@ const CommitRow = memo(function CommitRow({
 
 type CommitDetailProps = {
   commit: GitLogEntry;
+  /** 提交所在仓库；拣选/还原/软撤回都在它上面跑。 */
+  repoRoot: string;
   filesEntry: FilesEntry | null;
   remoteWeb: RemoteWebInfo | null;
   onCopySha: (value: string) => Promise<void> | void;
@@ -815,15 +820,19 @@ type CommitDetailProps = {
     file: GitCommitFileChange,
   ) => Promise<void> | void;
   onRetryFiles: () => void;
+  /** 历史被改写后重新拉一遍提交列表。 */
+  onChanged: () => void;
 };
 
 function CommitDetail({
   commit,
+  repoRoot,
   filesEntry,
   remoteWeb,
   onCopySha,
   onOpenFile,
   onRetryFiles,
+  onChanged,
 }: CommitDetailProps) {
   const absolute = absoluteTime(commit.timestampSecs);
   const webUrl = remoteWeb ? commitWebUrl(remoteWeb, commit.sha) : null;
@@ -875,6 +884,12 @@ function CommitDetail({
             <HugeiconsIcon icon={Copy01Icon} size={11} strokeWidth={1.9} />
             {copied ? "Copied" : "Copy SHA"}
           </Button>
+          <CommitActions
+            repoRoot={repoRoot}
+            sha={commit.sha}
+            shortSha={commit.shortSha}
+            onChanged={onChanged}
+          />
           {webUrl ? (
             <Button
               size="xs"

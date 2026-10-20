@@ -84,16 +84,17 @@
       "nsis": {
         "installMode": "currentUser",
         "languages": [
+          "SimpChinese",
           "English"
         ],
-        "displayLanguageSelector": false,
+        "displayLanguageSelector": true,
         "installerIcon": "icons/icon.ico",
         "installerHooks": "./installer-hooks.nsh"
       }
     },
     "category": "DeveloperTool",
-    "shortDescription": "AI-native terminal emulator",
-    "longDescription": "Verta — an open-source AI-native terminal emulator with multi-tab, file explorer, code editor, web preview, voice input, and AI agents.",
+    "shortDescription": "Terminal workbench with agent sessions",
+    "longDescription": "Verta — a Windows-first desktop workbench that lists the coding agent sessions already on this machine, resumes them in their own project directory, and keeps the terminal, editor and Git in one window.",
     "fileAssociations": [
       {
         "name": "Verta Document",

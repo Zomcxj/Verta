@@ -28,6 +28,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
+import { CloneRepoDialog } from "./CloneRepoDialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useT, type MessageKey } from "@/modules/i18n";
@@ -114,6 +115,7 @@ export function ProjectsView({
   const [scanRoot, setScanRoot] = useState("");
   const [scanning, setScanning] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<ProjectEntry | null>(null);
+  const [cloneOpen, setCloneOpen] = useState(false);
 
   // 清单与：读一次，之后所有改动都写回同一个文件。
   useEffect(() => {
@@ -240,6 +242,15 @@ export function ProjectsView({
     setDraft("");
   }, [addPaths, draft, t]);
 
+  const handleCloned = useCallback(
+    (path: string) => {
+      // 清单变化后 refresh 会自己重跑（它依赖 entries），不必手动再刷一次。
+      addPaths([normalizePath(path)]);
+      toast.success(t("projects.clone.done"));
+    },
+    [addPaths, t],
+  );
+
   const handleScan = useCallback(async () => {
     const root = normalizePath(scanRoot);
     if (!root || scanning) return;
@@ -328,6 +339,14 @@ export function ProjectsView({
           onClick={handleAdd}
         >
           {t("projects.add")}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => setCloneOpen(true)}
+        >
+          {t("projects.clone")}
         </Button>
         <Input
           value={scanRoot}
@@ -456,6 +475,12 @@ export function ProjectsView({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <CloneRepoDialog
+        open={cloneOpen}
+        onOpenChange={setCloneOpen}
+        onCloned={handleCloned}
+      />
     </div>
   );
 }

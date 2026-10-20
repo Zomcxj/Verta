@@ -25,6 +25,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
@@ -81,6 +84,8 @@ import {
   type SourceControlRepositoryTarget,
 } from "./repositoryTarget";
 import type { SourceControlSummary } from "./useSourceControl";
+import { BranchDialogs, type BranchDialogRequest } from "./BranchDialogs";
+import { StashSection } from "./StashSection";
 import {
   useSourceControlPanel,
   type CheckState,
@@ -180,11 +185,13 @@ function BranchDropdown({
   onNavigateToPath?: (path: string) => void;
   onRefresh: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [branches, setBranches] = useState<GitBranchEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [dialog, setDialog] = useState<BranchDialogRequest | null>(null);
   const requestRef = useRef(0);
   const checkoutInFlight = useRef(false);
 
@@ -311,70 +318,137 @@ function BranchDropdown({
           </div>
         ) : (
           <>
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                onSelect={() => setDialog({ kind: "create-branch" })}
+                className="cursor-pointer text-[12px]"
+              >
+                {t("scm.branch.new")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
             {localBranches.length > 0 && (
               <>
+                <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">
                   Local Branches
                 </DropdownMenuLabel>
                 <DropdownMenuGroup>
                   {localBranches.map((b) => (
-                    <DropdownMenuItem
-                      key={b.name}
-                      onSelect={() => void handleCheckout(b.name)}
-                      className="flex cursor-pointer items-center gap-2 text-[12px]"
-                    >
-                      {b.isHead ? (
-                        <HugeiconsIcon
-                          icon={Tick02Icon}
-                          size={14}
-                          strokeWidth={1.8}
-                          className="shrink-0"
-                        />
-                      ) : (
-                        <span className="w-3.5 shrink-0" />
-                      )}
-                      <span className="min-w-0 flex-1 truncate">{b.name}</span>
-                    </DropdownMenuItem>
+                    <DropdownMenuSub key={b.name}>
+                      <DropdownMenuSubTrigger className="flex cursor-pointer items-center gap-2 text-[12px]">
+                        {b.isHead ? (
+                          <HugeiconsIcon
+                            icon={Tick02Icon}
+                            size={14}
+                            strokeWidth={1.8}
+                            className="shrink-0"
+                          />
+                        ) : (
+                          <span className="w-3.5 shrink-0" />
+                        )}
+                        <span className="min-w-0 flex-1 truncate">{b.name}</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-52">
+                        <DropdownMenuItem
+                          disabled={b.isHead || checkingOut}
+                          onSelect={() => void handleCheckout(b.name)}
+                          className="cursor-pointer text-[12px]"
+                        >
+                          {t("scm.branch.switch")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            setDialog({ kind: "rename-branch", from: b.name })
+                          }
+                          className="cursor-pointer text-[12px]"
+                        >
+                          {t("scm.branch.rename")}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          disabled={b.isHead}
+                          variant="destructive"
+                          onSelect={() =>
+                            setDialog({ kind: "delete-branch", name: b.name })
+                          }
+                          className="cursor-pointer text-[12px]"
+                        >
+                          {t("scm.branch.delete")}
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
                   ))}
                 </DropdownMenuGroup>
               </>
             )}
             {worktrees.length > 0 && (
               <>
-                {localBranches.length > 0 && <DropdownMenuSeparator />}
+                <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">
                   Worktrees
                 </DropdownMenuLabel>
                 <DropdownMenuGroup>
                   {worktrees.map((b) => (
-                    <DropdownMenuItem
-                      key={b.worktreePath ?? b.name}
-                      onSelect={() => {
-                        if (b.worktreePath && onNavigateToPath) {
-                          onNavigateToPath(b.worktreePath);
-                        }
-                      }}
-                      className="flex cursor-pointer items-center gap-2 text-[12px]"
-                    >
-                      <HugeiconsIcon
-                        icon={Folder01Icon}
-                        size={14}
-                        strokeWidth={1.5}
-                        className="shrink-0 text-muted-foreground"
-                      />
-                      <div className="flex min-w-0 flex-col">
-                        <span className="truncate">{b.name}</span>
-                        {b.worktreePath && (
-                          <span className="truncate text-[10px] text-muted-foreground">
-                            {b.worktreePath}
-                          </span>
-                        )}
-                      </div>
-                    </DropdownMenuItem>
+                    <DropdownMenuSub key={b.worktreePath ?? b.name}>
+                      <DropdownMenuSubTrigger className="flex cursor-pointer items-center gap-2 text-[12px]">
+                        <HugeiconsIcon
+                          icon={Folder01Icon}
+                          size={14}
+                          strokeWidth={1.5}
+                          className="shrink-0 text-muted-foreground"
+                        />
+                        <div className="flex min-w-0 flex-1 flex-col">
+                          <span className="truncate">{b.name}</span>
+                          {b.worktreePath && (
+                            <span className="truncate text-[10px] text-muted-foreground">
+                              {b.worktreePath}
+                            </span>
+                          )}
+                        </div>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-52">
+                        <DropdownMenuItem
+                          disabled={!b.worktreePath || !onNavigateToPath}
+                          onSelect={() => {
+                            if (b.worktreePath && onNavigateToPath) {
+                              onNavigateToPath(b.worktreePath);
+                            }
+                          }}
+                          className="cursor-pointer text-[12px]"
+                        >
+                          {t("scm.worktree.open")}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          disabled={!b.worktreePath}
+                          variant="destructive"
+                          onSelect={() => {
+                            if (!b.worktreePath) return;
+                            setDialog({
+                              kind: "remove-worktree",
+                              path: b.worktreePath,
+                              branch: b.name,
+                            });
+                          }}
+                          className="cursor-pointer text-[12px]"
+                        >
+                          {t("scm.worktree.remove")}
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
                   ))}
                 </DropdownMenuGroup>
               </>
             )}
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                onSelect={() => setDialog({ kind: "add-worktree" })}
+                className="cursor-pointer text-[12px]"
+              >
+                {t("scm.worktree.new")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
             {branches.length === 0 && (
               <div className="px-3 py-3 text-[11px] text-muted-foreground">
                 No branches found.
@@ -383,6 +457,15 @@ function BranchDropdown({
           </>
         )}
       </DropdownMenuContent>
+      <BranchDialogs
+        repoRoot={repoRoot}
+        request={dialog}
+        onClose={() => setDialog(null)}
+        onChanged={() => {
+          void loadBranches();
+          onRefresh();
+        }}
+      />
     </DropdownMenu>
   );
 }
@@ -996,6 +1079,13 @@ export const SourceControlPanel = memo(function SourceControlPanel({
           </>
         ) : null}
       </aside>
+
+      {panelState === "ready" && scm.repo ? (
+        <StashSection
+          repoRoot={scm.repo.repoRoot}
+          onChanged={() => scm.refresh()}
+        />
+      ) : null}
 
       <AlertDialog
         open={scm.pendingDiscard !== null}

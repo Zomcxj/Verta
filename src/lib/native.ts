@@ -186,6 +186,16 @@ export type GitBranchListResult = {
   branches: GitBranchEntry[];
 };
 
+/** 一条储藏。`reference` 形如 `stash@{0}`，操作命令原样带回去。 */
+export type GitStashEntry = {
+  reference: string;
+  /** 列表里的顺序，0 是最新的一条。 */
+  index: number;
+  message: string;
+  /** 这条储藏建在哪个分支上；解析不出时为 null。 */
+  branch: string | null;
+};
+
 export const native = {
   workspaceCurrentDir: () => invoke<string>("workspace_current_dir"),
   workspaceAuthorize: (path: string, env?: WorkspaceEnv) =>
@@ -451,5 +461,126 @@ export const native = {
       repoRoot,
       branch,
       workspace: envForPath(repoRoot),
+    }),
+  gitStashList: (repoRoot: string) =>
+    invoke<GitStashEntry[]>("git_stash_list", {
+      repoRoot,
+      workspace: envForPath(repoRoot),
+    }),
+  gitStashPush: (
+    repoRoot: string,
+    message: string | null,
+    includeUntracked: boolean,
+  ) =>
+    invoke<void>("git_stash_push", {
+      repoRoot,
+      message,
+      includeUntracked,
+      workspace: envForPath(repoRoot),
+    }),
+  gitStashApply: (repoRoot: string, reference: string) =>
+    invoke<void>("git_stash_apply", {
+      repoRoot,
+      reference,
+      workspace: envForPath(repoRoot),
+    }),
+  gitStashPop: (repoRoot: string, reference: string) =>
+    invoke<void>("git_stash_pop", {
+      repoRoot,
+      reference,
+      workspace: envForPath(repoRoot),
+    }),
+  /** 丢弃储藏。调用前必须让用户确认过。 */
+  gitStashDrop: (repoRoot: string, reference: string) =>
+    invoke<void>("git_stash_drop", {
+      repoRoot,
+      reference,
+      workspace: envForPath(repoRoot),
+    }),
+  /** 新建分支；`switchTo` 为真时建完直接切过去。 */
+  gitCreateBranch: (
+    repoRoot: string,
+    name: string,
+    startPoint: string | null,
+    switchTo: boolean,
+  ) =>
+    invoke<void>("git_create_branch", {
+      repoRoot,
+      name,
+      startPoint,
+      switch: switchTo,
+      workspace: envForPath(repoRoot),
+    }),
+  /** 删除分支。`force` 走 `-D`，会丢掉未合并的提交。 */
+  gitDeleteBranch: (repoRoot: string, name: string, force: boolean) =>
+    invoke<void>("git_delete_branch", {
+      repoRoot,
+      name,
+      force,
+      workspace: envForPath(repoRoot),
+    }),
+  gitRenameBranch: (repoRoot: string, from: string, to: string) =>
+    invoke<void>("git_rename_branch", {
+      repoRoot,
+      from,
+      to,
+      workspace: envForPath(repoRoot),
+    }),
+  /** 新建 worktree，返回新目录路径。 */
+  gitWorktreeAdd: (
+    repoRoot: string,
+    path: string,
+    branch: string,
+    createNewBranch: boolean,
+    startPoint: string | null,
+  ) =>
+    invoke<string>("git_worktree_add", {
+      repoRoot,
+      path,
+      branch,
+      createNewBranch,
+      startPoint,
+      workspace: envForPath(repoRoot),
+    }),
+  /** 移除 worktree。`force` 会丢掉那里的未提交改动。 */
+  gitWorktreeRemove: (repoRoot: string, path: string, force: boolean) =>
+    invoke<void>("git_worktree_remove", {
+      repoRoot,
+      path,
+      force,
+      workspace: envForPath(repoRoot),
+    }),
+  gitCherryPick: (repoRoot: string, sha: string) =>
+    invoke<void>("git_cherry_pick", {
+      repoRoot,
+      sha,
+      workspace: envForPath(repoRoot),
+    }),
+  gitRevertCommit: (repoRoot: string, sha: string) =>
+    invoke<void>("git_revert_commit", {
+      repoRoot,
+      sha,
+      workspace: envForPath(repoRoot),
+    }),
+  /** 软撤回：分支指针退到该提交，工作区与暂存区保留。 */
+  gitResetSoft: (repoRoot: string, sha: string) =>
+    invoke<void>("git_reset_soft", {
+      repoRoot,
+      sha,
+      workspace: envForPath(repoRoot),
+    }),
+  /** 中止卡住的拣选或还原。 */
+  gitAbortOperation: (repoRoot: string, kind: "cherry-pick" | "revert") =>
+    invoke<void>("git_abort_operation", {
+      repoRoot,
+      kind,
+      workspace: envForPath(repoRoot),
+    }),
+  /** 克隆仓库到 `dest`，返回落地的目录路径。 */
+  gitCloneRepo: (url: string, dest: string) =>
+    invoke<string>("git_clone_repo", {
+      url,
+      dest,
+      workspace: envForPath(dest),
     }),
 };

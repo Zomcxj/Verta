@@ -11,6 +11,8 @@ pub enum GitError {
     NotADirectory(String),
     PathOutsideWorkspace(PathBuf),
     InvalidPath(String),
+    /// 空的分支名，或者以 `-` 开头的名字（会被 git 当成选项）。
+    InvalidRefName(String),
     FileTooLarge {
         path: PathBuf,
         size: u64,
@@ -57,6 +59,9 @@ impl Display for GitError {
                 p.display()
             ),
             GitError::InvalidPath(p) => write!(f, "invalid path: {p}"),
+            GitError::InvalidRefName(name) => {
+                write!(f, "invalid branch or revision name: {name:?}")
+            }
             GitError::FileTooLarge { path, size, max } => write!(
                 f,
                 "file too large to diff ({size} bytes, max {max}): {}",
@@ -168,6 +173,18 @@ mod tests {
         assert_eq!(
             GitError::EmptyCommitMessage.to_string(),
             "commit message cannot be empty"
+        );
+    }
+
+    #[test]
+    fn invalid_ref_name_quotes_the_value_so_emptiness_is_visible() {
+        assert_eq!(
+            GitError::InvalidRefName(String::new()).to_string(),
+            "invalid branch or revision name: \"\""
+        );
+        assert_eq!(
+            GitError::InvalidRefName("-D".into()).to_string(),
+            "invalid branch or revision name: \"-D\""
         );
     }
 

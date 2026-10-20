@@ -8,6 +8,65 @@
 
 ---
 
+## 2026-10-20
+
+**Git 面板：分支增删改、worktree、提交级操作**
+
+- `src-tauri/src/modules/git/types.rs`：`MAX_TIMEOUT_SECS` 提到 900 秒，克隆走单独的
+  `CLONE_TIMEOUT_SECS`——克隆要从头传完整个历史，120 秒不够。
+- `src-tauri/src/modules/git/errors.rs`：新增 `InvalidRefName`；空名字与 `-` 开头的名字在这里被挡掉，
+  报错把值加引号显示，空值也看得见。
+- `src-tauri/src/modules/git/operations.rs`：新增分支增删改、worktree 增删、拣选、还原、软撤回、
+  中止拣选/还原、克隆仓库。名字、修订号、克隆地址先过预检（挡空值与 `-` 开头的参数注入），其余合法性
+  交给 git；新建目录的上一级必须先存在，并被登记为已授权（用户手打的路径就是授权依据）。
+- `src-tauri/src/modules/git/commands.rs`、`src-tauri/src/lib.rs`：注册对应的十条命令。
+- `src/lib/native.ts`：新增这些命令的包装。
+- `src/modules/source-control/SourceControlPanel.tsx`：分支行与 worktree 行改成子菜单（切换 / 重命名 /
+  删除，打开 / 移除），并加了「新建分支」「新建 worktree」两个入口。
+- `src/modules/source-control/BranchDialogs.tsx`：新增五个弹窗。删分支、移除 worktree 都先按普通方式做，
+  git 拒绝时把原文留在弹窗里，再给出「强制删除（-D）」「强制移除」。
+- `src/modules/git-history/CommitActions.tsx`：新增，提交详情里的拣选 / 还原 / 软撤回。成功先收弹窗再刷新
+  （刷新出问题不该让弹窗看起来像失败）；失败把 git 原文留在弹窗里，并允许直接中止卡住的这一步。
+- `src/modules/git-history/GitHistoryPane.tsx`：接上这三个动作，操作后重读提交列表。
+- `src/modules/i18n/messages.ts`：上面这些界面的中英文文案。
+
+**项目页：克隆仓库**
+
+- `src/modules/projects/CloneRepoDialog.tsx`：新增，填仓库地址与目标目录，克隆完顺手加进项目清单。
+- `src/modules/projects/ProjectsView.tsx`：项目页新增「克隆仓库…」入口。
+
+**测试**
+
+- `src/modules/terminal/ghostty/AdaptedGhosttyGpu.test.ts`：十万次更新的压力用例给 60 秒超时；机器忙起来
+  它比默认 5 秒久，这个用例量的是行为不是速度。
+
+**验收脚本**
+
+- `scripts/dev/probes/click-remotes.js`：删除，远程仓库面板的旧探针，用完即弃。
+
+## 2026-10-19
+
+**Git 面板：储藏（stash）**
+
+- `src-tauri/src/modules/git/types.rs`：新增 `GitStashEntry`，带上引用、序号、说明与分支。
+- `src-tauri/src/modules/git/parser.rs`：新增 `parse_stash_list`，解析 `git stash list` 的
+  NUL 分隔输出；说明里解析不出分支时留空，不编造。带三个单测。
+- `src-tauri/src/modules/git/operations.rs`：新增 `stash_list`、`stash_push`（可选说明与
+  `--include-untracked`）、`stash_apply`、`stash_pop`、`stash_drop`，都走既有的授权与超时封装。
+- `src-tauri/src/modules/git/commands.rs`、`src-tauri/src/lib.rs`：注册对应的五条命令。
+- `src/lib/native.ts`：新增 `GitStashEntry` 类型与 `gitStashList` / `gitStashPush` /
+  `gitStashApply` / `gitStashPop` / `gitStashDrop`。
+- `src/modules/source-control/StashSection.tsx`：新增，Git 面板底部的储藏区。默认收起，展开才读；
+  可写说明、可选带上未跟踪文件；每条储藏的菜单有应用、应用并删除、丢弃。丢弃要先确认。
+- `src/modules/source-control/SourceControlPanel.tsx`：把储藏区接在文件列表下方，操作后刷新面板。
+- `src/modules/i18n/messages.ts`：储藏区的中英文文案。
+
+**安装包文案（提前修，P6 会用到）**
+
+- `src-tauri/tauri.conf.json`：`shortDescription` 与 `longDescription` 还是上游文案（写着 AI 原生终端、
+  语音输入、AI agent，这些功能都已删除），改成现在的实际定位；NSIS 增加简体中文并打开语言选择，
+  此前安装器只有英文。
+
 ## 2026-10-18
 
 **应用图标（品牌资源）**
@@ -125,7 +184,6 @@
 - `src/app/dist-budget.test.ts`：给那条要跑两次完整构建的用例单独设超时，默认 5 秒在并发下会假红。
 
 **依赖清理（内置 AI 与相关功能删除后留下的空依赖）**
-
 - `package.json`：移除 `ai`、`@ai-sdk/*` 共 9 个包，以及 `zod`、`@radix-ui/react-use-controllable-state`、
   `use-stick-to-bottom`、`@tauri-apps/plugin-autostart`、`@tauri-apps/plugin-notification` 与开发依赖
   `react-compiler-healthcheck`。这些包在源码里没有任何 import，只作为字符串留在体积预算测试的黑名单里。

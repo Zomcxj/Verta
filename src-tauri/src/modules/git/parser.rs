@@ -1,4 +1,4 @@
-use crate::modules::git::types::GitChangedFile;
+use crate::modules::git::types::{GitChangedFile, GitStashEntry};
 
 #[derive(Default)]
 pub struct PorcelainV2 {
@@ -145,6 +145,48 @@ fn status_label(index_status: char, worktree_status: char) -> String {
     }
 }
 
+/// 解析 `git stash list --format=%gd%x00%gs` 的输出。
+///
+/// 每条一行，两个字段用 NUL 隔开：`stash@{0}` 和 `WIP on main: 1a2b3c4 subject`。
+/// 说明里的分支名从 `WIP on <分支>: ` 或 `On <分支>: ` 前缀里取（带路径的储藏
+/// 是后者）。解析不出就留 None，不编造。
+pub fn parse_stash_list(stdout: &str) -> Vec<GitStashEntry> {
+    let mut entries = Vec::new();
+    for (index, line) in stdout.lines().enumerate() {
+        let line = line.trim_end_matches('\r');
+        if line.is_empty() {
+            continue;
+        }
+        let mut parts = line.splitn(2, '\0');
+        let reference = parts.next().unwrap_or("").trim();
+        let message = parts.next().unwrap_or("").trim();
+        if reference.is_empty() {
+            continue;
+        }
+        entries.push(GitStashEntry {
+            reference: reference.to_string(),
+            index: index as u32,
+            message: message.to_string(),
+            branch: stash_branch(message),
+        });
+    }
+    entries
+}
+
+/// 从储藏说明里取分支名；手工写的说明里可能没有分支前缀。
+fn stash_branch(message: &str) -> Option<String> {
+    let rest = message
+        .strip_prefix("WIP on ")
+        .or_else(|| message.strip_prefix("On "))?;
+    let (branch, _) = rest.split_once(':')?;
+    let branch = branch.trim();
+    if branch.is_empty() {
+        None
+    } else {
+        Some(branch.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,5 +330,39 @@ mod tests {
         assert_eq!((ok.ahead, ok.behind), (5, 3));
         let garbage = parse_porcelain_v2("# branch.ab +x -y\0");
         assert_eq!((garbage.ahead, garbage.behind), (0, 0));
+    }
+
+    #[test]
+    fn stash_list_parses_reference_index_message_and_branch() {
+        let stdout = "stash@{0}\0WIP on main: 1a2b3c4 fix the thing\nstash@{1}\0On feature/x: 5d6e7f8 experiment\n";
+        let entries = parse_stash_list(stdout);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].reference, "stash@{0}");
+        assert_eq!(entries[0].index, 0);
+        assert_eq!(entries[0].branch.as_deref(), Some("main"));
+        assert!(entries[0].message.contains("fix the thing"));
+        assert_eq!(entries[1].reference, "stash@{1}");
+        assert_eq!(entries[1].index, 1);
+        assert_eq!(entries[1].branch.as_deref(), Some("feature/x"));
+    }
+
+    #[test]
+    fn stash_list_keeps_entries_without_a_recognisable_branch() {
+        // 手工写的说明里没有分支前缀：条目要保留，分支留空。
+        let entries = parse_stash_list("stash@{0}\0my own message\n");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].message, "my own message");
+        assert_eq!(entries[0].branch, None);
+    }
+
+    #[test]
+    fn stash_list_skips_blank_and_reference_less_lines_without_panicking() {
+        let entries =
+            parse_stash_list("\n\0no reference here\nstash@{2}\0WIP on dev: abc work\r\n");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].reference, "stash@{2}");
+        assert_eq!(entries[0].branch.as_deref(), Some("dev"));
+        // 行尾的 CR 被吃掉，说明里不带它。
+        assert!(!entries[0].message.ends_with('\r'));
     }
 }
