@@ -35,6 +35,18 @@
 - `src/modules/projects/CloneRepoDialog.tsx`：新增，填仓库地址与目标目录，克隆完顺手加进项目清单。
 - `src/modules/projects/ProjectsView.tsx`：项目页新增「克隆仓库…」入口。
 
+**编辑器：未保存内容备份（P4 的「备份」，让编辑中断后内容不丢）**
+
+- `src/modules/editor/lib/drafts.ts`：新增。改动之后把缓冲区镜像进 `verta-drafts.json`：
+  单份上限 1 MB、最多 8 份、合计 4 MB，超了丢最旧的；键按路径归一化分隔符但**不**折叠大小写
+  （WSL 里只差大小写的两个文件不能被当成一个）。带 11 个单测。
+- `src/modules/editor/lib/useDocument.ts`：打字停下 1.5 秒才镜像一次（免得每敲一下过一次 IPC）；
+  保存成功或用户选择丢弃时才删草稿；关标签（卸载）、窗口失焦、关窗口都会立刻冲刷一次。
+  打开文件时（含崩溃后恢复的标签）若磁盘内容与草稿不同，就把「恢复 / 丢弃」交给界面。
+- `src/modules/editor/EditorPane.tsx`：编辑器顶部加一条恢复提示，带上中断时刻；不挡编辑，
+  也不自动改文件——恢复只是把内容放回缓冲区，保存与否由用户决定。
+- `src/modules/i18n/messages.ts`：这条提示的中英文案。
+
 **测试**
 
 - `src/modules/terminal/ghostty/AdaptedGhosttyGpu.test.ts`：十万次更新的压力用例给 60 秒超时；机器忙起来

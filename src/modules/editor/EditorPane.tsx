@@ -27,6 +27,7 @@ import {
   useState,
 } from "react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/modules/i18n";
 import { toast } from "sonner";
 import { SidePreview, type ViewportMark, sidePreviewKind } from "./SidePreview";
 import { diagnosticsReporter } from "./lib/diagnosticsReporter";
@@ -103,22 +104,39 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** 草稿时间只要够认出「是哪一次中断」，所以到分为止。 */
+function draftTime(at: number): string {
+  const d = new Date(at);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // memo: EditorStack passes identity-stable props, so background editors
 // skip re-rendering entirely when App re-renders (terminal events, tab churn).
 export const EditorPane = memo(
   forwardRef<EditorPaneHandle, Props>(function EditorPane(props, ref) {
     const { path, overrideLanguage, onDirtyChange, onSaved, onClose, renderToggle } = props;
 
-    const { doc, onChange, save, reload, adoptDiskText, openAnyway } =
-      useDocument({
-        path,
-        onDirtyChange,
-      });
+    const {
+      doc,
+      onChange,
+      save,
+      reload,
+      adoptDiskText,
+      openAnyway,
+      pendingDraft,
+      restoreDraft,
+      discardDraft,
+    } = useDocument({
+      path,
+      onDirtyChange,
+    });
     const reloadRef = useRef(reload);
     reloadRef.current = reload;
     const adoptDiskTextRef = useRef(adoptDiskText);
     adoptDiskTextRef.current = adoptDiskText;
     const cmRef = useRef<ReactCodeMirrorRef>(null);
+    const tr = useT();
     const themeExt = useEditorThemeExt();
     const vimMode = usePreferencesStore((s) => s.vimMode);
     const wordWrapColumn = usePreferencesStore((s) =>
@@ -581,6 +599,33 @@ export const EditorPane = memo(
       <div className="flex h-full min-h-0 zoom-exempt">
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {renderToggle?.()}
+          {pendingDraft ? (
+            // 中断前的草稿：一条窄提示条，不挡编辑，也不自动改文件。
+            <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11px]">
+              <span className="min-w-0 flex-1 truncate text-foreground/90">
+                {tr("editor.draft.found", {
+                  time: draftTime(pendingDraft.at),
+                })}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  restoreDraft();
+                  toast.message(tr("editor.draft.restored"));
+                }}
+                className="shrink-0 rounded border border-border/60 bg-background px-1.5 py-0.5 text-[10.5px] hover:bg-accent"
+              >
+                {tr("editor.draft.restore")}
+              </button>
+              <button
+                type="button"
+                onClick={discardDraft}
+                className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                {tr("editor.draft.discard")}
+              </button>
+            </div>
+          ) : null}
           {previewKind !== "none" && (
             <button
               type="button"

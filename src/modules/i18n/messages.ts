@@ -540,6 +540,10 @@ const zh = {
   "preview.show": "显示预览",
   "preview.hide": "隐藏预览",
   "editor.showPreview": "显示预览",
+  "editor.draft.found": "发现未保存的草稿（{time} 中断的那次）",
+  "editor.draft.restore": "恢复",
+  "editor.draft.discard": "丢弃",
+  "editor.draft.restored": "草稿已放回编辑器，保存后才写回文件",
   "editor.hidePreview": "隐藏预览",
 } as const;
 
@@ -1091,6 +1095,10 @@ const en: Record<MessageKey, string> = {
   "preview.show": "Show preview",
   "preview.hide": "Hide preview",
   "editor.showPreview": "Show preview",
+  "editor.draft.found": "Unsaved draft found (interrupted at {time})",
+  "editor.draft.restore": "Restore",
+  "editor.draft.discard": "Discard",
+  "editor.draft.restored": "Draft restored in the editor; save to write it back",
   "editor.hidePreview": "Hide preview",
 };
 
