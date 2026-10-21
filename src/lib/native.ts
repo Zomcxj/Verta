@@ -456,14 +456,6 @@ export type WireIssueActionResult = {
   error: string | null;
 };
 
-/** 抓下来的一整屏（所有显示器拼起来那块），给覆盖窗口显示用。 */
-export type WireScreenshotShot = {
-  /** 覆盖窗口显示用的预览图，`convertFileSrc` 直接能读。 */
-  previewPath: string;
-  /** 整屏的物理像素尺寸。 */
-  width: number;
-  height: number;
-};
 
 /** 截图收尾的交代：存哪了、多大、剪贴板有没有写进去。 */
 export type WireScreenshotSaved = {
@@ -1087,15 +1079,20 @@ export const native = {
       dest,
       workspace: envForPath(dest),
     }),
-  /** 抓整屏并摆好覆盖窗口（主窗口里点「截图」时调）。 */
-  screenshotBegin: () => invoke<WireScreenshotShot>("screenshot_begin"),
-  /** 覆盖窗口挂载后问一次：这次显示哪张图；没有正在选的就是 null。 */
-  screenshotPending: () => invoke<WireScreenshotShot | null>("screenshot_pending"),
-  /** 按选区裁剪、存进「图片\屏幕截图」、送进剪贴板。 */
-  screenshotFinish: (rect: { x: number; y: number; width: number; height: number }) =>
-    invoke<WireScreenshotSaved>("screenshot_finish", { rect }),
+  screenshotBegin: () => invoke<void>("screenshot_begin"),
+  /**
+   * 按选区裁剪、存进「图片\屏幕截图」、送进剪贴板。
+   *
+   * 后端会先把覆盖窗口藏起来再抓屏（否则灰层与选择框会进到图里），所以这里传的坐标相对整块
+   * 虚拟桌面左上角；`cornerRadius` 是物理像素的圆角半径。
+   */
+  screenshotFinish: (
+    rect: { x: number; y: number; width: number; height: number },
+    cornerRadius: number,
+  ) => invoke<WireScreenshotSaved>("screenshot_finish", { rect, cornerRadius }),
   /** 取消这次截图（Esc，或者点一下没拖）。 */
   screenshotCancel: () => invoke<void>("screenshot_cancel"),
   /** 覆盖窗口自己出岔子时的交代：把原文报回主窗口，别不吭声地消失。 */
-  screenshotFailed: (message: string) => invoke<void>("screenshot_failed", { message }),
+  screenshotFailed: (message: string) =>
+    invoke<void>("screenshot_failed", { message }),
 };

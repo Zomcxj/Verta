@@ -6,12 +6,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Verta — Screenshot</title>
     <style>
-      /* 这是个铺满整屏的截图窗口：一点白边都不能有，滚条也不能有。 */
+      /* 这是个铺满整屏的截图窗口：一点白边都不能有，滚条也不能有。
+         背景必须是透明的——没被那层浅灰压到的像素要透出底下的屏幕本身。 */
       html,
       body {
         margin: 0;
         overflow: hidden;
-        background: #000;
+        background: transparent;
       }
     </style>
   </head>

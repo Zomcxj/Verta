@@ -3,17 +3,17 @@
 //! 用 `image`（本来就在依赖树里），只开 `png` 一个 feature：截图的产物就是要一张 PNG 文件，
 //! 别的格式用不上，也不值得为此多拉一堆解码器。
 
-/// RGBA 像素编码成 PNG 字节。
+/// RGBA 像素编码成 PNG 字节。存盘就是这一份（覆盖窗口显示走 IPC，不经编码）。
 pub fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
     let expected = width as usize * height as usize * 4;
     if rgba.len() != expected {
         return Err(format!(
-            "像素数对不上：拿到 {} 字节，按 {width}×{height} 该是 {expected}",
+            "像素数量不匹配：收到 {} 字节，按 {width}×{height} 应为 {expected}",
             rgba.len()
         ));
     }
     let image = image::RgbaImage::from_raw(width, height, rgba.to_vec())
-        .ok_or_else(|| format!("建不了 {width}×{height} 的图"))?;
+        .ok_or_else(|| format!("无法创建 {width}×{height} 的图像"))?;
     let mut out = Vec::new();
     image
         .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
@@ -43,6 +43,6 @@ mod tests {
     #[test]
     fn a_size_that_does_not_match_the_pixels_is_an_error() {
         let err = encode_png(&[0, 0, 0, 255], 10, 10).expect_err("该报错");
-        assert!(err.contains("像素数对不上"), "实际是：{err}");
+        assert!(err.contains("像素数量不匹配"), "实际是：{err}");
     }
 }

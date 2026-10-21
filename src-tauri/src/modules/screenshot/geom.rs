@@ -69,6 +69,46 @@ pub fn stamp(year: u16, month: u16, day: u16, hour: u16, minute: u16, second: u1
     format!("{year:04}-{month:02}-{day:02}-{hour:02}{minute:02}{second:02}")
 }
 
+/// 把四角抠圆：圆角外的像素变透明。
+///
+/// 半径按物理像素给（界面上是按 CSS 像素调的，调用方已经折算过）。半径超过短边一半就没有意义了
+/// （再大也只是个圆角），这里夹一下；半径为 0 就原样不动。
+///
+/// 只动 alpha：PNG 支持透明，所以「圆角」这件事不损失任何像素内容，抠掉的只是角上那几块。
+pub fn apply_corner_radius(rgba: &mut [u8], width: u32, height: u32, radius: u32) {
+    if radius == 0 || width == 0 || height == 0 {
+        return;
+    }
+    let radius = radius.min(width.min(height) / 2) as f32;
+    if radius <= 0.0 {
+        return;
+    }
+    let max_x = width as f32 - 0.5;
+    let max_y = height as f32 - 0.5;
+    for y in 0..height {
+        for x in 0..width {
+            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+            // 四个角各自的圆心：哪个角都不是就跳过（边上中间那几列/行本来就不该被抠）。
+            let (cx, cy) = if px < radius && py < radius {
+                (radius, radius)
+            } else if px > max_x - radius && py < radius {
+                (max_x - radius, radius)
+            } else if px < radius && py > max_y - radius {
+                (radius, max_y - radius)
+            } else if px > max_x - radius && py > max_y - radius {
+                (max_x - radius, max_y - radius)
+            } else {
+                continue;
+            };
+            let (dx, dy) = (px - cx, py - cy);
+            if dx * dx + dy * dy > radius * radius {
+                let index = (y as usize * width as usize + x as usize) * 4 + 3;
+                rgba[index] = 0;
+            }
+        }
+    }
+}
+
 /// `Screenshot-<戳>.png`；同一秒里再截一张就 `-2`、`-3`，绝不把上一张盖掉。
 ///
 /// `taken` 由调用方给（真的去问文件系统），这样这一段能单测。
@@ -200,6 +240,44 @@ mod tests {
     fn the_stamp_pads_every_field_to_a_fixed_width() {
         assert_eq!(stamp(2026, 10, 21, 9, 5, 7), "2026-10-21-090507");
         assert_eq!(stamp(2026, 1, 1, 0, 0, 0), "2026-01-01-000000");
+    }
+
+    #[test]
+    fn a_corner_radius_only_eats_the_corners() {
+        let (w, h) = (8u32, 8u32);
+        let mut pixels = vec![255u8; w as usize * h as usize * 4];
+        let alpha = |buf: &[u8], x: usize, y: usize| buf[(y * w as usize + x) * 4 + 3];
+
+        apply_corner_radius(&mut pixels, w, h, 3);
+        // 四角抠掉，边中与正中留着。
+        assert_eq!(alpha(&pixels, 0, 0), 0);
+        assert_eq!(alpha(&pixels, 7, 0), 0);
+        assert_eq!(alpha(&pixels, 0, 7), 0);
+        assert_eq!(alpha(&pixels, 7, 7), 0);
+        assert_eq!(alpha(&pixels, 4, 0), 255);
+        assert_eq!(alpha(&pixels, 0, 4), 255);
+        assert_eq!(alpha(&pixels, 4, 4), 255);
+        // 颜色一个字节都不该动，只动 alpha。
+        assert_eq!(&pixels[0..3], &[255, 255, 255]);
+    }
+
+    #[test]
+    fn a_zero_radius_changes_nothing() {
+        let mut pixels = vec![7u8; 4 * 4 * 4];
+        let before = pixels.clone();
+        apply_corner_radius(&mut pixels, 4, 4, 0);
+        assert_eq!(pixels, before);
+    }
+
+    #[test]
+    fn a_radius_bigger_than_half_the_short_side_is_clamped() {
+        // 8×4 的图上给 100：短边一半是 2，所以跟给 2 一样，不该把整张图抠没。
+        let mut pixels = vec![255u8; 8 * 4 * 4];
+        apply_corner_radius(&mut pixels, 8, 4, 100);
+        let alpha = |x: usize, y: usize| pixels[(y * 8 + x) * 4 + 3];
+        assert_eq!(alpha(0, 0), 0, "角上该被抠掉");
+        assert_eq!(alpha(4, 2), 255, "正中间必须留着");
+        assert_eq!(alpha(4, 0), 255, "上边中点留着");
     }
 
     #[test]

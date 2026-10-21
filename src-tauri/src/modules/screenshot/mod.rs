@@ -1,16 +1,22 @@
-//! 区域截图：抓整屏 → 覆盖窗口上拖框 → 按选区裁剪、编码、落盘、进剪贴板。
+//! 区域截图：覆盖窗口上拖框 → 点保存那一刻抓屏 → 按选区裁剪、编码、落盘、进剪贴板。
 //!
-//! 裁剪为什么在后端、而且用抓下来的原始像素：把整屏喂给 asset 协议再用 canvas 裁，跨源会给
-//! canvas 打上脏标记，`toBlob` 直接抛；何况来回编解码一趟也掉画质。原始像素就存在这里的状态里，
-//! 覆盖窗口显示的只是同一张图的预览文件（收尾时删掉）。
+//! 抓屏为什么放在「保存」而不是「点截图按钮」：
+//!
+//! 1. 覆盖窗口自己就压在屏幕上（一层浅灰 + 选择框 + 把手 + 操作条），抓屏必须发生在它藏起来
+//!    之后，否则这些东西会一起进到图里。所以顺序是：藏窗口 → 等它真的从屏幕上消失 → 抓屏。
+//! 2. 在那之前屏幕一直是活的。用户框选时看到的就是屏幕本身，跟 Windows 自带的「区域截图」
+//!    同一套手感：只压一层浅灰，松手（这里是点保存）那一下才真的抓。不冻屏，也就没有「冻住的
+//!    那一下」需要等，覆盖窗口可以立刻亮出来。
+//!
+//! 裁剪、圆角、编码都在后端做：前端只管画，把选区坐标交回来。
 
 mod capture;
 mod encode;
 mod geom;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::image::Image;
@@ -20,38 +26,30 @@ use tauri::{
 };
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-/// 覆盖窗口的 label。建窗、关窗两处用的是同一个名字。
+/// 覆盖窗口的 label。建窗、藏窗、发事件三处用的是同一个名字。
 const OVERLAY: &str = "screenshot";
+/// 「该干活了」——发给覆盖窗口的频道。窗口是养着的，每次截图都从这条消息开始。
+pub const ARMED_EVENT: &str = "screenshot:armed";
 /// 「存好了」告诉主窗口用的频道。
 pub const SAVED_EVENT: &str = "screenshot:saved";
 /// 「没做成」告诉主窗口用的频道。
 pub const FAILED_EVENT: &str = "screenshot:failed";
-/// 同一进程里连开几张时，临时预览图不能撞名。
-static PREVIEW_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// 抓下来还没用掉的那一张。
-struct Pending {
-    rgba: Vec<u8>,
-    width: u32,
-    height: u32,
-    /// 覆盖窗口显示用的预览图，收尾时删掉。
-    preview: PathBuf,
-}
+/// 藏起窗口之后等多久再抓屏。
+///
+/// `hide()` 只是把请求交给系统，屏幕上那一帧还留着；这时候抓屏会把灰层、选择框、把手、操作条
+/// 一起拍进去。一帧多一点就够（60 Hz 下一帧 16 ms），代价是这一小段时间里屏幕会短暂地不带灰层
+/// ——自带截图也有这一下。
+const HIDE_SETTLE: Duration = Duration::from_millis(80);
 
-/// 截图模块的状态：只装「正在选的那一张」。
+/// 状态只有一件事：现在有没有一次正在进行的截图。
+///
+/// 比「手里存着一份待用的像素」简单得多——像素不再留着了（见文件头的说明），这里只是不让一次
+/// 散落的调用（覆盖窗口早收起来了，却又来一次 finish）凭空存出一张图。
 #[derive(Default)]
-pub struct ScreenshotState(Mutex<Option<Pending>>);
+pub struct ScreenshotState(AtomicBool);
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ScreenshotShot {
-    /// 覆盖窗口显示用的预览图，asset 协议直接能读。
-    preview_path: String,
-    width: u32,
-    height: u32,
-}
-
-/// 选区：物理像素，相对整张截图左上角。宽高可能是负的（往回拖）。
+/// 选区：物理像素，相对整块虚拟桌面左上角（也就是覆盖窗口的左上角）。宽高可能是负的（往回拖）。
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenshotRect {
@@ -71,133 +69,126 @@ pub struct ScreenshotSaved {
     clipboard_error: Option<String>,
 }
 
-/// 抓屏并摆好覆盖窗口。主窗口点「截图」时调。
+/// 点「截图」：把覆盖窗口亮出来，浅灰立刻上来。
+///
+/// 这一步不抓屏、不落盘，所以快得没有东西可以「弹」。
 #[tauri::command]
 pub async fn screenshot_begin(
     app: AppHandle,
     state: tauri::State<'_, ScreenshotState>,
-) -> Result<ScreenshotShot, String> {
-    // 先抓再开窗：反过来，覆盖窗口自己就进画面了。
-    let shot = capture::capture_virtual_screen()?;
-    let png = encode::encode_png(&shot.rgba, shot.width, shot.height)?;
-    let preview = preview_path();
-    std::fs::write(&preview, &png)
-        .map_err(|e| format!("写预览图 {} 失败：{e}", preview.display()))?;
-
-    let shot_info = ScreenshotShot {
-        preview_path: preview.to_string_lossy().into_owned(),
-        width: shot.width,
-        height: shot.height,
-    };
-    *state.0.lock().unwrap() = Some(Pending {
-        rgba: shot.rgba,
-        width: shot.width,
-        height: shot.height,
-        preview,
-    });
-
-    // 连点两下按钮时，上一次那个还没收干净的窗口先关掉。
-    close_overlay(&app);
-
-    let built = WebviewWindowBuilder::new(&app, OVERLAY, WebviewUrl::App("screenshot.html".into()))
-        .title("Screenshot")
-        .decorations(false)
-        .resizable(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .visible(false)
-        .build();
-    let window = match built {
+) -> Result<(), String> {
+    // 窗口建一次就养着（见 `ensure_overlay`）：新建一个 webview 要等它起页面、启动 React，
+    // 现实里是点一下按钮等两三秒；养着之后每次只是把它亮出来。
+    let window = match ensure_overlay(&app) {
         Ok(window) => window,
         Err(e) => {
-            clear_pending(&state);
-            return Err(format!("开截图窗口失败：{e}"));
+            state.0.store(false, Ordering::SeqCst);
+            return Err(e);
         }
     };
-
-    // 覆盖窗口要正好压在整块虚拟桌面上。builder 的 position/inner_size 是逻辑像素，而我们要的是
-    // 物理像素（多显示器、副屏在左时逻辑坐标还会被缩放因子带偏），所以建好之后按物理像素再摆一次。
-    let placed = window
-        .set_position(Position::Physical(PhysicalPosition::new(
-            shot.origin.0,
-            shot.origin.1,
-        )))
-        .and_then(|()| window.set_size(Size::Physical(PhysicalSize::new(shot.width, shot.height))));
-    if let Err(e) = placed {
-        let _ = window.close();
-        clear_pending(&state);
-        return Err(format!("把截图窗口摆到整屏上失败：{e}"));
-    }
-
-    // 正常路径是覆盖窗口等图加载完再自己 show()（这样不闪白）；这里兜一次底：前端万一没跑
-    // 起来，也不能让用户点了按钮之后什么都没有。
-    let fallback = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        std::thread::sleep(std::time::Duration::from_millis(700));
-        if let Some(window) = fallback.get_webview_window(OVERLAY) {
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
-    });
-
-    Ok(shot_info)
+    state.0.store(true, Ordering::SeqCst);
+    // 先叫一声再亮出来：上一次用剩的选区、圆角、报错都得清掉（窗口可能是几小时前那一次留下的）。
+    let _ = app.emit_to(OVERLAY, ARMED_EVENT, ());
+    window
+        .show()
+        .map_err(|e| format!("无法显示截图窗口：{e}"))?;
+    window
+        .set_focus()
+        .map_err(|e| format!("无法聚焦截图窗口：{e}"))?;
+    Ok(())
 }
 
-/// 覆盖窗口挂载后问一次：这次要显示哪张图。
-#[tauri::command]
-pub fn screenshot_pending(state: tauri::State<'_, ScreenshotState>) -> Option<ScreenshotShot> {
-    state
-        .0
-        .lock()
-        .unwrap()
-        .as_ref()
-        .map(|pending| ScreenshotShot {
-            preview_path: pending.preview.to_string_lossy().into_owned(),
-            width: pending.width,
-            height: pending.height,
-        })
-}
-
-/// 拖完框：按选区裁剪、编码、落盘、进剪贴板，然后把「存哪了」告诉主窗口。
+/// 点了保存：藏起覆盖窗口 → 等它从屏幕上消失 → 抓屏 → 裁剪、抠圆角、编码、落盘、进剪贴板。
+///
+/// 失败时把覆盖窗口亮回来：选区还在，用户能接着调、接着存。
 #[tauri::command]
 pub async fn screenshot_finish(
     app: AppHandle,
     state: tauri::State<'_, ScreenshotState>,
     rect: ScreenshotRect,
+    corner_radius: u32,
 ) -> Result<ScreenshotSaved, String> {
-    let Some(pending) = take_pending(&state) else {
-        return Err("没有正在选的截图（截图窗口可能已经关掉了）".into());
-    };
-    // 不论成不成，这张的预览图都不再需要了。
-    let _ = std::fs::remove_file(&pending.preview);
-    close_overlay(&app);
+    if !state.0.swap(false, Ordering::SeqCst) {
+        return Err("当前没有正在进行的截图".into());
+    }
 
+    // 藏窗口之后要等、抓屏也是阻塞的，所以整段挪到阻塞线程上去做，不占着异步运行时。
+    let task = {
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            capture_after_hiding(&app, rect, corner_radius, capture::now_stamp())
+        })
+    };
+    let saved = match task.await {
+        Ok(result) => result,
+        Err(e) => Err(format!("截图任务未能完成：{e}")),
+    };
+
+    match saved {
+        Ok(saved) => {
+            // 覆盖窗口不在这儿收：`capture_after_hiding` 抓屏之前就把它藏了，之后一直藏着。
+            let _ = app.emit_to("main", SAVED_EVENT, saved.clone());
+            Ok(saved)
+        }
+        Err(e) => {
+            // 亮回来接着选。状态也放回去，用户直接再点一次保存就行。
+            state.0.store(true, Ordering::SeqCst);
+            show_overlay(&app);
+            Err(e)
+        }
+    }
+}
+
+/// 藏掉覆盖窗口 → 等合成器把它摘下去 → 抓整块虚拟桌面 → 裁剪落盘。
+fn capture_after_hiding(
+    app: &AppHandle,
+    rect: ScreenshotRect,
+    corner_radius: u32,
+    stamp: String,
+) -> Result<ScreenshotSaved, String> {
+    hide_overlay(app);
+    std::thread::sleep(HIDE_SETTLE);
+    let shot = capture::capture_virtual_screen()?;
+    finish_shot(app, &shot, rect, corner_radius, stamp)
+}
+
+/// 裁剪 → 抠圆角 → 编码 → 落盘 → 剪贴板。任何一步真出错都原样返回，由调用方决定怎么交代。
+fn finish_shot(
+    app: &AppHandle,
+    shot: &capture::RawShot,
+    rect: ScreenshotRect,
+    corner_radius: u32,
+    stamp: String,
+) -> Result<ScreenshotSaved, String> {
     let region = geom::clamp_selection(
         rect.x,
         rect.y,
         rect.width,
         rect.height,
-        pending.width,
-        pending.height,
+        shot.width,
+        shot.height,
     )
     .ok_or_else(|| {
         format!(
-            "这块选区没法用（{}×{}，最小 {} 像素）",
+            "选区无效（{}×{}，最小 {} 像素）",
             rect.width.abs(),
             rect.height.abs(),
             geom::MIN_SIDE
         )
     })?;
-    let pixels = geom::crop_rgba(&pending.rgba, pending.width, pending.height, region)
-        .ok_or_else(|| "选区落在画面外了".to_string())?;
+    let pixels = geom::crop_rgba(&shot.rgba, shot.width, shot.height, region)
+        .ok_or_else(|| "选区超出画面范围".to_string())?;
+    // 圆角是「把四个角抠透明」，所以要在编码之前做，也要在进剪贴板之前做——
+    // 存下来的文件和剪贴板里的图得是同一张。
+    let mut pixels = pixels;
+    geom::apply_corner_radius(&mut pixels, region.width, region.height, corner_radius);
     let png = encode::encode_png(&pixels, region.width, region.height)?;
 
     let dir = screenshots_dir()?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("建目录 {} 失败：{e}", dir.display()))?;
-    let stamp = capture::now_stamp();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("无法创建目录 {}：{e}", dir.display()))?;
     let name = geom::screenshot_file_name(&stamp, |candidate| dir.join(candidate).exists());
     let path = dir.join(name);
-    std::fs::write(&path, &png).map_err(|e| format!("写 {} 失败：{e}", path.display()))?;
+    std::fs::write(&path, &png).map_err(|e| format!("无法写入 {}：{e}", path.display()))?;
 
     // 存好了再进剪贴板；剪贴板写不进去也不该把「存好了」抹掉，所以两件事分开报。
     let clipboard_error =
@@ -209,24 +200,58 @@ pub async fn screenshot_finish(
             Err(e) => Some(e.to_string()),
         };
 
-    let saved = ScreenshotSaved {
+    Ok(ScreenshotSaved {
         path: path.to_string_lossy().into_owned(),
         width: region.width,
         height: region.height,
         clipboard_error,
-    };
-    let _ = app.emit_to("main", SAVED_EVENT, saved.clone());
-    Ok(saved)
+    })
 }
 
-/// 按 Esc、或者点一下没拖：收起覆盖窗口，当没发生过。
+/// 建好或复用覆盖窗口，并把它按物理像素压在整块虚拟桌面上。
+///
+/// 复用是为了「快」：新建一个 webview 要等它起页面、启动 React，现实里就是点一下按钮等两三秒；
+/// 养着它之后，每次截图只是把它亮出来。位置与尺寸每次都重算，显示器插拔、分辨率改了也跟着走。
+fn ensure_overlay(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
+    let window = match app.get_webview_window(OVERLAY) {
+        Some(existing) => existing,
+        None => WebviewWindowBuilder::new(app, OVERLAY, WebviewUrl::App("screenshot.html".into()))
+            .title("Screenshot")
+            .decorations(false)
+            .resizable(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .shadow(false)
+            // 透明：屏幕要能从窗口里透出来。那层浅灰是窗口自己画的半透明黑，没被压到的像素就是
+            // 全透明，用户看到的是活着的屏幕——这正是「不冻屏」的关键。
+            .transparent(true)
+            .visible(false)
+            .build()
+            .map_err(|e| format!("无法创建截图窗口：{e}"))?,
+    };
+    let screen = capture::virtual_screen_bounds()?;
+    window
+        .set_position(Position::Physical(PhysicalPosition::new(
+            screen.x, screen.y,
+        )))
+        .and_then(|()| {
+            window.set_size(Size::Physical(PhysicalSize::new(
+                screen.width,
+                screen.height,
+            )))
+        })
+        .map_err(|e| format!("无法将截图窗口铺满整屏：{e}"))?;
+    Ok(window)
+}
+
+/// 按 Esc、或者点了取消：收起覆盖窗口，当没发生过（这时还没有抓屏，什么都没产生）。
 #[tauri::command]
 pub fn screenshot_cancel(app: AppHandle, state: tauri::State<'_, ScreenshotState>) {
-    close_overlay(&app);
-    clear_pending(&state);
+    state.0.store(false, Ordering::SeqCst);
+    hide_overlay(&app);
 }
 
-/// 覆盖窗口自己出岔子时（预览图没显示出来之类）把原文交回来。
+/// 覆盖窗口自己出岔子时把原文交回来。
 ///
 /// 不吭声地消失最糟：用户点了按钮、画面闪一下、什么都没发生，只能猜。
 #[tauri::command]
@@ -235,8 +260,8 @@ pub fn screenshot_failed(
     state: tauri::State<'_, ScreenshotState>,
     message: String,
 ) {
-    close_overlay(&app);
-    clear_pending(&state);
+    state.0.store(false, Ordering::SeqCst);
+    hide_overlay(&app);
     let _ = app.emit_to("main", FAILED_EVENT, message);
 }
 
@@ -244,28 +269,21 @@ pub fn screenshot_failed(
 fn screenshots_dir() -> Result<PathBuf, String> {
     let base = dirs::picture_dir()
         .or_else(dirs::home_dir)
-        .ok_or_else(|| "找不到「图片」目录，也说不上主目录在哪".to_string())?;
+        .ok_or_else(|| "无法定位「图片」目录或用户主目录".to_string())?;
     Ok(base.join("Screenshots"))
 }
 
-fn preview_path() -> PathBuf {
-    let seq = PREVIEW_SEQ.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("verta-screenshot-{}-{seq}.png", std::process::id()))
-}
-
-fn close_overlay(app: &AppHandle) {
+/// 亮出来并拿焦点：没有焦点就收不到 Esc 与 Enter。
+fn show_overlay(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(OVERLAY) {
-        let _ = window.close();
+        let _ = window.show();
+        let _ = window.set_focus();
     }
 }
 
-fn take_pending(state: &ScreenshotState) -> Option<Pending> {
-    state.0.lock().unwrap().take()
-}
-
-/// 丢掉这一张，并把预览图删掉。
-fn clear_pending(state: &ScreenshotState) {
-    if let Some(pending) = take_pending(state) {
-        let _ = std::fs::remove_file(pending.preview);
+/// 藏起来而不是关掉：webview 养着，下次截图不用再等它起一遍页面。
+fn hide_overlay(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(OVERLAY) {
+        let _ = window.hide();
     }
 }

@@ -15,6 +15,33 @@
 <details open>
 <summary><strong>2026-10-21</strong></summary>
 
+**区域截图：像系统自带那样不冻屏，框完点保存才抓**
+
+- `src-tauri/src/modules/screenshot/mod.rs`：改成**不冻屏**。屏幕在框选期间一直是活的（覆盖窗口是透明的，
+  只压一层浅灰），抓屏挪到**点保存那一刻**：先把覆盖窗口藏起来、等它真的从屏幕上消失（`hide()` 只是把请求
+  交给系统，屏幕上那一帧还留着）再抓，否则灰层、选择框、把手、操作条会一起进到图里；整段放在阻塞线程上做。
+  窗口仍然**建一次就养着**（每次只是把它亮出来：第一次要建 webview 约 0.4 秒，之后 0.1 秒出头）；
+  失败时把窗口亮回来，选区还在，能接着调、接着存。
+- `src-tauri/src/modules/screenshot/capture.rs`：新增 `virtual_screen_bounds()`——抓屏与覆盖窗口的铺法从同一
+  处取范围，选区坐标才对得上。`RawShot` 不再带 origin（覆盖窗口的位置同样来自这一处）。
+- `src-tauri/src/modules/screenshot/encode.rs`：删掉 BMP 预览编码器（不再有预览文件），只留存盘那份 PNG。
+- `src/modules/screenshot/ScreenshotOverlay.tsx`：**去掉画布与冻结画面**。整屏压一层 25% 的浅灰；一画出选区
+  就撤掉这层、改由选区一圈阴影压暗框外——框里是全透明的洞，透出来的是活着的那块屏幕（这也是「像系统自带」
+  的关键：不冻屏，屏幕该动就动）。圆角滑杆（0–40，默认 **15**，所见即所得）、保存 / 取消两个图标按钮放在
+  选区右下角；描边、把手、按钮都取主题色。松手之后选区留着可继续调整：拖整块、八个把手改大小。
+  Enter 保存、Esc 取消，都没变。
+- `screenshot.html`、`src/screenshot/main.tsx`：这个窗口**必须透明**——这两处按窗口的性质把底色铺成透明
+  （globals.css 给 body 铺了主题底色），并补上 `.light` / `.dark` 类（`--primary` 那些变量在根节点上没有
+  这个类就取不到，描边会退成灰白）。另外：窗口自己的脚本崩了就调 `screenshot_failed` 把自己收起来，
+  别在用户面前杵着一层点不动的灰。
+- `src/lib/native.ts`、`src/modules/i18n/messages.ts`：`screenshot_begin` 不再返回抓屏结果；删掉
+  `screenshot_pending` / `screenshot_pixels`（预览文件、IPC 整块传像素这两条路都不需要了）；收尾文案改成
+  正式口气（不再有「也在剪贴板里了」这类说法，Rust 侧的错误串一并改）。
+- `src-tauri/capabilities/screenshot.json`：显示与聚焦现在由 Rust 侧做，覆盖窗口的权限缩到「只听事件」。
+- `scripts/dev/probes/`：验收探针跟着改——`screenshot-arm-timing-*`（量「收到消息到首帧」）、
+  `capture-desktop.ps1`（拍整屏取证；`CopyFromScreen` 与窗口自己的 CDP 截图看的不是同一件事）、
+  `screenshot-begin-timing.js`（只量「点一下到灰层上来」）。
+
 **区域截图：抓屏、框选、存图、进剪贴板都在应用里**
 
 - `src-tauri/src/modules/screenshot/`（新增一个模块，四个文件）：
@@ -22,24 +49,25 @@
     RGBA —— 不补的话存出来的 PNG 与剪贴板里的图都是半透明的；别的平台如实拒绝，不假装能跑。
   - `geom.rs`：选区收边（往回拖、拖出画面都算对）、按选区抠图、文件名与本地时间戳。全是纯函数带单测。
   - `encode.rs`：PNG 编码，用依赖树里本来就有的 `image`，只开 `png` 一个 feature。
-  - `mod.rs`：截图状态与 5 个命令（`begin` 抓屏并铺整屏覆盖窗口 / `pending` / `finish` 裁剪落盘进剪贴板 /
+  - `mod.rs`：截图状态与命令（`begin` 把覆盖窗口亮出来 / `finish` 藏窗口、抓屏、裁剪、落盘、进剪贴板 /
     `cancel` / `failed`）。裁剪用的是抓下来的原始像素：把整屏喂给 asset 协议再让 canvas 裁会被跨源
     污染，`toBlob` 直接抛。裁剪在后端、选区在前端，所以选区在后端还要再收一次边。
 - `src-tauri/src/modules/mod.rs`、`src-tauri/src/lib.rs`、`src-tauri/Cargo.toml`：注册模块、状态与命令；
   windows-sys 补 `Win32_UI_WindowsAndMessaging`（要 `GetSystemMetrics` 与虚拟屏幕常量）。
-- `src-tauri/capabilities/screenshot.json`（新增）：覆盖窗口单独一份**最小**权限（只 `show` + `set-focus`），
-  不给 store / dialog / opener 那些它用不着的。
-- `screenshot.html`、`src/screenshot/main.tsx`、`vite.config.ts`：第二个窗口的前端入口，多页构建多一份。
-- `src/modules/screenshot/ScreenshotOverlay.tsx`（新增）：铺冻结画面、拖框（带物理像素尺寸提示、框外压暗）、
-  Esc 取消；图加载出来才把窗口显示出来，避免先闪一下空窗口。
+- `src-tauri/capabilities/screenshot.json`（新增）：覆盖窗口单独一份**最小**权限——只听事件，显示与聚焦
+  由 Rust 侧做，也不给 store / dialog / opener 那些它用不着的。
+- `screenshot.html`、`src/screenshot/main.tsx`、`vite.config.ts`：第二个窗口的前端入口（透明窗口），
+  多页构建多一份。
+- `src/modules/screenshot/ScreenshotOverlay.tsx`（新增）：铺一层浅灰、拖框（带物理像素尺寸提示）、
+  松手后可挪可拉、圆角滑杆、保存 / 取消图标按钮，Enter 保存、Esc 取消；不冻屏——屏幕一直是活的。
 - `src/modules/screenshot/lib/selection.ts`（新增）：CSS 像素 ↔ 物理像素换算——屏幕缩放到 125% 时两者差
   一个 devicePixelRatio，直接送 CSS 坐标会切偏；取整是「宁可多含一列，不少给一列」。带单测。
 - `src/modules/header/Header.tsx`：右上角 Git 按钮左边多一个「截图」。
 - `src/app/App.tsx`、`src/lib/native.ts`、`src/modules/i18n/messages.ts`：收尾提示条（写明存到哪儿、
   剪贴板成没成，两件事分开报）与「插入路径」——点了才把路径插进当前终端输入行（走括起的粘贴，
   路径里有空格也不怕），不自动插、不回车；不在终端页时干脆不给这个按钮（点了也没处插）。
-- `scripts/dev/cdp-input.mjs`（新增）+ `scripts/dev/probes/screenshot-*.js`（新增 4 个）：往**指定**窗口发
-  真实输入与本次验收探针。`cdp-key.mjs` 只会找第一个 page，而覆盖窗口是第二个，鼠标拖拽也需要
+- `scripts/dev/cdp-input.mjs`（新增）+ `scripts/dev/probes/`（截图这一块的探针与 `capture-desktop.ps1`）：
+  往**指定**窗口发真实输入与验收取证。`cdp-key.mjs` 只会找第一个 page，而覆盖窗口是第二个，鼠标拖拽也需要
   一次完整的 press/move/release（DOM 里合成 PointerEvent 顶不了：`setPointerCapture` 只认真指针）。
 
 **Pi 会话列表：显示最新的会话名**

@@ -9,8 +9,17 @@ pub struct RawShot {
     pub rgba: Vec<u8>,
     pub width: u32,
     pub height: u32,
-    /// 这块画面的左上角在屏幕坐标里的位置（副屏在左时会是负的）。
-    pub origin: (i32, i32),
+}
+
+/// 整块虚拟桌面（所有显示器拼起来那块）在屏幕坐标里的物理像素范围。
+///
+/// 抓屏与覆盖窗口都从这儿取：两边用的是同一个范围，选区坐标才对得上。
+/// 副屏在主屏左边时 `x` 会是负的。
+pub struct ScreenBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// GDI 给的是 BGRA，而且屏幕上抓下来的 alpha 是垃圾值 —— 顺手补成不透明。
@@ -26,7 +35,7 @@ pub fn bgra_to_rgba(bgra: &[u8]) -> Vec<u8> {
 
 #[cfg(windows)]
 mod win {
-    use super::{bgra_to_rgba, RawShot};
+    use super::{bgra_to_rgba, RawShot, ScreenBounds};
     use windows_sys::Win32::Foundation::SYSTEMTIME;
     use windows_sys::Win32::Graphics::Gdi::{
         BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
@@ -39,9 +48,9 @@ mod win {
         SM_YVIRTUALSCREEN,
     };
 
-    /// 抓整块虚拟桌面。
-    pub fn capture_virtual_screen() -> Result<RawShot, String> {
-        let (x, y, w, h) = unsafe {
+    /// 整块虚拟桌面的物理像素范围。
+    pub fn virtual_screen_bounds() -> Result<ScreenBounds, String> {
+        let (x, y, width, height) = unsafe {
             (
                 GetSystemMetrics(SM_XVIRTUALSCREEN),
                 GetSystemMetrics(SM_YVIRTUALSCREEN),
@@ -49,10 +58,28 @@ mod win {
                 GetSystemMetrics(SM_CYVIRTUALSCREEN),
             )
         };
-        if w <= 0 || h <= 0 {
-            return Err(format!("量不出屏幕尺寸（{w}×{h}）"));
+        if width <= 0 || height <= 0 {
+            return Err(format!("无法获取屏幕尺寸（{width}×{height}）"));
         }
-        unsafe { grab(x, y, w, h) }
+        Ok(ScreenBounds {
+            x,
+            y,
+            width: width as u32,
+            height: height as u32,
+        })
+    }
+
+    /// 抓整块虚拟桌面。
+    pub fn capture_virtual_screen() -> Result<RawShot, String> {
+        let screen = virtual_screen_bounds()?;
+        unsafe {
+            grab(
+                screen.x,
+                screen.y,
+                screen.width as i32,
+                screen.height as i32,
+            )
+        }
     }
 
     /// 本地时间戳。文件名按本地时间排 —— 用户找图时看的就是本机时间。
@@ -73,18 +100,18 @@ mod win {
     unsafe fn grab(x: i32, y: i32, w: i32, h: i32) -> Result<RawShot, String> {
         let screen = GetDC(std::ptr::null_mut());
         if screen.is_null() {
-            return Err("拿不到屏幕 DC".into());
+            return Err("无法获取屏幕 DC".into());
         }
         let mem = CreateCompatibleDC(screen);
         if mem.is_null() {
             ReleaseDC(std::ptr::null_mut(), screen);
-            return Err("建兼容 DC 失败".into());
+            return Err("无法创建兼容 DC".into());
         }
         let bitmap = CreateCompatibleBitmap(screen, w, h);
         if bitmap.is_null() {
             DeleteDC(mem);
             ReleaseDC(std::ptr::null_mut(), screen);
-            return Err("建兼容位图失败".into());
+            return Err("无法创建兼容位图".into());
         }
         let previous = SelectObject(mem, bitmap);
 
@@ -99,7 +126,6 @@ mod win {
             rgba,
             width: w as u32,
             height: h as u32,
-            origin: (x, y),
         })
     }
 
@@ -113,7 +139,7 @@ mod win {
         h: i32,
     ) -> Result<Vec<u8>, String> {
         if BitBlt(mem, 0, 0, w, h, screen, x, y, SRCCOPY) == 0 {
-            return Err("BitBlt 没把画面拷过来".into());
+            return Err("BitBlt 拷贝屏幕失败".into());
         }
         // 负高度 = 自上而下的行序：省一次翻转，也跟后面裁剪假定的一致。
         let mut info: BITMAPINFO = std::mem::zeroed();
@@ -135,18 +161,23 @@ mod win {
             DIB_RGB_COLORS,
         );
         if lines == 0 {
-            return Err("GetDIBits 没读到像素".into());
+            return Err("GetDIBits 未读取到像素".into());
         }
         Ok(bgra_to_rgba(&bgra))
     }
 }
 
 #[cfg(windows)]
-pub use win::{capture_virtual_screen, now_stamp};
+pub use win::{capture_virtual_screen, now_stamp, virtual_screen_bounds};
+
+#[cfg(not(windows))]
+pub fn virtual_screen_bounds() -> Result<ScreenBounds, String> {
+    Err("区域截图目前仅支持 Windows（抓屏依赖 GDI）".into())
+}
 
 #[cfg(not(windows))]
 pub fn capture_virtual_screen() -> Result<RawShot, String> {
-    Err("区域截图目前只在 Windows 上做了（抓屏走 GDI）".into())
+    Err("区域截图目前仅支持 Windows（抓屏依赖 GDI）".into())
 }
 
 #[cfg(not(windows))]

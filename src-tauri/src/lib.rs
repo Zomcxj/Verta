@@ -419,7 +419,6 @@ pub fn run() {
             vibrancy::window_set_backdrop,
             modules::window_presentation::window_presentation_state,
             screenshot::screenshot_begin,
-            screenshot::screenshot_pending,
             screenshot::screenshot_finish,
             screenshot::screenshot_cancel,
             screenshot::screenshot_failed,
