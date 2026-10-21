@@ -203,7 +203,9 @@ export function MarkdownImage({
       loading="lazy"
       // Size lives in CSS: an HTML height attribute beats any CSS that keeps the
       // ratio, which is what squashed the wide screenshots.
-      className="block rounded-sm"
+      // `inline-block`（不是 `block`）让一行里的几张图并排放 —— 徽章那种一行两个的写法
+      // 被 block 拆成两行就不对了；`mr-2 last:mr-0` 给中间留间距、末尾不留尾巴。
+      className="inline-block align-middle mr-2 last:mr-0 rounded-sm"
       style={{ objectFit: "contain", ...sized, ...style }}
       onLoad={(event: SyntheticEvent<HTMLImageElement>) => {
         setLoadedSrc(resolved);

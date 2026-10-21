@@ -3,8 +3,8 @@
 本项目基于 [crynta/terax-ai](https://github.com/crynta/terax-ai)（Apache-2.0）二次开发，该协议要求
 修改过的项目说明改动内容，这份文件就是那份说明。按日期倒序，最近的在前。
 
-一条改动写一行，说清楚改了什么，不需要写行号和函数名。新增的、改过的、删掉的都记，
-删除整个模块的也记一行，便于日后追溯。
+一条改动写一行：**上游没有的新模块 / 新功能**写一行就够；**改到上游原有文件的**要具体到文件
+（哪个文件、改了什么）。不写行号与函数名。
 
 明细按日期折叠：日期本身就是折叠行的标题（`<details>` + `<summary>`），GitHub 上渲染成日期左侧的
 展开/收起箭头，纯文本打开也照读。**最新的一天默认 `open`**；换到新的一天时，照抄上一段并把日期换成当天、
@@ -15,26 +15,28 @@
 <details open>
 <summary><strong>2026-10-21</strong></summary>
 
-**字体设置：改成从本机已装字体里下拉选（终端与编辑器共用一个字体）**
+**Pi 会话列表：显示最新的会话名**
 
-- `src-tauri/src/modules/fonts.rs`：新增。列本机字体族：Windows 走 GDI `EnumFontFamiliesExW`（与 Office / VS Code 看到的是同一份家族名，去掉 `@` 竖排前缀），Linux 走 `fc-list --format "%{family}\n"`，macOS 走 `system_profiler -json SPFontsDataType`；家族名统一去首尾空白与引号、把内部连续空白压成一个、不分大小写去重、按字典序排。命令 `fonts_list` 读不到就报错（不假装成空列表）。
-- `src-tauri/Cargo.toml`：`windows-sys` 新增 `Win32_Graphics_Gdi` feature。`src-tauri/src/modules/mod.rs`、`src-tauri/src/lib.rs`：注册 `fonts` 模块与 `fonts_list` 命令。
-- `src/lib/native.ts`：新增 `fontsList` 包装。
-- `src/lib/fonts.ts`：新增 `resolveFontStack(字体)` —— 终端字体栈「选中的字体 → 自动检测到的 Nerd Font（画图标字形用）→ 兜底链」；没选字体时仍旧是「检测到的那个一把抓」（老行为不变），选中的正好是检测到的那个也不重复。
-- `src/lib/fontOptions.ts`、`src/lib/fontOptions.test.ts`：新增。下拉选项构造：第一项固定「自动检测」（值就是空串），当前值不在本机时也塞进选项并标记，重复项与空名丢掉。
-- `src/settings/lib/useInstalledFonts.ts`：新增。整个进程只问后端要一次字体列表，读不到记成 `null`。
-- `src/settings/components/FontPicker.tsx`：新增。带搜索框的下拉（Popover + Command，按子串边打边筛 —— 本机近两百个家族名，滚着找不现实）；列表读不到时退回手输框并写明原因。
-- `src/settings/sections/GeneralSection.tsx`：字体那一栏（终端分组里）改用 `FontPicker`，标题改成「字体」、说明写明终端与编辑器共用；编辑器那边不再单独留一栏。
-- `src/modules/settings/store.ts`：`terminalFontFamily` 的默认值由空改成 `Cascadia Code`（终端与编辑器共用这一个设置项；已经存过的值不动，不迁移老配置）。
-- `src/modules/editor/lib/useApplyEditorFontFamily.ts`、`src/app/App.tsx`、`src/modules/editor/lib/extensions.ts`：编辑器字体写进 `--editor-font-family` 变量，CodeMirror 的 `.cm-scroller` 改为读这个变量（它的主题是模块级建一次的，装不下会变的字体栈）。
-- `src/modules/terminal/ghostty/useGhosttyTerminalSession.ts`、`src/modules/terminal/block/ShellInput.tsx`：改用 `resolveFontStack`，图标字形由自动检测的 Nerd Font 兜。
-- `src/modules/i18n/messages.ts`：改写字体那一栏的中英文文案（「字体」「自动检测」「不在本机」「列本机字体失败」「搜索字体」），原来那栏的标题从「字体族」改成现在的说法。
-- `scripts/dev/webview-eval.mjs`：新增 `--match=<片段>` 选择页面（按 URL 全等优先，设置窗口的 URL 含主窗口前缀，只按片段会挑错窗口）。
+- `src-tauri/src/modules/agent_sessions/pi.rs`：会话名不再只从文件头 8 MB 里找（长会话里改名那行可能在几十 MB 之后，读不到就退回第一条用户消息）；改成从文件末尾按块往回搜 `session_info`，取最后一个名字，命中处把那一整行读全。头部窗口从 8 MB 降到 1 MB。
 
-**Markdown 预览：没有尺寸的小图不再被撑成大横幅**
+**Markdown 预览：没写尺寸的小图不再被撑成大横幅**
 
-- `src/modules/markdown/MarkdownImage.tsx`：没写高度的图片此前一律钉成 `height: 260px`（配 `object-fit: contain` + `max-width: 100%`），于是 116×20 的徽章被拉成整栏宽的大横幅；改成加载前仍按 260px 占位（大截图加载完不会往下顶一屏）、加载完换成 `max-height: 260px` 回到图片自己的尺寸，作者写了尺寸的照旧、表格里量出来的尺寸照旧。同时把这段尺寸决策抽成纯函数 `previewImageStyle`（表格尺寸 → 作者尺寸 → 占位/自然尺寸）。
-- `src/modules/markdown/MarkdownImage.test.ts`：新增，覆盖上面这条决策的四个分支。
+- `src/modules/markdown/MarkdownImage.tsx`：没写高度的图片原来一律钉成 `height: 260px`（配 `object-fit: contain`），116×20 的徽章被拉成整栏宽的大横幅；改成加载前按 260px 占位、加载完回到图片自己的尺寸（260px 只当封顶）。尺寸决策抽成纯函数 `previewImageStyle`。
+- `src/modules/markdown/MarkdownImage.test.ts`：新增，覆盖四个分支。
+
+**Markdown 预览：并排的小图回到一行**
+
+- `src/modules/markdown/MarkdownImage.tsx`：图片 `display` 从 `block` 改成 `inline-block`（配 `mr-2 last:mr-0`），一行里的几张图并排显示、中间留间距。
+
+**字体：改成下拉选本机字体（终端与编辑器共用一个字体）**
+
+- `src-tauri/src/modules/fonts.rs`：新增，列本机字体族（Windows GDI `EnumFontFamiliesExW` / Linux `fc-list` / macOS `system_profiler`）；新增命令 `fonts_list`。
+- `src/lib/fontOptions.ts`、`src/settings/components/FontPicker.tsx`、`src/settings/lib/useInstalledFonts.ts`：新增，选项是「自动检测」+ 本机字体（当前值不在本机时也列出来并标注），下拉可搜索。
+- `src/settings/sections/GeneralSection.tsx`、`src/modules/i18n/messages.ts`：字体那一栏改成下拉，说明写明终端与编辑器共用。
+- `src/modules/settings/store.ts`：`terminalFontFamily` 默认值由空改成 `Cascadia Code`（已经存过的值不动）。
+- `src/lib/fonts.ts`：终端字体栈「选中的字体 → 自动检测到的 Nerd Font（图标）→ 兜底链」。
+- `src/modules/editor/lib/useApplyEditorFontFamily.ts`、`src/modules/editor/lib/extensions.ts`：编辑器字体走 `--editor-font-family` 变量。
+- `src-tauri/Cargo.toml`：`windows-sys` 加 `Win32_Graphics_Gdi` feature。
 
 **GitHub：账号与登录**
 
