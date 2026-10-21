@@ -23,7 +23,7 @@ use portable_pty::PtySize;
 use tauri::Manager;
 
 use crate::modules::control::ControlState;
-use crate::modules::workspace::{user_spawn_cwd_or_home, WorkspaceEnv, WorkspaceRegistry};
+use crate::modules::workspace::{user_spawn_cwd_or_default, WorkspaceEnv, WorkspaceRegistry};
 use hub::{Command, Hub};
 pub use presentation::PresentationClass;
 pub use protocol::stream_protocol;
@@ -172,7 +172,7 @@ pub async fn pty_open(
     let session = tauri::async_runtime::spawn_blocking(move || {
         // Authorizing the directory canonicalizes it, which touches the disk
         // (a network volume, or wsl.exe for a WSL workspace): never on a worker.
-        let cwd = user_spawn_cwd_or_home(
+        let cwd = user_spawn_cwd_or_default(
             &app.state::<WorkspaceRegistry>(),
             cwd.as_deref(),
             &workspace,

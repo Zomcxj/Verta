@@ -21,15 +21,17 @@ export function activeSpaceEnv(
   return findActiveSpace(spaces, activeId)?.env ?? { kind: "local" };
 }
 
-// A WSL space falls back to null, not the local cwd, so its first tab opens at
-// the WSL home instead of a Windows path.
+// 恢复过的标签用它自己的 home；新标签在**本机**与 **WSL** 两种情况下都返回 null——
+// cwd 交给后端定：本机落桌面（`workspace::default_spawn_cwd`），WSL 落该发行版里当前用户的
+// `$HOME`。这里曾经退回 `launchCwd`（Verta 自己的启动目录），终端里冒出一个安装目录是最费解的
+// 一种落点；退回 `home` 也不是用户新开终端时想待的地方。
 export function freshTabCwd(
-  env: WorkspaceEnv,
+  _env: WorkspaceEnv,
   restoredHome: string | null,
-  launchCwd: string | null,
-  home: string | null,
+  _launchCwd: string | null,
+  _home: string | null,
 ): string | null {
-  return restoredHome ?? (env.kind === "local" ? (launchCwd ?? home) : null);
+  return restoredHome;
 }
 
 /**

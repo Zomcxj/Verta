@@ -116,19 +116,44 @@ pub fn authorize_user_spawn_cwd(
 }
 
 // A saved cwd can be stale or from another environment (e.g. a Windows path in
-// a now-WSL space); the terminal must still open, so fall back to home.
-pub fn user_spawn_cwd_or_home(
+// a now-WSL space); the terminal must still open, so fall back to a default.
+pub fn user_spawn_cwd_or_default(
     registry: &WorkspaceRegistry,
     cwd: Option<&str>,
     workspace: &WorkspaceEnv,
 ) -> Option<String> {
-    let cwd = cwd.map(str::trim).filter(|s| !s.is_empty())?;
-    match authorize_user_spawn_cwd(registry, Some(cwd), workspace) {
-        Ok(_) => Some(cwd.to_owned()),
-        Err(e) => {
-            log::warn!("pty cwd {cwd:?} unusable in {workspace:?} ({e}); opening home");
-            None
-        }
+    let usable =
+        cwd.map(str::trim).filter(|s| !s.is_empty()).and_then(
+            |cwd| match authorize_user_spawn_cwd(registry, Some(cwd), workspace) {
+                Ok(_) => Some(cwd.to_owned()),
+                Err(e) => {
+                    log::warn!("pty cwd {cwd:?} unusable in {workspace:?} ({e}); opening default");
+                    None
+                }
+            },
+        );
+    usable.or_else(|| default_spawn_cwd(workspace))
+}
+
+/// Where a fresh terminal lands when it has no usable cwd of its own.
+///
+/// Windows: the user's **Desktop**. Without this the shell inherits Verta's own
+/// launch directory, which is the most confusing place it could pick — the
+/// terminal looks like it belongs to the app's install folder.
+/// WSL: that distro's `$HOME`, asked from `wsl.exe` so it matches the login
+/// shell rather than a guess about the mount layout.
+fn default_spawn_cwd(workspace: &WorkspaceEnv) -> Option<String> {
+    match workspace {
+        WorkspaceEnv::Wsl { distro } => match wsl_home(distro.clone()) {
+            Ok(home) => Some(home),
+            Err(e) => {
+                log::warn!("could not resolve WSL home for {distro} ({e}); leaving cwd unset");
+                None
+            }
+        },
+        WorkspaceEnv::Local => dirs::desktop_dir()
+            .filter(|desktop| desktop.is_dir())
+            .map(crate::modules::fs::to_canon),
     }
 }
 
@@ -918,39 +943,57 @@ mod auth_tests {
     }
 
     #[test]
-    fn user_spawn_cwd_or_home_keeps_accessible_dir() {
+    fn user_spawn_cwd_or_default_keeps_accessible_dir() {
         let dir = tempdir("orhome-ok");
         let reg = WorkspaceRegistry::default();
         let s = dir.to_string_lossy().into_owned();
         assert_eq!(
-            user_spawn_cwd_or_home(&reg, Some(&s), &WorkspaceEnv::Local),
+            user_spawn_cwd_or_default(&reg, Some(&s), &WorkspaceEnv::Local),
             Some(s)
         );
         assert!(reg.is_authorized(&dir));
     }
 
     #[test]
-    fn user_spawn_cwd_or_home_falls_back_when_inaccessible() {
+    fn user_spawn_cwd_or_default_falls_back_when_inaccessible() {
         let mut missing = env::temp_dir();
         missing.push(format!("verta-orhome-missing-{}", std::process::id()));
         let reg = WorkspaceRegistry::default();
         let s = missing.to_string_lossy().into_owned();
+        // 给的目录用不了 → 落到默认目录（本机 Windows 上是桌面），而不是把 cwd 留空让 shell
+        // 继承 Verta 自己的启动目录。
         assert_eq!(
-            user_spawn_cwd_or_home(&reg, Some(&s), &WorkspaceEnv::Local),
-            None
+            user_spawn_cwd_or_default(&reg, Some(&s), &WorkspaceEnv::Local),
+            dirs::desktop_dir()
+                .filter(|d| d.is_dir())
+                .map(crate::modules::fs::to_canon)
         );
     }
 
     #[test]
-    fn user_spawn_cwd_or_home_passes_through_empty() {
+    fn user_spawn_cwd_or_default_passes_through_empty() {
         let reg = WorkspaceRegistry::default();
+        let desktop = dirs::desktop_dir()
+            .filter(|d| d.is_dir())
+            .map(crate::modules::fs::to_canon);
         assert_eq!(
-            user_spawn_cwd_or_home(&reg, None, &WorkspaceEnv::Local),
-            None
+            user_spawn_cwd_or_default(&reg, None, &WorkspaceEnv::Local),
+            desktop
         );
         assert_eq!(
-            user_spawn_cwd_or_home(&reg, Some("  "), &WorkspaceEnv::Local),
-            None
+            user_spawn_cwd_or_default(&reg, Some("  "), &WorkspaceEnv::Local),
+            desktop
+        );
+    }
+
+    #[test]
+    fn a_fresh_terminal_on_windows_lands_on_the_desktop() {
+        let Some(desktop) = dirs::desktop_dir().filter(|d| d.is_dir()) else {
+            return; // 没有桌面目录的环境（CI）不验这条
+        };
+        assert_eq!(
+            default_spawn_cwd(&WorkspaceEnv::Local),
+            Some(crate::modules::fs::to_canon(&desktop))
         );
     }
 

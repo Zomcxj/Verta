@@ -71,15 +71,15 @@ describe("freshTabCwd", () => {
     expect(freshTabCwd(wsl, "/home/aj", "C:/Users/me", "C:/Users/me")).toBe(
       "/home/aj",
     );
+    expect(freshTabCwd(local, "C:/Users/me", "C:/work", "C:/Users/me")).toBe(
+      "C:/Users/me",
+    );
   });
 
-  it("returns null for a WSL space when its home did not resolve", () => {
+  it("leaves a brand-new tab's cwd to the backend, both on local and WSL", () => {
+    // 后端按环境定：本机落桌面，WSL 落该发行版当前用户的 home。
+    expect(freshTabCwd(local, null, "C:/work", "C:/Users/me")).toBeNull();
     expect(freshTabCwd(wsl, null, "C:/Users/me", "C:/Users/me")).toBeNull();
-  });
-
-  it("falls back to the local launch cwd then home for a local space", () => {
-    expect(freshTabCwd(local, null, "C:/work", "C:/Users/me")).toBe("C:/work");
-    expect(freshTabCwd(local, null, null, "C:/Users/me")).toBe("C:/Users/me");
     expect(freshTabCwd(local, null, null, null)).toBeNull();
   });
 });
