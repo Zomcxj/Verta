@@ -91,3 +91,70 @@ describe("resolveFontFamily", () => {
     expect(resolveFontFamily("   ")).toBe(FALLBACK);
   });
 });
+
+describe("resolveFontStack", () => {
+  /** 让自动检测认准 Hack Nerd Font（与上面那组用例同一套桩）。 */
+  const stubDetection = async () => {
+    const context = {
+      font: "",
+      measureText: vi.fn(() => ({
+        width: context.font.includes('"Hack Nerd Font"')
+          ? 130
+          : context.font.endsWith(", serif") || context.font === "16px serif"
+            ? 110
+            : 100,
+      })),
+    };
+    vi.stubGlobal("document", {
+      createElement: () => ({ getContext: () => context }),
+    });
+    const mod = await import("./fonts");
+    expect(mod.detectMonoFontFamily()).toBe(`"Hack Nerd Font", ${FALLBACK}`);
+    return mod;
+  };
+
+  it("没选字体时与老行为一致：检测到的 Nerd Font 一把抓", async () => {
+    const { resolveFontStack } = await stubDetection();
+    expect(resolveFontStack("")).toBe(`"Hack Nerd Font", ${FALLBACK}`);
+  });
+
+  it("选了字体：它在前，检测到的 Nerd Font 跟在后面兜图标", async () => {
+    const { resolveFontStack } = await stubDetection();
+    expect(resolveFontStack("Cascadia Code")).toBe(
+      `"Cascadia Code", "Hack Nerd Font", ${FALLBACK}`,
+    );
+  });
+
+  it("选的正好是检测到的那个字体时不重复", async () => {
+    const { resolveFontStack } = await stubDetection();
+    expect(resolveFontStack("hack nerd font")).toBe(
+      `"hack nerd font", ${FALLBACK}`,
+    );
+  });
+
+  it("拿别人给的一整串栈时原样放在最前", async () => {
+    const { resolveFontStack } = await stubDetection();
+    expect(resolveFontStack("Foo, Bar")).toBe(
+      `Foo, Bar, "Hack Nerd Font", ${FALLBACK}`,
+    );
+  });
+
+  it("本机没有任何候选 Nerd Font 时只有选中项 + 兜底链", async () => {
+    // 没装的字体跟两个兜底字体量出来一样宽，所以检测该是空。
+    const context = {
+      font: "",
+      measureText: vi.fn(() => ({
+        width:
+          context.font.endsWith("serif") && !context.font.endsWith("monospace")
+            ? 110
+            : 100,
+      })),
+    };
+    vi.stubGlobal("document", {
+      createElement: () => ({ getContext: () => context }),
+    });
+    const { resolveFontStack } = await import("./fonts");
+    expect(resolveFontStack("Consolas")).toBe(`"Consolas", ${FALLBACK}`);
+    expect(resolveFontStack("")).toBe(FALLBACK);
+  });
+});

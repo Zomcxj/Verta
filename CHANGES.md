@@ -15,6 +15,22 @@
 <details open>
 <summary><strong>2026-10-21</strong></summary>
 
+**字体设置：改成从本机已装字体里下拉选（终端与编辑器共用一个字体）**
+
+- `src-tauri/src/modules/fonts.rs`：新增。列本机字体族：Windows 走 GDI `EnumFontFamiliesExW`（与 Office / VS Code 看到的是同一份家族名，去掉 `@` 竖排前缀），Linux 走 `fc-list --format "%{family}\n"`，macOS 走 `system_profiler -json SPFontsDataType`；家族名统一去首尾空白与引号、把内部连续空白压成一个、不分大小写去重、按字典序排。命令 `fonts_list` 读不到就报错（不假装成空列表）。
+- `src-tauri/Cargo.toml`：`windows-sys` 新增 `Win32_Graphics_Gdi` feature。`src-tauri/src/modules/mod.rs`、`src-tauri/src/lib.rs`：注册 `fonts` 模块与 `fonts_list` 命令。
+- `src/lib/native.ts`：新增 `fontsList` 包装。
+- `src/lib/fonts.ts`：新增 `resolveFontStack(字体)` —— 终端字体栈「选中的字体 → 自动检测到的 Nerd Font（画图标字形用）→ 兜底链」；没选字体时仍旧是「检测到的那个一把抓」（老行为不变），选中的正好是检测到的那个也不重复。
+- `src/lib/fontOptions.ts`、`src/lib/fontOptions.test.ts`：新增。下拉选项构造：第一项固定「自动检测」（值就是空串），当前值不在本机时也塞进选项并标记，重复项与空名丢掉。
+- `src/settings/lib/useInstalledFonts.ts`：新增。整个进程只问后端要一次字体列表，读不到记成 `null`。
+- `src/settings/components/FontPicker.tsx`：新增。带搜索框的下拉（Popover + Command，按子串边打边筛 —— 本机近两百个家族名，滚着找不现实）；列表读不到时退回手输框并写明原因。
+- `src/settings/sections/GeneralSection.tsx`：字体那一栏（终端分组里）改用 `FontPicker`，标题改成「字体」、说明写明终端与编辑器共用；编辑器那边不再单独留一栏。
+- `src/modules/settings/store.ts`：`terminalFontFamily` 的默认值由空改成 `Cascadia Code`（终端与编辑器共用这一个设置项；已经存过的值不动，不迁移老配置）。
+- `src/modules/editor/lib/useApplyEditorFontFamily.ts`、`src/app/App.tsx`、`src/modules/editor/lib/extensions.ts`：编辑器字体写进 `--editor-font-family` 变量，CodeMirror 的 `.cm-scroller` 改为读这个变量（它的主题是模块级建一次的，装不下会变的字体栈）。
+- `src/modules/terminal/ghostty/useGhosttyTerminalSession.ts`、`src/modules/terminal/block/ShellInput.tsx`：改用 `resolveFontStack`，图标字形由自动检测的 Nerd Font 兜。
+- `src/modules/i18n/messages.ts`：改写字体那一栏的中英文文案（「字体」「自动检测」「不在本机」「列本机字体失败」「搜索字体」），原来那栏的标题从「字体族」改成现在的说法。
+- `scripts/dev/webview-eval.mjs`：新增 `--match=<片段>` 选择页面（按 URL 全等优先，设置窗口的 URL 含主窗口前缀，只按片段会挑错窗口）。
+
 **Markdown 预览：没有尺寸的小图不再被撑成大横幅**
 
 - `src/modules/markdown/MarkdownImage.tsx`：没写高度的图片此前一律钉成 `height: 260px`（配 `object-fit: contain` + `max-width: 100%`），于是 116×20 的徽章被拉成整栏宽的大横幅；改成加载前仍按 260px 占位（大截图加载完不会往下顶一屏）、加载完换成 `max-height: 260px` 回到图片自己的尺寸，作者写了尺寸的照旧、表格里量出来的尺寸照旧。同时把这段尺寸决策抽成纯函数 `previewImageStyle`（表格尺寸 → 作者尺寸 → 占位/自然尺寸）。

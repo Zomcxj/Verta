@@ -606,6 +606,8 @@ export const native = {
   /** 登出；界面上要求确认过才发这条。 */
   githubAuthLogout: (login?: string) =>
     invoke<WireAuthActionPayload>("github_auth_logout", { login: login ?? null }),
+  /** 本机已安装的字体族（给设置里的字体下拉用）；读不到时抛错，界面退回手输框。 */
+  fontsList: () => invoke<string[]>("fonts_list", {}),
   /** 某个仓库的运行列表（默认 20 条）。 */
   githubRepoRuns: (repo: string, limit?: number) =>
     invoke<WireRepoActionRunsPayload>("github_repo_runs", {

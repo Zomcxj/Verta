@@ -63,7 +63,8 @@ const SHARED_EXTENSIONS: readonly Extension[] = Object.freeze([
       padding: "8px",
     },
     ".cm-scroller": {
-      fontFamily: detectMonoFontFamily(),
+      // 字体走 CSS 变量：主题是模块级建一次的，改不了里面的栈，设置里改字体只更新变量。
+      fontFamily: `var(--editor-font-family, ${detectMonoFontFamily()})`,
       fontSize: "calc(var(--editor-font-size, 13px) * var(--app-zoom, 1))",
       lineHeight: "1.55",
       backgroundColor: "transparent !important",

@@ -3,8 +3,8 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent_sessions, control, fs, git, github, history, lsp, net, projects, pty, secrets, shell,
-    vibrancy, workspace,
+    agent_sessions, control, fonts, fs, git, github, history, lsp, net, projects, pty, secrets,
+    shell, vibrancy, workspace,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -331,6 +331,7 @@ pub fn run() {
             github::commands::github_auth_login_web,
             github::commands::github_auth_login_web_cancel,
             github::commands::github_auth_logout,
+            fonts::fonts_list,
             github::commands::github_repo_runs,
             github::commands::github_run_rerun,
             github::commands::github_run_cancel,

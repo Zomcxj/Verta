@@ -5,6 +5,7 @@ pub mod app_menu;
 pub mod bench;
 pub mod control;
 pub mod fs;
+pub mod fonts;
 pub mod git;
 pub mod github;
 pub mod history;

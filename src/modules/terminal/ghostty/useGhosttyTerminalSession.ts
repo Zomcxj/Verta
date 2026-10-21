@@ -7,7 +7,10 @@ import {
 import { initializeSessionGeneration as startSessionInitialization } from "@/modules/terminal/ghostty/sessionInitialization";
 import { replaceSessionSurface } from "@/modules/terminal/ghostty/replaceSessionSurface";
 import { openExternalUrl } from "@/lib/external-link";
-import { ensureMonoFontsLoaded, resolveFontFamily } from "@/lib/fonts";
+import {
+  ensureMonoFontsLoaded,
+  resolveFontStack,
+} from "@/lib/fonts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { TerminalBackendKind } from "@/modules/terminal/backend/contracts";
 import type { WorkspaceEnv } from "@/modules/workspace";
@@ -172,7 +175,8 @@ export function useGhosttyTerminalSession({
   const zoomLevel = usePreferencesStore((state) => state.zoomLevel);
   const font = useMemo<TerminalFontSpec>(
     () => ({
-      family: resolveFontFamily(fontFamily),
+      // 选中的字体 → 自动检测到的 Nerd Font（图标）→ 兜底链。
+      family: resolveFontStack(fontFamily),
       size: Math.max(4, Math.round(fontSize * zoomLevel)),
       lineHeight: 1.2,
       letterSpacing,

@@ -118,6 +118,10 @@ export type Preferences = {
   terminalScreenReader: boolean;
   terminalCursorBlink: boolean;
   terminalCursorStyle: TerminalCursorStyle;
+  /**
+   * 终端与编辑器共用的字体（就这一个设置项）。留空 = 自动检测本机的 Nerd Font；
+   * 键名沿用老的 `terminalFontFamily`，为的是不动已经存过的配置。
+   */
   terminalFontFamily: string;
   terminalFontWeight: string;
   terminalShell: string;
@@ -269,7 +273,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   terminalScreenReader: false,
   terminalCursorBlink: false,
   terminalCursorStyle: "bar",
-  terminalFontFamily: "",
+  terminalFontFamily: "Cascadia Code",
   terminalFontWeight: "normal",
   terminalShell: "",
   terminalLetterSpacing: 0,

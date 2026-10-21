@@ -18,7 +18,11 @@ const NERD_FONT_CANDIDATES = [
 
 const FALLBACK_CHAIN = '"JetBrains Mono", SFMono-Regular, Menlo, monospace';
 
+/** 折好的整串（带引号与兜底链）；保持原有 API 不变。 */
 let detected: string | null = null;
+/** 检测到的家族名（不带引号）；测过一次就不再测。 */
+let detectedName: string | null = null;
+let detectedOnce = false;
 let monoReady: Promise<void> | null = null;
 
 export function ensureMonoFontsLoaded(): Promise<void> {
@@ -43,11 +47,43 @@ export function resolveFontFamily(userInput: string): string {
   return `${head}, ${FALLBACK_CHAIN}`;
 }
 
-export function detectMonoFontFamily(): string {
-  if (detected) return detected;
+/**
+ * 终端字体栈：选的字体 → 自动检测到的 Nerd Font（画图标字形用）→ 兜底链。
+ *
+ * 图标那一档不留设置项：能画出 Nerd Font 图标的字体通常不是你想读正文的那个字体，所以
+ * 正文用用户选的、图标交给自动检测，两边都空时就是老行为（检测到的那个字体一把抓）。
+ */
+export function resolveFontStack(family: string): string {
+  const detected = detectedFamilyName();
+  const detectedToken = detected ? familyToken(detected) : null;
+  const head = familyToken(family) ?? detectedToken;
+  const names: string[] = [];
+  if (head) names.push(head);
+  if (detectedToken && !names.some((name) => sameName(name, detectedToken))) {
+    names.push(detectedToken);
+  }
+  return [...names, FALLBACK_CHAIN].join(", ");
+}
+
+/** 一个输入折成一个字体 token：带逗号的原样当栈头，否则加引号。 */
+function familyToken(input: string): string | null {
+  const name = input.trim();
+  if (!name) return null;
+  return name.includes(",") ? name : `"${name.replace(/['"]/g, "")}"`;
+}
+
+function sameName(a: string, b: string): boolean {
+  const strip = (value: string) => value.replace(/['"]/g, "").trim().toLowerCase();
+  return strip(a) === strip(b);
+}
+
+/** 检测到的家族名（不带引号）；没装任何候选时是 null。测过一次就不再测。 */
+function detectedFamilyName(): string | null {
+  if (detectedOnce) return detectedName;
+  detectedOnce = true;
   if (typeof document === "undefined") {
-    detected = FALLBACK_CHAIN;
-    return detected;
+    detectedName = null;
+    return detectedName;
   }
   const context = document.createElement("canvas").getContext("2d");
   if (context) {
@@ -64,11 +100,18 @@ export function detectMonoFontFamily(): string {
           return context.measureText(sample).width !== widths[index];
         })
       ) {
-        detected = `"${font}", ${FALLBACK_CHAIN}`;
-        return detected;
+        detectedName = font;
+        return detectedName;
       }
     }
   }
-  detected = FALLBACK_CHAIN;
+  detectedName = null;
+  return detectedName;
+}
+
+export function detectMonoFontFamily(): string {
+  if (detected) return detected;
+  const name = detectedFamilyName();
+  detected = name ? `"${name}", ${FALLBACK_CHAIN}` : FALLBACK_CHAIN;
   return detected;
 }

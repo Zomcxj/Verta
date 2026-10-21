@@ -1,4 +1,4 @@
-import { resolveFontFamily } from "@/lib/fonts";
+import { resolveFontStack } from "@/lib/fonts";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/modules/theme";
@@ -69,7 +69,8 @@ export default function ShellInput({
     fontWeight,
   } = useTerminalFont();
   const { activeTheme, resolvedMode } = useTheme();
-  const fontFamily = resolveFontFamily(fontFamilyPref);
+  // 与终端本体同一套字体栈，输入行才跟正文对得上。
+  const fontFamily = resolveFontStack(fontFamilyPref);
   const fontRef = useRef({ fontFamily, fontSize, fontWeight });
   fontRef.current = { fontFamily, fontSize, fontWeight };
 
