@@ -636,6 +636,128 @@ impl RepoActionResult {
     }
 }
 
+/// 本机 gh 当前的登录态。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthStatusPayload {
+    /// `ready`（登着）/ `none`（一个 host 都没登）/ `notInstalled` / `error`。
+    pub kind: &'static str,
+    pub host: Option<String>,
+    pub login: Option<String>,
+    /// gh 给的状态，`success` / `failed` 等。
+    pub state: Option<String>,
+    pub active: bool,
+    /// token 从哪来（`keyring` 等）。**token 本身永远不出现在这里。**
+    pub token_source: Option<String>,
+    pub git_protocol: Option<String>,
+    pub scopes: Vec<String>,
+    pub error: Option<String>,
+}
+
+impl AuthStatusPayload {
+    pub fn found(account: super::auth::AuthAccount) -> Self {
+        Self {
+            kind: KIND_READY,
+            host: Some(account.host),
+            login: account.login,
+            state: Some(account.state),
+            active: account.active,
+            token_source: account.token_source,
+            git_protocol: account.git_protocol,
+            scopes: account.scopes,
+            error: None,
+        }
+    }
+
+    /// 查清楚了：这台机器没登任何 host。不是错误。
+    pub fn none() -> Self {
+        Self {
+            kind: "none",
+            host: None,
+            login: None,
+            state: None,
+            active: false,
+            token_source: None,
+            git_protocol: None,
+            scopes: Vec::new(),
+            error: None,
+        }
+    }
+
+    pub fn failed(error: impl Into<String>) -> Self {
+        Self {
+            kind: KIND_ERROR,
+            host: None,
+            login: None,
+            state: None,
+            active: false,
+            token_source: None,
+            git_protocol: None,
+            scopes: Vec::new(),
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed() -> Self {
+        Self {
+            kind: KIND_NOT_INSTALLED,
+            ..Self::failed("未安装 gh CLI（找不到 gh 命令）")
+        }
+    }
+}
+
+/// 一次登录 / 登出动作的结果。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthActionPayload {
+    pub kind: &'static str,
+    /// 浏览器授权时 gh 打出来的那些话（一次性码、失败原因）；没有就是 null。
+    pub output: Option<String>,
+    pub error: Option<String>,
+}
+
+impl AuthActionPayload {
+    pub fn ok(output: Option<String>) -> Self {
+        Self {
+            kind: KIND_READY,
+            output: output.filter(|text| !text.trim().is_empty()),
+            error: None,
+        }
+    }
+
+    pub fn failed(error: impl Into<String>) -> Self {
+        Self {
+            kind: KIND_ERROR,
+            output: None,
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    /// 用户自己中止的（浏览器授权那条）：不是错误，界面不用弹红字。
+    pub fn cancelled(output: Option<String>) -> Self {
+        Self {
+            kind: "cancelled",
+            output: output.filter(|text| !text.trim().is_empty()),
+            error: None,
+        }
+    }
+
+    pub fn not_installed() -> Self {
+        Self {
+            kind: KIND_NOT_INSTALLED,
+            output: None,
+            error: Some("未安装 gh CLI（找不到 gh 命令）".to_string()),
+        }
+    }
+}
+
+/// 浏览器授权过程中 gh 打出来的一段话（一次性码就在里面）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthLoginProgress {
+    pub text: String,
+}
+
 /// 一次附件下载的进度。由后端按 64 KiB / 100 ms 合并后推给前端，不逐块刷 IPC。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

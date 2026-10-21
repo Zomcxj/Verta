@@ -5,8 +5,12 @@
 //! `hide_console` + `proc::capture::run`，spawn 的 `NotFound` / `PermissionDenied`
 //! 单独归成「没装 gh」。
 
+use std::io::Read;
+use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::Duration;
+
+use shared_child::SharedChild;
 
 use crate::modules::proc::capture::{self, Limits};
 use crate::modules::proc::hide_console;
@@ -15,6 +19,10 @@ use super::repos::{classify_failure, error_excerpt, parse_login, Failure};
 
 /// 一次小查询（`gh api user`）的等待上限。
 pub const USER_TIMEOUT_SECS: u64 = 20;
+/// 粘贴 PAT 登录的等待上限：gh 要拿 token 去问一次 GitHub。
+pub const AUTH_TOKEN_TIMEOUT_SECS: u64 = 60;
+/// 浏览器授权 / 登出的等待上限：浏览器那一步由人操作，给宽一点。
+pub const AUTH_WEB_TIMEOUT_SECS: u64 = 600;
 /// 一页仓库（最多 100 条 JSON）的等待上限：慢网络也别让它一直挂着。
 pub const REPOS_TIMEOUT_SECS: u64 = 45;
 /// 一次「最近一次 CI 运行」的等待上限：一条记录，比整页仓库轻。
@@ -82,11 +90,10 @@ pub fn run(args: &[&str], timeout_secs: u64) -> Result<GhOutput, GhRunError> {
 }
 
 /// 与 `run` 相同，只是输出上限可以调（日志给得宽一些）。
-pub fn run_with_cap(
-    args: &[&str],
-    timeout_secs: u64,
-    stdout_cap: usize,
-) -> Result<GhOutput, GhRunError> {
+/// 备好一条 gh 命令：参数一条一条传、不弹交互提示、不带颜色、套上代理、隐藏控制台。
+///
+/// 调用方自己决定 stdio（普通查询是 stdin=null 收完输出；粘 PAT / 浏览器授权要另起管道）。
+pub fn command(args: &[&str]) -> Command {
     // 参数一条一条传，不拼 shell 字符串。
     let mut cmd = Command::new("gh");
     cmd.args(args)
@@ -102,6 +109,110 @@ pub fn run_with_cap(
     // 不显式给一份就会直连超时（见 modules::proxy）。
     let proxy = crate::modules::proxy::resolve(None);
     crate::modules::proxy::apply(&mut cmd, proxy.as_deref());
+    cmd
+}
+
+/// 起一个 gh 子进程，把它的输出管道带出来（stdout / stderr 一定 piped）。
+///
+/// 给需要边跑边读的场景用（浏览器授权要把一次性码实时打给界面）；一次性查询用 [`run`]。
+pub fn spawn(args: &[&str], pipe_stdin: bool) -> std::io::Result<SharedChild> {
+    let mut cmd = command(args);
+    if pipe_stdin {
+        cmd.stdin(Stdio::piped());
+    }
+    SharedChild::spawn(&mut cmd)
+}
+
+/// 起一个 gh 子进程并把它自己拆出来的两条管道边读边回调（读在独立线程里）。
+pub fn pump<R: Read + Send + 'static>(reader: R, on_text: impl Fn(&str) + Send + 'static) {
+    std::thread::spawn(move || {
+        let mut reader = reader;
+        let mut buf = [0u8; 1024];
+        loop {
+            match reader.read(&mut buf) {
+                // 进程没了管道就到 EOF；出错也当读完了，别把界面卡在那儿。
+                Ok(0) | Err(_) => return,
+                Ok(count) => on_text(&String::from_utf8_lossy(&buf[..count])),
+            }
+        }
+    });
+}
+
+/// 把一串东西写进 gh 的 stdin，等它结束。
+///
+/// 粘 PAT 只能走这条路（`gh auth login --with-token` 从标准输入读 token）：**那串只在内存里过一趟**，
+/// 写进管道就被丢掉，不落任何文件或应用存储。
+pub fn run_with_stdin(
+    args: &[&str],
+    stdin_text: &str,
+    timeout_secs: u64,
+) -> Result<GhOutput, GhRunError> {
+    let child = std::sync::Arc::new(spawn(args, true).map_err(classify_spawn_error)?);
+
+    if let Some(mut stdin) = child.take_stdin() {
+        // 写完就关掉：gh 读到 EOF 才认这串 token。
+        let _ = stdin.write_all(stdin_text.as_bytes());
+        let _ = stdin.write_all(b"\n");
+    }
+
+    let stdout = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let stderr = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    if let Some(pipe) = child.take_stdout() {
+        let sink = stdout.clone();
+        pump(pipe, move |text| {
+            if let Ok(mut guard) = sink.lock() {
+                guard.extend_from_slice(text.as_bytes());
+            }
+        });
+    }
+    if let Some(pipe) = child.take_stderr() {
+        let sink = stderr.clone();
+        pump(pipe, move |text| {
+            if let Ok(mut guard) = sink.lock() {
+                guard.extend_from_slice(text.as_bytes());
+            }
+        });
+    }
+
+    let dur = Duration::from_secs(timeout_secs.clamp(1, MAX_TIMEOUT_SECS));
+    let status = child.wait_timeout(dur).map_err(|e| GhRunError::Io(e.to_string()))?;
+    let timed_out = status.is_none();
+    if timed_out {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    // 进程没了管道很快就到 EOF；这一点点等待只是让读线程把尾巴收完。
+    std::thread::sleep(Duration::from_millis(200));
+
+    let take = |sink: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>| {
+        sink.lock()
+            .map(|guard| String::from_utf8_lossy(&guard).into_owned())
+            .unwrap_or_default()
+    };
+    Ok(GhOutput {
+        stdout: take(&stdout),
+        stderr: take(&stderr),
+        exit_code: status.and_then(|status| status.code()),
+        timed_out,
+        stdout_truncated: false,
+    })
+}
+
+fn classify_spawn_error(error: std::io::Error) -> GhRunError {
+    match error.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => {
+            GhRunError::NotInstalled
+        }
+        _ => GhRunError::Io(error.to_string()),
+    }
+}
+
+pub fn run_with_cap(
+    args: &[&str],
+    timeout_secs: u64,
+    stdout_cap: usize,
+) -> Result<GhOutput, GhRunError> {
+    let mut cmd = command(args);
 
     let dur = Duration::from_secs(timeout_secs.clamp(1, MAX_TIMEOUT_SECS));
     let captured = capture::run(

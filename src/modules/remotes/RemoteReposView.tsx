@@ -19,6 +19,7 @@ import {
   saveProjectPaths,
 } from "@/modules/projects";
 import { CloneRepoDialog } from "@/modules/projects/CloneRepoDialog";
+import { AuthDialog } from "./AuthDialog";
 import { RepoAdminDialog } from "./RepoAdminDialog";
 import { RunListDialog } from "./RunListDialog";
 import { ReleasesDialog } from "./ReleasesDialog";
@@ -58,6 +59,8 @@ export function RemoteReposView({ active }: Props) {
     row: RemoteRepoRow;
     dest: string;
   } | null>(null);
+  /** 账号面板开着没有。 */
+  const [authOpen, setAuthOpen] = useState(false);
   const [ciBusy, setCiBusy] = useState<Record<string, boolean>>({});
 
   /**
@@ -246,11 +249,16 @@ export function RemoteReposView({ active }: Props) {
           {reading ? t("remotes.reading") : t("remotes.refresh")}
         </Button>
         <span className="grow" />
-        <span className="text-xs text-muted-foreground">
+        <button
+          type="button"
+          title={t("remotes.auth.open")}
+          className="rounded text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={() => setAuthOpen(true)}
+        >
           {payload.login
             ? t("remotes.account", { login: payload.login })
             : t("remotes.account.unnamed")}
-        </span>
+        </button>
       </div>
 
       {failure ? (
@@ -277,15 +285,28 @@ export function RemoteReposView({ active }: Props) {
             </p>
           ) : null}
           {notice.tone === "empty" ? null : (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-2 h-7 text-xs"
-              onClick={() => void read()}
-              disabled={reading}
-            >
-              {t("remotes.reload")}
-            </Button>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {/* 没登录 / 没装 gh 时，这里最能直接给出下一步：打开账号面板。 */}
+              {payload.kind === "notLoggedIn" || payload.kind === "notInstalled" ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setAuthOpen(true)}
+                >
+                  {t("remotes.auth.open")}
+                </Button>
+              ) : null}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => void read()}
+                disabled={reading}
+              >
+                {t("remotes.reload")}
+              </Button>
+            </div>
           )}
         </div>
       ) : (
@@ -378,6 +399,14 @@ export function RemoteReposView({ active }: Props) {
           if (!open) setCloneFor(null);
         }}
         onCloned={(path) => void handleCloned(path)}
+      />
+      <AuthDialog
+        open={authOpen}
+        onOpenChange={(next) => {
+          setAuthOpen(next);
+          // 关掉时重读一次列表：账号面板里可能刚登录 / 登出过，头部与列表都得跟着变。
+          if (!next) void read();
+        }}
       />
     </div>
   );

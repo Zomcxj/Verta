@@ -265,6 +265,7 @@ pub fn run() {
         .manage(fs::supersede::Supersede::default())
         .manage(fs::index::FileIndexState::default())
         .manage(github::commands::DownloadState::default())
+        .manage(github::commands::AuthLoginState::default())
         .manage({
             let registry = workspace::WorkspaceRegistry::default();
             workspace::bootstrap_registry(&registry);
@@ -325,6 +326,11 @@ pub fn run() {
             github::commands::github_repo_set_description,
             github::commands::github_repo_set_visibility,
             github::commands::github_repo_delete,
+            github::commands::github_auth_status,
+            github::commands::github_auth_login_token,
+            github::commands::github_auth_login_web,
+            github::commands::github_auth_login_web_cancel,
+            github::commands::github_auth_logout,
             github::commands::github_repo_runs,
             github::commands::github_run_rerun,
             github::commands::github_run_cancel,

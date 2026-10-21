@@ -20,6 +20,7 @@ use super::actions::{
     cap_lines, clamp_limit, classify_run_probe, parse_jobs, parse_log, parse_runs, RunProbe,
     MAX_LOG_LINES,
 };
+use super::auth;
 use super::ci::parse_latest_run;
 use super::ci::parse_repo_slug;
 use super::gh::{self, GhRunError, LoginProbe};
@@ -29,13 +30,13 @@ use super::releases::{self, finish_download, safe_file_name, should_report};
 use super::repo_admin;
 use super::repos::{
     classify_failure, error_excerpt, page_path, parse_login, parse_repos, should_continue_page,
-    MAX_PAGES, MAX_PER_PAGE,
+    Failure, MAX_PAGES, MAX_PER_PAGE,
 };
 use super::types::{
-    ReleaseDownloadProgress, ReleaseDownloadResult, RemoteRepo, RemoteReposPayload,
-    RepoActionRunsPayload, RepoActionResult, RepoCiPayload, RepoPermissionPayload,
-    RepoReleasesPayload, RepoRunActionResult, RepoRunJobsPayload, RepoRunLogPayload,
-    RepoSettingsPayload, KIND_ERROR,
+    AuthActionPayload, AuthLoginProgress, AuthStatusPayload, ReleaseDownloadProgress,
+    ReleaseDownloadResult, RemoteRepo, RemoteReposPayload, RepoActionRunsPayload, RepoActionResult,
+    RepoCiPayload, RepoPermissionPayload, RepoReleasesPayload, RepoRunActionResult,
+    RepoRunJobsPayload, RepoRunLogPayload, RepoSettingsPayload, KIND_ERROR,
 };
 
 /// 当前账号能访问的仓库列表（自己的 + 协作的 + 组织成员可见的）。
@@ -410,6 +411,270 @@ fn confirm_repo_gone(slug: &str) -> RepoActionResult {
         }
     }
     RepoActionResult::failed(KIND_ERROR, slug, "删除请求已发出，但没能确认结果")
+}
+
+/// 本机 gh 的登录态。
+#[tauri::command]
+pub async fn github_auth_status() -> Result<AuthStatusPayload, String> {
+    blocking(move || Ok(read_auth_status())).await
+}
+
+fn read_auth_status() -> AuthStatusPayload {
+    let output = match gh::run(&["auth", "status", "--json", "hosts"], gh::USER_TIMEOUT_SECS) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return AuthStatusPayload::not_installed(),
+        Err(GhRunError::Io(error)) => {
+            return AuthStatusPayload::failed(format!("运行 gh 失败：{error}"))
+        }
+    };
+
+    match auth::parse_status(&output.stdout) {
+        Ok(Some(account)) => AuthStatusPayload::found(account),
+        // 查清楚了：一个 host 都没登。这是 `none`，不是错误。
+        Ok(None) => AuthStatusPayload::none(),
+        Err(error) => {
+            let text = output.failure_text();
+            // 老版本 gh 没有 --json，或者输出被别的东西污染：退回按文本判定登录态。
+            if !output.is_ok() && matches!(classify_failure(&text), Failure::NotLoggedIn) {
+                AuthStatusPayload::none()
+            } else {
+                AuthStatusPayload::failed(format!(
+                    "{error}（gh 原话：{}）",
+                    error_excerpt(&text)
+                ))
+            }
+        }
+    }
+}
+
+/// 用粘贴的 PAT 登录。token 只经过内存：写进 gh 的 stdin，不落任何存储。
+#[tauri::command]
+pub async fn github_auth_login_token(token: String) -> Result<AuthActionPayload, String> {
+    blocking(move || Ok(login_with_token(&token))).await
+}
+
+fn login_with_token(token: &str) -> AuthActionPayload {
+    if let Some(problem) = auth::token_problem(token) {
+        return AuthActionPayload::failed(problem);
+    }
+    let result = gh::run_with_stdin(
+        &[
+            "auth",
+            "login",
+            "--hostname",
+            "github.com",
+            "--git-protocol",
+            "https",
+            "--with-token",
+        ],
+        token.trim(),
+        gh::AUTH_TOKEN_TIMEOUT_SECS,
+    );
+    match result {
+        Ok(output) if output.is_ok() => AuthActionPayload::ok(None),
+        Ok(output) => {
+            let text = output.failure_text();
+            AuthActionPayload::failed(format!("gh 没接受这个 token：{}", error_excerpt(&text)))
+        }
+        Err(GhRunError::NotInstalled) => AuthActionPayload::not_installed(),
+        Err(GhRunError::Io(error)) => {
+            AuthActionPayload::failed(format!("运行 gh 失败：{error}"))
+        }
+    }
+}
+
+/// 浏览器授权：跑 `gh auth login --web`，把它打出来的话（含一次性码）实时推给界面。
+///
+/// 这一步要人在浏览器里点，所以超时给到十分钟；中途可以取消。
+#[tauri::command]
+pub async fn github_auth_login_web(
+    app: AppHandle,
+    state: State<'_, AuthLoginState>,
+) -> Result<AuthActionPayload, String> {
+    let worker_app = app.clone();
+    // 把状态抄一份出来（内部是 Arc）：blocking 闭包要带着它活到后台线程上。
+    let worker_state = state.inner().clone();
+    blocking(move || Ok(login_with_web(&worker_app, &worker_state))).await
+}
+
+#[tauri::command]
+pub fn github_auth_login_web_cancel(state: State<'_, AuthLoginState>) {
+    state.cancel();
+}
+
+fn login_with_web(app: &AppHandle, state: &AuthLoginState) -> AuthActionPayload {
+    let child = match gh::spawn(
+        &[
+            "auth",
+            "login",
+            "--hostname",
+            "github.com",
+            "--git-protocol",
+            "https",
+            "--web",
+        ],
+        // 交互提示不关：这一条本来就要开浏览器、要等人在浏览器里点完。
+        false,
+    ) {
+        Ok(child) => std::sync::Arc::new(child),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            return AuthActionPayload::not_installed()
+        }
+        Err(error) => return AuthActionPayload::failed(format!("无法启动 gh：{error}")),
+    };
+    state.set(child.clone());
+
+    let sink = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    // 两个管道各起一个读线程：gh 把一次性码打在 stderr 上，别漏了。
+    if let Some(pipe) = child.take_stdout() {
+        let sink = sink.clone();
+        let app = app.clone();
+        gh::pump(pipe, move |text| emit_auth_text(&sink, &app, text));
+    }
+    if let Some(pipe) = child.take_stderr() {
+        let sink = sink.clone();
+        let app = app.clone();
+        gh::pump(pipe, move |text| emit_auth_text(&sink, &app, text));
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(gh::AUTH_WEB_TIMEOUT_SECS);
+    let mut cancelled = false;
+    let status = loop {
+        if state.is_cancelled() {
+            cancelled = true;
+            break None;
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {
+                if Instant::now() > deadline {
+                    let _ = child.kill();
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            Err(error) => return AuthActionPayload::failed(format!("等待 gh 失败：{error}")),
+        }
+    };
+    state.clear();
+    // 让读线程把管道里的尾巴收完。
+    std::thread::sleep(Duration::from_millis(300));
+
+    let output = sink
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default();
+    if cancelled {
+        return AuthActionPayload::cancelled(Some(output));
+    }
+    match status {
+        Some(status) if status.success() => AuthActionPayload::ok(Some(output)),
+        Some(_) => AuthActionPayload::failed(format!(
+            "浏览器授权没成功。gh 说：{}",
+            last_lines(&output, 3)
+        )),
+        None => AuthActionPayload::failed(format!(
+            "等了 {} 分钟还没在浏览器里完成，已中止。gh 说：{}",
+            gh::AUTH_WEB_TIMEOUT_SECS / 60,
+            last_lines(&output, 3)
+        )),
+    }
+}
+
+/// 登出。界面上要求确认过才发这条。
+#[tauri::command]
+pub async fn github_auth_logout(login: Option<String>) -> Result<AuthActionPayload, String> {
+    blocking(move || Ok(logout(login.as_deref()))).await
+}
+
+fn logout(login: Option<&str>) -> AuthActionPayload {
+    let mut args = vec!["auth", "logout", "--hostname", "github.com"];
+    let user = login.map(str::trim).filter(|value| !value.is_empty());
+    if let Some(user) = user {
+        args.push("--user");
+        args.push(user);
+    }
+    match gh::run(&args, gh::USER_TIMEOUT_SECS) {
+        Ok(output) if output.is_ok() => AuthActionPayload::ok(Some(output.stdout.clone())),
+        Ok(output) => {
+            let text = output.failure_text();
+            AuthActionPayload::failed(format!("登出没成功：{}", error_excerpt(&text)))
+        }
+        Err(GhRunError::NotInstalled) => AuthActionPayload::not_installed(),
+        Err(GhRunError::Io(error)) => {
+            AuthActionPayload::failed(format!("运行 gh 失败：{error}"))
+        }
+    }
+}
+
+/// 浏览器授权时把 gh 的一段输出同时记进汇总、并推给界面。
+fn emit_auth_text(
+    sink: &std::sync::Arc<std::sync::Mutex<String>>,
+    app: &AppHandle,
+    text: &str,
+) {
+    if let Ok(mut guard) = sink.lock() {
+        guard.push_str(text);
+    }
+    let _ = app.emit(
+        "verta://gh-auth",
+        AuthLoginProgress {
+            text: text.to_string(),
+        },
+    );
+}
+
+/// gh 打出来的最后几行：给失败原因用，别把整段甩给用户。
+fn last_lines(text: &str, count: usize) -> String {
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let start = lines.len().saturating_sub(count);
+    lines[start..].join(" / ")
+}
+
+/// 浏览器授权那个 gh 进程的把手（取消要用）。
+#[derive(Default, Clone)]
+pub struct AuthLoginState {
+    child: std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<shared_child::SharedChild>>>>,
+    cancelled: std::sync::Arc<AtomicBool>,
+}
+
+impl AuthLoginState {
+    fn set(&self, child: std::sync::Arc<shared_child::SharedChild>) {
+        self.cancelled.store(false, Ordering::SeqCst);
+        if let Ok(mut guard) = self.child.lock() {
+            *guard = Some(child);
+        }
+    }
+
+    fn clear(&self) {
+        if let Ok(mut guard) = self.child.lock() {
+            *guard = None;
+        }
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// 取消一次浏览器授权：标记 + 杀掉那个 gh 进程。
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+        if let Ok(mut guard) = self.child.lock() {
+            if let Some(child) = guard.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
 }
 
 /// 某个仓库最近的运行列表。

@@ -4,6 +4,7 @@
 //! Releases 与资产下载留给后续切片。
 
 mod actions;
+mod auth;
 mod ci;
 pub mod commands;
 mod gh;

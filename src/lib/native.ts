@@ -169,6 +169,34 @@ export type WireRepoActionResult = {
   error: string | null;
 };
 
+/**
+ * 本机 gh 的登录态。
+ *
+ * `none` 是查清楚了的「一个 host 都没登」，不是错误。**token 本身永远不在这里。**
+ */
+export type WireAuthStatusPayload = {
+  kind: "ready" | "none" | "notInstalled" | "error";
+  host: string | null;
+  login: string | null;
+  state: string | null;
+  active: boolean;
+  tokenSource: string | null;
+  gitProtocol: string | null;
+  scopes: string[];
+  error: string | null;
+};
+
+/** 一次登录 / 登出动作的结果；`cancelled` 是用户自己中止的浏览器授权。 */
+export type WireAuthActionPayload = {
+  kind: "ready" | "cancelled" | "notInstalled" | "error";
+  /** 浏览器授权时 gh 打出来的那些话（一次性码、失败原因）。 */
+  output: string | null;
+  error: string | null;
+};
+
+/** 浏览器授权过程中 gh 打出来的一段话。 */
+export type WireAuthLoginProgress = { text: string };
+
 /** 运行列表里的一条（重跑/取消要用 `id`）。 */
 export type WireRepoActionRun = {
   id: number;
@@ -564,6 +592,20 @@ export const native = {
   /** 删仓库（不可撤销）；后端发完请求会回查确认真的没了才报成功。 */
   githubRepoDelete: (repo: string) =>
     invoke<WireRepoActionResult>("github_repo_delete", { repo }),
+  /** 本机 gh 的登录态。 */
+  githubAuthStatus: () => invoke<WireAuthStatusPayload>("github_auth_status", {}),
+  /** 用粘贴的 PAT 登录；token 只经过内存，写进 gh 的 stdin。 */
+  githubAuthLoginToken: (token: string) =>
+    invoke<WireAuthActionPayload>("github_auth_login_token", { token }),
+  /** 浏览器授权；gh 打出来的话通过 `verta://gh-auth` 事件流出来。 */
+  githubAuthLoginWeb: () =>
+    invoke<WireAuthActionPayload>("github_auth_login_web", {}),
+  /** 中止浏览器授权（杀掉那个 gh 进程）。 */
+  githubAuthLoginWebCancel: () =>
+    invoke<void>("github_auth_login_web_cancel", {}),
+  /** 登出；界面上要求确认过才发这条。 */
+  githubAuthLogout: (login?: string) =>
+    invoke<WireAuthActionPayload>("github_auth_logout", { login: login ?? null }),
   /** 某个仓库的运行列表（默认 20 条）。 */
   githubRepoRuns: (repo: string, limit?: number) =>
     invoke<WireRepoActionRunsPayload>("github_repo_runs", {

@@ -15,6 +15,19 @@
 <details open>
 <summary><strong>2026-10-21</strong></summary>
 
+**GitHub：账号与登录**
+
+- `src-tauri/src/modules/github/auth.rs`：新增。解析 `gh auth status --json hosts`（挑活跃账号、拆 scopes、缺字段不崩），以及在本地拦掉明显不对的粘贴 token。
+- `src-tauri/src/modules/github/gh.rs`：抽出 `command()`（参数一条条传、关交互提示、套代理、隐藏控制台统一备好）；新增 `spawn` / `pump` / `run_with_stdin`（粘 PAT 只能从 stdin 进）；新增 `AUTH_TOKEN_TIMEOUT_SECS` / `AUTH_WEB_TIMEOUT_SECS`。
+- `src-tauri/src/modules/github/types.rs`：新增 `AuthStatusPayload` / `AuthActionPayload` / `AuthLoginProgress`。
+- `src-tauri/src/modules/github/commands.rs`、`mod.rs`、`src-tauri/src/lib.rs`：新增 `github_auth_status` / `github_auth_login_token` / `github_auth_login_web`（把 gh 打的一次性码实时推给界面，可中止）/ `github_auth_login_web_cancel` / `github_auth_logout`，以及 `AuthLoginState`。
+- `src/lib/native.ts`：新增上述五条包装与线格式类型。
+- `src/modules/remotes/lib/auth.ts`：新增。登录态折成界面要的样子、缺 `delete_repo` 授权的判定、粘 token 的本地预检。
+- `src/modules/remotes/AuthDialog.tsx`：新增。当前状态 / 浏览器授权（实时输出一次性码、可中止）/ 粘贴 PAT（提交后立刻清空输入框）/ 登出（确认框先说清后果）。
+- `src/modules/remotes/RemoteReposView.tsx`：页头账号变成入口；没登录 / 没装 gh 的提示块里也加一个入口；关掉面板时重读一次列表。
+- `src/modules/i18n/messages.ts`：新增上述界面的中英文文案。
+- `scripts/dev/probes/auth-acceptance.mjs`：新增，登录态面板的验收脚本（`--isolated` 那轮在临时 `GH_CONFIG_DIR` 里跑「没登录」的流程，不碰真实登录态）。
+
 **GitHub：仓库管理（改描述 / 切可见性 / 删仓库）与克隆到本地**
 
 - `src-tauri/src/modules/github/repo_admin.rs`：新增。读 `gh repo view --json description,visibility,viewerPermission`；描述超 350 字在本地拦下；认出「gh 缺 delete_repo 授权」这种能自己补救的失败。
