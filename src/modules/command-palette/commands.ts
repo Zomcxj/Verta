@@ -25,7 +25,6 @@ import type { PaletteItem } from "./types";
 
 export const COMMAND_GROUPS = [
   "cmdGroup.General",
-  "cmdGroup.Spaces",
   "cmdGroup.Tabs",
   "cmdGroup.Panes",
   "cmdGroup.Git",
@@ -57,11 +56,6 @@ export type CommandPaletteActionContext = {
   toggleHiddenFiles: () => void;
   openSettings: () => void;
   openKeyboardShortcuts: () => void;
-  spaces: { id: string; name: string }[];
-  activeSpaceId: string | null;
-  openSpacesOverview: () => void;
-  newSpace: () => void;
-  switchSpace: (id: string) => void;
 };
 
 const noop = () => {};
@@ -110,33 +104,6 @@ export function createCommandItems(
       icon: KeyboardIcon,
       run: ctx.openKeyboardShortcuts,
     },
-    {
-      id: "spaces.overview",
-      title: "cmd.spacesOverview",
-      group: "cmdGroup.Spaces",
-      keywords: ["spaces", "sessions", "overview", "organize", "manage", "move"],
-      icon: DashboardSquare01Icon,
-      run: ctx.openSpacesOverview,
-    },
-    {
-      id: "spaces.new",
-      title: "cmd.newSpace",
-      group: "cmdGroup.Spaces",
-      keywords: ["space", "session", "workspace", "group", "create"],
-      icon: DashboardSquare01Icon,
-      run: ctx.newSpace,
-    },
-    ...ctx.spaces.map((sp) => ({
-      id: `spaces.switch.${sp.id}`,
-      title: "cmd.switchToSpace" as const,
-      group: "cmdGroup.Spaces" as const,
-      spaceName: sp.name,
-      keywords: ["space", "switch", "session", sp.name],
-      icon: DashboardSquare01Icon,
-      disabledReason:
-        sp.id === ctx.activeSpaceId ? "cmd.currentSpace" : undefined,
-      run: () => ctx.switchSpace(sp.id),
-    })),
     {
       id: "tab.new",
       title: "cmd.newTerminal",

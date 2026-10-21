@@ -6,7 +6,6 @@ function terminalTab(over: Partial<TerminalTab> = {}): TerminalTab {
   return {
     id: 1,
     kind: "terminal",
-    spaceId: "default",
     title: "shell",
     paneTree: { kind: "leaf", id: 2 },
     activeLeafId: 2,
@@ -27,7 +26,12 @@ describe("labelFor (terminal tabs)", () => {
 
   it("prefers a custom title over the cwd-derived name", () => {
     expect(
-      labelFor(terminalTab({ cwd: "/Users/me/projects/verta-ai", customTitle: "Server" })),
+      labelFor(
+        terminalTab({
+          cwd: "/Users/me/projects/verta-ai",
+          customTitle: "Server",
+        }),
+      ),
     ).toBe("Server");
   });
 

@@ -39,7 +39,6 @@ import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { useT } from "@/modules/i18n";
 import {
   basename as projectBasename,
-  samePath as sameProjectPath,
   type ProjectEntry,
 } from "@/modules/projects";
 import { newSessionCommand } from "@/modules/launcher/lib/resumeCommand";
@@ -66,23 +65,18 @@ import {
   useRepositoryTargeting,
   useSourceControlContext,
 } from "@/modules/source-control";
-import {
-  SpaceSwitcher,
-  useSpacePersistence,
-  useSpaces,
-  useSpacesBoot,
-} from "@/modules/spaces";
 import { StatusBar } from "@/modules/statusbar";
 import {
   type CloseTabsPlan,
   type TerminalChoice,
   TabSwitcherHud,
+  useTabPersistence,
+  useTabRestore,
   useTabSwitcher,
   useTabs,
   useWindowTitle,
   useWorkspaceCwd,
 } from "@/modules/tabs";
-import { DEFAULT_SPACE_ID } from "@/modules/tabs/lib/useTabs";
 import {
   clearFocusedTerminal,
   disposeSession,
@@ -135,15 +129,9 @@ import {
   useState,
 } from "react";
 import { CloseDialogs } from "./components/CloseDialogs";
-import {
-  WorkspaceInputBar,
-} from "./components/WorkspaceInputBar";
+import { WorkspaceInputBar } from "./components/WorkspaceInputBar";
 import { WorkspaceSurface } from "./components/WorkspaceSurface";
-import {
-  hasOpenPathTab,
-  renamedPath,
-  spacesEmptiedByTabs,
-} from "./hooks/tabCloseGuards";
+import { hasOpenPathTab, renamedPath } from "./hooks/tabCloseGuards";
 import { useAppCloseGuard } from "./hooks/useAppCloseGuard";
 import { useTabCloseGuards } from "./hooks/useTabCloseGuards";
 import { useWorkspaceSwitcher } from "./hooks/useWorkspaceSwitcher";
@@ -162,13 +150,8 @@ export default function App() {
     allocId,
     booted,
     replaceTabs,
-    moveTabToSpace,
-    reorderTab,
     reorderTabByGap,
-    newTabInSpace,
-    removeTabsForSpace,
     markBooted,
-    setActiveSpaceForNewTabs,
     newTab,
     newBlockTab,
     newAgentTab,
@@ -259,70 +242,22 @@ export default function App() {
     clearWorkspaceState,
   });
 
-  const activeSpaceId = useSpaces((s) => s.activeId);
   const t = useT();
-  const spacesHydrated = useSpaces((s) => s.hydrated);
-  const activeSpaceIdRef = useRef(activeSpaceId);
-  useLayoutEffect(() => {
-    tabsRef.current = tabs;
-    activeIdRef.current = activeId;
-    activeSpaceIdRef.current = activeSpaceId;
-  }, [tabs, activeId, activeSpaceId]);
-  const sourceControlSpaceId = activeSpaceId ?? DEFAULT_SPACE_ID;
 
-  useSpacesBoot({
+  const tabsHydrated = useTabRestore({
     ready: launchCwdResolved,
-    launchCwd,
-    home,
     allocId,
     replaceTabs,
     markBooted,
-    setActiveSpaceForNewTabs,
     adoptWorkspaceEnv,
   });
 
-  useSpacePersistence({
-    tabs,
-    activeId,
-    activeSpaceId: activeSpaceId ?? DEFAULT_SPACE_ID,
-    enabled: spacesHydrated,
-  });
+  useTabPersistence({ tabs, activeId, enabled: tabsHydrated });
 
-  const prevSpaceRef = useRef(activeSpaceId);
-  useEffect(() => {
-    if (!spacesHydrated || !activeSpaceId) return;
-    setActiveSpaceForNewTabs(activeSpaceId);
-    const prev = prevSpaceRef.current;
-    prevSpaceRef.current = activeSpaceId;
-    if (prev === null || prev === activeSpaceId) return;
-    const meta = useSpaces
-      .getState()
-      .spaces.find((s) => s.id === activeSpaceId);
-    if (meta) {
-      // 环境跟着项目走：根路径落在 WSL 里就用 WSL，落在盘上就用本机。
-      void adoptWorkspaceEnv(envForRoot(meta.root, meta.env));
-    }
-    const inSpace = tabsRef.current.filter((t) => t.spaceId === activeSpaceId);
-    if (inSpace.length === 0) return;
-    // Keep the active tab if it already belongs to the newly active space (a
-    // cross-space jump set it explicitly); else fall to the space's last tab.
-    if (inSpace.some((t) => t.id === activeId)) return;
-    setActiveId(inSpace[inSpace.length - 1].id);
-  }, [
-    activeSpaceId,
-    activeId,
-    spacesHydrated,
-    setActiveSpaceForNewTabs,
-    setActiveId,
-    adoptWorkspaceEnv,
-  ]);
-
-  const [switcherOpen, setSwitcherOpen] = useState(false);
-
-  const spaceTabs = useMemo(
-    () => tabs.filter((t) => t.spaceId === (activeSpaceId ?? DEFAULT_SPACE_ID)),
-    [tabs, activeSpaceId],
-  );
+  useLayoutEffect(() => {
+    tabsRef.current = tabs;
+    activeIdRef.current = activeId;
+  }, [tabs, activeId]);
 
   const {
     sidebarRef,
@@ -452,15 +387,12 @@ export default function App() {
   const disposeDeletedTabs = useCallback(
     (ids: number[]) => {
       if (ids.length === 0) return;
-      for (const spaceId of spacesEmptiedByTabs(tabsRef.current, ids)) {
-        const root = useSpaces
-          .getState()
-          .spaces.find((s) => s.id === spaceId)?.root;
-        newTabInSpace(spaceId, root ?? undefined);
-      }
+      // 磁盘上的文件被删、标签跟着关，可能把标签关光；补一个，窗口不留空壳。
+      const doomed = new Set(ids);
+      if (!tabsRef.current.some((t) => !doomed.has(t.id))) newTab();
       for (const id of ids) disposeTab(id);
     },
-    [disposeTab, newTabInSpace],
+    [disposeTab, newTab],
   );
 
   const {
@@ -534,15 +466,12 @@ export default function App() {
   }, [tabs]);
 
   const getSwitcherOrder = useCallback(() => {
-    const space = activeSpaceId ?? DEFAULT_SPACE_ID;
-    const inSpace = tabsRef.current
-      .filter((t) => t.spaceId === space)
-      .map((t) => t.id);
-    const present = new Set(inSpace);
+    const ids = tabsRef.current.map((t) => t.id);
+    const present = new Set(ids);
     const ordered = mruRef.current.filter((id) => present.has(id));
-    for (const id of inSpace) if (!ordered.includes(id)) ordered.push(id);
+    for (const id of ids) if (!ordered.includes(id)) ordered.push(id);
     return [activeId, ...ordered.filter((id) => id !== activeId)];
-  }, [activeId, activeSpaceId]);
+  }, [activeId]);
 
   const { state: switcherState, step: stepSwitcher } = useTabSwitcher({
     getOrder: getSwitcherOrder,
@@ -550,14 +479,6 @@ export default function App() {
       if (tabsRef.current.some((t) => t.id === id)) setActiveId(id);
     },
   });
-
-  const cycleSpace = useCallback((delta: 1 | -1) => {
-    const { spaces, activeId: sid, setActive } = useSpaces.getState();
-    if (spaces.length < 2) return;
-    const idx = spaces.findIndex((s) => s.id === sid);
-    const next = (idx + delta + spaces.length) % spaces.length;
-    setActive(spaces[next].id);
-  }, []);
 
   const captureActiveSelection = useCallback((): string | null => {
     const t = tabs.find((x) => x.id === activeId);
@@ -635,7 +556,6 @@ export default function App() {
     newBlockTab(inheritedCwdForNewTab());
   }, [newBlockTab, inheritedCwdForNewTab]);
 
-
   const handleOpenSession = useCallback(
     (session: AgentSession) => {
       // 环境与命令一起由会话自己定：本机会话就得开在本机终端里，别让终端去猜
@@ -659,7 +579,8 @@ export default function App() {
 
   const handleNewProjectSession = useCallback(
     (entry: ProjectEntry, tool: AgentTool) => {
-      const distro = entry.workspace.kind === "wsl" ? entry.workspace.distro : null;
+      const distro =
+        entry.workspace.kind === "wsl" ? entry.workspace.distro : null;
       const command = newSessionCommand(tool, distro);
       const { leafId } = newAgentTab(
         entry.path,
@@ -669,7 +590,9 @@ export default function App() {
       void (async () => {
         await whenSessionReady(leafId);
         if (!writeToSession(leafId, `${command}\r`)) {
-          console.error(`[verta] terminal ${leafId} closed before starting ${tool}`);
+          console.error(
+            `[verta] terminal ${leafId} closed before starting ${tool}`,
+          );
         }
       })();
     },
@@ -685,28 +608,16 @@ export default function App() {
   );
 
   /**
-   * 单击项目行：切到以该项目为根的空间；没有就新建一个，并在该目录开一个终端标签，
-   * 免得进去看到空白空间。
+   * 单击项目行：切到该项目的环境（本机 / WSL），并在项目根目录开一个终端。
+   *
+   * 项目列表就是唯一的项目入口——以前这里是「一个项目一个空间」，界面上还挂着空间切换器。
    */
   const handleOpenProject = useCallback(
     (entry: ProjectEntry) => {
-      const { spaces, create, setActive } = useSpaces.getState();
-      const existing = spaces.find(
-        (space) => space.root !== null && sameProjectPath(space.root, entry.path),
-      );
-      if (existing) {
-        setActive(existing.id);
-        return;
-      }
-      const meta = create({
-        name: projectBasename(entry.path),
-        root: entry.path,
-        env: entry.workspace,
-      });
-      setActive(meta.id);
-      newTabInSpace(meta.id, entry.path, entry.workspace);
+      void adoptWorkspaceEnv(entry.workspace);
+      handleOpenProjectTerminal(entry);
     },
-    [newTabInSpace],
+    [adoptWorkspaceEnv, handleOpenProjectTerminal],
   );
 
   /** The markdown preview draws a "Run" button on fenced commands; it sends to
@@ -840,16 +751,12 @@ export default function App() {
     activeTab?.kind === "editor" || activeTab?.kind === "markdown"
       ? activeTab.path
       : null;
-  const isRepositoryContextCurrent = useCallback(
-    (spaceId: string, workspaceKey: string) => {
-      const currentSpaceId = useSpaces.getState().activeId ?? DEFAULT_SPACE_ID;
-      const currentWorkspaceKey = workspaceScopeKey(
-        useWorkspaceEnvStore.getState().env,
-      );
-      return spaceId === currentSpaceId && workspaceKey === currentWorkspaceKey;
-    },
-    [],
-  );
+  const isRepositoryContextCurrent = useCallback((workspaceKey: string) => {
+    const currentWorkspaceKey = workspaceScopeKey(
+      useWorkspaceEnvStore.getState().env,
+    );
+    return workspaceKey === currentWorkspaceKey;
+  }, []);
   const openSourceControl = useCallback(() => {
     toggleRightPanel();
   }, [toggleRightPanel]);
@@ -863,7 +770,6 @@ export default function App() {
     openGitHistory: handleOpenGitHistoryForPath,
     followActiveContext: handleFollowRepositoryContext,
   } = useRepositoryTargeting({
-    spaceId: sourceControlSpaceId,
     workspaceKey: workspaceScopeKey(workspaceEnv),
     isContextCurrent: isRepositoryContextCurrent,
     openSourceControl,
@@ -873,20 +779,20 @@ export default function App() {
     (s) => s.explorerGitDecorations,
   );
   const { sourceControl, openGitGraphFromContext } = useSourceControlContext({
-      activeTab,
-      tabs,
-      activeTerminalLeafCwd,
-      explorerRoot,
-      launchCwd,
-      launchCwdResolved,
-      home,
-      sidebarView,
-      sidebarCollapsed,
-      gitPanelOpen: !rightCollapsed,
-      explorerGitDecorations,
-      repositoryTarget: sourceControlRepositoryTarget,
-      openCommitHistoryTab,
-    });
+    activeTab,
+    tabs,
+    activeTerminalLeafCwd,
+    explorerRoot,
+    launchCwd,
+    launchCwdResolved,
+    home,
+    sidebarView,
+    sidebarCollapsed,
+    gitPanelOpen: !rightCollapsed,
+    explorerGitDecorations,
+    repositoryTarget: sourceControlRepositoryTarget,
+    openCommitHistoryTab,
+  });
 
   const openPreviewTab = useCallback(
     (url: string) => {
@@ -954,14 +860,7 @@ export default function App() {
       "tab.close": handleCloseTabOrPane,
       "tab.next": () => stepSwitcher(1),
       "tab.prev": () => stepSwitcher(-1),
-      "tab.selectByIndex": (e) =>
-        selectByIndex(
-          parseInt(e.key, 10) - 1,
-          activeSpaceId ?? DEFAULT_SPACE_ID,
-        ),
-      "space.next": () => cycleSpace(1),
-      "space.prev": () => cycleSpace(-1),
-      "space.overview": () => setSwitcherOpen(true),
+      "tab.selectByIndex": (e) => selectByIndex(parseInt(e.key, 10) - 1),
       "pane.splitRight": () => splitActivePaneInActiveTab("row"),
       "pane.splitDown": () => splitActivePaneInActiveTab("col"),
       "pane.focusNext": () => focusNextPaneInTab(activeId, 1),
@@ -1001,13 +900,11 @@ export default function App() {
       activeId,
       openCommandPalette,
       stepSwitcher,
-      cycleSpace,
       handleCloseTabOrPane,
       openNewTab,
       openNewBlockTab,
       openNewPrivateTab,
       openPreviewTab,
-      activeSpaceId,
       selectByIndex,
       splitActivePaneInActiveTab,
       focusNextPaneInTab,
@@ -1182,87 +1079,6 @@ export default function App() {
 
   const activeCwd = activeTerminalLeafCwd;
 
-  const handleNewSpace = useCallback(() => {
-    const { spaces, create, setActive } = useSpaces.getState();
-    const meta = create({
-      name: `Space ${spaces.length + 1}`,
-      root: activeCwd ?? home ?? null,
-      env: workspaceEnv,
-    });
-    setActiveSpaceForNewTabs(meta.id);
-    newTab(activeCwd ?? undefined);
-    setActive(meta.id);
-    return meta.id;
-  }, [activeCwd, home, workspaceEnv, newTab, setActiveSpaceForNewTabs]);
-
-  const handleDeleteSpace = useCallback(
-    (id: string) => {
-      const nextSpaceId = useSpaces.getState().remove(id);
-      if (!nextSpaceId) return;
-      const root = useSpaces
-        .getState()
-        .spaces.find((s) => s.id === nextSpaceId)?.root;
-      removeTabsForSpace(id, nextSpaceId, root ?? undefined);
-    },
-    [removeTabsForSpace],
-  );
-
-  const handleMoveTab = useCallback(
-    (tabId: number, targetSpaceId: string) => {
-      if (moveTabToSpace(tabId, targetSpaceId)) {
-        useSpaces.getState().setActive(targetSpaceId);
-      }
-    },
-    [moveTabToSpace],
-  );
-
-  const handleReorderTab = useCallback(
-    (tabId: number, targetTabId: number, edge: "top" | "bottom") => {
-      if (reorderTab(tabId, targetTabId, edge)) {
-        const target = tabsRef.current.find((x) => x.id === targetTabId);
-        if (target) useSpaces.getState().setActive(target.spaceId);
-      }
-    },
-    [reorderTab],
-  );
-
-  const handleNewTabInSpace = useCallback(
-    (spaceId: string) => {
-      const root = useSpaces
-        .getState()
-        .spaces.find((s) => s.id === spaceId)?.root;
-      newTabInSpace(spaceId, root ?? undefined);
-    },
-    [newTabInSpace],
-  );
-
-  const jumpToTab = useCallback(
-    (tabId: number) => {
-      const t = tabsRef.current.find((x) => x.id === tabId);
-      if (!t) return;
-      setActiveId(tabId);
-      useSpaces.getState().setActive(t.spaceId);
-      setSwitcherOpen(false);
-    },
-    [setActiveId],
-  );
-
-  const spaceSwitcher = (
-    <SpaceSwitcher
-      open={switcherOpen}
-      onOpenChange={setSwitcherOpen}
-      tabs={tabs}
-      onNewSpace={() => void handleNewSpace()}
-      onDeleteSpace={handleDeleteSpace}
-      onNewTabInSpace={handleNewTabInSpace}
-      onJumpTab={jumpToTab}
-      onCloseTab={handleClose}
-      onMoveTabToSpace={handleMoveTab}
-      onReorderTab={handleReorderTab}
-      onReorderSpaces={(ids) => useSpaces.getState().reorder(ids)}
-    />
-  );
-
   const commandPaletteItems = useMemo(
     () =>
       commandPaletteOpen
@@ -1290,11 +1106,6 @@ export default function App() {
             toggleHiddenFiles,
             openSettings: () => void openSettingsWindow(),
             openKeyboardShortcuts: () => void openSettingsWindow("shortcuts"),
-            spaces: useSpaces.getState().spaces,
-            activeSpaceId,
-            openSpacesOverview: () => setSwitcherOpen(true),
-            newSpace: () => void handleNewSpace(),
-            switchSpace: (id) => useSpaces.getState().setActive(id),
           })
         : [],
     [
@@ -1314,8 +1125,6 @@ export default function App() {
       splitActivePaneInActiveTab,
       toggleSidebar,
       toggleHiddenFiles,
-      activeSpaceId,
-      handleNewSpace,
     ],
   );
 
@@ -1338,20 +1147,12 @@ export default function App() {
       path,
       line,
       focus,
-      spaceId,
     }: {
       path: string;
       line?: number;
       focus: boolean;
-      spaceId: string;
     }) => {
-      if (focus && useSpaces.getState().activeId !== spaceId) {
-        useSpaces.getState().setActive(spaceId);
-      }
-      const id = openFileTab(path, true, {
-        spaceId,
-        activate: focus,
-      });
+      const id = openFileTab(path, true, { activate: focus });
       const editor = editorRefs.current.get(id);
       if (line !== undefined) {
         if (editor) editor.gotoLine(line, { focus });
@@ -1366,10 +1167,9 @@ export default function App() {
   );
 
   useControlBridge({
-    ready: spacesHydrated && launchCwdResolved,
+    ready: tabsHydrated && launchCwdResolved,
     tabsRef,
     activeTabIdRef: activeIdRef,
-    activeSpaceIdRef,
     onOpen: openControlFile,
   });
 
@@ -1473,7 +1273,7 @@ export default function App() {
         <div className="relative flex h-screen flex-col overflow-hidden bg-frame text-foreground">
           {!zenMode && (
             <Header
-              tabs={spaceTabs}
+              tabs={tabs}
               activeId={activeId}
               onSelect={setActiveId}
               onNew={openNewTab}
@@ -1497,7 +1297,6 @@ export default function App() {
               changedCount={sourceControl.changedCount}
               onOpenCommandPalette={() => openCommandPalette("commands")}
               onOpenSettings={() => void openSettingsWindow()}
-              spaceSwitcher={spaceSwitcher}
               searchTarget={searchTarget}
               searchRef={searchInlineRef}
               onOverrideLanguage={setOverrideLanguage}
@@ -1672,7 +1471,7 @@ export default function App() {
           <Toaster position="bottom-right" />
 
           {switcherState && (
-            <TabSwitcherHud tabs={spaceTabs} state={switcherState} />
+            <TabSwitcherHud tabs={tabs} state={switcherState} />
           )}
 
           <CommandPalette

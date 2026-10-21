@@ -9,7 +9,6 @@ function terminalTab(id: number): Tab {
   return {
     id,
     kind: "terminal",
-    spaceId: "s",
     title: "shell",
     paneTree: { kind: "leaf", id: id * 10 },
     activeLeafId: id * 10,
@@ -26,8 +25,6 @@ function baseContext(
     searchTarget: "content" as never,
     explorerRoot: "/workspace",
     home: "/home/me",
-    spaces: [],
-    activeSpaceId: null,
     openNewTab: noop,
     openNewBlock: noop,
     openNewPrivate: noop,
@@ -46,9 +43,6 @@ function baseContext(
     toggleHiddenFiles: noop,
     openSettings: noop,
     openKeyboardShortcuts: noop,
-    openSpacesOverview: noop,
-    newSpace: noop,
-    switchSpace: noop,
     ...over,
   };
 }
@@ -92,15 +86,5 @@ describe("createCommandItems", () => {
     expect(reasonById({ explorerRoot: null }, "explorer.search")).toBe(
       "No workspace root",
     );
-  });
-
-  it("marks the active space as the current one", () => {
-    const reason = reasonById(
-      { spaces: [{ id: "sp1", name: "One" }], activeSpaceId: "sp1" },
-      "spaces.switch.sp1",
-    );
-    // A message key, not the text: the row resolves it so the hint follows the
-    // interface language like everything else in the palette.
-    expect(reason).toBe("cmd.currentSpace");
   });
 });

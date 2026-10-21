@@ -1,111 +1,94 @@
 import { describe, expect, it } from "vitest";
-import type { Tab } from "@/modules/tabs";
+import type { EditorTab, GitHistoryTab, Tab } from "@/modules/tabs";
 import {
   activeRepositoryContextPath,
-  clearRepositoryTargetForSpace,
+  clearRepositoryTargetForWorkspace,
   gitGraphRepositoryPath,
-  repositoryTargetForSpace,
+  repositoryTargetForWorkspace,
   repositoryTargetIsPending,
-  setRepositoryTargetForSpace,
+  setRepositoryTargetForWorkspace,
   sourceControlRepositoryPath,
 } from "./repositoryTarget";
 
 const terminalTab: Tab = {
   id: 1,
   kind: "terminal",
-  spaceId: "space-a",
   title: "shell",
   paneTree: { kind: "leaf", id: 10 },
   activeLeafId: 10,
 };
 
-const editorTab: Tab = {
+const editorTab: EditorTab = {
   id: 2,
   kind: "editor",
-  spaceId: "space-a",
   title: "main.ts",
   path: "C:\\repo\\src\\main.ts",
   dirty: false,
   preview: false,
 };
 
-const historyTab: Tab = {
+const historyTab: GitHistoryTab = {
   id: 3,
   kind: "git-history",
-  spaceId: "space-a",
   title: "History",
   repoRoot: "/repos/history",
 };
 
 describe("repository targets", () => {
-  it("keeps fixed repositories isolated by Space", () => {
-    const targets = setRepositoryTargetForSpace(
-      {},
-      "space-a",
-      "local",
-      "/repos/a",
-    );
+  it("records a fixed repository for one environment only", () => {
+    const targets = setRepositoryTargetForWorkspace({}, "local", "/repos/a");
 
-    expect(repositoryTargetForSpace(targets, "space-a", "local")).toEqual({
+    expect(repositoryTargetForWorkspace(targets, "local")).toEqual({
       mode: "fixed",
       repoRoot: "/repos/a",
     });
-    expect(repositoryTargetForSpace(targets, "space-b", "local")).toEqual({
+    expect(repositoryTargetForWorkspace(targets, "wsl:Ubuntu")).toEqual({
       mode: "follow-context",
     });
-    expect(
-      setRepositoryTargetForSpace(
-        targets,
-        "space-a",
-        "local",
-        "/repos/a",
-      ),
-    ).toBe(targets);
+    expect(setRepositoryTargetForWorkspace(targets, "local", "/repos/a")).toBe(
+      targets,
+    );
   });
 
   it("keeps repository paths isolated by workspace environment", () => {
-    const localTargets = setRepositoryTargetForSpace(
+    const localTargets = setRepositoryTargetForWorkspace(
       {},
-      "space-a",
       "local",
       "C:/repos/a",
     );
-    const targets = setRepositoryTargetForSpace(
+    const targets = setRepositoryTargetForWorkspace(
       localTargets,
-      "space-a",
       "wsl:Ubuntu",
       "/repos/a",
     );
 
-    expect(repositoryTargetForSpace(targets, "space-a", "local")).toEqual({
+    expect(repositoryTargetForWorkspace(targets, "local")).toEqual({
       mode: "fixed",
       repoRoot: "C:/repos/a",
     });
-    expect(repositoryTargetForSpace(targets, "space-a", "wsl:Ubuntu")).toEqual({
+    expect(repositoryTargetForWorkspace(targets, "wsl:Ubuntu")).toEqual({
       mode: "fixed",
       repoRoot: "/repos/a",
     });
   });
 
-  it("returns to context-following without changing other Spaces", () => {
-    const otherSpace = setRepositoryTargetForSpace(
+  it("returns to context-following without changing other environments", () => {
+    const otherEnv = setRepositoryTargetForWorkspace(
       {},
-      "space-b",
-      "local",
+      "wsl:Ubuntu",
       "/repos/b",
     );
-    const targets = setRepositoryTargetForSpace(
-      otherSpace,
-      "space-a",
+    const targets = setRepositoryTargetForWorkspace(
+      otherEnv,
       "local",
       "/repos/a",
     );
-    const next = clearRepositoryTargetForSpace(targets, "space-a", "local");
+    const next = clearRepositoryTargetForWorkspace(targets, "local");
 
-    expect(repositoryTargetForSpace(next, "space-a", "local")).toEqual({
+    expect(repositoryTargetForWorkspace(next, "local")).toEqual({
       mode: "follow-context",
     });
-    expect(repositoryTargetForSpace(next, "space-b", "local")).toEqual({
+    expect(repositoryTargetForWorkspace(next, "wsl:Ubuntu")).toEqual({
       mode: "fixed",
       repoRoot: "/repos/b",
     });

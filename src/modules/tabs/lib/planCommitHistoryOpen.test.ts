@@ -1,28 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { planCommitHistoryOpen, type GitHistoryTab, type Tab } from "./useTabs";
+import { planCommitHistoryOpen, type GitHistoryTab } from "./useTabs";
 
-function history(
-  id: number,
-  repoRoot: string,
-  spaceId = "space-a",
-): GitHistoryTab {
+function history(id: number, repoRoot: string): GitHistoryTab {
   return {
     id,
     kind: "git-history",
-    spaceId,
     title: "Git History",
     repoRoot,
   };
 }
 
 describe("planCommitHistoryOpen", () => {
-  it("reuses a repository history tab within the active Space", () => {
+  it("reuses the history tab of the same repository", () => {
     const existing = history(1, "/repos/a");
     let allocations = 0;
     const result = planCommitHistoryOpen(
       [existing],
       { repoRoot: "/repos/a", branch: "main" },
-      "space-a",
       () => {
         allocations += 1;
         return 2;
@@ -36,7 +30,6 @@ describe("planCommitHistoryOpen", () => {
     const repeated = planCommitHistoryOpen(
       result.tabs,
       { repoRoot: "/repos/a", branch: "main" },
-      "space-a",
       () => 2,
     );
     expect(repeated.tabs).toBe(result.tabs);
@@ -47,7 +40,6 @@ describe("planCommitHistoryOpen", () => {
     const result = planCommitHistoryOpen(
       [existing],
       { repoRoot: "/repos/b", branch: "feature" },
-      "space-a",
       () => 2,
     );
 
@@ -57,30 +49,15 @@ describe("planCommitHistoryOpen", () => {
       expect.objectContaining({
         id: 2,
         repoRoot: "/repos/b",
-        spaceId: "space-a",
         title: "History · feature",
       }),
     ]);
   });
 
-  it("does not activate a matching repository tab from another Space", () => {
-    const otherSpace = history(1, "/repos/shared", "space-b");
-    const tabs: Tab[] = [otherSpace];
-    const result = planCommitHistoryOpen(
-      tabs,
-      { repoRoot: "/repos/shared" },
-      "space-a",
-      () => 2,
-    );
+  it("keeps the repository name when no branch is known", () => {
+    const result = planCommitHistoryOpen([], { repoRoot: "/repos/a" }, () => 2);
 
     expect(result.targetId).toBe(2);
-    expect(result.tabs).toEqual([
-      otherSpace,
-      expect.objectContaining({
-        id: 2,
-        repoRoot: "/repos/shared",
-        spaceId: "space-a",
-      }),
-    ]);
+    expect(result.tabs[0]).toMatchObject({ title: "Git History" });
   });
 });

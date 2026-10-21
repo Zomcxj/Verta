@@ -10,7 +10,7 @@ import {
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   type CloseTabsPlan,
-  nextActiveInSpace,
+  nextActiveTab,
   planCloseOtherTabs,
   planCloseTabsToRight,
   type Tab,
@@ -62,9 +62,9 @@ export function useTabCloseGuards({
 
   const handleClose = useCallback(
     async (id: number) => {
-      // Last tab in its space can't be closed (closeTab refuses). Skip the
-      // dialog entirely so confirming it doesn't appear to silently fail.
-      if (nextActiveInSpace(tabs, id) === null) return;
+      // The last tab can't be closed (closeTab refuses). Skip the dialog
+      // entirely so confirming it doesn't appear to silently fail.
+      if (nextActiveTab(tabs, id) === null) return;
       const t = tabs.find((x) => x.id === id);
       if (t?.kind === "editor" && t.dirty) {
         setPendingCloseTab(id);

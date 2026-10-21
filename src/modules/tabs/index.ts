@@ -6,7 +6,7 @@ export { labelFor } from "./lib/tabLabel";
 export {
   MAX_PANES_PER_TAB,
   useTabs,
-  nextActiveInSpace,
+  nextActiveTab,
   planCloseTabsToRight,
   planCloseOtherTabs,
   type CloseTabsPlan,
@@ -18,5 +18,6 @@ export {
   type GitHistoryTab,
   type GitCommitFileDiffTab,
 } from "./lib/useTabs";
+export { useTabRestore, useTabPersistence } from "./lib/useTabRestore";
 export { useWorkspaceCwd } from "./lib/useWorkspaceCwd";
 export { useWindowTitle } from "./lib/useWindowTitle";

@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { applyCloseTabsPlan, planCloseTabsToRight, type Tab } from "./useTabs";
 
-function editor(id: number, spaceId = "a"): Tab {
+function editor(id: number): Tab {
   return {
     id,
     kind: "editor",
-    spaceId,
     title: `file-${id}`,
     path: `/file-${id}`,
     dirty: false,
@@ -13,11 +12,10 @@ function editor(id: number, spaceId = "a"): Tab {
   };
 }
 
-function terminal(id: number, leafId: number, spaceId = "a"): Tab {
+function terminal(id: number, leafId: number): Tab {
   return {
     id,
     kind: "terminal",
-    spaceId,
     title: "shell",
     paneTree: { kind: "leaf", id: leafId },
     activeLeafId: leafId,
@@ -48,14 +46,14 @@ describe("applyCloseTabsPlan", () => {
     ).toEqual([1, 4]);
   });
 
-  it("does not close a planned tab that moved to another space", () => {
-    const tabs = [editor(1), editor(2), editor(3, "b")];
+  it("ignores planned ids that are no longer open", () => {
+    const tabs = [editor(1), editor(2)];
     const result = applyCloseTabsPlan(tabs, 1, {
       closeIds: [2, 3],
       nextActiveId: 1,
     });
 
-    expect(result?.tabs.map((tab) => tab.id)).toEqual([1, 3]);
+    expect(result?.tabs.map((tab) => tab.id)).toEqual([1]);
     expect(result?.closeIds).toEqual([2]);
   });
 

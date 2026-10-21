@@ -10,8 +10,6 @@ export type PaletteItem = {
   title: MessageKey;
   /** Message key of the section heading this row belongs to. */
   group: MessageKey;
-  /** Fills `{name}` for the "switch to space" command, whose target varies. */
-  spaceName?: string;
   keywords?: string[];
   icon?: PaletteIcon;
   iconUrl?: string;

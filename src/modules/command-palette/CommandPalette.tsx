@@ -10,7 +10,6 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FileIcon } from "@/modules/explorer/FileIcon";
 import { type MessageKey, useT } from "@/modules/i18n";
-import { spaceDisplayName } from "@/modules/i18n/spaceName";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   getBindingTokens,
@@ -403,12 +402,7 @@ function rankCommands(
   for (const item of items) {
     // Match what is on screen: titles and group headings are keys now, so
     // searching the raw key would never find "设置" or "Settings".
-    const visibleTitle =
-      item.title === "cmd.switchToSpace"
-        ? lookup("cmd.switchToSpace", {
-            name: spaceDisplayName(item.spaceName ?? ""),
-          })
-        : lookup(item.title);
+    const visibleTitle = lookup(item.title);
     const visibleGroup = lookup(item.group);
     const s = fuzzyBest(term, [
       visibleTitle,
@@ -451,13 +445,7 @@ function ActionItem({
           className="text-muted-foreground"
         />
       ) : null}
-      <span className="truncate">
-        {item.title === "cmd.switchToSpace"
-          ? t("cmd.switchToSpace", {
-              name: spaceDisplayName(item.spaceName ?? ""),
-            })
-          : t(item.title)}
-      </span>
+      <span className="truncate">{t(item.title)}</span>
       {rightLabel ? (
         <CommandShortcut
           className={item.disabledReason ? "normal-case tracking-normal" : ""}

@@ -15,6 +15,34 @@
 <details open>
 <summary><strong>2026-10-21</strong></summary>
 
+**标签页：去掉「空间」（Spaces），只留一份标签列表**
+
+- `src/modules/spaces/**`（14 个文件）、`src/modules/i18n/spaceName.ts`：整个模块删掉。空间（名字、根目录、
+  环境、配色、各自的标签持久化、`SpaceSwitcher`）和项目列表是同一件事的两种说法，还让每个标签都要带一个
+  空间 id。`src/modules/spaces/lib/serialize.ts` 与 `activeSpace.ts` 里真正有用的两件事搬到了别处（见下）。
+- `src/modules/tabs/lib/useTabs.ts`：`Tab.spaceId`、`DEFAULT_SPACE_ID`、按空间去重的各类 `plan*`
+  （打开文件 / markdown / git diff / 提交历史 / 项目列表 / 远程仓库）、空间删除、跨空间移动一起删掉；
+  去重、关闭、拖拽排序现在都作用在同一条列表上。**「最后一个标签拒绝关闭」的语义保留**
+  （`nextActiveInSpace` 因此改名 `nextActiveTab`），私有标签不落盘也一样。
+- `src/modules/tabs/lib/serialize.ts`（从 spaces 模块搬来，去掉 `spaceId`）、新增 `tabStorage.ts` 与
+  `useTabRestore.ts`：标签列表改存 `verta-tabs.json` 里的单个 `state` 键。改用新格式后第一次启动，会从老文件
+  `verta-spaces.json` 里把当时活动空间那份 `state:<空间 id>` 读出来、写进新文件、删掉那条键，老文件留在磁盘上；
+  恢复仍然要求标签各自回到自己的环境（叶子记着环境，只记了 cwd 的按路径反推），并且 cwd 先授权再开终端。
+  `usePreferencesStore.init()` 依旧只在这一处调用，写盘也依旧等恢复完成才开闸。
+- `src/app/App.tsx`：空间状态、`SpaceSwitcher`、只喂给它的六个 handler、三个空间快捷键、命令面板里的
+  五条空间命令、「单击项目行 = 切换到以该项目为根的空间」全部去掉。项目行现在只做一件事：切到该项目的
+  环境（本机 / 发行版），在项目根目录开一个终端。
+- `src/modules/header/Header.tsx`：标题栏给切换器留的槽位删掉。
+- `src/modules/source-control/repositoryTarget.ts`、`useRepositoryTargeting.ts`：右栏钉住的仓库按**环境**
+  （本机 / 某个发行版）而不是按空间分开记。
+- `src/modules/control/lib/context.ts`、`useControlBridge.ts`：`space_id` 保留但固定为 `default`——
+  `verta-cli identify` 会打印它，删掉等于改协议。
+- `src/modules/i18n/messages.ts`：中英两份里的 14 个空间键（`spaces.*`、`shortcut.nextSpace` /
+  `prevSpace` / `openSpaces`、`cmd.spacesOverview` / `newSpace` / `switchToSpace` / `currentSpace`、
+  `cmdGroup.Spaces`、`shortcutGroup.Spaces`）删除。
+- `src/modules/shortcuts/shortcuts.ts`、`src/modules/command-palette/commands.ts`、`types.ts`、
+  `CommandPalette.tsx`：空间快捷键组、空间命令、`spaceName` 一并清掉。
+
 **区域截图：像系统自带那样不冻屏，框完点保存才抓**
 
 - `src-tauri/src/modules/screenshot/mod.rs`：改成**不冻屏**。屏幕在框选期间一直是活的（覆盖窗口是透明的，

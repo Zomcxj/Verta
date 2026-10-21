@@ -17,9 +17,6 @@ export type ShortcutId =
   | "tab.next"
   | "tab.prev"
   | "tab.selectByIndex"
-  | "space.next"
-  | "space.prev"
-  | "space.overview"
   | "pane.splitRight"
   | "pane.splitDown"
   | "pane.focusNext"
@@ -50,7 +47,6 @@ export type ShortcutId =
 export type ShortcutGroup =
   | "General"
   | "Tabs"
-  | "Spaces"
   | "Panes"
   | "Terminal"
   | "Search"
@@ -228,24 +224,6 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ [MOD_PROP]: true, key: "1" }],
   },
   {
-    id: "space.next",
-    label: "shortcut.nextSpace",
-    group: "Spaces",
-    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "]" }],
-  },
-  {
-    id: "space.prev",
-    label: "shortcut.prevSpace",
-    group: "Spaces",
-    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "[" }],
-  },
-  {
-    id: "space.overview",
-    label: "shortcut.openSpaces",
-    group: "Spaces",
-    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "s" }],
-  },
-  {
     id: "explorer.search",
     label: "shortcut.searchFiles",
     group: "Search",
@@ -388,7 +366,7 @@ function keyFromCode(code: string): string | null {
 export function matchBinding(
   e: KeyboardEvent,
   binding: KeyBinding,
-  id?: ShortcutId
+  id?: ShortcutId,
 ): boolean {
   const eventKey = e.key.toLowerCase();
   const bindingKey = binding.key.toLowerCase();

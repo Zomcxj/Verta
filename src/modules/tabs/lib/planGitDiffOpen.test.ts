@@ -6,27 +6,20 @@ import {
   type Tab,
 } from "./useTabs";
 
-function terminal(id: number, spaceId = "default"): Tab {
+function terminal(id: number): Tab {
   return {
     id,
     kind: "terminal",
-    spaceId,
     title: "shell",
     paneTree: { kind: "leaf", id: id * 10 },
     activeLeafId: id * 10,
   };
 }
 
-function gitDiff(
-  id: number,
-  path: string,
-  preview: boolean,
-  spaceId = "default",
-): GitDiffTab {
+function gitDiff(id: number, path: string, preview: boolean): GitDiffTab {
   return {
     id,
     kind: "git-diff",
-    spaceId,
     title: `${path} (-)`,
     path,
     repoRoot: "/repo",
@@ -45,13 +38,7 @@ const input = (path: string): GitDiffOpenInput => ({
 describe("planGitDiffOpen", () => {
   it("replaces the transient diff slot", () => {
     const tabs = [terminal(1), gitDiff(2, "old.ts", true)];
-    const result = planGitDiffOpen(
-      tabs,
-      input("new.ts"),
-      "default",
-      false,
-      () => 3,
-    );
+    const result = planGitDiffOpen(tabs, input("new.ts"), false, () => 3);
 
     expect(result.targetId).toBe(3);
     expect(result.tabs).toEqual([
@@ -70,7 +57,6 @@ describe("planGitDiffOpen", () => {
     const result = planGitDiffOpen(
       [terminal(1), pinned],
       input("new.ts"),
-      "default",
       false,
       () => 3,
     );
@@ -88,7 +74,6 @@ describe("planGitDiffOpen", () => {
     const result = planGitDiffOpen(
       [terminal(1), pinned, gitDiff(3, "other.ts", true)],
       { ...input("same.ts"), originalPath: "before.ts" },
-      "default",
       false,
       () => {
         allocations += 1;
@@ -111,7 +96,6 @@ describe("planGitDiffOpen", () => {
     const result = planGitDiffOpen(
       [terminal(1), preview],
       input("same.ts"),
-      "default",
       true,
       () => 3,
     );
@@ -120,22 +104,34 @@ describe("planGitDiffOpen", () => {
     expect(result.tabs[1]).toMatchObject({ id: 2, preview: false });
   });
 
-  it("does not replace a preview slot in another space", () => {
-    const otherSpacePreview = gitDiff(2, "other.ts", true, "other");
+  it("reuses the one transient slot for a different diff", () => {
+    const preview = gitDiff(2, "other.ts", true);
     const result = planGitDiffOpen(
-      [terminal(1), otherSpacePreview],
+      [terminal(1), preview],
       input("new.ts"),
-      "default",
       false,
       () => 3,
     );
 
-    expect(result.tabs).toHaveLength(3);
-    expect(result.tabs[1]).toBe(otherSpacePreview);
-    expect(result.tabs[2]).toMatchObject({
+    expect(result.targetId).toBe(3);
+    expect(result.tabs).toHaveLength(2);
+    expect(result.tabs[1]).toMatchObject({
       id: 3,
-      spaceId: "default",
       path: "new.ts",
+      preview: true,
     });
+  });
+
+  it("appends a pinned diff for another repository", () => {
+    const tabs = [terminal(1), gitDiff(2, "other.ts", true)];
+    const result = planGitDiffOpen(
+      tabs,
+      { path: "other.ts", repoRoot: "/other", mode: "-" },
+      false,
+      () => 3,
+    );
+
+    expect(result.targetId).toBe(3);
+    expect(result.tabs).toHaveLength(2);
   });
 });

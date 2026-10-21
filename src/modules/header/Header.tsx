@@ -13,13 +13,7 @@ import {
   SidebarRightIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  type ReactNode,
-  type RefObject,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import {
   SearchInline,
   type SearchInlineHandle,
@@ -62,7 +56,6 @@ type Props = {
   changedCount: number;
   onOpenCommandPalette: () => void;
   onOpenSettings: () => void;
-  spaceSwitcher: ReactNode;
   searchTarget: SearchTarget;
   searchRef: RefObject<SearchInlineHandle | null>;
 };
@@ -95,7 +88,6 @@ export function Header({
   changedCount,
   onOpenCommandPalette,
   onOpenSettings,
-  spaceSwitcher,
   searchTarget,
   searchRef,
 }: Props) {
@@ -154,7 +146,6 @@ export function Header({
         >
           <HugeiconsIcon icon={CommandIcon} size={14} strokeWidth={1.75} />
         </Button>
-
       </div>
 
       {!IS_MAC && (
@@ -175,7 +166,6 @@ export function Header({
           e.preventDefault();
         }}
       >
-        {spaceSwitcher}
         <TabBar
           tabs={tabs}
           activeId={activeId}

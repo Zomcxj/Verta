@@ -4,17 +4,11 @@ export type SourceControlRepositoryTarget =
   | { mode: "follow-context" }
   | { mode: "fixed"; repoRoot: string };
 
-export type SourceControlRepositoryTargets = Readonly<
-  Record<string, string>
->;
+export type SourceControlRepositoryTargets = Readonly<Record<string, string>>;
 
 const FOLLOW_CONTEXT: SourceControlRepositoryTarget = {
   mode: "follow-context",
 };
-
-function targetScopeKey(spaceId: string, workspaceKey: string): string {
-  return `${spaceId}\0${workspaceKey}`;
-}
 
 function dirname(path: string | null): string | null {
   if (!path) return null;
@@ -28,37 +22,34 @@ function dirname(path: string | null): string | null {
   return normalized.slice(0, index);
 }
 
-export function repositoryTargetForSpace(
+/**
+ * 右栏钉住的仓库按**环境**分开记：本机钉一个、某个发行版钉一个。切到 WSL 时继续显示本机
+ * 那个仓库的改动，是最容易让人把两个文件系统搞混的一种做法。
+ */
+export function repositoryTargetForWorkspace(
   targets: SourceControlRepositoryTargets,
-  spaceId: string,
   workspaceKey: string,
 ): SourceControlRepositoryTarget {
-  const repoRoot = targets[targetScopeKey(spaceId, workspaceKey)];
-  return repoRoot
-    ? { mode: "fixed", repoRoot }
-    : FOLLOW_CONTEXT;
+  const repoRoot = targets[workspaceKey];
+  return repoRoot ? { mode: "fixed", repoRoot } : FOLLOW_CONTEXT;
 }
 
-export function setRepositoryTargetForSpace(
+export function setRepositoryTargetForWorkspace(
   targets: SourceControlRepositoryTargets,
-  spaceId: string,
   workspaceKey: string,
   repoRoot: string,
 ): SourceControlRepositoryTargets {
-  const key = targetScopeKey(spaceId, workspaceKey);
-  if (targets[key] === repoRoot) return targets;
-  return { ...targets, [key]: repoRoot };
+  if (targets[workspaceKey] === repoRoot) return targets;
+  return { ...targets, [workspaceKey]: repoRoot };
 }
 
-export function clearRepositoryTargetForSpace(
+export function clearRepositoryTargetForWorkspace(
   targets: SourceControlRepositoryTargets,
-  spaceId: string,
   workspaceKey: string,
 ): SourceControlRepositoryTargets {
-  const key = targetScopeKey(spaceId, workspaceKey);
-  if (!(key in targets)) return targets;
+  if (!(workspaceKey in targets)) return targets;
   const next = { ...targets };
-  delete next[key];
+  delete next[workspaceKey];
   return next;
 }
 
@@ -112,7 +103,9 @@ export function gitGraphRepositoryPath({
   gitPanelOpen: boolean;
   target: SourceControlRepositoryTarget;
 }): string | null {
-  return gitPanelOpen && target.mode === "fixed" ? target.repoRoot : contextPath;
+  return gitPanelOpen && target.mode === "fixed"
+    ? target.repoRoot
+    : contextPath;
 }
 
 export function repositoryTargetIsPending({

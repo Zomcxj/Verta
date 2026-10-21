@@ -9,7 +9,6 @@ import {
   hasNewCloseManyHazards,
   pathAtOrUnder,
   renamedPath,
-  spacesEmptiedByTabs,
 } from "./tabCloseGuards";
 import type { EditorTab, MarkdownTab } from "@/modules/tabs";
 
@@ -60,19 +59,13 @@ describe("close-many hazards", () => {
 });
 
 describe("path-backed explorer mutations", () => {
-  const editor = (
-    id: number,
-    path: string,
-    dirty: boolean,
-    spaceId = "local",
-  ): EditorTab => ({
+  const editor = (id: number, path: string, dirty: boolean): EditorTab => ({
     id,
     kind: "editor",
     title: path,
     path,
     dirty,
     preview: false,
-    spaceId,
   });
 
   const markdown = (id: number, path: string): MarkdownTab => ({
@@ -80,7 +73,6 @@ describe("path-backed explorer mutations", () => {
     kind: "markdown",
     title: path,
     path,
-    spaceId: "local",
   });
 
   it("normalizes Windows separators for containment and rename", () => {
@@ -112,13 +104,10 @@ describe("path-backed explorer mutations", () => {
     ).toEqual({ dirtyIds: [1, 2], cleanIds: [3] });
   });
 
-  it("includes descendants across open spaces", () => {
+  it("includes every descendant of a deleted folder", () => {
     expect(
       deletedPathTabs(
-        [
-          editor(1, "/repo/src/a.ts", true, "ubuntu"),
-          editor(2, "/repo/src/a.ts", true, "debian"),
-        ],
+        [editor(1, "/repo/src/a.ts", true), editor(2, "/repo/src/a.ts", true)],
         ["/repo/src"],
       ),
     ).toEqual({ dirtyIds: [1, 2], cleanIds: [] });
@@ -128,19 +117,6 @@ describe("path-backed explorer mutations", () => {
     expect(
       deletedPathTabs([markdown(4, "C:\\repo\\README.md")], ["C:/repo"]),
     ).toEqual({ dirtyIds: [], cleanIds: [4] });
-  });
-
-  it("identifies spaces emptied by deleting their final tabs", () => {
-    expect(
-      spacesEmptiedByTabs(
-        [
-          markdown(1, "/one.md"),
-          { ...markdown(2, "/two.md"), spaceId: "shared" },
-          editor(3, "/keep.ts", false, "shared"),
-        ],
-        [1, 2],
-      ),
-    ).toEqual(["local"]);
   });
 });
 

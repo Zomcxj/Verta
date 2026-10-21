@@ -117,7 +117,7 @@ type HydratedTree = {
 
 /**
  * 老数据里叶子只存了 cwd。按 cwd 把环境补回去，恢复出来的每个终端才会在自己的环境里启动；
- * 少了这一步，空间记着本机、标签却停在发行版里的那些终端会带着 Linux 路径去本机启动。
+ * 少了这一步，存着发行版路径的那些终端会带着 Linux 路径去本机启动。
  */
 function restoredLeafEnv(
   cwd: string | undefined,
@@ -175,7 +175,6 @@ function collectLeaves(node: PaneNode): Array<{ id: number; cwd?: string }> {
 
 function hydrateTab(
   s: SerializedTab,
-  spaceId: string,
   allocId: () => number,
   fallbackEnv?: WorkspaceEnv,
 ): Tab | null {
@@ -192,7 +191,6 @@ function hydrateTab(
       return {
         id: allocId(),
         kind: "terminal",
-        spaceId,
         cold: true,
         title,
         cwd: firstLeafCwd,
@@ -206,7 +204,6 @@ function hydrateTab(
       return {
         id: allocId(),
         kind: "editor",
-        spaceId,
         cold: true,
         title: basename(s.path),
         path: s.path,
@@ -217,7 +214,6 @@ function hydrateTab(
       return {
         id: allocId(),
         kind: "preview",
-        spaceId,
         cold: true,
         title: titleFromUrl(s.url),
         url: s.url,
@@ -226,7 +222,6 @@ function hydrateTab(
       return {
         id: allocId(),
         kind: "markdown",
-        spaceId,
         cold: true,
         title: basename(s.path),
         path: s.path,
@@ -237,7 +232,6 @@ function hydrateTab(
 }
 
 export function freshTerminalTab(
-  spaceId: string,
   cwd: string | null,
   allocId: () => number,
 ): TerminalTab {
@@ -245,7 +239,6 @@ export function freshTerminalTab(
   return {
     id: allocId(),
     kind: "terminal",
-    spaceId,
     cold: true,
     title: cwd ? basename(cwd) : "shell",
     cwd: cwd ?? undefined,
@@ -256,7 +249,6 @@ export function freshTerminalTab(
 
 export function hydrateTabs(
   serialized: SerializedTab[],
-  spaceId: string,
   allocId: () => number,
   fallbackEnv?: WorkspaceEnv,
 ): Tab[] {
@@ -264,7 +256,7 @@ export function hydrateTabs(
   const out: Tab[] = [];
   for (const s of serialized) {
     try {
-      const tab = hydrateTab(s, spaceId, allocId, fallbackEnv);
+      const tab = hydrateTab(s, allocId, fallbackEnv);
       if (tab) out.push(tab);
     } catch {
       // Skip corrupted entries rather than failing the whole restore.

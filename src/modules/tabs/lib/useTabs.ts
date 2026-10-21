@@ -29,7 +29,6 @@ import {
 export const MAX_PANES_PER_TAB = 4;
 
 type TabBase = {
-  spaceId: string;
   /** Restored from disk, not yet activated: rendered as a placeholder, not mounted. */
   cold?: boolean;
 };
@@ -77,7 +76,6 @@ export type MarkdownTab = TabBase & {
   path: string;
 };
 
-
 export type GitDiffTab = TabBase & {
   id: number;
   kind: "git-diff";
@@ -96,14 +94,14 @@ export type GitHistoryTab = TabBase & {
   repoRoot: string;
 };
 
-/** 项目列表标签页。一个空间只开一个，没有 repoRoot 之外的状态。 */
+/** 项目列表标签页。只开一个，没有 repoRoot 之外的状态。 */
 export type ProjectsTab = TabBase & {
   id: number;
   kind: "projects";
   title: string;
 };
 
-/** 远程仓库列表标签页。一个空间只开一个，内容来自一次账号级查询。 */
+/** 远程仓库列表标签页。只开一个，内容来自一次账号级查询。 */
 export type RemoteReposTab = TabBase & {
   id: number;
   kind: "remotes";
@@ -153,7 +151,6 @@ export type GitDiffOpenInput = {
 };
 
 export type OpenFileTabOptions = {
-  spaceId?: string;
   activate?: boolean;
 };
 
@@ -172,15 +169,12 @@ type CloseTabsPlanResult = {
 export function planMarkdownTabOpen(
   tabs: Tab[],
   path: string,
-  spaceId: string,
   allocId: () => number,
 ): { tabs: Tab[]; tabId: number } {
   const pathKey = path.replace(/\\/g, "/");
   const existing = tabs.find(
     (tab) =>
-      tab.kind === "markdown" &&
-      tab.spaceId === spaceId &&
-      tab.path.replace(/\\/g, "/") === pathKey,
+      tab.kind === "markdown" && tab.path.replace(/\\/g, "/") === pathKey,
   );
   if (existing) return { tabs, tabId: existing.id };
 
@@ -191,7 +185,6 @@ export function planMarkdownTabOpen(
       {
         id: tabId,
         kind: "markdown",
-        spaceId,
         title: basename(path),
         path,
       },
@@ -204,13 +197,11 @@ export function planFileTabOpen(
   tabs: Tab[],
   path: string,
   pin: boolean,
-  spaceId: string,
   allocId: () => number,
 ): { tabs: Tab[]; tabId: number } {
   if (pin) {
     const existing = tabs.find(
-      (tab) =>
-        tab.kind === "editor" && tab.spaceId === spaceId && tab.path === path,
+      (tab) => tab.kind === "editor" && tab.path === path,
     );
     if (existing?.kind === "editor") {
       return {
@@ -230,7 +221,6 @@ export function planFileTabOpen(
         {
           id: tabId,
           kind: "editor",
-          spaceId,
           title: basename(path),
           path,
           dirty: false,
@@ -242,31 +232,22 @@ export function planFileTabOpen(
   }
 
   const persistent = tabs.find(
-    (tab) =>
-      tab.kind === "editor" &&
-      tab.spaceId === spaceId &&
-      tab.path === path &&
-      !tab.preview,
+    (tab) => tab.kind === "editor" && tab.path === path && !tab.preview,
   );
   if (persistent) return { tabs, tabId: persistent.id };
 
   const existingPreview = tabs.find(
-    (tab) =>
-      tab.kind === "editor" &&
-      tab.spaceId === spaceId &&
-      tab.path === path &&
-      tab.preview,
+    (tab) => tab.kind === "editor" && tab.path === path && tab.preview,
   );
   if (existingPreview) return { tabs, tabId: existingPreview.id };
 
   const previewIndex = tabs.findIndex(
-    (tab) => tab.kind === "editor" && tab.spaceId === spaceId && tab.preview,
+    (tab) => tab.kind === "editor" && tab.preview,
   );
   const tabId = allocId();
   const tab: EditorTab = {
     id: tabId,
     kind: "editor",
-    spaceId,
     title: basename(path),
     path,
     dirty: false,
@@ -293,56 +274,37 @@ function titleFromUrl(url: string): string {
   }
 }
 
-export const DEFAULT_SPACE_ID = "default";
-
-// Returns the tab at position `idx` within the given space, or undefined when
-// idx is out of range or no matching space tab exists.
-export function pickTabBySpaceIndex(
-  tabs: Tab[],
-  idx: number,
-  spaceId: string,
-): Tab | undefined {
-  const pool = tabs.filter((t) => t.spaceId === spaceId);
-  return pool[idx];
+// Next active after close. null = the closing tab is the last one, which
+// callers treat as "refuse to close".
+export function nextActiveTab(tabs: Tab[], closingId: number): number | null {
+  if (!tabs.some((t) => t.id === closingId)) return null;
+  if (tabs.length <= 1) return null;
+  const idx = tabs.findIndex((t) => t.id === closingId);
+  return (tabs[idx - 1] ?? tabs[idx + 1]).id;
 }
 
-// Next active after close, scoped to the closing tab's space. null = last tab of
-// its space, which callers treat as "refuse to close".
-export function nextActiveInSpace(
-  tabs: Tab[],
-  closingId: number,
-): number | null {
-  const closing = tabs.find((t) => t.id === closingId);
-  if (!closing) return null;
-  const sameSpace = tabs.filter((t) => t.spaceId === closing.spaceId);
-  if (sameSpace.length <= 1) return null;
-  const idx = sameSpace.findIndex((t) => t.id === closingId);
-  return (sameSpace[idx - 1] ?? sameSpace[idx + 1]).id;
-}
-
-// Gap index is relative to the space's own strip, including the dragged tab.
+// Gap index is relative to the strip, including the dragged tab.
 export function reorderTabsByGap(
   tabs: Tab[],
   fromId: number,
   toGapIndex: number,
 ): Tab[] {
-  const moved = tabs.find((t) => t.id === fromId);
-  if (!moved) return tabs;
-  const sameSpace = tabs.filter((t) => t.spaceId === moved.spaceId);
-  const spaceFrom = sameSpace.findIndex((t) => t.id === fromId);
-  let spaceTarget = toGapIndex > spaceFrom ? toGapIndex - 1 : toGapIndex;
-  spaceTarget = Math.max(0, Math.min(spaceTarget, sameSpace.length - 1));
-  if (spaceTarget === spaceFrom) return tabs;
-  const anchor = sameSpace[spaceTarget];
+  const from = tabs.findIndex((t) => t.id === fromId);
+  if (from === -1) return tabs;
+  let target = toGapIndex > from ? toGapIndex - 1 : toGapIndex;
+  target = Math.max(0, Math.min(target, tabs.length - 1));
+  if (target === from) return tabs;
+  const moved = tabs[from];
+  const anchor = tabs[target];
   const next = tabs.filter((t) => t.id !== fromId);
   const anchorIdx = next.findIndex((t) => t.id === anchor.id);
-  const insertIdx = spaceTarget > spaceFrom ? anchorIdx + 1 : anchorIdx;
+  const insertIdx = target > from ? anchorIdx + 1 : anchorIdx;
   next.splice(insertIdx, 0, moved);
   return next;
 }
 
 /**
- * Plans a Chrome-style "close tabs to the right" within the anchor's space.
+ * Plans a Chrome-style "close tabs to the right".
  * Returns the ids strictly to the right of the anchor plus the id to keep
  * active: the anchor when the active tab is being closed, unchanged otherwise.
  */
@@ -351,11 +313,9 @@ export function planCloseTabsToRight(
   anchorId: number,
   activeId: number,
 ): CloseTabsPlan {
-  const anchor = tabs.find((t) => t.id === anchorId);
-  if (!anchor) return { closeIds: [], nextActiveId: activeId };
-  const sameSpace = tabs.filter((t) => t.spaceId === anchor.spaceId);
-  const idx = sameSpace.findIndex((t) => t.id === anchorId);
-  const closeIds = sameSpace.slice(idx + 1).map((t) => t.id);
+  const idx = tabs.findIndex((t) => t.id === anchorId);
+  if (idx === -1) return { closeIds: [], nextActiveId: activeId };
+  const closeIds = tabs.slice(idx + 1).map((t) => t.id);
   if (closeIds.length === 0) return { closeIds, nextActiveId: activeId };
   return {
     closeIds,
@@ -364,19 +324,18 @@ export function planCloseTabsToRight(
 }
 
 /**
- * Plans a Chrome-style "close other tabs" within the anchor's space.
- * Returns every other tab's id in the anchor's space plus the id to keep
- * active: the anchor when the active tab is being closed, unchanged otherwise.
+ * Plans a Chrome-style "close other tabs".
+ * Returns every other tab's id plus the id to keep active: the anchor when the
+ * active tab is being closed, unchanged otherwise.
  */
 export function planCloseOtherTabs(
   tabs: Tab[],
   anchorId: number,
   activeId: number,
 ): CloseTabsPlan {
-  const anchor = tabs.find((t) => t.id === anchorId);
-  if (!anchor) return { closeIds: [], nextActiveId: activeId };
-  const sameSpace = tabs.filter((t) => t.spaceId === anchor.spaceId);
-  const closeIds = sameSpace.filter((t) => t.id !== anchorId).map((t) => t.id);
+  if (!tabs.some((t) => t.id === anchorId))
+    return { closeIds: [], nextActiveId: activeId };
+  const closeIds = tabs.filter((t) => t.id !== anchorId).map((t) => t.id);
   if (closeIds.length === 0) return { closeIds, nextActiveId: activeId };
   return {
     closeIds,
@@ -394,10 +353,7 @@ export function applyCloseTabsPlan(
 
   const requested = new Set(plan.closeIds);
   const closing = tabs.filter(
-    (tab) =>
-      tab.id !== anchorId &&
-      tab.spaceId === anchor.spaceId &&
-      requested.has(tab.id),
+    (tab) => tab.id !== anchorId && requested.has(tab.id),
   );
   if (closing.length === 0) return null;
 
@@ -417,7 +373,6 @@ export function applyCloseTabsPlan(
 export function planGitDiffOpen(
   tabs: Tab[],
   input: GitDiffOpenInput,
-  spaceId: string,
   pin: boolean,
   allocId: () => number,
 ): { tabs: Tab[]; targetId: number } {
@@ -425,7 +380,6 @@ export function planGitDiffOpen(
   const originalPath = input.originalPath ?? null;
   const matches = (tab: Tab): tab is GitDiffTab =>
     tab.kind === "git-diff" &&
-    tab.spaceId === spaceId &&
     tab.repoRoot === input.repoRoot &&
     tab.path === input.path &&
     tab.mode === input.mode;
@@ -455,7 +409,6 @@ export function planGitDiffOpen(
   const tab = {
     id,
     kind: "git-diff",
-    spaceId,
     title,
     path: input.path,
     repoRoot: input.repoRoot,
@@ -467,10 +420,7 @@ export function planGitDiffOpen(
   if (pin) return { tabs: [...tabs, tab], targetId: id };
 
   const previewIndex = tabs.findIndex(
-    (candidate) =>
-      candidate.kind === "git-diff" &&
-      candidate.spaceId === spaceId &&
-      candidate.preview,
+    (candidate) => candidate.kind === "git-diff" && candidate.preview,
   );
   if (previewIndex === -1) return { tabs: [...tabs, tab], targetId: id };
 
@@ -482,14 +432,10 @@ export function planGitDiffOpen(
 export function planCommitHistoryOpen(
   tabs: Tab[],
   input: { repoRoot: string; branch?: string | null },
-  spaceId: string,
   allocId: () => number,
 ): { tabs: Tab[]; targetId: number } {
   const existing = tabs.find(
-    (tab) =>
-      tab.kind === "git-history" &&
-      tab.spaceId === spaceId &&
-      tab.repoRoot === input.repoRoot,
+    (tab) => tab.kind === "git-history" && tab.repoRoot === input.repoRoot,
   );
   const title = input.branch ? `History · ${input.branch}` : "Git History";
   if (existing) {
@@ -509,7 +455,6 @@ export function planCommitHistoryOpen(
       {
         id,
         kind: "git-history",
-        spaceId,
         title,
         repoRoot: input.repoRoot,
       } satisfies GitHistoryTab,
@@ -519,18 +464,14 @@ export function planCommitHistoryOpen(
 }
 
 /**
- * 项目列表标签页：一个空间只开一个。清单是全应用共享的，所以不需要按仓库去重，
- * 但每个空间各开一个更符合「一个空间一套标签」的既有规则。
+ * 项目列表标签页：只开一个。清单是全应用共享的，一个标签页就够。
  */
 export function planProjectsOpen(
   tabs: Tab[],
-  spaceId: string,
   title: string,
   allocId: () => number,
 ): { tabs: Tab[]; targetId: number } {
-  const existing = tabs.find(
-    (tab) => tab.kind === "projects" && tab.spaceId === spaceId,
-  );
+  const existing = tabs.find((tab) => tab.kind === "projects");
   if (existing) {
     if (existing.title === title) return { tabs, targetId: existing.id };
     return {
@@ -543,27 +484,21 @@ export function planProjectsOpen(
 
   const id = allocId();
   return {
-    tabs: [
-      ...tabs,
-      { id, kind: "projects", spaceId, title } satisfies ProjectsTab,
-    ],
+    tabs: [...tabs, { id, kind: "projects", title } satisfies ProjectsTab],
     targetId: id,
   };
 }
 
 /**
- * 远程仓库列表标签页：一个空间只开一个。与项目列表同一套规则，因为两者都只有
+ * 远程仓库列表标签页：只开一个。与项目列表同一套规则，因为两者都只有
  * 「打开它」这一件事，标题跟着界面语言走。
  */
 export function planRemoteReposOpen(
   tabs: Tab[],
-  spaceId: string,
   title: string,
   allocId: () => number,
 ): { tabs: Tab[]; targetId: number } {
-  const existing = tabs.find(
-    (tab) => tab.kind === "remotes" && tab.spaceId === spaceId,
-  );
+  const existing = tabs.find((tab) => tab.kind === "remotes");
   if (existing) {
     if (existing.title === title) return { tabs, targetId: existing.id };
     return {
@@ -576,62 +511,9 @@ export function planRemoteReposOpen(
 
   const id = allocId();
   return {
-    tabs: [
-      ...tabs,
-      { id, kind: "remotes", spaceId, title } satisfies RemoteReposTab,
-    ],
+    tabs: [...tabs, { id, kind: "remotes", title } satisfies RemoteReposTab],
     targetId: id,
   };
-}
-
-function coldTerminalTab(
-  tabId: number,
-  leafId: number,
-  spaceId: string,
-  cwd?: string,
-): TerminalTab {
-  return {
-    id: tabId,
-    kind: "terminal",
-    spaceId,
-    cold: true,
-    title: cwd ? basename(cwd) : "shell",
-    cwd,
-    paneTree: { kind: "leaf", id: leafId, cwd },
-    activeLeafId: leafId,
-  };
-}
-
-// Plans the removal of a deleted space's tabs while keeping the invariant that
-// the now-active `fallbackSpaceId` always has at least one tab (a cold one is
-// spawned when it would be left empty). Returns null when nothing to remove.
-export function planSpaceRemoval(
-  tabs: Tab[],
-  currentActiveId: number,
-  spaceId: string,
-  fallbackSpaceId: string,
-  fallbackCwd: string | undefined,
-  allocId: () => number,
-): { tabs: Tab[]; disposeLeafIds: number[]; activeId: number } | null {
-  const removed = tabs.filter((t) => t.spaceId === spaceId);
-  if (removed.length === 0) return null;
-  const disposeLeafIds = removed
-    .filter((t) => t.kind === "terminal")
-    .flatMap((t) => leafIds((t as TerminalTab).paneTree));
-  let next = tabs.filter((t) => t.spaceId !== spaceId);
-  let activeId = currentActiveId;
-  if (!next.some((t) => t.spaceId === fallbackSpaceId)) {
-    const tabId = allocId();
-    next = [
-      ...next,
-      coldTerminalTab(tabId, allocId(), fallbackSpaceId, fallbackCwd),
-    ];
-    activeId = tabId;
-  } else if (!next.some((t) => t.id === currentActiveId)) {
-    const inFallback = next.filter((t) => t.spaceId === fallbackSpaceId);
-    activeId = inFallback[inFallback.length - 1].id;
-  }
-  return { tabs: next, disposeLeafIds, activeId };
 }
 
 export function useTabs(initial?: Partial<TerminalTab>) {
@@ -642,7 +524,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       {
         id: tabId,
         kind: "terminal",
-        spaceId: DEFAULT_SPACE_ID,
         cold: true,
         title: initial?.title ?? "shell",
         cwd: initial?.cwd,
@@ -655,7 +536,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   // Gates warming until boot resolves the restore, so no shell spawns before it.
   const [booted, setBooted] = useState(false);
   const nextIdRef = useRef(3);
-  const activeSpaceIdRef = useRef(DEFAULT_SPACE_ID);
   const tabsRef = useRef(tabs);
   const activeIdRef = useRef(activeId);
 
@@ -681,10 +561,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
 
   const markBooted = useCallback(() => setBooted(true), []);
 
-  const setActiveSpaceForNewTabs = useCallback((spaceId: string) => {
-    activeSpaceIdRef.current = spaceId;
-  }, []);
-
   const replaceTabs = useCallback((next: Tab[], nextActiveId: number) => {
     if (next.length === 0) return;
     tabsRef.current = next;
@@ -692,110 +568,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     setTabs(next);
     setActiveId(nextActiveId);
   }, []);
-
-  // Appends a cold terminal tab to a space without stealing focus, so the
-  // overview can populate a space in place; it spawns when first opened.
-  const newTabInSpace = useCallback(
-    (spaceId: string, cwd?: string, workspace?: WorkspaceEnv) => {
-      const tabId = nextIdRef.current++;
-      const leafId = nextIdRef.current++;
-      setTabs((curr) => [
-        ...curr,
-        {
-          id: tabId,
-          kind: "terminal",
-          spaceId,
-          cold: true,
-          title: cwd ? basename(cwd) : "shell",
-          cwd,
-          // 叶子自己带环境：spawn 用的是它，不必等空间切换的环境落地，
-          // 否则在别处的空间里点开 WSL 项目会先在本机起一个终端。
-          paneTree: { kind: "leaf", id: leafId, cwd, workspace },
-          activeLeafId: leafId,
-        },
-      ]);
-      return tabId;
-    },
-    [],
-  );
-
-  // Reassigns a tab to another space. Returns true when the moved tab was active
-  // and emptied its source space, so the caller should follow it into the target.
-  const moveTabToSpace = useCallback(
-    (tabId: number, targetSpaceId: string): boolean => {
-      const curr = tabsRef.current;
-      const tab = curr.find((t) => t.id === tabId);
-      if (!tab || tab.spaceId === targetSpaceId) return false;
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.id === tabId ? ({ ...t, spaceId: targetSpaceId } as Tab) : t,
-        ),
-      );
-      if (activeIdRef.current !== tabId) return false;
-      const fallback = nextActiveInSpace(curr, tabId);
-      if (fallback !== null) {
-        setActiveId(fallback);
-        return false;
-      }
-      return true;
-    },
-    [],
-  );
-
-  // Positions a tab next to a target tab, inheriting the target's space. Returns
-  // true when the active tab crossed into the target space and emptied its
-  // source, so the caller should follow it.
-  const reorderTab = useCallback(
-    (tabId: number, targetTabId: number, edge: "top" | "bottom"): boolean => {
-      if (tabId === targetTabId) return false;
-      const curr = tabsRef.current;
-      const moved = curr.find((t) => t.id === tabId);
-      const target = curr.find((t) => t.id === targetTabId);
-      if (!moved || !target) return false;
-      const crossSpace = moved.spaceId !== target.spaceId;
-      setTabs((prev) => {
-        const without = prev.filter((t) => t.id !== tabId);
-        let idx = without.findIndex((t) => t.id === targetTabId);
-        if (idx < 0) return prev;
-        if (edge === "bottom") idx += 1;
-        const next: Tab = crossSpace
-          ? ({ ...moved, spaceId: target.spaceId } as Tab)
-          : moved;
-        without.splice(idx, 0, next);
-        return without;
-      });
-      if (!crossSpace || activeIdRef.current !== tabId) return false;
-      const fallback = nextActiveInSpace(curr, tabId);
-      if (fallback !== null) {
-        setActiveId(fallback);
-        return false;
-      }
-      return true;
-    },
-    [],
-  );
-
-  const removeTabsForSpace = useCallback(
-    (spaceId: string, fallbackSpaceId: string, fallbackCwd?: string) => {
-      let toDispose: number[] = [];
-      setTabs((curr) => {
-        const plan = planSpaceRemoval(
-          curr,
-          activeIdRef.current,
-          spaceId,
-          fallbackSpaceId,
-          fallbackCwd,
-          () => nextIdRef.current++,
-        );
-        if (!plan) return curr;
-        toDispose = plan.disposeLeafIds;
-        setActiveId(plan.activeId);
-        return plan.tabs;
-      });
-      for (const lid of toDispose) disposeSession(lid);
-    },
-    [],
-  );
 
   const newTab = useCallback(
     (cwd?: string, options?: { workspace?: WorkspaceEnv; shell?: string }) => {
@@ -806,7 +578,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         {
           id: tabId,
           kind: "terminal",
-          spaceId: activeSpaceIdRef.current,
           title: "shell",
           cwd,
           paneTree: {
@@ -833,7 +604,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       {
         id: tabId,
         kind: "terminal",
-        spaceId: activeSpaceIdRef.current,
         title: "blocks",
         cwd,
         paneTree: { kind: "leaf", id: leafId, cwd },
@@ -871,7 +641,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         {
           id: tabId,
           kind: "terminal",
-          spaceId: activeSpaceIdRef.current,
           title,
           customTitle: title,
           cwd,
@@ -906,7 +675,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       {
         id: tabId,
         kind: "terminal",
-        spaceId: activeSpaceIdRef.current,
         title: "private",
         cwd,
         paneTree: { kind: "leaf", id: leafId, cwd },
@@ -930,13 +698,11 @@ export function useTabs(initial?: Partial<TerminalTab>) {
    */
   const openFileTab = useCallback(
     (path: string, pin = true, options: OpenFileTabOptions = {}) => {
-      const targetSpaceId = options.spaceId ?? activeSpaceIdRef.current;
       const activate = options.activate ?? true;
       const plan = planFileTabOpen(
         tabsRef.current,
         path,
         pin,
-        targetSpaceId,
         () => nextIdRef.current++,
       );
       tabsRef.current = plan.tabs;
@@ -970,7 +736,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       {
         id,
         kind: "preview",
-        spaceId: activeSpaceIdRef.current,
         title: titleFromUrl(url),
         url,
       },
@@ -985,12 +750,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   // openFileTab's setTabs(plan.tabs), which is built from the stale ref.
   const newMarkdownTab = useCallback((path: string) => {
     const curr = tabsRef.current;
-    const plan = planMarkdownTabOpen(
-      curr,
-      path,
-      activeSpaceIdRef.current,
-      () => nextIdRef.current++,
-    );
+    const plan = planMarkdownTabOpen(curr, path, () => nextIdRef.current++);
     if (plan.tabs !== curr) {
       tabsRef.current = plan.tabs;
       setTabs(plan.tabs);
@@ -1036,7 +796,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
             return {
               id: t.id,
               kind: "markdown" as const,
-              spaceId: t.spaceId,
               cold: t.cold,
               title: t.title,
               path: t.path,
@@ -1052,13 +811,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
 
   const openGitDiffTab = useCallback((input: GitDiffOpenInput, pin = false) => {
     const curr = tabsRef.current;
-    const plan = planGitDiffOpen(
-      curr,
-      input,
-      activeSpaceIdRef.current,
-      pin,
-      () => nextIdRef.current++,
-    );
+    const plan = planGitDiffOpen(curr, input, pin, () => nextIdRef.current++);
     if (plan.tabs !== curr) {
       tabsRef.current = plan.tabs;
       setTabs(plan.tabs);
@@ -1073,7 +826,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       const plan = planCommitHistoryOpen(
         curr,
         input,
-        activeSpaceIdRef.current,
         () => nextIdRef.current++,
       );
       if (plan.tabs !== curr) {
@@ -1086,15 +838,10 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [],
   );
 
-  /** 打开项目列表标签页；一个空间只开一个。 */
+  /** 打开项目列表标签页；只开一个。 */
   const openProjectsTab = useCallback((title: string) => {
     const curr = tabsRef.current;
-    const plan = planProjectsOpen(
-      curr,
-      activeSpaceIdRef.current,
-      title,
-      () => nextIdRef.current++,
-    );
+    const plan = planProjectsOpen(curr, title, () => nextIdRef.current++);
     if (plan.tabs !== curr) {
       tabsRef.current = plan.tabs;
       setTabs(plan.tabs);
@@ -1103,15 +850,10 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     return plan.targetId;
   }, []);
 
-  /** 打开远程仓库列表标签页；一个空间只开一个。 */
+  /** 打开远程仓库列表标签页；只开一个。 */
   const openRemoteReposTab = useCallback((title: string) => {
     const curr = tabsRef.current;
-    const plan = planRemoteReposOpen(
-      curr,
-      activeSpaceIdRef.current,
-      title,
-      () => nextIdRef.current++,
-    );
+    const plan = planRemoteReposOpen(curr, title, () => nextIdRef.current++);
     if (plan.tabs !== curr) {
       tabsRef.current = plan.tabs;
       setTabs(plan.tabs);
@@ -1160,7 +902,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         {
           id,
           kind: "git-commit-file",
-          spaceId: activeSpaceIdRef.current,
           title,
           repoRoot: input.repoRoot,
           sha: input.sha,
@@ -1181,7 +922,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   const closeTab = useCallback((id: number) => {
     let toDispose: number[] = [];
     setTabs((curr) => {
-      const fallback = nextActiveInSpace(curr, id);
+      const fallback = nextActiveTab(curr, id);
       if (fallback === null) return curr;
       const target = curr.find((t) => t.id === id);
       if (target?.kind === "terminal") {
@@ -1260,8 +1001,8 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   }, []);
 
   const selectByIndex = useCallback(
-    (idx: number, spaceId?: string) => {
-      const t = spaceId ? pickTabBySpaceIndex(tabs, idx, spaceId) : tabs[idx];
+    (idx: number) => {
+      const t = tabs[idx];
       if (t) setActiveId(t.id);
     },
     [tabs],
@@ -1370,7 +1111,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       if (tab?.kind !== "terminal") return curr;
       const newTree = removeLeaf(tab.paneTree, leafId);
       if (newTree === null) {
-        const fallback = nextActiveInSpace(curr, tab.id);
+        const fallback = nextActiveTab(curr, tab.id);
         if (fallback === null) return curr;
         const next = curr.filter((x) => x.id !== tab.id);
         setActiveId((active) => (active === tab.id ? fallback : active));
@@ -1402,7 +1143,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       const target = t.activeLeafId;
       const newTree = removeLeaf(t.paneTree, target);
       if (newTree === null) {
-        const fallback = nextActiveInSpace(curr, tabId);
+        const fallback = nextActiveTab(curr, tabId);
         if (fallback === null) return curr;
         const next = curr.filter((x) => x.id !== tabId);
         setActiveId((active) => (active === tabId ? fallback : active));
@@ -1436,7 +1177,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         {
           id: tabId,
           kind: "terminal",
-          spaceId: activeSpaceIdRef.current,
           title: "shell",
           cwd,
           paneTree: { kind: "leaf", id: leafId, cwd },
@@ -1459,13 +1199,8 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     allocId,
     booted,
     replaceTabs,
-    moveTabToSpace,
-    reorderTab,
     reorderTabByGap,
-    newTabInSpace,
-    removeTabsForSpace,
     markBooted,
-    setActiveSpaceForNewTabs,
     setOverrideLanguage,
     newTab,
     newBlockTab,
