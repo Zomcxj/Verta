@@ -90,20 +90,24 @@ export function AboutSection() {
       </div>
 
       <dl className="grid grid-cols-[110px_1fr] gap-y-2.5 text-[12px]">
-        <dt className="text-muted-foreground">Build</dt>
+        <dt className="text-muted-foreground">{t("settings.about.build")}</dt>
         <dd className="font-mono text-[11.5px]">
           {build ? `${build} · v${version}` : `v${version}`}
         </dd>
 
-        <dt className="text-muted-foreground">Bundle ID</dt>
+        <dt className="text-muted-foreground">
+          {t("settings.about.bundleId")}
+        </dt>
         <dd className="font-mono text-[11.5px]">app.verta</dd>
 
-        <dt className="text-muted-foreground">License</dt>
+        <dt className="text-muted-foreground">{t("settings.about.license")}</dt>
         <dd>Apache 2.0</dd>
 
         {REPO_URL ? (
           <>
-            <dt className="text-muted-foreground">Source code</dt>
+            <dt className="text-muted-foreground">
+              {t("settings.about.source")}
+            </dt>
             <dd>
               <button
                 type="button"
@@ -118,14 +122,20 @@ export function AboutSection() {
         ) : null}
         {WEBSITE ? (
           <>
-            <dt className="text-muted-foreground">Website</dt>
+            <dt className="text-muted-foreground">
+              {t("settings.about.website")}
+            </dt>
             <dd>
               <button
                 type="button"
                 onClick={() => void openUrl(WEBSITE)}
                 className="inline-flex items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:text-foreground hover:underline"
               >
-                <HugeiconsIcon icon={Globe02Icon} size={12} strokeWidth={1.75} />
+                <HugeiconsIcon
+                  icon={Globe02Icon}
+                  size={12}
+                  strokeWidth={1.75}
+                />
                 {WEBSITE}
               </button>
             </dd>

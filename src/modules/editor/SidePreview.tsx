@@ -1,5 +1,6 @@
-import { MarkdownRender } from "@/modules/markdown/MarkdownRender";
 import { cn } from "@/lib/utils";
+import { useT } from "@/modules/i18n";
+import { MarkdownRender } from "@/modules/markdown/MarkdownRender";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type SidePreviewKind = "markdown" | "image" | "none";
@@ -12,7 +13,9 @@ export type SidePreviewKind = "markdown" | "image" | "none";
 export function sidePreviewKind(path: string): SidePreviewKind {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   if (["md", "markdown", "mdx"].includes(ext)) return "markdown";
-  if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif"].includes(ext)) {
+  if (
+    ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif"].includes(ext)
+  ) {
     return "image";
   }
   return "none";
@@ -50,6 +53,7 @@ export function SidePreview({
   onToggle,
   visible,
 }: SidePreviewProps) {
+  const t = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<ViewportMark | null>(null);
 
@@ -65,7 +69,9 @@ export function SidePreview({
     const box = scrollRef.current;
     if (!box) return;
     const rect = box.getBoundingClientRect();
-    const fraction = (event.clientY - rect.top + box.scrollTop) / Math.max(1, box.scrollHeight);
+    const fraction =
+      (event.clientY - rect.top + box.scrollTop) /
+      Math.max(1, box.scrollHeight);
     setHover({ top: fraction, height: 0 });
   }, []);
 
@@ -86,13 +92,13 @@ export function SidePreview({
     >
       <div className="flex h-7 shrink-0 items-center justify-between gap-2 border-b border-border/50 pr-1 pl-2">
         <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
-          Preview
+          {t("editor.preview.title")}
         </span>
         <button
           type="button"
           onClick={onToggle}
-          title="Hide preview"
-          aria-label="Hide preview"
+          title={t("editor.preview.hide")}
+          aria-label={t("editor.preview.hide")}
           className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <svg viewBox="0 0 16 16" className="size-3" aria-hidden="true">

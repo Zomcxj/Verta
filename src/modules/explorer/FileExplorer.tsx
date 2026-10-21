@@ -229,7 +229,10 @@ export const FileExplorer = memo(
     },
     ref,
   ) {
-  const t = useT();
+    const t = useT();
+    const revealLabel = IS_MAC
+      ? t("explorer.revealFinder")
+      : t("explorer.revealManager");
     const tree = useFileTree(rootPath, {
       onPathRenamed,
       onPathsDeleted,
@@ -892,7 +895,7 @@ export const FileExplorer = memo(
                       className={COMPACT_ITEM}
                       onSelect={() => onOpenFile(menuTarget.path, true)}
                     >
-                      Open
+                      {t("explorer.open")}
                     </ContextMenuItem>
                   )}
                   {menuTarget.isDir && onRevealInTerminal && (
@@ -900,7 +903,7 @@ export const FileExplorer = memo(
                       className={COMPACT_ITEM}
                       onSelect={() => onRevealInTerminal(menuTarget.path)}
                     >
-                      Open in Terminal
+                      {t("explorer.openInTerminal")}
                     </ContextMenuItem>
                   )}
                   {menuTarget.isDir && onOpenInSourceControl && (
@@ -908,7 +911,7 @@ export const FileExplorer = memo(
                       className={COMPACT_ITEM}
                       onSelect={() => onOpenInSourceControl(menuTarget.path)}
                     >
-                      Open in Source Control
+                      {t("explorer.openInSourceControl")}
                     </ContextMenuItem>
                   )}
                   {menuTarget.isDir && onOpenGitHistory && (
@@ -916,14 +919,14 @@ export const FileExplorer = memo(
                       className={COMPACT_ITEM}
                       onSelect={() => onOpenGitHistory(menuTarget.path)}
                     >
-                      Open Git History
+                      {t("explorer.openGitHistory")}
                     </ContextMenuItem>
                   )}
                   <ContextMenuItem
                     className={COMPACT_ITEM}
                     onSelect={() => void revealInFinder(menuTarget.path)}
                   >
-                    Reveal in Finder
+                    {revealLabel}
                   </ContextMenuItem>
                   <ContextMenuSeparator />
                   <ContextMenuItem
@@ -937,7 +940,7 @@ export const FileExplorer = memo(
                       )
                     }
                   >
-                    New File
+                    {t("explorer.newFile")}
                   </ContextMenuItem>
                   <ContextMenuItem
                     className={COMPACT_ITEM}
@@ -950,7 +953,7 @@ export const FileExplorer = memo(
                       )
                     }
                   >
-                    New Folder
+                    {t("explorer.newFolder")}
                   </ContextMenuItem>
                   <ContextMenuItem
                     className={COMPACT_ITEM}
@@ -962,7 +965,7 @@ export const FileExplorer = memo(
                       )
                     }
                   >
-                    Paste
+                    {t("explorer.paste")}
                     <ContextMenuShortcut>{PASTE_HINT}</ContextMenuShortcut>
                   </ContextMenuItem>
                   <ContextMenuSeparator />
@@ -970,7 +973,7 @@ export const FileExplorer = memo(
                     className={COMPACT_ITEM}
                     onSelect={() => void copyToClipboard(menuTarget.path)}
                   >
-                    Copy Path
+                    {t("explorer.copyPath")}
                   </ContextMenuItem>
                   <ContextMenuItem
                     className={COMPACT_ITEM}
@@ -980,14 +983,14 @@ export const FileExplorer = memo(
                       )
                     }
                   >
-                    Copy Relative Path
+                    {t("explorer.copyRelativePath")}
                   </ContextMenuItem>
                   <ContextMenuSeparator />
                   <ContextMenuItem
                     className={COMPACT_ITEM}
                     onSelect={() => onAttachToAgent?.(menuTarget.path)}
                   >
-                    Attach to Agent
+                    {t("explorer.attachToAgent")}
                   </ContextMenuItem>
                   <ContextMenuSeparator />
                   <ContextMenuItem
@@ -1004,7 +1007,9 @@ export const FileExplorer = memo(
                       }
                     }}
                   >
-                    {deleteConfirm ? "Click again to confirm" : "Delete"}
+                    {deleteConfirm
+                      ? t("explorer.clickToConfirm")
+                      : t("explorer.delete")}
                   </ContextMenuItem>
                 </>
               ) : (
@@ -1014,7 +1019,7 @@ export const FileExplorer = memo(
                       className={COMPACT_ITEM}
                       onSelect={() => onRevealInTerminal(rootPath)}
                     >
-                      Open in Terminal
+                      {t("explorer.openInTerminal")}
                     </ContextMenuItem>
                   )}
                   {onOpenInSourceControl && (
@@ -1022,7 +1027,7 @@ export const FileExplorer = memo(
                       className={COMPACT_ITEM}
                       onSelect={() => onOpenInSourceControl(rootPath)}
                     >
-                      Open in Source Control
+                      {t("explorer.openInSourceControl")}
                     </ContextMenuItem>
                   )}
                   {onOpenGitHistory && (
@@ -1030,33 +1035,33 @@ export const FileExplorer = memo(
                       className={COMPACT_ITEM}
                       onSelect={() => onOpenGitHistory(rootPath)}
                     >
-                      Open Git History
+                      {t("explorer.openGitHistory")}
                     </ContextMenuItem>
                   )}
                   <ContextMenuItem
                     className={COMPACT_ITEM}
                     onSelect={() => void revealInFinder(rootPath)}
                   >
-                    Reveal in Finder
+                    {revealLabel}
                   </ContextMenuItem>
                   <ContextMenuSeparator />
                   <ContextMenuItem
                     className={COMPACT_ITEM}
                     onSelect={() => tree.beginCreate(rootPath, "file")}
                   >
-                    New File
+                    {t("explorer.newFile")}
                   </ContextMenuItem>
                   <ContextMenuItem
                     className={COMPACT_ITEM}
                     onSelect={() => tree.beginCreate(rootPath, "dir")}
                   >
-                    New Folder
+                    {t("explorer.newFolder")}
                   </ContextMenuItem>
                   <ContextMenuItem
                     className={COMPACT_ITEM}
                     onSelect={() => void pasteInto(rootPath)}
                   >
-                    Paste
+                    {t("explorer.paste")}
                     <ContextMenuShortcut>{PASTE_HINT}</ContextMenuShortcut>
                   </ContextMenuItem>
                   <ContextMenuSeparator />
@@ -1064,13 +1069,13 @@ export const FileExplorer = memo(
                     className={COMPACT_ITEM}
                     onSelect={() => void copyToClipboard(rootPath)}
                   >
-                    Copy Path
+                    {t("explorer.copyPath")}
                   </ContextMenuItem>
                   <ContextMenuItem
                     className={COMPACT_ITEM}
                     onSelect={() => tree.refresh(rootPath)}
                   >
-                    Refresh
+                    {t("explorer.refresh")}
                   </ContextMenuItem>
                 </>
               )}

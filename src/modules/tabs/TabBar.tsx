@@ -12,7 +12,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useT } from "@/modules/i18n";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import {
@@ -21,6 +20,7 @@ import {
 } from "@/modules/editor/lib/languageDefinitions";
 import { resolveDisplayName } from "@/modules/editor/lib/languageResolver";
 import { FileIcon } from "@/modules/explorer/FileIcon";
+import { useT } from "@/modules/i18n";
 import {
   ArrowRight01Icon,
   Cancel01Icon,
@@ -28,8 +28,8 @@ import {
   Clock01Icon,
   ComputerTerminal02Icon,
   Folder01Icon,
-  GithubIcon,
   GitCompareIcon,
+  GithubIcon,
   Globe02Icon,
   IncognitoIcon,
   PencilEdit02Icon,
@@ -404,7 +404,7 @@ export function TabBar({
                               className="size-3.5 shrink-0 object-contain"
                             />
                             <div className="flex flex-1 flex-col">
-                              <span>Auto Detect</span>
+                              <span>{tr("tabs.language.auto")}</span>
                               <span className="text-[10px] text-muted-foreground italic">
                                 Mode: {resolveDisplayName(t.title)}
                               </span>
@@ -552,7 +552,7 @@ export function TabBar({
                         size={13}
                         strokeWidth={1.75}
                       />
-                      <span className="flex-1">Close tabs to the right</span>
+                      <span className="flex-1">{tr("tabs.closeRight")}</span>
                     </ContextMenuItem>
                     <ContextMenuItem
                       className="gap-2 rounded-xl px-2.5 py-1.5 text-[13px]"
@@ -564,7 +564,7 @@ export function TabBar({
                         size={13}
                         strokeWidth={1.75}
                       />
-                      <span className="flex-1">Close other tabs</span>
+                      <span className="flex-1">{tr("tabs.closeOthers")}</span>
                     </ContextMenuItem>
                   </ContextMenuContent>
                 </ContextMenu>

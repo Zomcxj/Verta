@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useT } from "@/modules/i18n";
 import { useShortcutLabel } from "@/modules/shortcuts";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
@@ -17,6 +18,7 @@ const DEAD = (): WatermarkState => "dead";
 // First-run hints over an untouched block terminal. Once the leaf runs a
 // command the component unmounts for good and drops its subscription.
 export function BlockWatermark({ leafId, subscribe }: Props) {
+  const t = useT();
   const [gone, setGone] = useState(false);
   const state = useSyncExternalStore(
     gone ? NOOP_SUBSCRIBE : subscribe,
@@ -49,8 +51,8 @@ export function BlockWatermark({ leafId, subscribe }: Props) {
         className="size-24 rounded-3xl shadow-lg shadow-black/25"
       />
       <div className="grid grid-cols-[auto_auto] items-center gap-x-12 gap-y-3 text-[13px]">
-        <Hint label="Browse your command history" keys="↑" />
-        <Hint label="Autocomplete paths and commands" keys="Tab" />
+        <Hint label={t("terminal.watermark.history")} keys="↑" />
+        <Hint label={t("terminal.watermark.complete")} keys="Tab" />
       </div>
     </div>
   );

@@ -8,7 +8,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useT } from "@/modules/i18n";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -31,7 +30,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
-import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -39,19 +37,20 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { type GitBranchEntry, native } from "@/lib/native";
 import { IS_MAC } from "@/lib/platform";
 import { cn } from "@/lib/utils";
-import { type GitBranchEntry, native } from "@/lib/native";
+import { FileIcon } from "@/modules/explorer/FileIcon";
 import {
   copyToClipboard,
   revealInFinder,
 } from "@/modules/explorer/lib/contextActions";
-import { FileIcon } from "@/modules/explorer/FileIcon";
 import {
   COMPACT_CONTENT,
   COMPACT_ITEM,
 } from "@/modules/explorer/lib/menuItemClass";
 import { joinPath } from "@/modules/explorer/lib/useFileTree";
+import { useT } from "@/modules/i18n";
 import {
   Alert02Icon,
   ArrowDown01Icon,
@@ -70,26 +69,27 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  type KeyboardEvent,
   memo,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
-  type ReactNode,
 } from "react";
+import { toast } from "sonner";
+import { type BranchDialogRequest, BranchDialogs } from "./BranchDialogs";
 import {
   repositoryTargetIsPending,
   type SourceControlRepositoryTarget,
 } from "./repositoryTarget";
-import type { SourceControlSummary } from "./useSourceControl";
-import { BranchDialogs, type BranchDialogRequest } from "./BranchDialogs";
 import { StashSection } from "./StashSection";
+import type { SourceControlSummary } from "./useSourceControl";
 import {
-  useSourceControlPanel,
   type CheckState,
   type SourceControlFileEntry,
+  useSourceControlPanel,
 } from "./useSourceControlPanel";
 
 type Props = {
@@ -140,8 +140,11 @@ function entryPathLabel(entry: SourceControlFileEntry): string {
   return dirname(entry.path);
 }
 
-function upstreamBadgeLabel(upstream: string | null | undefined): string {
-  if (!upstream) return "No upstream";
+function upstreamBadgeLabel(
+  upstream: string | null | undefined,
+  fallback: string,
+): string {
+  if (!upstream) return fallback;
   return upstream;
 }
 
@@ -346,7 +349,9 @@ function BranchDropdown({
                         ) : (
                           <span className="w-3.5 shrink-0" />
                         )}
-                        <span className="min-w-0 flex-1 truncate">{b.name}</span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {b.name}
+                        </span>
                       </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent className="w-52">
                         <DropdownMenuItem
@@ -505,8 +510,8 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   const panelState = fixedTargetPending ? "loading" : scm.panelState;
   const isRefreshing = panelState === "loading";
   const repoLabel = useMemo(() => {
-    if (fixedTargetPending) return "Loading";
-    if (!scm.status) return "Source Control";
+    if (fixedTargetPending) return t("scm.loadingRepo");
+    if (!scm.status) return t("scm.sourceControl");
     return scm.status.isDetached ? "detached" : scm.status.branch;
   }, [fixedTargetPending, scm.status]);
 
@@ -517,24 +522,27 @@ export const SourceControlPanel = memo(function SourceControlPanel({
     !fixedTargetPending &&
     !scm.actionBusy;
   const commitDisabledReason = scm.actionBusy
-    ? "Wait for the current Git action to finish."
+    ? t("scm.hint.busy")
     : scm.stagedEntries.length === 0
-      ? "Stage changes to enable commit."
+      ? t("scm.hint.stageFirst")
       : scm.commitMessage.trim().length === 0
-        ? "Enter a commit message to enable commit."
+        ? t("scm.hint.messageFirst")
         : null;
   const commitHint = canCommit
     ? `Commit with ${commitShortcut}.`
     : (commitDisabledReason ?? `Commit with ${commitShortcut}.`);
-  const pushHint = scm.pushHint ?? "Push is unavailable right now.";
+  const pushHint = scm.pushHint ?? t("scm.pushUnavailable");
   const pushDisabledReason = fixedTargetPending
-    ? "Wait for the selected repository to finish loading."
+    ? t("scm.hint.repoLoading")
     : scm.actionBusy
-      ? "Wait for the current Git action to finish."
+      ? t("scm.hint.busy")
       : pushHint;
   const stagedCount = scm.stagedEntries.length;
   const changedCount = scm.fileEntries.length;
-  const pushStatusLabel = upstreamBadgeLabel(scm.status?.upstream);
+  const pushStatusLabel = upstreamBadgeLabel(
+    scm.status?.upstream,
+    t("scm.noUpstream"),
+  );
   const hasUpstream = !!scm.status?.upstream;
   const isDiverged =
     !!scm.status && scm.status.ahead > 0 && scm.status.behind > 0;
@@ -804,7 +812,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
             <IconActionButton
-              label={fetchBusy ? "Fetching…" : "Fetch from remote"}
+              label={fetchBusy ? t("scm.fetching") : t("scm.fetch")}
               disabled={!canFetch}
               onClick={handleFetch}
               side="bottom"
@@ -822,14 +830,16 @@ export const SourceControlPanel = memo(function SourceControlPanel({
             <IconActionButton
               label={
                 pullBusy
-                  ? "Pulling…"
+                  ? t("scm.pulling")
                   : isDiverged
-                    ? "Branch diverged — resolve in terminal"
+                    ? t("scm.pullDiverged")
                     : !hasUpstream
-                      ? "No upstream configured"
+                      ? t("scm.pullNoUpstream")
                       : (scm.status?.behind ?? 0) === 0
-                        ? "Already up to date"
-                        : `Pull ${scm.status?.behind ?? 0} commits (fast-forward)`
+                        ? t("scm.pullUpToDate")
+                        : t("scm.pullBehind", {
+                            count: String(scm.status?.behind ?? 0),
+                          })
               }
               disabled={!canPull}
               onClick={handlePull}
@@ -877,7 +887,9 @@ export const SourceControlPanel = memo(function SourceControlPanel({
               strokeWidth={1.85}
               className="shrink-0"
             />
-            <span className="flex-1 text-[12px] font-medium">Commit Graph</span>
+            <span className="flex-1 text-[12px] font-medium">
+              {t("scm.commitGraph")}
+            </span>
             <HugeiconsIcon
               icon={ArrowRight01Icon}
               size={12}
@@ -892,16 +904,13 @@ export const SourceControlPanel = memo(function SourceControlPanel({
         ) : null}
 
         {panelState === "no-repo" ? (
-          <PanelCenter
-            title={t("scm.noRepo")}
-            body="The active workspace is not inside a Git repository."
-          />
+          <PanelCenter title={t("scm.noRepo")} body={t("scm.noRepo.body")} />
         ) : null}
 
         {panelState === "error" ? (
           <PanelCenter
             title={t("scm.error")}
-            body={scm.statusError ?? "Unknown source control error"}
+            body={scm.statusError ?? t("scm.unknownError")}
             action={
               <Button size="sm" onClick={() => void scm.refresh()}>
                 Retry
@@ -956,8 +965,15 @@ export const SourceControlPanel = memo(function SourceControlPanel({
                 />
                 <span className="truncate font-medium text-foreground/85">
                   {stagedCount === 0
-                    ? "Nothing staged"
-                    : `${stagedCount} ${stagedCount === 1 ? "file" : "files"} staged`}
+                    ? t("scm.nothingStaged")
+                    : t(
+                        stagedCount === 1
+                          ? "scm.stagedFile"
+                          : "scm.stagedFiles",
+                        {
+                          count: String(stagedCount),
+                        },
+                      )}
                 </span>
                 <span className="ml-auto shrink-0 truncate text-muted-foreground/65">
                   {pushStatusLabel}
@@ -973,7 +989,9 @@ export const SourceControlPanel = memo(function SourceControlPanel({
                       disabled={!canCommit}
                       onClick={() => void scm.commit()}
                     >
-                      {scm.actionBusy === "commit" ? "Committing…" : "Commit"}
+                      {scm.actionBusy === "commit"
+                        ? t("scm.committing")
+                        : t("scm.commit")}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent
@@ -997,7 +1015,9 @@ export const SourceControlPanel = memo(function SourceControlPanel({
                       }
                       onClick={() => void scm.push()}
                     >
-                      {scm.actionBusy === "push" ? "Pushing…" : "Push"}
+                      {scm.actionBusy === "push"
+                        ? t("scm.pushing")
+                        : t("scm.push")}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent
@@ -1095,12 +1115,14 @@ export const SourceControlPanel = memo(function SourceControlPanel({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Discard changes?</AlertDialogTitle>
+            <AlertDialogTitle>{t("scm.discardTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
               {scm.pendingDiscard?.scope === "all"
-                ? `This will discard ${scm.pendingDiscard.label} and cannot be undone.`
+                ? t("scm.discardAll.body", { label: scm.pendingDiscard.label })
                 : scm.pendingDiscard
-                  ? `Discard changes in "${scm.pendingDiscard.label}"? This cannot be undone.`
+                  ? t("scm.discardOne.body", {
+                      label: scm.pendingDiscard.label,
+                    })
                   : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1188,6 +1210,7 @@ const RowRenderer = memo(function RowRenderer(props: RowRendererProps) {
 });
 
 function DivergedBanner() {
+  const t = useT();
   return (
     <div className="mx-2 mt-1 flex h-7 items-center gap-1.5 rounded-md border border-border/60 bg-foreground/[0.04] px-2 text-[10.5px] leading-none text-muted-foreground">
       <HugeiconsIcon
@@ -1198,9 +1221,9 @@ function DivergedBanner() {
       />
       <span className="min-w-0 flex-1 truncate">
         <span className="font-medium text-foreground/85">
-          Diverged from upstream
+          {t("scm.diverged")}
         </span>
-        <span className="ml-1 opacity-75">— resolve in terminal</span>
+        <span className="ml-1 opacity-75">{t("scm.diverged.hint")}</span>
       </span>
     </div>
   );
@@ -1251,6 +1274,7 @@ const EntryRow = memo(function EntryRow({
 }: RowRendererProps & {
   row: Extract<RowDescriptor, { kind: "entry" }>;
 }) {
+  const t = useT();
   const entry = row.entry;
   const isSelected = selectedPath === entry.path;
   const fileName = basename(entry.path);
@@ -1266,7 +1290,7 @@ const EntryRow = memo(function EntryRow({
     ? joinPath(repoRoot.replace(/\\/g, "/"), entry.path.replace(/\\/g, "/"))
     : null;
   const isDeleted = entry.statusCode === "D";
-  const revealLabel = IS_MAC ? "Reveal in Finder" : "Reveal in File Manager";
+  const revealLabel = IS_MAC ? t("scm.revealFinder") : t("scm.revealManager");
 
   return (
     <ContextMenu>
@@ -1329,7 +1353,7 @@ const EntryRow = memo(function EntryRow({
           {showDiscard ? (
             <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 data-[focused=true]:opacity-100 data-[selected=true]:opacity-100">
               <IconActionButton
-                label={`Discard ${entry.path}`}
+                label={t("scm.discardFile", { path: entry.path })}
                 disabled={disabled}
                 side="top"
                 onClick={() => onDiscardFile(entry)}
@@ -1352,7 +1376,7 @@ const EntryRow = memo(function EntryRow({
               <Spinner className="size-3" />
             ) : (
               <Checkbox
-                aria-label={`Stage ${entry.path}`}
+                aria-label={t("scm.stageFile", { path: entry.path })}
                 checked={checkboxValue(entry.checkState)}
                 disabled={disabled}
                 onCheckedChange={() => void onToggleStageFile(entry)}
@@ -1372,14 +1396,14 @@ const EntryRow = memo(function EntryRow({
             void onSelectFile(entry);
           }}
         >
-          Open Diff
+          {t("scm.openDiff")}
         </ContextMenuItem>
         {!isDeleted && onOpenFile && absolutePath ? (
           <ContextMenuItem
             className={COMPACT_ITEM}
             onSelect={() => onOpenFile(absolutePath)}
           >
-            Open File
+            {t("scm.openFile")}
           </ContextMenuItem>
         ) : null}
 
@@ -1391,7 +1415,7 @@ const EntryRow = memo(function EntryRow({
           disabled={disabled}
           onSelect={() => void onToggleStageFile(entry)}
         >
-          {entry.checkState === "checked" ? "Unstage" : "Stage"}
+          {entry.checkState === "checked" ? t("scm.unstage") : t("scm.stage")}
         </ContextMenuItem>
         {entry.unstaged ? (
           <ContextMenuItem
@@ -1400,7 +1424,7 @@ const EntryRow = memo(function EntryRow({
             disabled={disabled}
             onSelect={() => onDiscardFile(entry)}
           >
-            Discard Changes
+            {t("scm.discardChanges")}
           </ContextMenuItem>
         ) : null}
 

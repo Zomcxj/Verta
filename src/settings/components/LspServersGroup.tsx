@@ -10,6 +10,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { useT } from "@/modules/i18n";
 import {
   allServers,
   detectBinary,
@@ -17,7 +18,6 @@ import {
   redetectBinary,
   useLspRuntimeStore,
 } from "@/modules/lsp";
-import { useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   type LspCustomServer,
@@ -32,6 +32,7 @@ import { resolveLspSwitchState } from "./lspSwitchState";
 import { SettingRow } from "./SettingRow";
 
 export function LspServersGroup() {
+  const t = useT();
   const activation = usePreferencesStore((s) => s.lspActivation);
   const customServers = usePreferencesStore((s) => s.lspCustomServers);
   const [installTarget, setInstallTarget] = useState<LspPreset | null>(null);
@@ -40,7 +41,7 @@ export function LspServersGroup() {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <Label>Language servers</Label>
+        <Label>{t("settings.lsp.servers")}</Label>
         <AddCustomServerDialog customServers={customServers} />
       </div>
       {servers.map((server) => (
@@ -130,7 +131,12 @@ function ServerRow({
         <Switch
           checked={switchState.checked}
           disabled={switchState.checking}
-          aria-label={`${switchState.checked ? "Disable" : "Enable"} ${server.name} language server`}
+          aria-label={t(
+            switchState.checked
+              ? "settings.lsp.disable"
+              : "settings.lsp.enable",
+            { name: server.name },
+          )}
           onCheckedChange={(checked) => {
             if (!checked) {
               void setLspActivation(server.id, "dismissed");
@@ -153,6 +159,7 @@ function AddCustomServerDialog({
 }: {
   customServers: LspCustomServer[];
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
@@ -224,20 +231,37 @@ function AddCustomServerDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="h-6 px-2 text-[11px]">
-          Add custom server
+          {t("settings.lsp.addServer")}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle className="text-sm">Custom language server</DialogTitle>
+          <DialogTitle className="text-sm">
+            {t("settings.lsp.customServer")}
+          </DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-2.5">
-          {field("Name", name, setName, "Zig")}
-          {field("Command", command, setCommand, "zls")}
-          {field("Arguments", args, setArgs, "--stdio")}
-          {field("File extensions", extensions, setExtensions, "zig, zon")}
-          {field("LSP language id", languageId, setLanguageId, "zig")}
-          {field("Root markers", rootMarkers, setRootMarkers, "build.zig")}
+          {field(t("settings.lsp.field.name"), name, setName, "Zig")}
+          {field(t("settings.lsp.field.command"), command, setCommand, "zls")}
+          {field(t("settings.lsp.field.arguments"), args, setArgs, "--stdio")}
+          {field(
+            t("settings.lsp.field.extensions"),
+            extensions,
+            setExtensions,
+            "zig, zon",
+          )}
+          {field(
+            t("settings.lsp.field.languageId"),
+            languageId,
+            setLanguageId,
+            "zig",
+          )}
+          {field(
+            t("settings.lsp.field.rootMarkers"),
+            rootMarkers,
+            setRootMarkers,
+            "build.zig",
+          )}
         </div>
         <DialogFooter>
           <Button size="sm" disabled={!valid} onClick={save}>

@@ -7,15 +7,15 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
-import { type MessageKey, useT } from "@/modules/i18n";
-import { spaceDisplayName } from "@/modules/i18n/spaceName";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FileIcon } from "@/modules/explorer/FileIcon";
+import { type MessageKey, useT } from "@/modules/i18n";
+import { spaceDisplayName } from "@/modules/i18n/spaceName";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   getBindingTokens,
-  SHORTCUTS,
   type KeyBinding,
+  SHORTCUTS,
   type ShortcutId,
 } from "@/modules/shortcuts";
 import { listBuiltinThemes, useTheme } from "@/modules/theme";
@@ -23,8 +23,8 @@ import {
   AlertCircleIcon,
   ArrowTurnBackwardIcon,
   CommandIcon,
-  Tick02Icon,
   TerminalIcon,
+  Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -238,7 +238,7 @@ export function CommandPalette({
         <ScrollArea className="max-h-[420px]">
           <CommandList className="max-h-none overflow-visible pr-3">
             {inThemes ? (
-              <CommandGroup heading="Themes">
+              <CommandGroup heading={t("palette.group.themes")}>
                 <CommandItem
                   value="theme:back"
                   onSelect={exitThemes}
@@ -249,7 +249,7 @@ export function CommandPalette({
                     size={14}
                     strokeWidth={1.75}
                   />
-                  <span>Back</span>
+                  <span>{t("palette.back")}</span>
                 </CommandItem>
                 {themes.map((t) => (
                   <CommandItem
@@ -269,7 +269,9 @@ export function CommandPalette({
                     ) : null}
                   </CommandItem>
                 ))}
-                {themes.length === 0 ? <StatusItem label={t("palette.noThemes")} /> : null}
+                {themes.length === 0 ? (
+                  <StatusItem label={t("palette.noThemes")} />
+                ) : null}
               </CommandGroup>
             ) : parsed.mode === "commands" ? (
               rankedCommands.length === 0 ? (
@@ -279,10 +281,7 @@ export function CommandPalette({
                   const rows = rankedCommands.filter((a) => a.group === group);
                   if (rows.length === 0) return null;
                   return (
-                    <CommandGroup
-                      key={group}
-                      heading={t(group)}
-                    >
+                    <CommandGroup key={group} heading={t(group)}>
                       {rows.map((item) => (
                         <ActionItem
                           key={item.id}
@@ -299,7 +298,7 @@ export function CommandPalette({
                 })
               )
             ) : parsed.mode === "content" ? (
-              <CommandGroup heading="Contents">
+              <CommandGroup heading={t("palette.group.contents")}>
                 {!workspaceRoot ? (
                   <StatusItem label={t("palette.noWorkspaceRoot")} />
                 ) : parsed.term.length < CONTENT_SEARCH_MIN_QUERY ? (
@@ -309,7 +308,7 @@ export function CommandPalette({
                     loading={content.loading}
                     error={content.error}
                     empty={content.results.length === 0}
-                    emptyLabel="No matches"
+                    emptyLabel={t("palette.noMatches")}
                     onRetry={content.retry}
                   >
                     {content.results.map((hit) => (
@@ -335,7 +334,7 @@ export function CommandPalette({
                 )}
               </CommandGroup>
             ) : parsed.mode === "history" ? (
-              <CommandGroup heading="Command history">
+              <CommandGroup heading={t("palette.group.history")}>
                 {!insertCommand ? (
                   <StatusItem label={t("palette.openTerminal")} />
                 ) : (
@@ -343,7 +342,7 @@ export function CommandPalette({
                     loading={history.loading}
                     error={history.error}
                     empty={history.results.length === 0}
-                    emptyLabel="No history"
+                    emptyLabel={t("palette.noHistory")}
                     onRetry={history.retry}
                   >
                     {history.results.map((cmd) => (
@@ -368,7 +367,7 @@ export function CommandPalette({
                 )}
               </CommandGroup>
             ) : (
-              <CommandGroup heading="Search modes">
+              <CommandGroup heading={t("palette.searchModes")}>
                 {MODE_HINTS.map((hint) => (
                   <CommandItem
                     key={hint.sigil}
@@ -379,7 +378,7 @@ export function CommandPalette({
                     <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">
                       {hint.sigil}
                     </kbd>
-                    <span>{hint.label}</span>
+                    <span>{t(hint.labelKey)}</span>
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -406,7 +405,9 @@ function rankCommands(
     // searching the raw key would never find "设置" or "Settings".
     const visibleTitle =
       item.title === "cmd.switchToSpace"
-        ? lookup("cmd.switchToSpace", { name: spaceDisplayName(item.spaceName ?? "") })
+        ? lookup("cmd.switchToSpace", {
+            name: spaceDisplayName(item.spaceName ?? ""),
+          })
         : lookup(item.title);
     const visibleGroup = lookup(item.group);
     const s = fuzzyBest(term, [
@@ -432,10 +433,9 @@ function ActionItem({
   onRun: () => void;
 }) {
   const t = useT();
-  const rightLabel =
-    item.disabledReason
-      ? t(item.disabledReason as MessageKey)
-      : (item.trailing ?? shortcutLabel);
+  const rightLabel = item.disabledReason
+    ? t(item.disabledReason as MessageKey)
+    : (item.trailing ?? shortcutLabel);
   return (
     <CommandItem
       value={`cmd:${item.id}`}
@@ -453,7 +453,9 @@ function ActionItem({
       ) : null}
       <span className="truncate">
         {item.title === "cmd.switchToSpace"
-          ? t("cmd.switchToSpace", { name: spaceDisplayName(item.spaceName ?? "") })
+          ? t("cmd.switchToSpace", {
+              name: spaceDisplayName(item.spaceName ?? ""),
+            })
           : t(item.title)}
       </span>
       {rightLabel ? (
@@ -488,7 +490,7 @@ function AsyncBody({
       <>
         <StatusItem label={t("palette.searchFailed")} tone="error" />
         <CommandItem value="retry" onSelect={onRetry} className="text-[12.5px]">
-          <span>Retry</span>
+          <span>{t("palette.retry")}</span>
         </CommandItem>
       </>
     );
@@ -520,7 +522,9 @@ function StatusItem({
         />
       ) : null}
       <span
-        className={tone === "error" ? "text-destructive" : "text-muted-foreground"}
+        className={
+          tone === "error" ? "text-destructive" : "text-muted-foreground"
+        }
       >
         {label}
       </span>
@@ -529,10 +533,11 @@ function StatusItem({
 }
 
 function EmptyHint() {
+  const t = useT();
   return (
     <div className="flex flex-col items-center gap-2 px-4 py-10 text-center text-sm text-muted-foreground">
       <HugeiconsIcon icon={CommandIcon} size={18} strokeWidth={1.5} />
-      <span>No commands found. Type ? to see search modes.</span>
+      <span>{t("palette.empty")}</span>
     </div>
   );
 }
