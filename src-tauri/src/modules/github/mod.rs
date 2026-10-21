@@ -7,5 +7,6 @@ mod actions;
 mod ci;
 pub mod commands;
 mod gh;
+mod releases;
 mod repos;
 pub mod types;

@@ -452,6 +452,125 @@ impl RepoRunLogPayload {
     }
 }
 
+/// 一个 Release 里的附件（安装包之类）。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoReleaseAsset {
+    /// GitHub 那边的附件 id：下载要原样带回去。
+    pub id: u64,
+    pub name: String,
+    /// 字节数；GitHub 没给时是 0（界面据此走不确定态，不假装知道总量）。
+    pub size: u64,
+    pub download_count: u64,
+    pub content_type: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+/// 一个 Release：列表与详情共用同一份数据（正文就在列表响应里，不多打一次 API）。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoRelease {
+    pub id: u64,
+    pub tag_name: String,
+    /// Release 标题；为空时解析阶段就兜底成 tag，界面不用再判一次。
+    pub name: String,
+    /// Markdown 正文；GitHub 给 null 时是空串。
+    pub body: String,
+    pub draft: bool,
+    pub prerelease: bool,
+    pub created_at: Option<String>,
+    pub published_at: Option<String>,
+    pub html_url: String,
+    pub assets: Vec<RepoReleaseAsset>,
+}
+
+/// 某个仓库的 Release 列表。
+///
+/// 空列表是查清楚了的「没有 Release」，归 `ready`（与运行列表不同：这里空列表本身就是
+/// 一个合法的完整答案，界面只看 `releases.len()`）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoReleasesPayload {
+    pub kind: &'static str,
+    pub repo: String,
+    pub releases: Vec<RepoRelease>,
+    pub error: Option<String>,
+}
+
+impl RepoReleasesPayload {
+    pub fn ready(repo: impl Into<String>, releases: Vec<RepoRelease>) -> Self {
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            releases,
+            error: None,
+        }
+    }
+
+    pub fn failed(kind: &'static str, repo: impl Into<String>, error: impl Into<String>) -> Self {
+        Self {
+            kind,
+            repo: repo.into(),
+            releases: Vec::new(),
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>) -> Self {
+        Self::failed(KIND_NOT_INSTALLED, repo, "未安装 gh CLI（找不到 gh 命令）")
+    }
+}
+
+/// 一次附件下载的进度。由后端按 64 KiB / 100 ms 合并后推给前端，不逐块刷 IPC。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseDownloadProgress {
+    /// 前端生成的下载标识，用来把进度对回那一行。
+    pub id: String,
+    pub written: u64,
+    /// 附件大小；GitHub 没给时是 0。
+    pub total: u64,
+}
+
+/// 一次附件下载的结局。
+///
+/// 取消不是错误：用户自己停的，界面不该弹红字。失败时 `error` 是 gh / 文件系统的原话。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseDownloadResult {
+    /// `ok` / `cancelled` / `error`。
+    pub kind: &'static str,
+    /// 成功时的最终路径。
+    pub path: Option<String>,
+    pub error: Option<String>,
+}
+
+impl ReleaseDownloadResult {
+    pub fn ok(path: impl Into<String>) -> Self {
+        Self {
+            kind: "ok",
+            path: Some(path.into()),
+            error: None,
+        }
+    }
+
+    pub fn cancelled() -> Self {
+        Self {
+            kind: "cancelled",
+            path: None,
+            error: None,
+        }
+    }
+
+    pub fn failed(error: impl Into<String>) -> Self {
+        Self {
+            kind: "error",
+            path: None,
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

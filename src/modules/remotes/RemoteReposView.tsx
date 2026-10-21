@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useT, type MessageKey } from "@/modules/i18n";
 import { RunListDialog } from "./RunListDialog";
+import { ReleasesDialog } from "./ReleasesDialog";
 import { TONE_CLASS, ciView, type CiView } from "./lib/ci";
 import { ciFromRuns } from "./lib/runs";
 import { copyTextOf, filterRows, noticeOf, toRows } from "./lib/rows";
@@ -40,6 +41,8 @@ export function RemoteReposView({ active }: Props) {
   const [ci, setCi] = useState<Record<string, WireRepoCiPayload>>({});
   /** 正在看运行记录的仓库；null 表示弹窗关着。 */
   const [runsFor, setRunsFor] = useState<string | null>(null);
+  /** 正在看 Releases 的仓库；null 表示弹窗关着。 */
+  const [releasesFor, setReleasesFor] = useState<string | null>(null);
   const [ciBusy, setCiBusy] = useState<Record<string, boolean>>({});
 
   /**
@@ -242,6 +245,7 @@ export function RemoteReposView({ active }: Props) {
                   ciBusy={Boolean(ciBusy[row.fullName])}
                   onCheckCi={checkCi}
                   onOpenRuns={setRunsFor}
+                  onOpenReleases={setReleasesFor}
                 />
               ))}
             </tbody>
@@ -258,6 +262,12 @@ export function RemoteReposView({ active }: Props) {
           setCi((prev) => ({ ...prev, [payload.repo]: ciFromRuns(payload) }));
         }}
       />
+      <ReleasesDialog
+        repo={releasesFor}
+        onOpenChange={(open) => {
+          if (!open) setReleasesFor(null);
+        }}
+      />
     </div>
   );
 }
@@ -269,6 +279,7 @@ function RepoRow({
   ciBusy,
   onCheckCi,
   onOpenRuns,
+  onOpenReleases,
 }: {
   row: RemoteRepoRow;
   onCopy: (value: string) => void;
@@ -276,6 +287,7 @@ function RepoRow({
   ciBusy: boolean;
   onCheckCi: (fullName: string, force?: boolean) => void;
   onOpenRuns: (fullName: string) => void;
+  onOpenReleases: (fullName: string) => void;
 }) {
   const t = useT();
   const open = useCallback(() => {
@@ -344,6 +356,9 @@ function RepoRow({
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => onOpenRuns(row.fullName)}>
               {t("remotes.runs.open")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onOpenReleases(row.fullName)}>
+              {t("remotes.releases.open")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => onCopy(copyTextOf(row, "name"))}>

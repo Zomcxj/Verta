@@ -210,6 +210,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         // One async scheme multiplexes every terminal's output; see pty/hub.rs.
         .register_asynchronous_uri_scheme_protocol("verta-pty", pty::stream_protocol)
         .on_page_load(|webview, payload| {
@@ -263,6 +264,7 @@ pub fn run() {
         .manage(lsp::LspState::default())
         .manage(fs::supersede::Supersede::default())
         .manage(fs::index::FileIndexState::default())
+        .manage(github::commands::DownloadState::default())
         .manage({
             let registry = workspace::WorkspaceRegistry::default();
             workspace::bootstrap_registry(&registry);
@@ -324,6 +326,9 @@ pub fn run() {
             github::commands::github_run_delete,
             github::commands::github_run_jobs,
             github::commands::github_run_log,
+            github::commands::github_releases,
+            github::commands::github_release_download,
+            github::commands::github_release_download_cancel,
             git::commands::git_panel_snapshot,
             git::commands::git_status,
             git::commands::git_diff,

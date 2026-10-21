@@ -13,6 +13,32 @@
 ---
 
 <details open>
+<summary><strong>2026-10-21</strong></summary>
+
+**GitHub：Releases 与附件下载**
+
+- `src-tauri/src/modules/github/releases.rs`：新增。解析 Release 列表、附件名落盘预检、进度合并阈值、`<name>.verta-part` 成功才改名（失败只删临时文件），以及按 id 的取消标记。
+- `src-tauri/src/modules/github/types.rs`：新增 `RepoRelease` / `RepoReleaseAsset` / `RepoReleasesPayload` / `ReleaseDownloadProgress` / `ReleaseDownloadResult`。
+- `src-tauri/src/modules/github/commands.rs`：新增 `github_releases`；新增 `github_release_download`（流式读 gh 输出，45 秒停滞 / 30 分钟总超时，实收字节与附件大小不符判失败，进度经 `verta://github-download` 发出）与 `github_release_download_cancel`。
+- `src-tauri/src/modules/github/mod.rs`、`src-tauri/src/lib.rs`：注册新模块、三条命令与 `DownloadState`。
+- `src-tauri/Cargo.toml`、`src-tauri/capabilities/default.json`、`package.json`、`pnpm-lock.yaml`、`src-tauri/Cargo.lock`：新增 `tauri-plugin-dialog` 与 `@tauri-apps/plugin-dialog`，权限只给 `dialog:allow-open`。
+- `src/lib/native.ts`：新增 `githubReleases` / `githubReleaseDownload` / `githubReleaseDownloadCancel` 与线格式类型。
+- `src/modules/remotes/lib/releases.ts`：新增。列表映射、大小与速度文案、百分比、进度平滑。
+- `src/modules/remotes/lib/pickDownloadDir.ts`：新增。目录选择，默认系统下载夹，取不到退回主目录。
+- `src/modules/remotes/ReleasesDialog.tsx`：新增。列表 → 详情，进度事件按下载 id 认领。
+- `src/modules/remotes/ReleaseDetail.tsx`：新增。附件行下载 / 进度 / 速度 / 取消 / 打开所在文件夹，正文用按需加载的 Markdown 渲染。
+- `src/modules/remotes/RemoteReposView.tsx`：行菜单新增「Releases…」。
+- `src/modules/i18n/messages.ts`：新增上述界面的中英文文案。
+- `README.md`：功能表补 Releases 与附件下载。
+- `scripts/dev/probes/releases-acceptance.mjs`：新增，Releases 与附件下载的验收脚本。
+
+**文档对账**
+
+- `VERTA.md`：删掉已不存在的内置智能体章节；模块清单补 `launcher` / `projects` / `remotes` / `i18n`，Rust 命令清单补 `agent_sessions` / `projects` / `github`；标签种类补 `projects` / `remotes`；Git 面板改记右栏、侧栏只留会话与文件；删掉已移除性能脚本的引用；补未保存草稿备份、终端会话图片、Markdown 图片尺寸与 Releases 下载；门禁命令改为 `cargo test --lib`；删掉两处与代码不符的说法（图片鉴权、secret deny-list）。
+
+</details>
+
+<details>
 <summary><strong>2026-10-20</strong></summary>
 
 **GitHub：CI 徽标跟运行面板走，去掉重复的入口**

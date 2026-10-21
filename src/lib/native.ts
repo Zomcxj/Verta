@@ -218,6 +218,53 @@ export type WireRepoRunLogPayload = {
   error: string | null;
 };
 
+/** 一个 Release 里的附件。`id` 是下载时要带回去的那个。 */
+export type WireReleaseAsset = {
+  id: number;
+  name: string;
+  /** 字节数；GitHub 没给时是 0。 */
+  size: number;
+  downloadCount: number;
+  contentType: string | null;
+  updatedAt: string | null;
+};
+
+/** 一个 Release：正文与附件都在列表响应里，详情不再另发一次请求。 */
+export type WireRelease = {
+  id: number;
+  tagName: string;
+  name: string;
+  body: string;
+  draft: boolean;
+  prerelease: boolean;
+  createdAt: string | null;
+  publishedAt: string | null;
+  htmlUrl: string;
+  assets: WireReleaseAsset[];
+};
+
+/** 某个仓库的 Release 列表；空列表是查清楚了的「没有 Release」。 */
+export type WireReleasesPayload = {
+  kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  releases: WireRelease[];
+  error: string | null;
+};
+
+/** 下载进度：后端按 64 KiB / 100 ms 合并后推过来。 */
+export type WireReleaseDownloadProgress = {
+  id: string;
+  written: number;
+  total: number;
+};
+
+/** 一次下载的结局；取消不是错误。 */
+export type WireReleaseDownloadResult = {
+  kind: "ok" | "cancelled" | "error";
+  path: string | null;
+  error: string | null;
+};
+
 export type GitStatusSnapshot = {
   repoRoot: string;
   branch: string;
@@ -484,6 +531,35 @@ export const native = {
       runId,
       failedOnly: failedOnly ?? false,
     }),
+  /** 某个仓库的 Release 列表（默认 30 条，正文与附件都在里面）。 */
+  githubReleases: (repo: string, limit?: number) =>
+    invoke<WireReleasesPayload>("github_releases", {
+      repo,
+      limit: limit ?? null,
+    }),
+  /**
+   * 把一个附件下载到 `dir`。`id` 由前端生成，进度事件带着它；
+   * `total` 是列表里那份附件大小，用来算百分比与校验完整性。
+   */
+  githubReleaseDownload: (params: {
+    id: string;
+    repo: string;
+    assetId: number;
+    name: string;
+    dir: string;
+    total: number;
+  }) =>
+    invoke<WireReleaseDownloadResult>("github_release_download", {
+      id: params.id,
+      repo: params.repo,
+      assetId: params.assetId,
+      name: params.name,
+      dir: params.dir,
+      total: params.total,
+    }),
+  /** 取消一次正在进行的下载（按前端生成的 id 找）。 */
+  githubReleaseDownloadCancel: (id: string) =>
+    invoke<void>("github_release_download_cancel", { id }),
   gitPanelSnapshot: (cwd: string) =>
     invoke<GitPanelSnapshot>("git_panel_snapshot", {
       cwd,

@@ -1,11 +1,20 @@
-//! GitHub 面板的命令：借本机已登录的 gh CLI 取仓库、CI 状态与运行列表，并能重跑/取消一次运行。
+//! GitHub 面板的命令：借本机已登录的 gh CLI 取仓库、CI 状态、运行列表与详情、Release，
+//! 并能重跑 / 取消 / 删除一次运行、把 Release 附件下载到用户选的目录。
 //!
-//! 现在有四片：仓库列表（`github_repos`）、单个仓库的 CI 状态（`github_repo_ci`）、
-//! 运行列表（`github_repo_runs`）与运行上的重跑/取消（`github_run_rerun` /
-//! `github_run_cancel`）。Releases 与资产下载留给后续切片。gh 是账号级的东西，一律在主机
-//! 环境跑，与当前空间 / 发行版无关。纯逻辑放在 `repos.rs` / `ci.rs` / `actions.rs`，这里只做编排。
+//! gh 是账号级的东西，一律在主机环境跑，与当前空间 / 发行版无关。纯逻辑放在
+//! `repos.rs` / `ci.rs` / `actions.rs` / `releases.rs`，这里只做编排。
+
+use std::io::{Read, Write};
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
+
+use tauri::{AppHandle, Emitter, State};
 
 use crate::modules::fs::blocking;
+use crate::modules::proc::hide_console;
 
 use super::actions::{
     cap_lines, clamp_limit, classify_run_probe, parse_jobs, parse_log, parse_runs, RunProbe,
@@ -14,12 +23,15 @@ use super::actions::{
 use super::ci::parse_latest_run;
 use super::ci::parse_repo_slug;
 use super::gh::{self, GhRunError, LoginProbe};
+use super::releases::{self, finish_download, safe_file_name, should_report};
+pub use super::releases::DownloadState;
 use super::repos::{
     classify_failure, error_excerpt, page_path, parse_login, parse_repos, should_continue_page,
     MAX_PAGES, MAX_PER_PAGE,
 };
 use super::types::{
-    RemoteRepo, RemoteReposPayload, RepoActionRunsPayload, RepoCiPayload, RepoRunActionResult,
+    ReleaseDownloadProgress, ReleaseDownloadResult, RemoteRepo, RemoteReposPayload,
+    RepoActionRunsPayload, RepoCiPayload, RepoReleasesPayload, RepoRunActionResult,
     RepoRunJobsPayload, RepoRunLogPayload, KIND_ERROR,
 };
 
@@ -456,4 +468,335 @@ fn read_run_log(repo: &str, run_id: u64, failed_only: bool) -> RepoRunLogPayload
         clipped,
         output.stdout_truncated,
     )
+}
+
+/// 一次 Release 查询默认要几条；上限与运行列表同一档。
+const RELEASES_DEFAULT_LIMIT: usize = 30;
+const RELEASES_MAX_LIMIT: usize = 50;
+
+/// 附件下载的总超时与「多久没有新数据算停滞」。卡死的代理不该让进度条永远停着。
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(1800);
+const DOWNLOAD_STALL: Duration = Duration::from_secs(45);
+const DOWNLOAD_CHUNK: usize = 256 * 1024;
+
+/// 进度事件的通道名；前端按 `id` 把事件对回具体那一行。
+pub const DOWNLOAD_EVENT: &str = "verta://github-download";
+
+/// 某个仓库的 Release 列表（正文与附件都在同一份响应里）。
+#[tauri::command]
+pub async fn github_releases(
+    repo: String,
+    limit: Option<usize>,
+) -> Result<RepoReleasesPayload, String> {
+    blocking(move || Ok(read_releases(&repo, limit))).await
+}
+
+fn read_releases(repo: &str, limit: Option<usize>) -> RepoReleasesPayload {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => return RepoReleasesPayload::failed(KIND_ERROR, repo.trim(), message),
+    };
+
+    let per_page = limit
+        .unwrap_or(RELEASES_DEFAULT_LIMIT)
+        .clamp(1, RELEASES_MAX_LIMIT);
+    let path = format!("repos/{slug}/releases?per_page={per_page}");
+    let output = match gh::run(&["api", &path], gh::CI_TIMEOUT_SECS) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return RepoReleasesPayload::not_installed(&slug),
+        Err(GhRunError::Io(error)) => {
+            return RepoReleasesPayload::failed(
+                KIND_ERROR,
+                &slug,
+                format!("运行 gh 失败：{error}"),
+            )
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return RepoReleasesPayload::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            error_excerpt(&text),
+        );
+    }
+
+    match releases::parse_releases(&output.stdout, per_page) {
+        Ok(rows) => RepoReleasesPayload::ready(&slug, rows),
+        Err(error) => RepoReleasesPayload::failed(
+            KIND_ERROR,
+            &slug,
+            format!("gh 返回的 Release 列表无法解析：{error}"),
+        ),
+    }
+}
+
+/// 把一个 Release 附件下载到用户选的目录。
+///
+/// `id` 由前端生成，同一次下载的进度事件都带着它；`cancel` 命令按这个 id 找到标记。
+/// 下载期间不占 async worker：整段读管道与写文件都在 blocking 池里。
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn github_release_download(
+    app: AppHandle,
+    state: State<'_, DownloadState>,
+    id: String,
+    repo: String,
+    asset_id: u64,
+    name: String,
+    dir: String,
+    total: u64,
+) -> Result<ReleaseDownloadResult, String> {
+    let id = id.trim().to_string();
+    if id.is_empty() {
+        return Err("下载标识是空的".to_string());
+    }
+    let slug = parse_repo_slug(&repo)?;
+    let cancel = state.start(&id);
+    let worker_app = app.clone();
+    let worker_id = id.clone();
+    let result = blocking(move || {
+        Ok(download_asset(
+            &worker_app,
+            &worker_id,
+            &slug,
+            asset_id,
+            &name,
+            &dir,
+            total,
+            &cancel,
+        ))
+    })
+    .await;
+    state.finish(&id);
+    result
+}
+
+/// 取消一次正在进行的下载。标记由下载循环每 250 ms 看一次。
+#[tauri::command]
+pub fn github_release_download_cancel(state: State<'_, DownloadState>, id: String) {
+    state.cancel(id.trim());
+}
+
+/// 为什么下载没走完。取消不是错误，界面上不弹红字。
+enum DownloadFailure {
+    Cancelled,
+    Failed(String),
+}
+
+#[allow(clippy::too_many_arguments)]
+fn download_asset(
+    app: &AppHandle,
+    id: &str,
+    slug: &str,
+    asset_id: u64,
+    name: &str,
+    dir: &str,
+    total: u64,
+    cancel: &AtomicBool,
+) -> ReleaseDownloadResult {
+    if asset_id == 0 {
+        return ReleaseDownloadResult::failed("附件 id 是 0");
+    }
+    let dir = Path::new(dir);
+    if !dir.is_dir() {
+        return ReleaseDownloadResult::failed(format!(
+            "下载目录不存在或不是目录：{}",
+            dir.display()
+        ));
+    }
+    let name = match safe_file_name(name) {
+        Ok(name) => name,
+        Err(error) => return ReleaseDownloadResult::failed(error),
+    };
+    let dest = dir.join(&name);
+    let tmp = dest.with_file_name(format!("{name}.verta-part"));
+
+    let mut child = match spawn_download(slug, asset_id) {
+        Ok(child) => child,
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            return ReleaseDownloadResult::failed("未安装 gh CLI（找不到 gh 命令）")
+        }
+        Err(error) => {
+            return ReleaseDownloadResult::failed(format!("无法启动 gh：{error}"));
+        }
+    };
+    let Some(stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        return ReleaseDownloadResult::failed("取不到 gh 的输出管道");
+    };
+    let mut file = match std::fs::File::create(&tmp) {
+        Ok(file) => file,
+        Err(error) => {
+            let _ = child.kill();
+            return ReleaseDownloadResult::failed(format!(
+                "无法写入 {}：{error}",
+                tmp.display()
+            ));
+        }
+    };
+
+    // 读管道放独立线程：主线程用带超时的收包判断「卡住」，否则阻塞读会让超时检查根本执行不到。
+    let (tx, rx) = mpsc::channel::<Result<Vec<u8>, String>>();
+    std::thread::spawn(move || {
+        let mut stdout = stdout;
+        let mut buf = vec![0u8; DOWNLOAD_CHUNK];
+        loop {
+            match stdout.read(&mut buf) {
+                Ok(0) => {
+                    let _ = tx.send(Ok(Vec::new()));
+                    return;
+                }
+                Ok(count) => {
+                    if tx.send(Ok(buf[..count].to_vec())).is_err() {
+                        return;
+                    }
+                }
+                Err(error) => {
+                    let _ = tx.send(Err(error.to_string()));
+                    return;
+                }
+            }
+        }
+    });
+
+    let deadline = Instant::now() + DOWNLOAD_TIMEOUT;
+    let mut last_data = Instant::now();
+    let mut written = 0u64;
+    let mut last_reported = 0u64;
+    let mut last_reported_at = Instant::now();
+
+    let outcome: Result<(), DownloadFailure> = loop {
+        if cancel.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            break Err(DownloadFailure::Cancelled);
+        }
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            break Err(DownloadFailure::Failed(format!(
+                "下载超时（{} 分钟）",
+                DOWNLOAD_TIMEOUT.as_secs() / 60
+            )));
+        }
+        match rx.recv_timeout(Duration::from_millis(250)) {
+            Ok(Ok(chunk)) if chunk.is_empty() => break Ok(()),
+            Ok(Ok(chunk)) => {
+                if let Err(error) = file.write_all(&chunk) {
+                    let _ = child.kill();
+                    break Err(DownloadFailure::Failed(format!("写入失败：{error}")));
+                }
+                written += chunk.len() as u64;
+                last_data = Instant::now();
+                let now = Instant::now();
+                if should_report(last_reported, written, now - last_reported_at) {
+                    emit_progress(app, id, written, total);
+                    last_reported = written;
+                    last_reported_at = now;
+                }
+            }
+            Ok(Err(error)) => {
+                let _ = child.kill();
+                break Err(DownloadFailure::Failed(format!(
+                    "读取下载数据失败：{error}"
+                )));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if last_data.elapsed() > DOWNLOAD_STALL {
+                    let _ = child.kill();
+                    break Err(DownloadFailure::Failed(format!(
+                        "下载停滞（{} 秒内没有收到数据）",
+                        DOWNLOAD_STALL.as_secs()
+                    )));
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break Ok(()),
+        }
+    };
+    drop(file);
+
+    if let Err(failure) = outcome {
+        let _ = finish_download(&tmp, &dest, false);
+        return match failure {
+            DownloadFailure::Cancelled => ReleaseDownloadResult::cancelled(),
+            DownloadFailure::Failed(reason) => ReleaseDownloadResult::failed(reason),
+        };
+    }
+
+    let status = match child.wait() {
+        Ok(status) => status,
+        Err(error) => {
+            let _ = finish_download(&tmp, &dest, false);
+            return ReleaseDownloadResult::failed(format!("等待 gh 结束失败：{error}"));
+        }
+    };
+    if !status.success() {
+        let mut stderr = String::new();
+        if let Some(mut pipe) = child.stderr.take() {
+            let _ = pipe.read_to_string(&mut stderr);
+        }
+        let _ = finish_download(&tmp, &dest, false);
+        let text = stderr.trim();
+        return ReleaseDownloadResult::failed(if text.is_empty() {
+            format!("gh 退出码 {:?}", status.code())
+        } else {
+            text.to_string()
+        });
+    }
+
+    // 附件大小是 GitHub 自己给的，收到的不一样就是没下完，不能转正。
+    if total > 0 && written != total {
+        let _ = finish_download(&tmp, &dest, false);
+        return ReleaseDownloadResult::failed(format!(
+            "下载不完整：收到 {written} 字节，附件大小是 {total} 字节"
+        ));
+    }
+
+    if let Err(error) = finish_download(&tmp, &dest, true) {
+        return ReleaseDownloadResult::failed(format!(
+            "写入 {} 失败：{error}",
+            dest.display()
+        ));
+    }
+    emit_progress(app, id, written, total);
+    ReleaseDownloadResult::ok(dest.to_string_lossy().to_string())
+}
+
+fn spawn_download(slug: &str, asset_id: u64) -> std::io::Result<std::process::Child> {
+    let endpoint = format!("repos/{slug}/releases/assets/{asset_id}");
+    let mut cmd = Command::new("gh");
+    cmd.args([
+        "api",
+        &endpoint,
+        "-H",
+        "Accept: application/octet-stream",
+    ])
+    .env("GH_PROMPT_DISABLED", "1")
+    .env("GH_NO_UPDATE_NOTIFIER", "1")
+    .env("NO_COLOR", "1")
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
+    hide_console(&mut cmd);
+    // gh 不读 Windows 的 Internet 设置，继承来的代理变量还可能为空串。
+    let proxy = crate::modules::proxy::resolve(None);
+    crate::modules::proxy::apply(&mut cmd, proxy.as_deref());
+    cmd.spawn()
+}
+
+/// 进度事件发不出去（窗口关了）不该让下载失败。
+fn emit_progress(app: &AppHandle, id: &str, written: u64, total: u64) {
+    let _ = app.emit(
+        DOWNLOAD_EVENT,
+        ReleaseDownloadProgress {
+            id: id.to_string(),
+            written,
+            total,
+        },
+    );
 }
