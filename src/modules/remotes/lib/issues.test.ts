@@ -50,7 +50,9 @@ function payload(
   };
 }
 
-function pull(overrides: Partial<WirePullRequestInfo> = {}): WirePullRequestInfo {
+function pull(
+  overrides: Partial<WirePullRequestInfo> = {},
+): WirePullRequestInfo {
   return {
     head: "feature/x",
     headSha: "abc",
@@ -59,7 +61,7 @@ function pull(overrides: Partial<WirePullRequestInfo> = {}): WirePullRequestInfo
     merged: false,
     mergeable: true,
     mergeableState: "clean",
-    mergeBlockedReason: null,
+    mergeBlocked: null,
     additions: 12,
     deletions: 3,
     changedFiles: 2,
@@ -220,10 +222,9 @@ describe("merge gate", () => {
     expect(mergeBlocked(pull())).toBeNull();
   });
 
-  it("passes the reason through when it cannot", () => {
-    expect(mergeBlocked(pull({ mergeBlockedReason: "有冲突，合不了" }))).toBe(
-      "有冲突，合不了",
-    );
+  it("passes the reason code through when it cannot", () => {
+    // 后端只给码，句子由界面按码取 —— 否则英文界面上会出现中文。
+    expect(mergeBlocked(pull({ mergeBlocked: "conflict" }))).toBe("conflict");
   });
 
   it("has no reason when there is no pull request at all", () => {
@@ -234,6 +235,8 @@ describe("merge gate", () => {
 describe("small helpers", () => {
   it("maps the check state to a tone", () => {
     expect(checkTone("pass")).toBe("ok");
+    // 只看到一部分时不能给「通过」的绿：没看到的那几条可能正红着。
+    expect(checkTone("partial")).toBe("none");
     expect(checkTone("fail")).toBe("bad");
     expect(checkTone("pending")).toBe("busy");
     expect(checkTone("none")).toBe("none");

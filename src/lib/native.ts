@@ -388,8 +388,13 @@ export type WirePullRequestInfo = {
   /** `null` = GitHub 还在算（异步），不是「不能合」。 */
   mergeable: boolean | null;
   mergeableState: string;
-  /** 现在为什么合不了；能合时是 null。后端算好送出来，界面只照着禁按钮。 */
-  mergeBlockedReason: string | null;
+  /**
+   * 现在为什么合不了；能合时是 null。
+   *
+   * 给的是**原因码**（merged / closed / draft / conflict / computing / unknown）：句子由界面按码取，
+   * 才跟着界面语言走。后端算好送出来，界面只照着禁按钮。
+   */
+  mergeBlocked: string | null;
   additions: number;
   deletions: number;
   changedFiles: number;
@@ -410,7 +415,9 @@ export type WireCheckSummary = {
   ok: number;
   failed: number;
   pending: number;
-  state: "pass" | "fail" | "pending" | "none";
+  /** 只看到了一部分检查（一页最多 100 条）：这时不能报「全部通过」。 */
+  truncated: boolean;
+  state: "pass" | "fail" | "pending" | "partial" | "none";
 };
 
 /** 一条 issue / PR 的详情。 */
@@ -455,7 +462,6 @@ export type WireIssueActionResult = {
   number: number;
   error: string | null;
 };
-
 
 /** 截图收尾的交代：存哪了、多大、剪贴板有没有写进去。 */
 export type WireScreenshotSaved = {
@@ -619,11 +625,7 @@ export const native = {
       maxResults: params.maxResults ?? null,
       workspace: envForPath(params.root),
     }),
-  runCommand: (
-    command: string,
-    cwd?: string | null,
-    timeoutSecs?: number,
-  ) =>
+  runCommand: (command: string, cwd?: string | null, timeoutSecs?: number) =>
     invoke<CommandOutput>("shell_run_command", {
       command,
       cwd: cwd ?? null,
@@ -729,7 +731,8 @@ export const native = {
   githubRepoDelete: (repo: string) =>
     invoke<WireRepoActionResult>("github_repo_delete", { repo }),
   /** 本机 gh 的登录态。 */
-  githubAuthStatus: () => invoke<WireAuthStatusPayload>("github_auth_status", {}),
+  githubAuthStatus: () =>
+    invoke<WireAuthStatusPayload>("github_auth_status", {}),
   /** 用粘贴的 PAT 登录；token 只经过内存，写进 gh 的 stdin。 */
   githubAuthLoginToken: (token: string) =>
     invoke<WireAuthActionPayload>("github_auth_login_token", { token }),
@@ -741,7 +744,9 @@ export const native = {
     invoke<void>("github_auth_login_web_cancel", {}),
   /** 登出；界面上要求确认过才发这条。 */
   githubAuthLogout: (login?: string) =>
-    invoke<WireAuthActionPayload>("github_auth_logout", { login: login ?? null }),
+    invoke<WireAuthActionPayload>("github_auth_logout", {
+      login: login ?? null,
+    }),
   /** 本机已安装的字体族（给设置里的字体下拉用）；读不到时抛错，界面退回手输框。 */
   fontsList: () => invoke<string[]>("fonts_list", {}),
   /** 某个仓库的运行列表（默认 20 条）。 */
@@ -774,10 +779,10 @@ export const native = {
     invoke<WireReleasesPayload>("github_releases", {
       repo,
       limit: limit ?? null,
-    }),  /**
+    }) /**
    * 把一个附件下载到 `dir`。`id` 由前端生成，进度事件带着它；
    * `total` 是列表里那份附件大小，用来算百分比与校验完整性。
-   */
+   */,
   githubReleaseDownload: (params: {
     id: string;
     repo: string;
@@ -812,7 +817,11 @@ export const native = {
     invoke<WireIssueDetailPayload>("github_issue_detail", { repo, number }),
   /** 给 issue / PR 加一条评论。 */
   githubIssueComment: (repo: string, number: number, body: string) =>
-    invoke<WireIssueActionResult>("github_issue_comment", { repo, number, body }),
+    invoke<WireIssueActionResult>("github_issue_comment", {
+      repo,
+      number,
+      body,
+    }),
   /** 打开或关闭一条 issue（PR 也一样）。 */
   githubIssueSetState: (repo: string, number: number, state: string) =>
     invoke<WireIssueActionResult>("github_issue_set_state", {
@@ -909,7 +918,10 @@ export const native = {
       repoRoot,
       workspace: envForPath(repoRoot),
     }),
-  gitLog: (repoRoot: string, options?: { limit?: number; beforeSha?: string }) =>
+  gitLog: (
+    repoRoot: string,
+    options?: { limit?: number; beforeSha?: string },
+  ) =>
     invoke<GitLogEntry[]>("git_log", {
       repoRoot,
       limit: options?.limit ?? null,

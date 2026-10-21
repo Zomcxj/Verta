@@ -233,7 +233,7 @@ pub fn parse_pull_request(json: &str) -> Result<PullRequestInfo, serde_json::Err
         // 意思是「还不知道」，不是「不能合」。
         mergeable: raw.mergeable,
         mergeable_state: raw.mergeable_state.unwrap_or_default(),
-        merge_blocked_reason: None,
+        merge_blocked: None,
         additions: raw.additions.unwrap_or(0),
         deletions: raw.deletions.unwrap_or(0),
         changed_files: raw.changed_files.unwrap_or(0),
@@ -250,7 +250,7 @@ pub fn parse_pull_request(json: &str) -> Result<PullRequestInfo, serde_json::Err
         html_url: raw.html_url.unwrap_or_default(),
         locked: raw.locked.unwrap_or(false),
     };
-    pr.merge_blocked_reason = merge_block_reason(&pr).map(str::to_string);
+    pr.merge_blocked = merge_block_code(&pr).map(str::to_string);
     Ok(pr)
 }
 
@@ -274,7 +274,9 @@ pub fn parse_checks(json: &str) -> Result<CheckSummary, serde_json::Error> {
         ok,
         failed,
         pending,
-        state: check_state(total, failed, pending),
+        // 拿到的条数少于总数：只看到了一部分（GitHub 一页最多 100 条）。
+        truncated: (runs.len() as u32) < total,
+        state: check_state(total, failed, pending, (runs.len() as u32) < total),
     })
 }
 
@@ -300,44 +302,57 @@ fn check_outcome(run: &RawCheck) -> Outcome {
     }
 }
 
-/// 整体检查状态：先看失败，再看进行中，全过了才算通过。
+/// 整体检查状态：先看失败，再看进行中，最后才敢说通过。
 ///
 /// 一个失败就盖过其它：整体是「红」的，不能因为还有几个在跑就说「进行中」。
-pub fn check_state(total: u32, failed: u32, pending: u32) -> &'static str {
+///
+/// `truncated`（只看到了一部分检查）时**绝不能**报 `pass` —— 没看到的那几条可能正红着，
+/// 报「全部通过」就是在骗人。被看到的那部分全绿时改报 `partial`，让界面如实说「只统计到前 N 项」。
+pub fn check_state(
+    total: u32,
+    failed: u32,
+    pending: u32,
+    truncated: bool,
+) -> &'static str {
     if total == 0 {
         "none"
     } else if failed > 0 {
         "fail"
     } else if pending > 0 {
         "pending"
+    } else if truncated {
+        "partial"
     } else {
         "pass"
     }
 }
 
-/// 合并按钮现在该不该禁着，以及禁的理由。
+/// 合并按钮现在该不该禁着，以及禁的**原因码**。
 ///
 /// 返回 `None` 表示可以合。GitHub 算 mergeable 是异步的，刚开的 PR 会返回
 /// `mergeable: null` / `mergeable_state: "unknown"` —— 这时**不能**当成「不能合」
 /// （那是「还不知道」），但也不能放行，得等它算完。
-pub fn merge_block_reason(pr: &PullRequestInfo) -> Option<&'static str> {
+///
+/// 给码不给句子：这句话是要显示给用户的，得跟着界面语言走，所以文案由界面按码取。
+/// 码是 `merged` / `closed` / `draft` / `conflict` / `computing` / `unknown`。
+pub fn merge_block_code(pr: &PullRequestInfo) -> Option<&'static str> {
     if pr.merged {
-        return Some("已经合并过了");
+        return Some("merged");
     }
     if pr.state != "open" {
-        return Some("这个 PR 已经关闭");
+        return Some("closed");
     }
     if pr.draft {
-        return Some("草稿 PR 不能合并");
+        return Some("draft");
     }
     match pr.mergeable {
         Some(true) => None,
-        Some(false) => Some("有冲突，合不了"),
+        Some(false) => Some("conflict"),
         None => {
             if pr.mergeable_state == "unknown" || pr.mergeable_state.is_empty() {
-                Some("GitHub 还在判断能不能合，过一会儿再试")
+                Some("computing")
             } else {
-                Some("GitHub 还没给出能不能合的结论")
+                Some("unknown")
             }
         }
     }
@@ -513,9 +528,9 @@ mod tests {
         assert_eq!(pr.deletions, 3);
         assert_eq!(pr.changed_files, 2);
         assert_eq!(pr.mergeable, Some(true));
-        assert!(merge_block_reason(&pr).is_none(), "能合的不该被拦");
+        assert!(merge_block_code(&pr).is_none(), "能合的不该被拦");
         // 「能不能合」要随 wire 一起送出去：界面只照着禁按钮。
-        assert!(pr.merge_blocked_reason.is_none());
+        assert!(pr.merge_blocked.is_none());
     }
 
     #[test]
@@ -524,8 +539,8 @@ mod tests {
         let json = r#"{"number": 8, "state": "open", "mergeable": null,
             "mergeable_state": "unknown", "head": {"ref": "f"}, "base": {"ref": "main"}}"#;
         let pr = parse_pull_request(json).expect("应能解析");
-        let reason = merge_block_reason(&pr).expect("这时该拦着");
-        assert!(reason.contains("还在判断"), "{reason}");
+        let code = merge_block_code(&pr).expect("这时该拦着");
+        assert_eq!(code, "computing", "「还不知道」与「合不了」不是一回事");
     }
 
     #[test]
@@ -533,8 +548,8 @@ mod tests {
         let json = r#"{"number": 8, "state": "open", "mergeable": false,
             "mergeable_state": "dirty", "head": {"ref": "f"}, "base": {"ref": "main"}}"#;
         let pr = parse_pull_request(json).expect("应能解析");
-        let reason = merge_block_reason(&pr).expect("该拦着");
-        assert!(reason.contains("冲突"), "{reason}");
+        let code = merge_block_code(&pr).expect("该拦着");
+        assert_eq!(code, "conflict");
     }
 
     #[test]
@@ -544,30 +559,35 @@ mod tests {
                 "head": {"ref": "f"}, "base": {"ref": "main"}}"#,
         )
         .expect("应能解析");
-        assert!(merge_block_reason(&draft).unwrap().contains("草稿"));
+        assert_eq!(merge_block_code(&draft).unwrap(), "draft");
 
         let closed = parse_pull_request(
             r#"{"number": 2, "state": "closed", "mergeable": true,
                 "head": {"ref": "f"}, "base": {"ref": "main"}}"#,
         )
         .expect("应能解析");
-        assert!(merge_block_reason(&closed).unwrap().contains("关闭"));
+        assert_eq!(merge_block_code(&closed).unwrap(), "closed");
 
         let merged = parse_pull_request(
             r#"{"number": 3, "state": "closed", "merged": true, "mergeable": true,
                 "head": {"ref": "f"}, "base": {"ref": "main"}}"#,
         )
         .expect("应能解析");
-        assert!(merge_block_reason(&merged).unwrap().contains("合并过"));
+        assert_eq!(merge_block_code(&merged).unwrap(), "merged");
     }
 
     #[test]
     fn a_failed_check_beats_a_pending_one() {
-        assert_eq!(check_state(0, 0, 0), "none");
-        assert_eq!(check_state(3, 0, 0), "pass");
-        assert_eq!(check_state(3, 0, 1), "pending");
+        assert_eq!(check_state(0, 0, 0, false), "none");
+        assert_eq!(check_state(3, 0, 0, false), "pass");
+        assert_eq!(check_state(3, 0, 1, false), "pending");
         // 一个失败就盖过还在跑的：整体是红的。
-        assert_eq!(check_state(3, 1, 1), "fail");
+        assert_eq!(check_state(3, 1, 1, false), "fail");
+        // 只看到一部分时不许报通过：没看到的那几条可能正红着。
+        assert_eq!(check_state(140, 0, 0, true), "partial");
+        // 但看到的那些里已经有失败 / 还在跑，照旧如实报。
+        assert_eq!(check_state(140, 1, 0, true), "fail");
+        assert_eq!(check_state(140, 0, 2, true), "pending");
     }
 
     #[test]
@@ -582,7 +602,22 @@ mod tests {
         assert_eq!(checks.ok, 1);
         assert_eq!(checks.failed, 1);
         assert_eq!(checks.pending, 1);
+        assert!(!checks.truncated, "三条都在，没少看");
         assert_eq!(checks.state, "fail");
+    }
+
+    #[test]
+    fn a_truncated_check_page_never_reports_a_pass() {
+        // GitHub 一页最多 100 条：拿到 2 条而总数 140 时，整体只能是 partial ——
+        // 报「140 项检查全部通过」等于把没看到的 138 项当成绿的。
+        let json = r#"{"total_count": 140, "check_runs": [
+            {"status": "completed", "conclusion": "success"},
+            {"status": "completed", "conclusion": "success"}]}"#;
+        let checks = parse_checks(json).expect("应能解析");
+        assert_eq!(checks.total, 140);
+        assert_eq!(checks.ok, 2);
+        assert!(checks.truncated, "只看到 2 条，140 条没看完");
+        assert_eq!(checks.state, "partial");
     }
 
     #[test]

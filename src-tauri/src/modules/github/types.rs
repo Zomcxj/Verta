@@ -917,11 +917,14 @@ pub struct PullRequestInfo {
     /// `None` = GitHub 还在算（异步），不是「不能合」。
     pub mergeable: Option<bool>,
     pub mergeable_state: String,
-    /// 现在为什么合不了（草稿 / 有冲突 / 还没算出来…）。能合时是 `None`。
+    /// 现在为什么合不了，给的是**原因码**：`merged` / `closed` / `draft` / `conflict` /
+    /// `computing` / `unknown`。能合时是 `None`。
+    ///
+    /// 码而不是句子：这句话要显示给用户，得跟着界面语言走，所以由界面按码取文案。
     ///
     /// 这个判断放在后端算好再送出去：「能不能合」只有一处说了算，
     /// 界面直接照着禁按钮，不用自己再判一遍。
-    pub merge_blocked_reason: Option<String>,
+    pub merge_blocked: Option<String>,
     pub additions: u32,
     pub deletions: u32,
     pub changed_files: u32,
@@ -944,7 +947,9 @@ pub struct CheckSummary {
     pub ok: u32,
     pub failed: u32,
     pub pending: u32,
-    /// `pass` / `fail` / `pending` / `none`。
+    /// 只看到了一部分检查（GitHub 一页最多 100 条）。这时整体不能报「全部通过」。
+    pub truncated: bool,
+    /// `pass` / `fail` / `pending` / `partial` / `none`。
     pub state: &'static str,
 }
 

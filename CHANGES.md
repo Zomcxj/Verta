@@ -13,6 +13,27 @@
 ---
 
 <details open>
+<summary><strong>2026-10-22</strong></summary>
+
+**GitHub 面板：检查状态不再「假绿」，合并被拦的理由不再写死中文**
+
+- `src-tauri/src/modules/github/commands.rs`：取 `check-runs` 时显式带 `per_page=100`（GitHub 默认一页只有
+  30 条）。一页 40 个检查只看到前 30 个，界面就会把「没看完」当成「全通过」。
+- `src-tauri/src/modules/github/issues.rs`：`parse_checks` 记下 `truncated`（拿到的条数少于 `total_count`）；
+  `check_state` 多一个 `partial` —— **只看到一部分、而被看到的那部分又全绿时不再报 `pass`**（看到失败、
+  或还有在跑的，照旧优先报 `fail` / `pending`）。`merge_block_reason` 改名 `merge_block_code`，不再返回
+  中文句子，改返回原因码（`merged` / `closed` / `draft` / `conflict` / `computing` / `unknown`）。
+- `src-tauri/src/modules/github/types.rs`：`CheckSummary` 增 `truncated`；`merge_blocked_reason` 改名
+  `merge_blocked`（内容是原因码，不再是可以直接画上屏幕的句子）。
+- `src/lib/native.ts`、`src/modules/remotes/lib/issues.ts`：wire 与映射跟上；`mergeBlocked()` 直通原因码，
+  `checkTone` 接受 `partial`（给中性色，不给绿）。
+- `src/modules/remotes/IssueDetail.tsx`：合并被拦的那句话从「后端中文串直出」改成按码走 i18n。
+- `src/modules/i18n/messages.ts`：新增 `remotes.issues.checks.partial` 与 `remotes.issues.mergeBlocked.*`
+  六条键（中英两份）。
+
+</details>
+
+<details>
 <summary><strong>2026-10-21</strong></summary>
 
 **标签页：去掉「空间」（Spaces），只留一份标签列表**

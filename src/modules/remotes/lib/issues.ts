@@ -158,20 +158,19 @@ export function issueNotice(
 }
 
 /**
- * 合并按钮现在该不该禁着。
+ * 合并按钮现在该不该禁着，以及禁的**原因码**（merged / closed / draft / conflict /
+ * computing / unknown）。
  *
- * 理由是后端算好送来的（`mergeBlockedReason`），界面只照着禁 —— 「能不能合」
- * 只有一处说了算。
+ * 后端只给码，界面按码取文案（`remotes.issues.mergeBlocked.*`）：「能不能合」只有一处
+ * 说了算，而说给用户听的那句话得跟着界面语言走。
  */
-export function mergeBlocked(
-  pull: WirePullRequestInfo | null,
-): string | null {
-  return pull?.mergeBlockedReason ?? null;
+export function mergeBlocked(pull: WirePullRequestInfo | null): string | null {
+  return pull?.mergeBlocked ?? null;
 }
 
 /** 检查状态的色调：跟仓库列表的 CI 徽标一个口径。 */
 export function checkTone(
-  state: "pass" | "fail" | "pending" | "none",
+  state: "pass" | "fail" | "pending" | "partial" | "none",
 ): "ok" | "bad" | "busy" | "none" {
   switch (state) {
     case "pass":
@@ -186,9 +185,7 @@ export function checkTone(
 }
 
 /** 改动量的展示文案：`+12 −3`。 */
-export function changeLabel(
-  pull: WirePullRequestInfo | null,
-): string | null {
+export function changeLabel(pull: WirePullRequestInfo | null): string | null {
   if (!pull) return null;
   return `+${pull.additions} −${pull.deletions}`;
 }

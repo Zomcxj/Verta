@@ -48,7 +48,7 @@ const MERGE_METHODS = [
  * 一条 issue / PR 的详情。
  *
  * 正文按 Markdown 渲染；PR 额外多一段（源 → 目标分支、检查状态、改动量）。
- * 合并按钮能不能点是**后端说了算**（`mergeBlockedReason`）—— 界面只照着禁，
+ * 合并按钮能不能点是**后端说了算**（`mergeBlocked`，给的是原因码）—— 界面只照着禁，
  * 不自己再判一遍，免得两处口径打架。
  */
 export function IssueDetail({
@@ -287,9 +287,7 @@ export function IssueDetail({
               disabled={busy}
               onClick={onToggleState}
             >
-              {isOpen
-                ? t("remotes.issues.close")
-                : t("remotes.issues.reopen")}
+              {isOpen ? t("remotes.issues.close") : t("remotes.issues.reopen")}
             </Button>
             {pull ? (
               <>
@@ -326,7 +324,7 @@ export function IssueDetail({
                 </Button>
                 {blocked ? (
                   <span className="text-[11px] text-muted-foreground">
-                    {blocked}
+                    {t(`remotes.issues.mergeBlocked.${blocked}` as MessageKey)}
                   </span>
                 ) : null}
               </>

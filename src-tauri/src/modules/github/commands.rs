@@ -1165,7 +1165,9 @@ fn read_issue_detail(repo: &str, number: u64) -> IssueDetailPayload {
         .map(|pr| pr.head_sha.clone())
         .unwrap_or_default();
     if !head_sha.is_empty() {
-        let path = format!("repos/{slug}/commits/{head_sha}/check-runs");
+        // 一页最多 100 条，得说清楚要 100：默认一页只有 30 条，40 个检查时只看到前 30，
+        // 界面就会拿「没看完」当「全通过」。parse_checks 也据此标 truncated。
+        let path = format!("repos/{slug}/commits/{head_sha}/check-runs?per_page=100");
         if let Ok(output) = gh::run(&["api", &path], gh::ISSUE_DETAIL_TIMEOUT_SECS) {
             if output.is_ok() {
                 if let Ok(checks) = issues::parse_checks(&output.stdout) {

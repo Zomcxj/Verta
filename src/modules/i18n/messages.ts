@@ -320,6 +320,14 @@ const zh = {
   "remotes.issues.checks.fail": "{count} 项检查未通过",
   "remotes.issues.checks.pending": "{count} 项检查还在跑",
   "remotes.issues.checks.none": "没有配置检查",
+  "remotes.issues.checks.partial": "只统计到前 {count} 项检查",
+  "remotes.issues.mergeBlocked.merged": "已经合并过了",
+  "remotes.issues.mergeBlocked.closed": "这个 PR 已经关闭",
+  "remotes.issues.mergeBlocked.draft": "草稿 PR 不能合并",
+  "remotes.issues.mergeBlocked.conflict": "有冲突，合不了",
+  "remotes.issues.mergeBlocked.computing":
+    "GitHub 还在判断能不能合，过一会儿再试",
+  "remotes.issues.mergeBlocked.unknown": "GitHub 还没给出能不能合的结论",
   "remotes.permission.readOnly":
     "你没有这个仓库的写权限，写操作按钮就不显示了。",
   "remotes.admin.open": "仓库设置…",
@@ -1247,6 +1255,16 @@ const en: Record<MessageKey, string> = {
   "remotes.issues.checks.fail": "{count} checks failed",
   "remotes.issues.checks.pending": "{count} checks still running",
   "remotes.issues.checks.none": "No checks configured",
+  "remotes.issues.checks.partial": "Only the first {count} checks were read",
+  "remotes.issues.mergeBlocked.merged": "Already merged",
+  "remotes.issues.mergeBlocked.closed": "This pull request is closed",
+  "remotes.issues.mergeBlocked.draft": "A draft pull request cannot be merged",
+  "remotes.issues.mergeBlocked.conflict":
+    "There are conflicts, so it cannot merge",
+  "remotes.issues.mergeBlocked.computing":
+    "GitHub is still deciding whether it can merge",
+  "remotes.issues.mergeBlocked.unknown":
+    "GitHub has not concluded whether it can merge",
   "remotes.permission.readOnly":
     "You only have read access to this repo, so write buttons are hidden.",
   "remotes.admin.open": "Repo settings…",
