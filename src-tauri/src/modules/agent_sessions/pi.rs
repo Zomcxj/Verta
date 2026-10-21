@@ -8,13 +8,18 @@ use super::types::{AgentSession, AgentSessionsPayload};
 pub(crate) const TOOL: &str = "pi";
 
 const MAX_TITLE_CHARS: usize = 80;
-/// The name is written wherever the user names the session, which on this
-/// machine happened 3.98 MiB into a 4.18 MiB file, so the window has to be
-/// large. The scan stops at the first name, which keeps the common case
-/// (named near the top) cheap; a session renamed again later keeps its earlier
-/// name. Measured: first user messages sit within 77 KiB.
+/// 头部窗口只用来取会话头（id / cwd）和**第一条**用户消息（实测都在 77 KiB 以内）。
+/// 名字不靠它 —— 见 `latest_session_name`，那个是从文件末尾往回找的。
 const MAX_PREFIX_LINES: usize = 100_000;
-const MAX_PREFIX_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_PREFIX_BYTES: u64 = 1024 * 1024;
+/// 往回翻名字时一次读多少字节。
+const NAME_SCAN_STEP: u64 = 4 * 1024 * 1024;
+/// 最多往回翻这么多（超大文件不整份读）。
+const NAME_SCAN_LIMIT: u64 = 256 * 1024 * 1024;
+/// 名字行走不了这么长；超过的当正文，免得去解一行几 MB 的消息（也是找行首行尾时的读取上限）。
+const MAX_NAME_LINE_BYTES: usize = 64 * 1024;
+/// 名字行里必然出现的文本。
+const NAME_NEEDLE: &[u8] = b"\"session_info\"";
 
 pub(crate) fn default_root() -> Option<PathBuf> {
     Some(dirs::home_dir()?.join(".pi/agent/sessions"))
@@ -102,12 +107,14 @@ fn read_session(file: &Path) -> Result<Option<AgentSession>, String> {
     let Some(cwd) = cwd else {
         return Err(format!("会话 {} 既没有 cwd 也无法从目录名还原", file.display()));
     };
-    let title = title_from_prefix(&prefix).unwrap_or_else(|| {
-        file.file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or(id)
-            .to_string()
-    });
+    let title = latest_session_name(file)
+        .or_else(|| title_from_prefix(&prefix))
+        .unwrap_or_else(|| {
+            file.file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or(id)
+                .to_string()
+        });
     Ok(Some(AgentSession {
         tool: TOOL.to_string(),
         id: id.to_string(),
@@ -125,19 +132,15 @@ fn parse_line(line: &str) -> Option<Value> {
     serde_json::from_str::<Value>(line).ok()
 }
 
-/// Title priority: the name the user gave the session, then the first user
-/// message. The name is written mid-file, so both are collected in one pass.
-pub(crate) fn title_from_prefix(prefix: &str) -> Option<String> {
+/// Title priority: the name the user last gave the session, then the first user
+/// message. Both live in the file, so the name is looked up separately (it can
+/// sit anywhere) and the message comes from the head window.
+fn title_from_prefix(prefix: &str) -> Option<String> {
     let mut first_user: Option<String> = None;
     for value in prefix.lines().filter_map(parse_line) {
         match value.get("type").and_then(Value::as_str) {
             Some("session_info") => {
-                let name = value
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .map(collapse_whitespace)
-                    .filter(|name| !name.is_empty());
-                if let Some(name) = name {
+                if let Some(name) = session_info_name(&value) {
                     return Some(name);
                 }
             }
@@ -153,6 +156,135 @@ pub(crate) fn title_from_prefix(prefix: &str) -> Option<String> {
         }
     }
     first_user
+}
+
+/// 一行 `session_info` 记录里的名字（空名字不算）。
+fn session_info_name(value: &Value) -> Option<String> {
+    if value.get("type").and_then(Value::as_str) != Some("session_info") {
+        return None;
+    }
+    value
+        .get("name")
+        .and_then(Value::as_str)
+        .map(collapse_whitespace)
+        .filter(|name| !name.is_empty())
+}
+
+/// 会话名是**改名那一刻**才写进文件的，长会话里那个位置可能在几十 MB 之后，只读头部
+/// 就会漏掉（漏掉就退回第一条用户消息，列表里看到的就不是你起的名字）。所以这里从文件
+/// 末尾往回翻块，取**最后一个** `session_info` 的 `name` —— 也就是最后一次改的名字 ——
+/// 找到就停，不必读完整份文件。
+fn latest_session_name(file: &Path) -> Option<String> {
+    latest_session_name_with(file, NAME_SCAN_STEP, NAME_SCAN_LIMIT)
+}
+
+fn latest_session_name_with(file: &Path, step: u64, limit: u64) -> Option<String> {
+    if step == 0 {
+        return None;
+    }
+    let size = std::fs::metadata(file).ok()?.len();
+    let floor = size.saturating_sub(limit);
+    let mut end = size;
+    while end > floor {
+        let start = end.saturating_sub(step).max(floor);
+        // 先把窗口两端挪到行边界上：否则标记词正好压在块边界上会被切成两半，搜不到。
+        let (from, to) = align_to_lines(file, start, end, size);
+        let bytes = read_bytes(file, from, to)?;
+        // 这一块里从后往前找；命中处再把那一整行读出来解。
+        let mut searched = bytes.len();
+        while let Some(hit) = rfind(&bytes[..searched], NAME_NEEDLE) {
+            if let Some(line) = full_line_at(file, from + hit as u64, size) {
+                if let Some(name) = parse_line(&line).as_ref().and_then(session_info_name) {
+                    return Some(name);
+                }
+            }
+            searched = hit;
+        }
+        if start == 0 {
+            break;
+        }
+        end = start;
+    }
+    None
+}
+
+/// 把 `[start, end)` 两端各挪到最近的换行之后（最多挪 [`MAX_NAME_LINE_BYTES`]）。
+fn align_to_lines(file: &Path, start: u64, end: u64, size: u64) -> (u64, u64) {
+    let reach = MAX_NAME_LINE_BYTES as u64;
+    let from = if start == 0 {
+        0
+    } else {
+        let back = start.saturating_sub(reach);
+        match read_bytes(file, back, start).and_then(|bytes| {
+            bytes
+                .iter()
+                .rposition(|b| *b == b'\n')
+                .map(|i| back + i as u64 + 1)
+        }) {
+            Some(aligned) => aligned,
+            None => start,
+        }
+    };
+    let to = if end >= size {
+        size
+    } else {
+        let forward = size.min(end + reach);
+        match read_bytes(file, end, forward).and_then(|bytes| {
+            bytes
+                .iter()
+                .position(|b| *b == b'\n')
+                .map(|i| end + i as u64 + 1)
+        }) {
+            Some(aligned) => aligned,
+            None => end,
+        }
+    };
+    (from, to)
+}
+
+/// 读 `file` 的 `[start, end)` 这一段（丢掉编码不致命，行本身还是能解）。
+fn read_bytes(file: &Path, start: u64, end: u64) -> Option<Vec<u8>> {
+    use std::io::{Seek, SeekFrom};
+    let mut handle = std::fs::File::open(file).ok()?;
+    handle.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = Vec::with_capacity((end - start) as usize);
+    handle.take(end - start).read_to_end(&mut buf).ok()?;
+    Some(buf)
+}
+
+/// `needle` 在 `haystack` 里最后出现的位置（字节级，不碰字符边界）。
+fn rfind(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    haystack.windows(needle.len()).rposition(|w| w == needle)
+}
+
+/// 把 `absolute` 那一处所在的整行读出来（行首行尾各最多扩 [`MAX_NAME_LINE_BYTES`]）。
+///
+/// 这样跟"往回翻的块边界"无关：块把行切开了也没关系，这里会照着文件把整行读全。行太长
+/// （说明命中的是正文里引用到这个字段的文字）就返回 None，让调用方接着往前找。
+fn full_line_at(file: &Path, absolute: u64, size: u64) -> Option<String> {
+    let reach = MAX_NAME_LINE_BYTES as u64;
+    let from = absolute.saturating_sub(reach);
+    let to = size.min(absolute + reach);
+    let bytes = read_bytes(file, from, to)?;
+    let rel = (absolute - from) as usize;
+    if rel > bytes.len() {
+        return None;
+    }
+    let line_start = bytes[..rel]
+        .iter()
+        .rposition(|b| *b == b'\n')
+        .map_or(0, |i| i + 1);
+    let line_end = bytes[rel..]
+        .iter()
+        .position(|b| *b == b'\n')
+        .map_or(bytes.len(), |i| rel + i);
+    if line_end <= line_start || line_end - line_start > MAX_NAME_LINE_BYTES {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&bytes[line_start..line_end]).into_owned())
 }
 
 fn text_of_content(content: &Value) -> Option<String> {
@@ -500,8 +632,8 @@ mod tests {
 
     #[test]
     fn a_name_far_past_the_first_message_still_wins() {
-        // Locks why the window is megabytes wide: pi writes the name when the
-        // user names the session, which can be far past the opening exchange.
+        // Locks why the name is looked up from the end of the file: pi writes it
+        // when the user names the session, which can be megabytes in.
         let dir = tempfile::tempdir().expect("temp dir");
         let body = format!(
             "{}\n{}\n{}\n{}\n",
@@ -513,6 +645,117 @@ mod tests {
         let path = write_file(dir.path(), "s.jsonl", &body);
         let prefix = read_prefix_with(&path, 4096, 100).expect("prefix");
         assert_eq!(title_from_prefix(&prefix).as_deref(), Some("晚来的名字"));
+        assert_eq!(latest_session_name(&path).as_deref(), Some("晚来的名字"));
+    }
+
+    #[test]
+    fn the_newest_rename_wins_over_an_earlier_one() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let body = format!(
+            "{}\n{}\n{}\n",
+            r#"{"type":"session","id":"s1","cwd":"F:\\x"}"#,
+            r#"{"type":"session_info","name":"第一次起的名字"}"#,
+            r#"{"type":"session_info","name":"后来改的名字"}"#,
+        );
+        let path = write_file(dir.path(), "s.jsonl", &body);
+        assert_eq!(latest_session_name(&path).as_deref(), Some("后来改的名字"));
+    }
+
+    #[test]
+    fn a_name_megabytes_into_the_file_is_found_by_the_backward_scan() {
+        // 1.2 MiB of filler puts the name past MAX_PREFIX_BYTES (1 MiB), which is
+        // exactly the case that used to fall back to the first user message.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut body = String::from(r#"{"type":"session","id":"s1","cwd":"F:\\x"}"#);
+        body.push('\n');
+        body.push_str(r#"{"type":"message","message":{"role":"user","content":"第一条消息"}}"#);
+        body.push('\n');
+        while body.len() < 1_200_000 {
+            body.push_str(&"f".repeat(4096));
+            body.push('\n');
+        }
+        body.push_str(r#"{"type":"session_info","name":"深在文件里的名字"}"#);
+        body.push('\n');
+        let path = write_file(dir.path(), "s.jsonl", &body);
+        let session = read_session(&path).expect("read").expect("a session");
+        assert_eq!(session.title, "深在文件里的名字");
+    }
+
+    #[test]
+    fn a_name_line_split_across_chunk_boundaries_is_still_found() {
+        // 小步长让名字行正好压在块边界上：整行是照着文件读全的，跟边界无关。
+        let dir = tempfile::tempdir().expect("temp dir");
+        let name_line = r#"{"type":"session_info","name":"跨界线的名字"}"#;
+        for filler in 0..24usize {
+            let body = format!(
+                "{}\n{}\n{}\n",
+                r#"{"type":"session","id":"s1","cwd":"F:\\x"}"#,
+                "y".repeat(filler),
+                name_line,
+            );
+            let path = write_file(dir.path(), "s.jsonl", &body);
+            assert_eq!(
+                latest_session_name_with(&path, 40, 1 << 20).as_deref(),
+                Some("跨界线的名字"),
+                "filler {filler}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_line_too_long_to_be_a_name_is_skipped() {
+        // 正文里引用到这段文字时命中的是一行超长消息：不当名字，接着往前找。
+        let dir = tempfile::tempdir().expect("temp dir");
+        let long_message = format!(
+            r#"{{"type":"message","message":{{"role":"user","content":"{}"}}}}"#,
+            "讲 \"session_info\" 这个词 ".repeat(4000),
+        );
+        let body = format!(
+            "{}\n{}\n{}\n",
+            r#"{"type":"session","id":"s1","cwd":"F:\\x"}"#,
+            long_message,
+            r#"{"type":"session_info","name":"真正的名字"}"#,
+        );
+        let path = write_file(dir.path(), "s.jsonl", &body);
+        assert_eq!(latest_session_name(&path).as_deref(), Some("真正的名字"));
+    }
+
+    #[test]
+    fn the_word_inside_a_message_is_not_a_name() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let body = concat!(
+            r#"{"type":"session","id":"s1","cwd":"F:\\x"}"#,
+            "\n",
+            r#"{"type":"message","message":{"role":"user","content":"我在讲 \"type\":\"session_info\" 这个字段"}}"#,
+            "\n",
+        );
+        let path = write_file(dir.path(), "s.jsonl", body);
+        assert_eq!(latest_session_name(&path), None);
+        assert_eq!(
+            read_session(&path).expect("read").expect("a session").title,
+            "我在讲 \"type\":\"session_info\" 这个字段"
+        );
+    }
+
+    #[test]
+    fn a_session_without_a_name_has_none() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = write_file(
+            dir.path(),
+            "s.jsonl",
+            "{\"type\":\"session\",\"id\":\"s1\",\"cwd\":\"F:\\\\x\"}\n",
+        );
+        assert_eq!(latest_session_name(&path), None);
+    }
+
+    #[test]
+    fn complete_lines_drops_the_seams_unless_they_are_the_file_edges() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = write_file(dir.path(), "s.jsonl", "aaa\nbbb\nccc\n");
+        // 从中间切开时那一行照样读得全（行首行尾是照着文件找的）。
+        assert_eq!(full_line_at(&path, 5, 12).as_deref(), Some("bbb"));
+        assert_eq!(full_line_at(&path, 0, 12).as_deref(), Some("aaa"));
+        assert_eq!(full_line_at(&path, 10, 12).as_deref(), Some("ccc"));
     }
 
     #[test]
