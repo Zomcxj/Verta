@@ -195,7 +195,14 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
   return (
     <>
       <Dialog open={repo !== null} onOpenChange={close}>
-        <DialogContent className={detail ? "sm:max-w-3xl" : "sm:max-w-2xl"}>
+        <DialogContent
+          className={detail ? "sm:max-w-3xl" : "sm:max-w-2xl"}
+          // 确认框（AlertDialog）是另一个 Radix 层、被传送到 body 外面，点它会被当成
+          // 「点到面板外面」而把面板一起关掉（用户会以为自己点错了）。
+          onInteractOutside={(event) => {
+            if (pending !== null) event.preventDefault();
+          }}
+        >
           {detail ? (
             <RunDetail
               repo={repo ?? ""}

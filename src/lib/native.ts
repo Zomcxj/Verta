@@ -147,6 +147,28 @@ export type WireRepoPermissionPayload = {
   error: string | null;
 };
 
+/**
+ * 一个仓库的管理信息（描述、可见性、能不能改）。
+ *
+ * `canAdmin` 为 false 时界面不渲染改描述 / 切可见性 / 删除；查不动时后端给的也是 true。
+ */
+export type WireRepoSettingsPayload = {
+  kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  description: string | null;
+  /** `PUBLIC` / `PRIVATE` / `INTERNAL`；拿不到时是 null。 */
+  visibility: string | null;
+  canAdmin: boolean;
+  error: string | null;
+};
+
+/** 一次仓库管理动作（改描述 / 切可见性 / 删仓库）的结果。 */
+export type WireRepoActionResult = {
+  kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  error: string | null;
+};
+
 /** 运行列表里的一条（重跑/取消要用 `id`）。 */
 export type WireRepoActionRun = {
   id: number;
@@ -524,6 +546,24 @@ export const native = {
   /** 单个仓库的当前账号权限；同样按需调用，界面据此决定写操作按钮在不在。 */
   githubRepoPermission: (repo: string) =>
     invoke<WireRepoPermissionPayload>("github_repo_permission", { repo }),
+  /** 单个仓库的管理信息（描述 / 可见性 / 能不能改）；打开设置弹窗时调一次。 */
+  githubRepoSettings: (repo: string) =>
+    invoke<WireRepoSettingsPayload>("github_repo_settings", { repo }),
+  /** 改仓库描述；空串即清空。 */
+  githubRepoSetDescription: (repo: string, description: string) =>
+    invoke<WireRepoActionResult>("github_repo_set_description", {
+      repo,
+      description,
+    }),
+  /** 切可见性；`private` 为 true 是私有。 */
+  githubRepoSetVisibility: (repo: string, isPrivate: boolean) =>
+    invoke<WireRepoActionResult>("github_repo_set_visibility", {
+      repo,
+      private: isPrivate,
+    }),
+  /** 删仓库（不可撤销）；后端发完请求会回查确认真的没了才报成功。 */
+  githubRepoDelete: (repo: string) =>
+    invoke<WireRepoActionResult>("github_repo_delete", { repo }),
   /** 某个仓库的运行列表（默认 20 条）。 */
   githubRepoRuns: (repo: string, limit?: number) =>
     invoke<WireRepoActionRunsPayload>("github_repo_runs", {

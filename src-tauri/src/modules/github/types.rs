@@ -561,6 +561,81 @@ impl RepoPermissionPayload {
     }
 }
 
+/// 一个仓库的管理面板要的那几样（描述、可见性、以及能不能改）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoSettingsPayload {
+    pub kind: &'static str,
+    pub repo: String,
+    /// 没有描述时是 null。
+    pub description: Option<String>,
+    /// `PUBLIC` / `PRIVATE` / `INTERNAL`。
+    pub visibility: Option<String>,
+    /// 能不能改设置 / 删仓库。**查不动时是 true**：按钮照常给，让 GitHub 去拒绝。
+    pub can_admin: bool,
+    pub error: Option<String>,
+}
+
+impl RepoSettingsPayload {
+    pub fn found(repo: impl Into<String>, settings: super::repo_admin::RepoSettings) -> Self {
+        let can_admin = super::permission::admin_allowed(settings.permission.as_deref());
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            description: settings.description,
+            visibility: settings.visibility,
+            can_admin,
+            error: None,
+        }
+    }
+
+    pub fn failed(kind: &'static str, repo: impl Into<String>, error: impl Into<String>) -> Self {
+        Self {
+            kind,
+            repo: repo.into(),
+            description: None,
+            visibility: None,
+            can_admin: true,
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>) -> Self {
+        Self::failed(KIND_NOT_INSTALLED, repo, "未安装 gh CLI（找不到 gh 命令）")
+    }
+}
+
+/// 一次仓库管理动作（改描述 / 切可见性 / 删仓库）的结果。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoActionResult {
+    pub kind: &'static str,
+    pub repo: String,
+    pub error: Option<String>,
+}
+
+impl RepoActionResult {
+    pub fn ok(repo: impl Into<String>) -> Self {
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            error: None,
+        }
+    }
+
+    pub fn failed(kind: &'static str, repo: impl Into<String>, error: impl Into<String>) -> Self {
+        Self {
+            kind,
+            repo: repo.into(),
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>) -> Self {
+        Self::failed(KIND_NOT_INSTALLED, repo, "未安装 gh CLI（找不到 gh 命令）")
+    }
+}
+
 /// 一次附件下载的进度。由后端按 64 KiB / 100 ms 合并后推给前端，不逐块刷 IPC。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

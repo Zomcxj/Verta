@@ -10,13 +10,21 @@ import {
 import { Input } from "@/components/ui/input";
 import { native } from "@/lib/native";
 import { useT } from "@/modules/i18n";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** 克隆完成后落地目录的路径（可能已被后端登记为已授权）。 */
   onCloned: (path: string) => void;
+  /**
+   * 打开时预填的仓库地址与目标目录。
+   *
+   * 从远程仓库那一行进来时用：地址是那一行的克隆地址，目标是「已有项目同一级 + 仓库名」。
+   * 不传就还是空白（项目页那个入口就是自己填）。
+   */
+  defaultUrl?: string;
+  defaultDest?: string;
 };
 
 /**
@@ -25,12 +33,26 @@ type Props = {
  * 目标目录上一级不存在时后端会直接拒绝，并把缺的是哪一级写清楚 —— 这比让 git 报
  * "could not create work tree dir" 好懂。克隆中途可能要几十秒，这里如实显示忙状态。
  */
-export function CloneRepoDialog({ open, onOpenChange, onCloned }: Props) {
+export function CloneRepoDialog({
+  open,
+  onOpenChange,
+  onCloned,
+  defaultUrl,
+  defaultDest,
+}: Props) {
   const t = useT();
   const [url, setUrl] = useState("");
   const [dest, setDest] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 有预填就每次打开都覆盖（那一行换了就得跟着换）；没有预填就保持原样，
+  // 项目页那边自己填了一半再关掉重开，内容还在。
+  useEffect(() => {
+    if (!open) return;
+    if (defaultUrl) setUrl(defaultUrl);
+    if (defaultDest) setDest(defaultDest);
+  }, [open, defaultUrl, defaultDest]);
 
   const close = (next: boolean) => {
     if (busy) return;

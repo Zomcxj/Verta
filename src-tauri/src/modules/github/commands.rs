@@ -26,14 +26,16 @@ use super::gh::{self, GhRunError, LoginProbe};
 use super::permission;
 pub use super::releases::DownloadState;
 use super::releases::{self, finish_download, safe_file_name, should_report};
+use super::repo_admin;
 use super::repos::{
     classify_failure, error_excerpt, page_path, parse_login, parse_repos, should_continue_page,
     MAX_PAGES, MAX_PER_PAGE,
 };
 use super::types::{
     ReleaseDownloadProgress, ReleaseDownloadResult, RemoteRepo, RemoteReposPayload,
-    RepoActionRunsPayload, RepoCiPayload, RepoPermissionPayload, RepoReleasesPayload,
-    RepoRunActionResult, RepoRunJobsPayload, RepoRunLogPayload, KIND_ERROR,
+    RepoActionRunsPayload, RepoActionResult, RepoCiPayload, RepoPermissionPayload,
+    RepoReleasesPayload, RepoRunActionResult, RepoRunJobsPayload, RepoRunLogPayload,
+    RepoSettingsPayload, KIND_ERROR,
 };
 
 /// 当前账号能访问的仓库列表（自己的 + 协作的 + 组织成员可见的）。
@@ -213,6 +215,201 @@ fn read_repo_permission(repo: &str) -> RepoPermissionPayload {
     let permission = permission::parse_permission(&output.stdout);
     let can_write = permission::write_allowed(permission.as_deref());
     RepoPermissionPayload::found(&slug, permission, can_write)
+}
+
+/// 仓库管理面板要的那几样：描述、可见性，以及当前账号能不能改。
+///
+/// 与权限查询同源（同一条 `gh repo view`），所以两个弹窗各查各的、不共用缓存。
+#[tauri::command]
+pub async fn github_repo_settings(repo: String) -> Result<RepoSettingsPayload, String> {
+    blocking(move || Ok(read_repo_settings(&repo))).await
+}
+
+fn read_repo_settings(repo: &str) -> RepoSettingsPayload {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => return RepoSettingsPayload::failed(KIND_ERROR, repo.trim(), message),
+    };
+
+    let output = match gh::run(
+        &[
+            "repo",
+            "view",
+            &slug,
+            "--json",
+            "description,visibility,viewerPermission",
+        ],
+        gh::PERMISSION_TIMEOUT_SECS,
+    ) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return RepoSettingsPayload::not_installed(&slug),
+        Err(GhRunError::Io(error)) => {
+            return RepoSettingsPayload::failed(
+                KIND_ERROR,
+                &slug,
+                format!("运行 gh 失败：{error}"),
+            )
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return RepoSettingsPayload::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            error_excerpt(&text),
+        );
+    }
+
+    match repo_admin::parse_settings(&output.stdout) {
+        Ok(settings) => RepoSettingsPayload::found(&slug, settings),
+        Err(error) => RepoSettingsPayload::failed(KIND_ERROR, &slug, error),
+    }
+}
+
+/// 改仓库描述；传空串就是清空。
+#[tauri::command]
+pub async fn github_repo_set_description(
+    repo: String,
+    description: String,
+) -> Result<RepoActionResult, String> {
+    blocking(move || Ok(repo_admin(&repo, RepoAdmin::Description(description)))).await
+}
+
+/// 切可见性。`private` 为 true 是私有；切公开前界面已经让用户明确接受了后果。
+#[tauri::command]
+pub async fn github_repo_set_visibility(
+    repo: String,
+    private: bool,
+) -> Result<RepoActionResult, String> {
+    blocking(move || Ok(repo_admin(&repo, RepoAdmin::Visibility(private)))).await
+}
+
+/// 删仓库。不可撤销：发完请求还要回查确认它真的没了才报成功。
+#[tauri::command]
+pub async fn github_repo_delete(repo: String) -> Result<RepoActionResult, String> {
+    blocking(move || Ok(repo_admin(&repo, RepoAdmin::Delete))).await
+}
+
+enum RepoAdmin {
+    Description(String),
+    Visibility(bool),
+    Delete,
+}
+
+fn repo_admin(repo: &str, action: RepoAdmin) -> RepoActionResult {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => return RepoActionResult::failed(KIND_ERROR, repo.trim(), message),
+    };
+
+    // 超长的描述 GitHub 一定拒，先在本地说清楚，别白跑一趟。
+    if let RepoAdmin::Description(text) = &action {
+        if let Some(problem) = repo_admin::description_problem(text) {
+            return RepoActionResult::failed(KIND_ERROR, &slug, problem);
+        }
+    }
+
+    let args: Vec<&str> = match &action {
+        RepoAdmin::Description(text) => {
+            vec!["repo", "edit", &slug, "--description", text.trim()]
+        }
+        RepoAdmin::Visibility(private) => vec![
+            "repo",
+            "edit",
+            &slug,
+            "--visibility",
+            if *private { "private" } else { "public" },
+            // gh 要求显式接受可见性变更的后果；界面上那句确认就是这个意思。
+            "--accept-visibility-change-consequences",
+        ],
+        RepoAdmin::Delete => vec!["repo", "delete", &slug, "--yes"],
+    };
+
+    let output = match gh::run(&args, gh::REPO_ADMIN_TIMEOUT_SECS) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return RepoActionResult::not_installed(&slug),
+        Err(GhRunError::Io(error)) => {
+            return RepoActionResult::failed(
+                KIND_ERROR,
+                &slug,
+                format!("运行 gh 失败：{error}"),
+            )
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        let detail = error_excerpt(&text);
+        // 缺 delete_repo 授权是能自己补救的失败：把该跑的命令直接写在话里。
+        if matches!(action, RepoAdmin::Delete) && repo_admin::needs_delete_scope(&text) {
+            return RepoActionResult::failed(
+                KIND_ERROR,
+                &slug,
+                format!(
+                    "gh 缺少 delete_repo 授权：在终端跑 `gh auth refresh -s delete_repo` \
+                     完成一次浏览器确认后重试。GitHub 原话：{detail}"
+                ),
+            );
+        }
+        return RepoActionResult::failed(classify_failure(&text).kind(), &slug, detail);
+    }
+
+    // 删除不可撤销：请求发出去还不算数，回查确认它真的没了才报成功。
+    if matches!(action, RepoAdmin::Delete) {
+        return confirm_repo_gone(&slug);
+    }
+    RepoActionResult::ok(&slug)
+}
+
+/// 回查仓库是否真的没了：`gh api repos/{slug}` 明确 404 才算删掉。
+fn confirm_repo_gone(slug: &str) -> RepoActionResult {
+    let path = format!("repos/{slug}");
+    // 与删运行同一套：GitHub 是即刻生效的，万一慢半拍就再看一眼。
+    for attempt in 0..2 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(800));
+        }
+        match gh::run(&["api", &path], gh::CI_TIMEOUT_SECS) {
+            Ok(output) => {
+                let text = output.failure_text();
+                match classify_run_probe(output.is_ok(), &text) {
+                    RunProbe::Gone => return RepoActionResult::ok(slug),
+                    RunProbe::Present if attempt == 0 => continue,
+                    RunProbe::Present => {
+                        return RepoActionResult::failed(
+                            KIND_ERROR,
+                            slug,
+                            "gh 报告删除成功，但这个仓库在 GitHub 上还在（可能没删掉）",
+                        )
+                    }
+                    RunProbe::Unknown if attempt == 0 => continue,
+                    RunProbe::Unknown => {
+                        return RepoActionResult::failed(
+                            KIND_ERROR,
+                            slug,
+                            format!("删除请求已发出，但没能确认结果：{}", error_excerpt(&text)),
+                        )
+                    }
+                }
+            }
+            Err(GhRunError::NotInstalled) => {
+                return RepoActionResult::failed(
+                    KIND_ERROR,
+                    slug,
+                    "删除请求已发出，但回查时找不到 gh 命令，没能确认结果",
+                )
+            }
+            Err(GhRunError::Io(error)) => {
+                return RepoActionResult::failed(
+                    KIND_ERROR,
+                    slug,
+                    format!("删除请求已发出，但回查失败：{error}"),
+                )
+            }
+        }
+    }
+    RepoActionResult::failed(KIND_ERROR, slug, "删除请求已发出，但没能确认结果")
 }
 
 /// 某个仓库最近的运行列表。

@@ -13,9 +13,17 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useT, type MessageKey } from "@/modules/i18n";
+import {
+  loadProjectPaths,
+  mergeProjectPaths,
+  saveProjectPaths,
+} from "@/modules/projects";
+import { CloneRepoDialog } from "@/modules/projects/CloneRepoDialog";
+import { RepoAdminDialog } from "./RepoAdminDialog";
 import { RunListDialog } from "./RunListDialog";
 import { ReleasesDialog } from "./ReleasesDialog";
 import { TONE_CLASS, ciView, type CiView } from "./lib/ci";
+import { cloneDestFromProjects } from "./lib/repoAdmin";
 import { ciFromRuns } from "./lib/runs";
 import { copyTextOf, filterRows, noticeOf, toRows } from "./lib/rows";
 import type { RemoteRepoRow } from "./lib/types";
@@ -43,6 +51,13 @@ export function RemoteReposView({ active }: Props) {
   const [runsFor, setRunsFor] = useState<string | null>(null);
   /** 正在看 Releases 的仓库；null 表示弹窗关着。 */
   const [releasesFor, setReleasesFor] = useState<string | null>(null);
+  /** 正在改设置的仓库；null 表示弹窗关着。 */
+  const [adminFor, setAdminFor] = useState<string | null>(null);
+  /** 正在克隆的仓库；`dest` 是预填的目标目录。 */
+  const [cloneFor, setCloneFor] = useState<{
+    row: RemoteRepoRow;
+    dest: string;
+  } | null>(null);
   const [ciBusy, setCiBusy] = useState<Record<string, boolean>>({});
 
   /**
@@ -117,6 +132,70 @@ export function RemoteReposView({ active }: Props) {
       .then(() => toast.message(t("remotes.action.copied")))
       .catch(() => {});
   }, [t]);
+
+  /**
+   * 克隆那一行：目标目录默认落在「已有项目的同一级 + 仓库名」。
+   *
+   * 读不到项目清单就留空让人自己填——猜一个不存在的目录只会让克隆白跑一趟。
+   */
+  const startClone = useCallback(async (row: RemoteRepoRow) => {
+    let dest = "";
+    try {
+      const paths = await loadProjectPaths();
+      dest = cloneDestFromProjects(paths, row.name);
+    } catch {
+      // 读不到清单不影响克隆本身，目标目录让用户填。
+    }
+    setCloneFor({ row, dest });
+  }, []);
+
+  /** 克隆完把新目录并进项目清单：切到项目页就能看到它。 */
+  const handleCloned = useCallback(
+    async (path: string) => {
+      try {
+        const paths = await loadProjectPaths();
+        await saveProjectPaths(mergeProjectPaths(paths, [path]));
+      } catch (e) {
+        // 克隆本身成功了，只是清单没写进去：如实说，别让它看起来像克隆失败。
+        toast.error(String(e));
+        return;
+      }
+      toast.success(t("projects.clone.done"));
+    },
+    [t],
+  );
+
+  /** 描述 / 可见性改成功后，列表那一行跟着更新，不必整份重拉。 */
+  const applyPatch = useCallback(
+    (
+      repo: string,
+      patch: { description?: string | null; visibility?: string | null },
+    ) => {
+      setPayload((prev) =>
+        prev
+          ? {
+              ...prev,
+              repos: prev.repos.map((item) =>
+                item.fullName === repo
+                  ? {
+                      ...item,
+                      description:
+                        patch.description === undefined
+                          ? item.description
+                          : patch.description,
+                      isPrivate:
+                        patch.visibility === undefined
+                          ? item.isPrivate
+                          : patch.visibility === "PRIVATE",
+                    }
+                  : item,
+              ),
+            }
+          : prev,
+      );
+    },
+    [],
+  );
 
   if (!payload) {
     if (failure) {
@@ -246,6 +325,8 @@ export function RemoteReposView({ active }: Props) {
                   onCheckCi={checkCi}
                   onOpenRuns={setRunsFor}
                   onOpenReleases={setReleasesFor}
+                  onOpenAdmin={setAdminFor}
+                  onClone={(target) => void startClone(target)}
                 />
               ))}
             </tbody>
@@ -268,6 +349,36 @@ export function RemoteReposView({ active }: Props) {
           if (!open) setReleasesFor(null);
         }}
       />
+      <RepoAdminDialog
+        repo={adminFor}
+        onOpenChange={(open) => {
+          if (!open) setAdminFor(null);
+        }}
+        onChanged={applyPatch}
+        onDeleted={(repo) => {
+          // 删掉了就从列表里拿掉：刷新回来它也不会再出现。
+          setPayload((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  repos: prev.repos.filter((item) => item.fullName !== repo),
+                }
+              : prev,
+          );
+          setAdminFor(null);
+        }}
+      />
+      <CloneRepoDialog
+        open={cloneFor !== null}
+        defaultUrl={
+          cloneFor ? `https://github.com/${cloneFor.row.fullName}.git` : undefined
+        }
+        defaultDest={cloneFor?.dest}
+        onOpenChange={(open) => {
+          if (!open) setCloneFor(null);
+        }}
+        onCloned={(path) => void handleCloned(path)}
+      />
     </div>
   );
 }
@@ -280,6 +391,8 @@ function RepoRow({
   onCheckCi,
   onOpenRuns,
   onOpenReleases,
+  onOpenAdmin,
+  onClone,
 }: {
   row: RemoteRepoRow;
   onCopy: (value: string) => void;
@@ -288,6 +401,8 @@ function RepoRow({
   onCheckCi: (fullName: string, force?: boolean) => void;
   onOpenRuns: (fullName: string) => void;
   onOpenReleases: (fullName: string) => void;
+  onOpenAdmin: (fullName: string) => void;
+  onClone: (row: RemoteRepoRow) => void;
 }) {
   const t = useT();
   const open = useCallback(() => {
@@ -349,7 +464,13 @@ function RepoRow({
               ⋯
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-48">
+          {/* 菜单内容是 Radix 传送到 body 的，但 React 事件仍沿组件树冒泡到整行 —— 不拦住的话，
+              点「仓库设置…」会顺手把运行记录弹窗也开出来，两个弹窗叠在一起。 */}
+          <DropdownMenuContent
+            align="end"
+            className="min-w-48"
+            onClick={(event) => event.stopPropagation()}
+          >
             <DropdownMenuItem onSelect={open}>
               {t("remotes.action.open")}
             </DropdownMenuItem>
@@ -359,6 +480,13 @@ function RepoRow({
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onOpenReleases(row.fullName)}>
               {t("remotes.releases.open")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => onClone(row)}>
+              {t("remotes.admin.clone")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onOpenAdmin(row.fullName)}>
+              {t("remotes.admin.open")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => onCopy(copyTextOf(row, "name"))}>

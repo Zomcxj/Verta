@@ -25,6 +25,24 @@ pub fn write_allowed(permission: Option<&str>) -> bool {
     !matches!(level.trim().to_ascii_uppercase().as_str(), "TRIAGE" | "READ")
 }
 
+/// 能不能改仓库设置（改描述 / 切可见性 / 删仓库）。
+///
+/// 这几件事 GitHub 只让管理员做，所以比 [`write_allowed`] 严：只有 `ADMIN` 算数。
+/// **查不到、或者是不认识的档位时同样返回 true** —— 理由和写操作一样，宁可让 GitHub 拒。
+pub fn admin_allowed(permission: Option<&str>) -> bool {
+    let Some(level) = permission else {
+        return true;
+    };
+    let level = level.trim().to_ascii_uppercase();
+    match level.as_str() {
+        // 空输出算查不到；不认识的档位同理按「有权限」渲染，点了让 GitHub 拒。
+        "" | "ADMIN" => true,
+        // 认得的档位里，除了 ADMIN 都不够改设置。
+        "MAINTAIN" | "WRITE" | "TRIAGE" | "READ" => false,
+        _ => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,6 +92,22 @@ mod tests {
 
         let missing = RepoPermissionPayload::not_installed("me/app");
         assert!(missing.can_write);
+    }
+
+    #[test]
+    fn only_admins_may_change_repo_settings() {
+        assert!(admin_allowed(Some("ADMIN")));
+        assert!(admin_allowed(Some("admin")));
+        for level in ["MAINTAIN", "WRITE", "TRIAGE", "READ"] {
+            assert!(!admin_allowed(Some(level)), "{level} 不该能改设置");
+        }
+    }
+
+    #[test]
+    fn an_unknown_permission_keeps_the_settings_buttons() {
+        assert!(admin_allowed(None));
+        assert!(admin_allowed(Some("SOMETHING_NEW")));
+        assert!(admin_allowed(Some("")));
     }
 
     #[test]

@@ -21,6 +21,8 @@ pub const REPOS_TIMEOUT_SECS: u64 = 45;
 pub const CI_TIMEOUT_SECS: u64 = 30;
 /// 查一次仓库权限的等待上限：一条 `gh repo view`。
 pub const PERMISSION_TIMEOUT_SECS: u64 = 30;
+/// 改仓库设置 / 删仓库的等待上限：一次 API 调用，但 GitHub 那侧偶尔慢。
+pub const REPO_ADMIN_TIMEOUT_SECS: u64 = 60;
 /// 重跑 / 取消的等待上限：一次 API 调用，比取列表轻。
 pub const RUN_ACTION_TIMEOUT_SECS: u64 = 30;
 /// 拉一次日志的等待上限：日志要一路下完，比一次 API 调用慢。

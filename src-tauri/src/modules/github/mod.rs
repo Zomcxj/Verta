@@ -9,5 +9,6 @@ pub mod commands;
 mod gh;
 mod permission;
 mod releases;
+mod repo_admin;
 mod repos;
 pub mod types;

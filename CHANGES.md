@@ -15,6 +15,21 @@
 <details open>
 <summary><strong>2026-10-21</strong></summary>
 
+**GitHub：仓库管理（改描述 / 切可见性 / 删仓库）与克隆到本地**
+
+- `src-tauri/src/modules/github/repo_admin.rs`：新增。读 `gh repo view --json description,visibility,viewerPermission`；描述超 350 字在本地拦下；认出「gh 缺 delete_repo 授权」这种能自己补救的失败。
+- `src-tauri/src/modules/github/permission.rs`：新增 `admin_allowed`（只有 `ADMIN` 算管理员；查不到 / 不认识的档位按能改算）。
+- `src-tauri/src/modules/github/types.rs`：新增 `RepoSettingsPayload`（失败时 `can_admin` 仍是 true）与 `RepoActionResult`。
+- `src-tauri/src/modules/github/commands.rs`、`gh.rs`、`mod.rs`、`src-tauri/src/lib.rs`：新增 `github_repo_settings` / `github_repo_set_description` / `github_repo_set_visibility` / `github_repo_delete`（60 秒超时；删除发完请求回查 `gh api repos/{slug}` 拿到 404 才算成功；缺 delete_repo 授权时把该跑的命令写进报错原文）。
+- `src/lib/native.ts`：新增 `githubRepoSettings` / `githubRepoSetDescription` / `githubRepoSetVisibility` / `githubRepoDelete` 与线格式类型。
+- `src/modules/remotes/lib/repoAdmin.ts`：新增。`canAdmin`（没查出来 / 查不动都按能改）、只读提示键、`isPrivateVisibility`、删仓库的「手输全名」判定、描述长度、克隆目标目录的相邻推算。
+- `src/modules/remotes/RepoAdminDialog.tsx`：新增。描述保存、可见性切换（切公开 / 切私有各自的后果确认）与危险区（手输仓库全名才给删除按钮，删完回传让列表拿掉那一行）；非管理员时三类入口都不渲染。
+- `src/modules/remotes/RemoteReposView.tsx`：行菜单新增「克隆到本地…」与「仓库设置…」；描述 / 可见性改成功后只更新那一行；接上克隆与设置两个弹窗。另修：菜单内容是 Radix 传送到 body 的，但 React 事件仍沿组件树冒泡，点菜单项会连带触发整行点击（于是「仓库设置…」会顺手把运行记录面板也开出来）—— 在菜单内容上拦掉。
+- `src/modules/remotes/RunListDialog.tsx`：修：确认框（AlertDialog）是另一个 Radix 层，点它会被上层当成「点到面板外面」而把面板一起关掉；确认框开着时不再关。
+- `src/modules/projects/CloneRepoDialog.tsx`：新增可选的地址与目标目录预填（从远程仓库那一行进来时用）。
+- `src/modules/i18n/messages.ts`：新增上述界面的中英文文案。
+- `scripts/dev/probes/repo-admin-acceptance.mjs`：新增，仓库管理与克隆的验收脚本。
+
 **GitHub：权限门禁**
 
 - `src-tauri/src/modules/github/permission.rs`：新增。读 `gh repo view --json viewerPermission`，`TRIAGE` / `READ` 判成不可写；查不到或不认识的档位按可写算（按钮照样给，让 GitHub 去拒绝）。
