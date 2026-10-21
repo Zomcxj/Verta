@@ -613,7 +613,7 @@ const zh = {
     "命令仍在运行时，关闭终端标签页或退出应用前会询问。编辑器中未保存的改动始终会确认。",
   "settings.fontFamily.title": "字体",
   "settings.fontFamily.description":
-    "终端与编辑器共用的字体。选「自动检测」＝ 留空、用本机检测到的 Nerd Font；图标字形始终由检测到的那个字体兜。",
+    "终端与编辑器共用的字体。选「自动检测」即用本机检测到的 Nerd Font；图标字形一律由检测到的那个字体兜底。",
   "settings.fontFamily.placeholder": "自动检测",
   "settings.font.auto": "自动检测",
   "settings.font.missing": "不在本机",
@@ -1345,7 +1345,7 @@ const en: Record<MessageKey, string> = {
     "Ask before closing a terminal tab or quitting while a command is still running. Unsaved editor changes are always confirmed.",
   "settings.fontFamily.title": "Font",
   "settings.fontFamily.description":
-    'Font shared by the terminal and the editor. "Auto-detect" means empty: use the Nerd Font found on this machine. Icon glyphs always fall back to that detected font.',
+    'Font shared by the terminal and the editor. "Auto-detect" uses the Nerd Font found on this machine; icon glyphs always fall back to it.',
   "settings.fontFamily.placeholder": "Auto-detect",
   "settings.font.auto": "Auto-detect",
   "settings.font.missing": "not installed",
