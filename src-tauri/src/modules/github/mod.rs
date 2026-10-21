@@ -8,6 +8,7 @@ mod auth;
 mod ci;
 pub mod commands;
 mod gh;
+mod issues;
 mod permission;
 mod releases;
 mod repo_admin;

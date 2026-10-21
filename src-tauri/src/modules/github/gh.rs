@@ -35,6 +35,12 @@ pub const REPO_ADMIN_TIMEOUT_SECS: u64 = 60;
 pub const RUN_ACTION_TIMEOUT_SECS: u64 = 30;
 /// 拉一次日志的等待上限：日志要一路下完，比一次 API 调用慢。
 pub const LOG_TIMEOUT_SECS: u64 = 90;
+/// 一页 issue / PR 的等待上限：一次要回上百条正文，比一般查询重。
+pub const ISSUES_TIMEOUT_SECS: u64 = 45;
+/// 一条 issue / PR 的详情（正文 / 评论 / PR 信息）的等待上限。
+pub const ISSUE_DETAIL_TIMEOUT_SECS: u64 = 30;
+/// 写操作（评论 / 开 / 关 / 合并 / 新建）的等待上限：一次 API 调用，但 GitHub 那侧偶尔慢。
+pub const ISSUE_ACTION_TIMEOUT_SECS: u64 = 60;
 /// 日志的输出上限：比一般查询宽得多，同时仍然有边界（撞上了就当「撑满上限」报出去）。
 pub const LOG_STDOUT_CAP: usize = 8 * 1024 * 1024;
 const MAX_TIMEOUT_SECS: u64 = 120;

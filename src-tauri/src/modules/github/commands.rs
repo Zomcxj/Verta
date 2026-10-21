@@ -24,6 +24,7 @@ use super::auth;
 use super::ci::parse_latest_run;
 use super::ci::parse_repo_slug;
 use super::gh::{self, GhRunError, LoginProbe};
+use super::issues;
 use super::permission;
 pub use super::releases::DownloadState;
 use super::releases::{self, finish_download, safe_file_name, should_report};
@@ -33,10 +34,11 @@ use super::repos::{
     Failure, MAX_PAGES, MAX_PER_PAGE,
 };
 use super::types::{
-    AuthActionPayload, AuthLoginProgress, AuthStatusPayload, ReleaseDownloadProgress,
-    ReleaseDownloadResult, RemoteRepo, RemoteReposPayload, RepoActionRunsPayload, RepoActionResult,
-    RepoCiPayload, RepoPermissionPayload, RepoReleasesPayload, RepoRunActionResult,
-    RepoRunJobsPayload, RepoRunLogPayload, RepoSettingsPayload, KIND_ERROR,
+    AuthActionPayload, AuthLoginProgress, AuthStatusPayload, IssueActionResult, IssueDetailPayload,
+    IssueListPayload, ReleaseDownloadProgress, ReleaseDownloadResult, RemoteRepo,
+    RemoteReposPayload, RepoActionRunsPayload, RepoActionResult, RepoCiPayload,
+    RepoPermissionPayload, RepoReleasesPayload, RepoRunActionResult, RepoRunJobsPayload,
+    RepoRunLogPayload, RepoSettingsPayload, KIND_ERROR,
 };
 
 /// 当前账号能访问的仓库列表（自己的 + 协作的 + 组织成员可见的）。
@@ -984,6 +986,409 @@ fn read_run_log(repo: &str, run_id: u64, failed_only: bool) -> RepoRunLogPayload
         clipped,
         output.stdout_truncated,
     )
+}
+
+// ------------------------------------------------------------ issue / PR
+
+/// 某个仓库的 issue / PR 列表。
+///
+/// `state` 是 `open` / `closed` / `all` —— 走 API 原生参数（切这个要重新发请求）。
+/// 类型筛选（只看 issue 或只看 PR）与关键字在前端做：`issues` 端点一次就把两类
+/// 都返回了，前端筛是零延迟。
+#[tauri::command]
+pub async fn github_issues(
+    repo: String,
+    state: Option<String>,
+    limit: Option<usize>,
+) -> Result<IssueListPayload, String> {
+    let state = state.as_deref().unwrap_or("open").to_string();
+    blocking(move || Ok(read_issues(&repo, &state, limit))).await
+}
+
+fn read_issues(repo: &str, state: &str, limit: Option<usize>) -> IssueListPayload {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => return IssueListPayload::failed(KIND_ERROR, repo.trim(), message),
+    };
+    if let Some(problem) = issues::state_problem(state) {
+        return IssueListPayload::failed(KIND_ERROR, &slug, problem);
+    }
+
+    let per_page = issues::clamp_limit(limit);
+    let path = format!("repos/{slug}/issues?state={state}&per_page={per_page}");
+    let output = match gh::run(&["api", &path], gh::ISSUES_TIMEOUT_SECS) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return IssueListPayload::not_installed(&slug),
+        Err(GhRunError::Io(error)) => {
+            return IssueListPayload::failed(KIND_ERROR, &slug, format!("运行 gh 失败：{error}"))
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return IssueListPayload::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            error_excerpt(&text),
+        );
+    }
+
+    match issues::parse_issue_list(&output.stdout) {
+        Ok(rows) => {
+            // 拿满一页：后面多半还有，如实标记。
+            let truncated = rows.len() >= per_page;
+            IssueListPayload::found(&slug, rows, truncated)
+        }
+        Err(error) => IssueListPayload::failed(
+            KIND_ERROR,
+            &slug,
+            format!("gh 返回的 issue 列表无法解析：{error}"),
+        ),
+    }
+}
+
+/// 一条 issue / PR 的详情：正文、评论、PR 专属信息、检查状态。
+///
+/// 正文 / 评论 / PR 信息互不依赖，**并行取**；检查状态要 PR 的 head sha，
+/// 只能等 PR 信息到手后再查一次。所以 PR 详情是两轮往返，普通 issue 一轮。
+#[tauri::command]
+pub async fn github_issue_detail(
+    repo: String,
+    number: u64,
+) -> Result<IssueDetailPayload, String> {
+    blocking(move || Ok(read_issue_detail(&repo, number))).await
+}
+
+fn read_issue_detail(repo: &str, number: u64) -> IssueDetailPayload {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => return IssueDetailPayload::failed(KIND_ERROR, repo.trim(), message),
+    };
+    if let Some(problem) = issues::number_problem(number) {
+        return IssueDetailPayload::failed(KIND_ERROR, &slug, problem);
+    }
+
+    let issue_path = format!("repos/{slug}/issues/{number}");
+    let comments_path = format!("repos/{slug}/issues/{number}/comments");
+    // 先假定它是 PR 去问一次：普通 issue 会得到 404，忽略即可。这么问能省掉一轮往返。
+    let pull_path = format!("repos/{slug}/pulls/{number}");
+
+    let (issue_out, comments_out, pull_out) = std::thread::scope(|scope| {
+        let issue = scope.spawn(|| gh::run(&["api", &issue_path], gh::ISSUE_DETAIL_TIMEOUT_SECS));
+        let comments =
+            scope.spawn(|| gh::run(&["api", &comments_path], gh::ISSUE_DETAIL_TIMEOUT_SECS));
+        let pull = scope.spawn(|| gh::run(&["api", &pull_path], gh::ISSUE_DETAIL_TIMEOUT_SECS));
+        (issue.join(), comments.join(), pull.join())
+    });
+
+    let issue_out = match issue_out {
+        Ok(Ok(output)) => output,
+        Ok(Err(GhRunError::NotInstalled)) => return IssueDetailPayload::not_installed(&slug),
+        Ok(Err(GhRunError::Io(error))) => {
+            return IssueDetailPayload::failed(KIND_ERROR, &slug, format!("运行 gh 失败：{error}"))
+        }
+        Err(_) => return IssueDetailPayload::failed(KIND_ERROR, &slug, "取详情时出错了"),
+    };
+    if !issue_out.is_ok() {
+        let text = issue_out.failure_text();
+        return IssueDetailPayload::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            error_excerpt(&text),
+        );
+    }
+
+    let mut detail = match issues::parse_issue(&issue_out.stdout) {
+        Ok(detail) => detail,
+        Err(error) => {
+            return IssueDetailPayload::failed(
+                KIND_ERROR,
+                &slug,
+                format!("gh 返回的 issue 无法解析：{error}"),
+            )
+        }
+    };
+
+    // 评论取不到不该让整个详情打不开：正文照样给，评论区自己说一声。
+    detail.comments = Vec::new();
+    detail.comments_error = None;
+    match comments_out {
+        Ok(Ok(output)) if output.is_ok() => match issues::parse_comments(&output.stdout) {
+            Ok(comments) => detail.comments = comments,
+            Err(error) => detail.comments_error = Some(format!("评论无法解析：{error}")),
+        },
+        Ok(Ok(output)) => {
+            let text = output.failure_text();
+            detail.comments_error = Some(error_excerpt(&text));
+        }
+        Ok(Err(GhRunError::Io(error))) => {
+            detail.comments_error = Some(format!("运行 gh 失败：{error}"));
+        }
+        _ => {
+            detail.comments_error = Some("取评论时出错了".to_string());
+        }
+    }
+
+    // PR 信息：只有它真是 PR 才算数。普通 issue 那次 404 是预期内的。
+    detail.pull_request = None;
+    detail.pull_request_error = None;
+    if detail.is_pull_request {
+        match pull_out {
+            Ok(Ok(output)) if output.is_ok() => match issues::parse_pull_request(&output.stdout) {
+                Ok(pr) => {
+                    detail.is_draft = pr.draft;
+                    detail.merged = pr.merged;
+                    detail.pull_request = Some(pr);
+                }
+                Err(error) => {
+                    detail.pull_request_error = Some(format!("PR 信息无法解析：{error}"));
+                }
+            },
+            Ok(Ok(output)) => {
+                let text = output.failure_text();
+                detail.pull_request_error = Some(error_excerpt(&text));
+            }
+            Ok(Err(GhRunError::Io(error))) => {
+                detail.pull_request_error = Some(format!("运行 gh 失败：{error}"));
+            }
+            _ => {
+                detail.pull_request_error = Some("取 PR 信息时出错了".to_string());
+            }
+        }
+    }
+
+    // 检查状态要 head sha，只能第二轮。
+    detail.checks = None;
+    let head_sha = detail
+        .pull_request
+        .as_ref()
+        .map(|pr| pr.head_sha.clone())
+        .unwrap_or_default();
+    if !head_sha.is_empty() {
+        let path = format!("repos/{slug}/commits/{head_sha}/check-runs");
+        if let Ok(output) = gh::run(&["api", &path], gh::ISSUE_DETAIL_TIMEOUT_SECS) {
+            if output.is_ok() {
+                if let Ok(checks) = issues::parse_checks(&output.stdout) {
+                    detail.checks = Some(checks);
+                }
+            }
+        }
+    }
+
+    IssueDetailPayload::found(&slug, detail)
+}
+
+/// 给 issue / PR 加一条评论。
+#[tauri::command]
+pub async fn github_issue_comment(
+    repo: String,
+    number: u64,
+    body: String,
+) -> Result<IssueActionResult, String> {
+    blocking(move || Ok(issue_comment(&repo, number, &body))).await
+}
+
+fn issue_comment(repo: &str, number: u64, body: &str) -> IssueActionResult {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => {
+            return IssueActionResult::failed(KIND_ERROR, repo.trim(), number, message)
+        }
+    };
+    if let Some(problem) = issues::number_problem(number) {
+        return IssueActionResult::failed(KIND_ERROR, &slug, number, problem);
+    }
+    if let Some(problem) = issues::body_problem(body) {
+        return IssueActionResult::failed(KIND_ERROR, &slug, number, problem);
+    }
+
+    let path = format!("repos/{slug}/issues/{number}/comments");
+    let payload = serde_json::json!({ "body": body.trim() });
+    let args = ["api", "--method", "POST", &path, "--input", "-"];
+    match gh::run_with_stdin(&args, &payload.to_string(), gh::ISSUE_ACTION_TIMEOUT_SECS) {
+        Ok(output) if output.is_ok() => IssueActionResult::ok(&slug, number),
+        Ok(output) => {
+            let text = output.failure_text();
+            IssueActionResult::failed(
+                classify_failure(&text).kind(),
+                &slug,
+                number,
+                error_excerpt(&text),
+            )
+        }
+        Err(GhRunError::NotInstalled) => IssueActionResult::not_installed(&slug, number),
+        Err(GhRunError::Io(error)) => {
+            IssueActionResult::failed(KIND_ERROR, &slug, number, format!("运行 gh 失败：{error}"))
+        }
+    }
+}
+
+/// 打开或关闭一条 issue（PR 也一样，GitHub 那边是同一个东西）。
+#[tauri::command]
+pub async fn github_issue_set_state(
+    repo: String,
+    number: u64,
+    state: String,
+) -> Result<IssueActionResult, String> {
+    blocking(move || Ok(issue_set_state(&repo, number, &state))).await
+}
+
+fn issue_set_state(repo: &str, number: u64, state: &str) -> IssueActionResult {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => {
+            return IssueActionResult::failed(KIND_ERROR, repo.trim(), number, message)
+        }
+    };
+    if let Some(problem) = issues::number_problem(number) {
+        return IssueActionResult::failed(KIND_ERROR, &slug, number, problem);
+    }
+    if state != "open" && state != "closed" {
+        return IssueActionResult::failed(
+            KIND_ERROR,
+            &slug,
+            number,
+            format!("未知的操作目标：{state}"),
+        );
+    }
+
+    let path = format!("repos/{slug}/issues/{number}");
+    let payload = serde_json::json!({ "state": state });
+    let args = ["api", "--method", "PATCH", &path, "--input", "-"];
+    match gh::run_with_stdin(&args, &payload.to_string(), gh::ISSUE_ACTION_TIMEOUT_SECS) {
+        Ok(output) if output.is_ok() => IssueActionResult::ok(&slug, number),
+        Ok(output) => {
+            let text = output.failure_text();
+            IssueActionResult::failed(
+                classify_failure(&text).kind(),
+                &slug,
+                number,
+                error_excerpt(&text),
+            )
+        }
+        Err(GhRunError::NotInstalled) => IssueActionResult::not_installed(&slug, number),
+        Err(GhRunError::Io(error)) => {
+            IssueActionResult::failed(KIND_ERROR, &slug, number, format!("运行 gh 失败：{error}"))
+        }
+    }
+}
+
+/// 合并一个 PR。`method` 是 `merge` / `squash` / `rebase`。
+#[tauri::command]
+pub async fn github_pr_merge(
+    repo: String,
+    number: u64,
+    method: Option<String>,
+) -> Result<IssueActionResult, String> {
+    let method = method.as_deref().unwrap_or("squash").to_string();
+    blocking(move || Ok(pr_merge(&repo, number, &method))).await
+}
+
+fn pr_merge(repo: &str, number: u64, method: &str) -> IssueActionResult {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => {
+            return IssueActionResult::failed(KIND_ERROR, repo.trim(), number, message)
+        }
+    };
+    if let Some(problem) = issues::number_problem(number) {
+        return IssueActionResult::failed(KIND_ERROR, &slug, number, problem);
+    }
+    if let Some(problem) = issues::merge_method_problem(method) {
+        return IssueActionResult::failed(KIND_ERROR, &slug, number, problem);
+    }
+
+    let path = format!("repos/{slug}/pulls/{number}/merge");
+    let payload = serde_json::json!({ "merge_method": method });
+    let args = ["api", "--method", "PUT", &path, "--input", "-"];
+    let output = match gh::run_with_stdin(&args, &payload.to_string(), gh::ISSUE_ACTION_TIMEOUT_SECS)
+    {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return IssueActionResult::not_installed(&slug, number),
+        Err(GhRunError::Io(error)) => {
+            return IssueActionResult::failed(
+                KIND_ERROR,
+                &slug,
+                number,
+                format!("运行 gh 失败：{error}"),
+            )
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return IssueActionResult::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            number,
+            error_excerpt(&text),
+        );
+    }
+    // 合并**没成功**时 GitHub 可能也回 200，body 里是 merged:false。只看退出码
+    // 会把没合说成合了，所以这里看 body。
+    match issues::parse_merge_result(&output.stdout) {
+        Ok(()) => IssueActionResult::ok(&slug, number),
+        Err(reason) => IssueActionResult::failed(KIND_ERROR, &slug, number, reason),
+    }
+}
+
+/// 新建一个 issue。`labels` 是逗号 / 空格分隔的标签名。
+#[tauri::command]
+pub async fn github_issue_create(
+    repo: String,
+    title: String,
+    body: Option<String>,
+    labels: Option<String>,
+) -> Result<IssueActionResult, String> {
+    let body = body.unwrap_or_default();
+    let labels = labels.unwrap_or_default();
+    blocking(move || Ok(issue_create(&repo, &title, &body, &labels))).await
+}
+
+fn issue_create(repo: &str, title: &str, body: &str, labels: &str) -> IssueActionResult {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => return IssueActionResult::failed(KIND_ERROR, repo.trim(), 0, message),
+    };
+    if let Some(problem) = issues::title_problem(title) {
+        return IssueActionResult::failed(KIND_ERROR, &slug, 0, problem);
+    }
+
+    let path = format!("repos/{slug}/issues");
+    let mut payload = serde_json::json!({
+        "title": title.trim(),
+        "body": body.trim(),
+    });
+    let tag_names = issues::parse_labels(labels);
+    if !tag_names.is_empty() {
+        payload["labels"] = serde_json::json!(tag_names);
+    }
+
+    let args = ["api", "--method", "POST", &path, "--input", "-"];
+    let output = match gh::run_with_stdin(&args, &payload.to_string(), gh::ISSUE_ACTION_TIMEOUT_SECS)
+    {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return IssueActionResult::not_installed(&slug, 0),
+        Err(GhRunError::Io(error)) => {
+            return IssueActionResult::failed(KIND_ERROR, &slug, 0, format!("运行 gh 失败：{error}"))
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return IssueActionResult::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            0,
+            error_excerpt(&text),
+        );
+    }
+    // 新建的编号要带回去，界面好跳到那条。
+    let number = serde_json::from_str::<serde_json::Value>(&output.stdout)
+        .ok()
+        .and_then(|value| value.get("number").and_then(|n| n.as_u64()))
+        .unwrap_or(0);
+    IssueActionResult::ok(&slug, number)
 }
 
 /// 一次 Release 查询默认要几条；上限与运行列表同一档。

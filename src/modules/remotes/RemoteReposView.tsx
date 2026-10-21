@@ -23,6 +23,7 @@ import { AuthDialog } from "./AuthDialog";
 import { RepoAdminDialog } from "./RepoAdminDialog";
 import { RunListDialog } from "./RunListDialog";
 import { ReleasesDialog } from "./ReleasesDialog";
+import { IssuesDialog } from "./IssuesDialog";
 import { TONE_CLASS, ciView, type CiView } from "./lib/ci";
 import { cloneDestFromProjects } from "./lib/repoAdmin";
 import { ciFromRuns } from "./lib/runs";
@@ -52,6 +53,8 @@ export function RemoteReposView({ active }: Props) {
   const [runsFor, setRunsFor] = useState<string | null>(null);
   /** 正在看 Releases 的仓库；null 表示弹窗关着。 */
   const [releasesFor, setReleasesFor] = useState<string | null>(null);
+  /** 正在看 issue / PR 的仓库；null 表示弹窗关着。 */
+  const [issuesFor, setIssuesFor] = useState<string | null>(null);
   /** 正在改设置的仓库；null 表示弹窗关着。 */
   const [adminFor, setAdminFor] = useState<string | null>(null);
   /** 正在克隆的仓库；`dest` 是预填的目标目录。 */
@@ -346,6 +349,7 @@ export function RemoteReposView({ active }: Props) {
                   onCheckCi={checkCi}
                   onOpenRuns={setRunsFor}
                   onOpenReleases={setReleasesFor}
+                  onOpenIssues={setIssuesFor}
                   onOpenAdmin={setAdminFor}
                   onClone={(target) => void startClone(target)}
                 />
@@ -368,6 +372,12 @@ export function RemoteReposView({ active }: Props) {
         repo={releasesFor}
         onOpenChange={(open) => {
           if (!open) setReleasesFor(null);
+        }}
+      />
+      <IssuesDialog
+        repo={issuesFor}
+        onOpenChange={(open) => {
+          if (!open) setIssuesFor(null);
         }}
       />
       <RepoAdminDialog
@@ -420,6 +430,7 @@ function RepoRow({
   onCheckCi,
   onOpenRuns,
   onOpenReleases,
+  onOpenIssues,
   onOpenAdmin,
   onClone,
 }: {
@@ -430,6 +441,7 @@ function RepoRow({
   onCheckCi: (fullName: string, force?: boolean) => void;
   onOpenRuns: (fullName: string) => void;
   onOpenReleases: (fullName: string) => void;
+  onOpenIssues: (fullName: string) => void;
   onOpenAdmin: (fullName: string) => void;
   onClone: (row: RemoteRepoRow) => void;
 }) {
@@ -509,6 +521,9 @@ function RepoRow({
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onOpenReleases(row.fullName)}>
               {t("remotes.releases.open")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onOpenIssues(row.fullName)}>
+              {t("remotes.issues.open")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => onClone(row)}>

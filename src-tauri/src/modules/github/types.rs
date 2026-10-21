@@ -808,6 +808,260 @@ impl ReleaseDownloadResult {
     }
 }
 
+// ------------------------------------------------------------ issue / PR
+
+/// 一条 issue 或 PR（列表用）。
+///
+/// GitHub 的 `issues` 端点两者都返回，PR 多带一个 `pull_request` 对象 ——
+/// `is_pull_request` 就是照那个字段判的。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueSummary {
+    pub number: u64,
+    pub title: String,
+    /// 正文。列表不显示，但前端筛关键字要用，所以一并带上。
+    pub body: String,
+    /// `open` / `closed`。
+    pub state: String,
+    pub is_pull_request: bool,
+    /// 草稿只有 PR 详情里有；列表端点给不出，如实当不是草稿。
+    pub is_draft: bool,
+    /// 已经合进基线（PR 专有）。
+    pub merged: bool,
+    pub author: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    /// 评论条数。
+    pub comments: u32,
+    pub labels: Vec<String>,
+    pub assignees: Vec<String>,
+    pub html_url: String,
+    /// 锁了的 issue 不能评论。
+    pub locked: bool,
+}
+
+/// 某个仓库的 issue / PR 列表。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueListPayload {
+    pub kind: &'static str,
+    pub repo: String,
+    pub issues: Vec<IssueSummary>,
+    /// 到了条数上限且最后一页仍是满页：后面多半还有没取。
+    pub truncated: bool,
+    /// `kind` 非 `ready` 时的原文。
+    pub error: Option<String>,
+}
+
+impl IssueListPayload {
+    /// 查到了。空列表归 `none`（真没有），不归 `ready`。
+    pub fn found(repo: impl Into<String>, issues: Vec<IssueSummary>, truncated: bool) -> Self {
+        if issues.is_empty() {
+            return Self::empty(repo);
+        }
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            issues,
+            truncated,
+            error: None,
+        }
+    }
+
+    pub fn empty(repo: impl Into<String>) -> Self {
+        Self {
+            kind: KIND_NONE,
+            repo: repo.into(),
+            issues: Vec::new(),
+            truncated: false,
+            error: None,
+        }
+    }
+
+    pub fn failed(kind: &'static str, repo: impl Into<String>, error: impl Into<String>) -> Self {
+        Self {
+            kind,
+            repo: repo.into(),
+            issues: Vec::new(),
+            truncated: false,
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>) -> Self {
+        Self::failed(KIND_NOT_INSTALLED, repo, "未安装 gh CLI（找不到 gh 命令）")
+    }
+}
+
+/// 一条评论。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueComment {
+    pub id: u64,
+    pub author: String,
+    pub body: String,
+    pub created_at: Option<String>,
+}
+
+/// PR 专属信息（普通 issue 没有这一块）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestInfo {
+    /// 源分支。
+    pub head: String,
+    pub head_sha: String,
+    /// 目标分支。
+    pub base: String,
+    pub draft: bool,
+    pub merged: bool,
+    /// `None` = GitHub 还在算（异步），不是「不能合」。
+    pub mergeable: Option<bool>,
+    pub mergeable_state: String,
+    /// 现在为什么合不了（草稿 / 有冲突 / 还没算出来…）。能合时是 `None`。
+    ///
+    /// 这个判断放在后端算好再送出去：「能不能合」只有一处说了算，
+    /// 界面直接照着禁按钮，不用自己再判一遍。
+    pub merge_blocked_reason: Option<String>,
+    pub additions: u32,
+    pub deletions: u32,
+    pub changed_files: u32,
+    pub commits: u32,
+    pub state: String,
+    pub author: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub labels: Vec<String>,
+    pub assignees: Vec<String>,
+    pub html_url: String,
+    pub locked: bool,
+}
+
+/// 检查状态汇总。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckSummary {
+    pub total: u32,
+    pub ok: u32,
+    pub failed: u32,
+    pub pending: u32,
+    /// `pass` / `fail` / `pending` / `none`。
+    pub state: &'static str,
+}
+
+/// 一条 issue / PR 的详情。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueDetail {
+    pub number: u64,
+    pub title: String,
+    pub body: String,
+    pub state: String,
+    pub is_pull_request: bool,
+    pub is_draft: bool,
+    pub merged: bool,
+    pub author: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub labels: Vec<String>,
+    pub assignees: Vec<String>,
+    pub html_url: String,
+    pub locked: bool,
+    pub comments: Vec<IssueComment>,
+    /// 评论取不到时的说明。正文照样给，评论区自己说一声。
+    pub comments_error: Option<String>,
+    /// PR 才有。
+    pub pull_request: Option<PullRequestInfo>,
+    /// PR 信息取不到时的说明（是 PR、但这一块没拿到）。
+    pub pull_request_error: Option<String>,
+    /// PR 才有。`None` = 取不到（与「这个 PR 没有检查」不同，那种是
+    /// `Some` 且 `state == "none"`）。
+    pub checks: Option<CheckSummary>,
+}
+
+/// 某个 issue / PR 的详情查询结果。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueDetailPayload {
+    pub kind: &'static str,
+    pub repo: String,
+    /// 失败时是 `None`。
+    pub detail: Option<IssueDetail>,
+    pub error: Option<String>,
+}
+
+impl IssueDetailPayload {
+    pub fn found(repo: impl Into<String>, detail: IssueDetail) -> Self {
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            detail: Some(detail),
+            error: None,
+        }
+    }
+
+    pub fn failed(
+        kind: &'static str,
+        repo: impl Into<String>,
+        error: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            repo: repo.into(),
+            detail: None,
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>) -> Self {
+        Self::failed(KIND_NOT_INSTALLED, repo, "未安装 gh CLI（找不到 gh 命令）")
+    }
+}
+
+/// 一次写操作（评论 / 开 / 关 / 合并 / 新建）的结果。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueActionResult {
+    pub kind: &'static str,
+    pub repo: String,
+    /// 新建 issue 时是新条目的编号；其它操作是被操作的条目编号。
+    pub number: u64,
+    pub error: Option<String>,
+}
+
+impl IssueActionResult {
+    pub fn ok(repo: impl Into<String>, number: u64) -> Self {
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            number,
+            error: None,
+        }
+    }
+
+    pub fn failed(
+        kind: &'static str,
+        repo: impl Into<String>,
+        number: u64,
+        error: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            repo: repo.into(),
+            number,
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>, number: u64) -> Self {
+        Self::failed(
+            KIND_NOT_INSTALLED,
+            repo,
+            number,
+            "未安装 gh CLI（找不到 gh 命令）",
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
