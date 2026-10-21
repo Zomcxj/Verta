@@ -15,6 +15,33 @@
 <details open>
 <summary><strong>2026-10-21</strong></summary>
 
+**区域截图：抓屏、框选、存图、进剪贴板都在应用里**
+
+- `src-tauri/src/modules/screenshot/`（新增一个模块，四个文件）：
+  - `capture.rs`：Windows 用 GDI 抓整块虚拟桌面。GDI 给的是 BGRA、alpha 是垃圾值，顺手补成不透明
+    RGBA —— 不补的话存出来的 PNG 与剪贴板里的图都是半透明的；别的平台如实拒绝，不假装能跑。
+  - `geom.rs`：选区收边（往回拖、拖出画面都算对）、按选区抠图、文件名与本地时间戳。全是纯函数带单测。
+  - `encode.rs`：PNG 编码，用依赖树里本来就有的 `image`，只开 `png` 一个 feature。
+  - `mod.rs`：截图状态与 5 个命令（`begin` 抓屏并铺整屏覆盖窗口 / `pending` / `finish` 裁剪落盘进剪贴板 /
+    `cancel` / `failed`）。裁剪用的是抓下来的原始像素：把整屏喂给 asset 协议再让 canvas 裁会被跨源
+    污染，`toBlob` 直接抛。裁剪在后端、选区在前端，所以选区在后端还要再收一次边。
+- `src-tauri/src/modules/mod.rs`、`src-tauri/src/lib.rs`、`src-tauri/Cargo.toml`：注册模块、状态与命令；
+  windows-sys 补 `Win32_UI_WindowsAndMessaging`（要 `GetSystemMetrics` 与虚拟屏幕常量）。
+- `src-tauri/capabilities/screenshot.json`（新增）：覆盖窗口单独一份**最小**权限（只 `show` + `set-focus`），
+  不给 store / dialog / opener 那些它用不着的。
+- `screenshot.html`、`src/screenshot/main.tsx`、`vite.config.ts`：第二个窗口的前端入口，多页构建多一份。
+- `src/modules/screenshot/ScreenshotOverlay.tsx`（新增）：铺冻结画面、拖框（带物理像素尺寸提示、框外压暗）、
+  Esc 取消；图加载出来才把窗口显示出来，避免先闪一下空窗口。
+- `src/modules/screenshot/lib/selection.ts`（新增）：CSS 像素 ↔ 物理像素换算——屏幕缩放到 125% 时两者差
+  一个 devicePixelRatio，直接送 CSS 坐标会切偏；取整是「宁可多含一列，不少给一列」。带单测。
+- `src/modules/header/Header.tsx`：右上角 Git 按钮左边多一个「截图」。
+- `src/app/App.tsx`、`src/lib/native.ts`、`src/modules/i18n/messages.ts`：收尾提示条（写明存到哪儿、
+  剪贴板成没成，两件事分开报）与「插入路径」——点了才把路径插进当前终端输入行（走括起的粘贴，
+  路径里有空格也不怕），不自动插、不回车；不在终端页时干脆不给这个按钮（点了也没处插）。
+- `scripts/dev/cdp-input.mjs`（新增）+ `scripts/dev/probes/screenshot-*.js`（新增 4 个）：往**指定**窗口发
+  真实输入与本次验收探针。`cdp-key.mjs` 只会找第一个 page，而覆盖窗口是第二个，鼠标拖拽也需要
+  一次完整的 press/move/release（DOM 里合成 PointerEvent 顶不了：`setPointerCapture` 只认真指针）。
+
 **Pi 会话列表：显示最新的会话名**
 
 - `src-tauri/src/modules/agent_sessions/pi.rs`：会话名不再只从文件头 8 MB 里找（长会话里改名那行可能在几十 MB 之后，读不到就退回第一条用户消息）；改成从文件末尾按块往回搜 `session_info`，取最后一个名字，命中处把那一整行读全。头部窗口从 8 MB 降到 1 MB。

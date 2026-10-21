@@ -330,6 +330,150 @@ export type WireReleaseDownloadResult = {
   error: string | null;
 };
 
+/**
+ * 一条 issue 或 PR（列表用）。
+ *
+ * GitHub 的 `issues` 端点两者都返回，PR 多带一个 `pull_request` 对象 ——
+ * `isPullRequest` 就是照那个字段判的。
+ */
+export type WireIssueSummary = {
+  number: number;
+  title: string;
+  /** 正文。列表不显示，但筛关键字要用，所以一并带上。 */
+  body: string;
+  /** `open` / `closed`。 */
+  state: string;
+  isPullRequest: boolean;
+  /** 草稿只有 PR 详情里有；列表端点给不出。 */
+  isDraft: boolean;
+  /** 已经合进基线（PR 专有）。 */
+  merged: boolean;
+  author: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  /** 评论条数。 */
+  comments: number;
+  labels: string[];
+  assignees: string[];
+  htmlUrl: string;
+  /** 锁了的不能评论。 */
+  locked: boolean;
+};
+
+/** 某个仓库的 issue / PR 列表。 */
+export type WireIssueListPayload = {
+  kind: "ready" | "none" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  issues: WireIssueSummary[];
+  /** 到了条数上限且最后一页仍是满页：后面多半还有没取。 */
+  truncated: boolean;
+  error: string | null;
+};
+
+/** 一条评论。 */
+export type WireIssueComment = {
+  id: number;
+  author: string;
+  body: string;
+  createdAt: string | null;
+};
+
+/** PR 专属信息（普通 issue 没有这一块）。 */
+export type WirePullRequestInfo = {
+  head: string;
+  headSha: string;
+  base: string;
+  draft: boolean;
+  merged: boolean;
+  /** `null` = GitHub 还在算（异步），不是「不能合」。 */
+  mergeable: boolean | null;
+  mergeableState: string;
+  /** 现在为什么合不了；能合时是 null。后端算好送出来，界面只照着禁按钮。 */
+  mergeBlockedReason: string | null;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  commits: number;
+  state: string;
+  author: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  labels: string[];
+  assignees: string[];
+  htmlUrl: string;
+  locked: boolean;
+};
+
+/** 检查状态汇总。 */
+export type WireCheckSummary = {
+  total: number;
+  ok: number;
+  failed: number;
+  pending: number;
+  state: "pass" | "fail" | "pending" | "none";
+};
+
+/** 一条 issue / PR 的详情。 */
+export type WireIssueDetail = {
+  number: number;
+  title: string;
+  body: string;
+  state: string;
+  isPullRequest: boolean;
+  isDraft: boolean;
+  merged: boolean;
+  author: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  labels: string[];
+  assignees: string[];
+  htmlUrl: string;
+  locked: boolean;
+  comments: WireIssueComment[];
+  /** 评论取不到时的说明；正文照样给。 */
+  commentsError: string | null;
+  pullRequest: WirePullRequestInfo | null;
+  /** PR 信息取不到时的说明。 */
+  pullRequestError: string | null;
+  /** `null` = 取不到（与「这个 PR 没有检查」不同，那种是 state === "none"）。 */
+  checks: WireCheckSummary | null;
+};
+
+/** 一条 issue / PR 的详情查询结果。 */
+export type WireIssueDetailPayload = {
+  kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  detail: WireIssueDetail | null;
+  error: string | null;
+};
+
+/** 一次写操作（评论 / 开 / 关 / 合并 / 新建）的结果。 */
+export type WireIssueActionResult = {
+  kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  /** 新建 issue 时是新条目的编号；其它操作是被操作的条目编号。 */
+  number: number;
+  error: string | null;
+};
+
+/** 抓下来的一整屏（所有显示器拼起来那块），给覆盖窗口显示用。 */
+export type WireScreenshotShot = {
+  /** 覆盖窗口显示用的预览图，`convertFileSrc` 直接能读。 */
+  previewPath: string;
+  /** 整屏的物理像素尺寸。 */
+  width: number;
+  height: number;
+};
+
+/** 截图收尾的交代：存哪了、多大、剪贴板有没有写进去。 */
+export type WireScreenshotSaved = {
+  path: string;
+  width: number;
+  height: number;
+  /** 图存好了、但剪贴板没写成功时的原因；成了就是 null。 */
+  clipboardError: string | null;
+};
+
 export type GitStatusSnapshot = {
   repoRoot: string;
   branch: string;
@@ -638,8 +782,7 @@ export const native = {
     invoke<WireReleasesPayload>("github_releases", {
       repo,
       limit: limit ?? null,
-    }),
-  /**
+    }),  /**
    * 把一个附件下载到 `dir`。`id` 由前端生成，进度事件带着它；
    * `total` 是列表里那份附件大小，用来算百分比与校验完整性。
    */
@@ -662,6 +805,49 @@ export const native = {
   /** 取消一次正在进行的下载（按前端生成的 id 找）。 */
   githubReleaseDownloadCancel: (id: string) =>
     invoke<void>("github_release_download_cancel", { id }),
+  /**
+   * 某个仓库的 issue / PR 列表。`state` 是 `open` / `closed` / `all`。
+   * 类型筛选（只看 issue 或只看 PR）在前端做 —— 一次请求两类都回来了。
+   */
+  githubIssues: (repo: string, state: string, limit?: number) =>
+    invoke<WireIssueListPayload>("github_issues", {
+      repo,
+      state,
+      limit: limit ?? null,
+    }),
+  /** 一条 issue / PR 的详情：正文、评论、PR 专属信息、检查状态。 */
+  githubIssueDetail: (repo: string, number: number) =>
+    invoke<WireIssueDetailPayload>("github_issue_detail", { repo, number }),
+  /** 给 issue / PR 加一条评论。 */
+  githubIssueComment: (repo: string, number: number, body: string) =>
+    invoke<WireIssueActionResult>("github_issue_comment", { repo, number, body }),
+  /** 打开或关闭一条 issue（PR 也一样）。 */
+  githubIssueSetState: (repo: string, number: number, state: string) =>
+    invoke<WireIssueActionResult>("github_issue_set_state", {
+      repo,
+      number,
+      state,
+    }),
+  /** 新建一个 issue。`labels` 是逗号 / 空格分隔的标签名。 */
+  githubIssueCreate: (
+    repo: string,
+    title: string,
+    body?: string,
+    labels?: string,
+  ) =>
+    invoke<WireIssueActionResult>("github_issue_create", {
+      repo,
+      title,
+      body: body ?? null,
+      labels: labels ?? null,
+    }),
+  /** 合并一个 PR。`method` 是 `merge` / `squash` / `rebase`。 */
+  githubPrMerge: (repo: string, number: number, method?: string) =>
+    invoke<WireIssueActionResult>("github_pr_merge", {
+      repo,
+      number,
+      method: method ?? null,
+    }),
   gitPanelSnapshot: (cwd: string) =>
     invoke<GitPanelSnapshot>("git_panel_snapshot", {
       cwd,
@@ -901,4 +1087,15 @@ export const native = {
       dest,
       workspace: envForPath(dest),
     }),
+  /** 抓整屏并摆好覆盖窗口（主窗口里点「截图」时调）。 */
+  screenshotBegin: () => invoke<WireScreenshotShot>("screenshot_begin"),
+  /** 覆盖窗口挂载后问一次：这次显示哪张图；没有正在选的就是 null。 */
+  screenshotPending: () => invoke<WireScreenshotShot | null>("screenshot_pending"),
+  /** 按选区裁剪、存进「图片\屏幕截图」、送进剪贴板。 */
+  screenshotFinish: (rect: { x: number; y: number; width: number; height: number }) =>
+    invoke<WireScreenshotSaved>("screenshot_finish", { rect }),
+  /** 取消这次截图（Esc，或者点一下没拖）。 */
+  screenshotCancel: () => invoke<void>("screenshot_cancel"),
+  /** 覆盖窗口自己出岔子时的交代：把原文报回主窗口，别不吭声地消失。 */
+  screenshotFailed: (message: string) => invoke<void>("screenshot_failed", { message }),
 };

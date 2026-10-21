@@ -7,7 +7,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { consumeLaunchFiles, getLaunchDir } from "@/lib/launchDir";
-import { native } from "@/lib/native";
+import { native, type WireScreenshotSaved } from "@/lib/native";
 import { IS_MAC } from "@/lib/platform";
 import { quoteShellArg } from "@/lib/shellQuote";
 import { useZoom } from "@/lib/useZoom";
@@ -101,6 +101,7 @@ import {
   writeToSession,
 } from "@/modules/terminal";
 import { bindTerminalWindowFocus } from "@/modules/terminal/ghostty/renderScheduling";
+import { pasteIntoSession } from "@/modules/terminal/lib/terminalSessionApi";
 import { subscribeWindowPresentation } from "@/modules/terminal/ghostty/windowPresentation";
 import type { TerminalSearchController } from "@/modules/terminal/search/TerminalSearchController";
 import {
@@ -122,6 +123,7 @@ import {
 import { listen } from "@tauri-apps/api/event";
 import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { toast } from "sonner";
 import {
   lazy,
   Suspense,
@@ -1387,6 +1389,66 @@ export default function App() {
     [isTerminalTab, activeLeafId],
   );
 
+  /** 区域截图：后端抓屏并开覆盖窗口，选完由后端裁剪、存图、进剪贴板。 */
+  const startScreenshot = useCallback(() => {
+    void native.screenshotBegin().catch((e) => {
+      toast.error(t("screenshot.failed", { error: String(e) }));
+    });
+  }, [t]);
+
+  /**
+   * 截图存好之后的收尾提示。
+   *
+   * 「插入路径」只在当前是终端页时才给：不在终端页时给了按钮也没处插，不如干脆不给，
+   * 免得点了没反应。插的是原始文本（不自动回车）——用户多半还要接着敲参数。
+   */
+  useEffect(() => {
+    let disposed = false;
+    let stops: Array<() => void> = [];
+    const canInsert = isTerminalTab && activeLeafId !== null;
+    const insertPath = (path: string) => {
+      if (activeLeafId === null) return;
+      // 走括起的粘贴：路径里有空格、有中文时，终端不会把它当命令去解析。
+      pasteIntoSession(activeLeafId, path);
+      terminalRefs.current.get(activeLeafId)?.focus();
+    };
+    void (async () => {
+      const offSaved = await listen<WireScreenshotSaved>(
+        "screenshot:saved",
+        (event) => {
+          const saved = event.payload;
+          toast.success(t("screenshot.saved"), {
+            description: saved.clipboardError
+              ? t("screenshot.notCopied", {
+                  path: saved.path,
+                  error: saved.clipboardError,
+                })
+              : t("screenshot.copied", { path: saved.path }),
+            action: canInsert
+              ? {
+                  label: t("screenshot.insertPath"),
+                  onClick: () => insertPath(saved.path),
+                }
+              : undefined,
+          });
+        },
+      );
+      const offFailed = await listen<string>("screenshot:failed", (event) => {
+        toast.error(t("screenshot.failed", { error: event.payload }));
+      });
+      if (disposed) {
+        offSaved();
+        offFailed();
+        return;
+      }
+      stops = [offSaved, offFailed];
+    })();
+    return () => {
+      disposed = true;
+      for (const stop of stops) stop();
+    };
+  }, [t, activeLeafId, isTerminalTab]);
+
   const shell = (
     <ThemeProvider>
       <TooltipProvider>
@@ -1431,6 +1493,7 @@ export default function App() {
               onReorder={reorderTabByGap}
               onToggleSidebar={toggleSidebar}
               onToggleGitPanel={toggleRightPanel}
+              onScreenshot={startScreenshot}
               changedCount={sourceControl.changedCount}
               onOpenCommandPalette={() => openCommandPalette("commands")}
               onOpenSettings={() => void openSettingsWindow()}

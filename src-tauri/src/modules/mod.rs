@@ -17,6 +17,7 @@ pub mod proxy;
 pub mod pty;
 pub mod projects;
 pub mod runtime;
+pub mod screenshot;
 pub mod secrets;
 pub mod shell;
 pub mod vibrancy;

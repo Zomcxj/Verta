@@ -3,8 +3,8 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent_sessions, control, fonts, fs, git, github, history, lsp, net, projects, pty, secrets,
-    shell, vibrancy, workspace,
+    agent_sessions, control, fonts, fs, git, github, history, lsp, net, projects, pty, screenshot,
+    secrets, shell, vibrancy, workspace,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -266,6 +266,7 @@ pub fn run() {
         .manage(fs::index::FileIndexState::default())
         .manage(github::commands::DownloadState::default())
         .manage(github::commands::AuthLoginState::default())
+        .manage(screenshot::ScreenshotState::default())
         .manage({
             let registry = workspace::WorkspaceRegistry::default();
             workspace::bootstrap_registry(&registry);
@@ -341,6 +342,12 @@ pub fn run() {
             github::commands::github_releases,
             github::commands::github_release_download,
             github::commands::github_release_download_cancel,
+            github::commands::github_issues,
+            github::commands::github_issue_detail,
+            github::commands::github_issue_comment,
+            github::commands::github_issue_set_state,
+            github::commands::github_issue_create,
+            github::commands::github_pr_merge,
             git::commands::git_panel_snapshot,
             git::commands::git_status,
             git::commands::git_diff,
@@ -411,6 +418,11 @@ pub fn run() {
             vibrancy::window_backdrop_kind,
             vibrancy::window_set_backdrop,
             modules::window_presentation::window_presentation_state,
+            screenshot::screenshot_begin,
+            screenshot::screenshot_pending,
+            screenshot::screenshot_finish,
+            screenshot::screenshot_cancel,
+            screenshot::screenshot_failed,
             #[cfg(feature = "bench")]
             modules::bench::bench_config,
             #[cfg(feature = "bench")]

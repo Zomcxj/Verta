@@ -6,6 +6,7 @@ import type { Tab } from "@/modules/tabs";
 import { TabBar, type TerminalChoice } from "@/modules/tabs";
 import {
   CommandIcon,
+  CropIcon,
   GithubIcon,
   Settings01Icon,
   SidebarLeftIcon,
@@ -55,6 +56,8 @@ type Props = {
   onToggleGitPanel: () => void;
   /** 打开远程仓库列表标签页（本机 gh 读到的账号级仓库）。 */
   onOpenRemotes: () => void;
+  /** 区域截图：抓整屏，在覆盖窗口上拖一块出来。 */
+  onScreenshot: () => void;
   /** 未提交改动数，显示在右上角按钮上（原先在左栏的 Git 项上）。 */
   changedCount: number;
   onOpenCommandPalette: () => void;
@@ -88,6 +91,7 @@ export function Header({
   onToggleSidebar,
   onToggleGitPanel,
   onOpenRemotes,
+  onScreenshot,
   changedCount,
   onOpenCommandPalette,
   onOpenSettings,
@@ -206,6 +210,16 @@ export function Header({
         className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
       >
         <HugeiconsIcon icon={GithubIcon} size={18} strokeWidth={1.75} />
+      </Button>
+
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        onClick={onScreenshot}
+        title={t("header.screenshot")}
+        className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        <HugeiconsIcon icon={CropIcon} size={18} strokeWidth={1.75} />
       </Button>
 
       <Button
