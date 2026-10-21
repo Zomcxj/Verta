@@ -1,4 +1,4 @@
-import type { ComponentProps, SyntheticEvent } from "react";
+import type { ComponentProps, CSSProperties, SyntheticEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { requestedHeight, resolveImageSrc } from "./imagePath";
 
@@ -114,6 +114,41 @@ function useTableSizing(
 }
 
 /**
+ * 一张预览图的框，决定权按这个顺序排：表格量出来的尺寸 → 作者写的尺寸 → 都没有时
+ * 先占位、加载完再回到图片自己的尺寸。
+ *
+ * 最后那一档是关键：以前"没写尺寸"的图片一直被钉成 `height: 260px`，配上
+ * `object-fit: contain`，一张 116×20 的徽章会被拉成整栏宽的大横幅；而大截图又确实
+ * 需要个占位，不然加载完会往下顶一屏。所以加载前按 260px 占位，加载完换成
+ * `max-height: 260px` —— 小图回到自己的尺寸，大图依旧被 260px 封顶。
+ */
+export function previewImageStyle(options: {
+  table: Sizing | null;
+  requested: number | undefined;
+  requestedWidth: number | undefined;
+  loaded: boolean;
+}): CSSProperties {
+  const { table, requested, requestedWidth, loaded } = options;
+  if (table) {
+    return {
+      height: `${table.height}px`,
+      width: `${table.width}px`,
+      maxWidth: "none",
+    };
+  }
+  if (requested !== undefined) {
+    return {
+      height: `${requested}px`,
+      ...(requestedWidth === undefined ? {} : { width: `${requestedWidth}px` }),
+      maxWidth: "100%",
+    };
+  }
+  return loaded
+    ? { maxHeight: `${FALLBACK_HEIGHT}px`, maxWidth: "100%" }
+    : { height: `${FALLBACK_HEIGHT}px`, maxWidth: "100%" };
+}
+
+/**
  * Markdown `img` override: local paths resolve, broken ones say so, and pictures
  * inside a table fill their cells at one shared height.
  */
@@ -128,10 +163,14 @@ export function MarkdownImage({
   ...props
 }: MarkdownImageProps) {
   const [failed, setFailed] = useState(false);
+  // 「加载完」以 src 为准：换了一张图（编辑 markdown 时常见）就自动回到未加载态，
+  // 不用再开个 effect 去重置。
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
   const ref = useRef<HTMLImageElement>(null);
   const resolved = resolveImageSrc(src, baseDir);
   const asked = requestedHeight(height);
   const sizing = useTableSizing(ref, asked);
+  const loaded = loadedSrc !== null && loadedSrc === resolved;
 
   if (!resolved) {
     return <span className="text-muted-foreground">{alt ?? "image"}</span>;
@@ -147,16 +186,12 @@ export function MarkdownImage({
     );
   }
 
-  // In a table the measured box wins: it is what keeps a row flat and the table
-  // inside the page. Outside one the author's size stands, with `max-width`
-  // keeping a wide picture from running past the text.
-  const sized = sizing
-    ? { height: `${sizing.height}px`, width: `${sizing.width}px`, maxWidth: "none" as const }
-    : {
-        ...(asked === undefined ? { height: `${FALLBACK_HEIGHT}px` } : { height: `${asked}px` }),
-        ...(typeof width === "number" ? { width: `${width}px` } : {}),
-        maxWidth: "100%",
-      };
+  const sized = previewImageStyle({
+    table: sizing,
+    requested: asked,
+    requestedWidth: typeof width === "number" ? width : undefined,
+    loaded,
+  });
 
   return (
     <img
@@ -171,6 +206,7 @@ export function MarkdownImage({
       className="block rounded-sm"
       style={{ objectFit: "contain", ...sized, ...style }}
       onLoad={(event: SyntheticEvent<HTMLImageElement>) => {
+        setLoadedSrc(resolved);
         props.onLoad?.(event);
       }}
       onError={(event: SyntheticEvent<HTMLImageElement>) => {

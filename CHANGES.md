@@ -15,6 +15,11 @@
 <details open>
 <summary><strong>2026-10-21</strong></summary>
 
+**Markdown 预览：没有尺寸的小图不再被撑成大横幅**
+
+- `src/modules/markdown/MarkdownImage.tsx`：没写高度的图片此前一律钉成 `height: 260px`（配 `object-fit: contain` + `max-width: 100%`），于是 116×20 的徽章被拉成整栏宽的大横幅；改成加载前仍按 260px 占位（大截图加载完不会往下顶一屏）、加载完换成 `max-height: 260px` 回到图片自己的尺寸，作者写了尺寸的照旧、表格里量出来的尺寸照旧。同时把这段尺寸决策抽成纯函数 `previewImageStyle`（表格尺寸 → 作者尺寸 → 占位/自然尺寸）。
+- `src/modules/markdown/MarkdownImage.test.ts`：新增，覆盖上面这条决策的四个分支。
+
 **GitHub：账号与登录**
 
 - `src-tauri/src/modules/github/auth.rs`：新增。解析 `gh auth status --json hosts`（挑活跃账号、拆 scopes、缺字段不崩），以及在本地拦掉明显不对的粘贴 token。

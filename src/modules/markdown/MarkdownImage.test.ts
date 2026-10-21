@@ -1,72 +1,36 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-// The asset protocol conversion is Tauri's; keep the real path visible in tests.
-vi.mock("@tauri-apps/api/core", () => ({
-  convertFileSrc: (path: string) => `asset://${path}`,
-}));
+import { previewImageStyle } from "./MarkdownImage";
 
-const { resolveImageSrc } = await import("./imagePath");
+const base = { table: null, requested: undefined, requestedWidth: undefined };
 
-describe("resolveImageSrc", () => {
-  const base = "F:\\VibeCoding_workspace\\PasteLabel";
-
-  it("joins a relative path onto the document directory", () => {
-    expect(resolveImageSrc("./ico_image/demo.png", base)).toBe(
-      "asset://F:\\VibeCoding_workspace\\PasteLabel\\ico_image\\demo.png",
-    );
+describe("previewImageStyle", () => {
+  it("表格里给什么就用什么（不做 maxWidth 的限制）", () => {
+    expect(
+      previewImageStyle({ ...base, table: { height: 120, width: 300 }, loaded: true }),
+    ).toEqual({ height: "120px", width: "300px", maxWidth: "none" });
   });
 
-  it("handles a relative path without the leading ./", () => {
-    expect(resolveImageSrc("images/shot.png", base)).toBe(
-      "asset://F:\\VibeCoding_workspace\\PasteLabel\\images\\shot.png",
-    );
+  it("作者写了高度就照写，宽度写了才跟", () => {
+    expect(previewImageStyle({ ...base, requested: 400, loaded: true })).toEqual({
+      height: "400px",
+      maxWidth: "100%",
+    });
+    expect(
+      previewImageStyle({ ...base, requested: 400, requestedWidth: 200, loaded: true }),
+    ).toEqual({ height: "400px", width: "200px", maxWidth: "100%" });
   });
 
-  it("treats a leading slash as the document root, not the drive root", () => {
-    // Markdown renderers normalize `./x.png` to `/x.png` before it gets here.
-    expect(resolveImageSrc("/ico_image/demo.png", base)).toBe(
-      "asset://F:\\VibeCoding_workspace\\PasteLabel\\ico_image\\demo.png",
-    );
+  it("没写尺寸时先按 260px 占位（大截图加载完不会顶一屏）", () => {
+    expect(previewImageStyle({ ...base, loaded: false })).toEqual({
+      height: "260px",
+      maxWidth: "100%",
+    });
   });
 
-  it("keeps the forward slash style of a POSIX base directory", () => {
-    expect(resolveImageSrc("./a/b.png", "/home/me/docs")).toBe(
-      "asset:///home/me/docs/a/b.png",
-    );
-  });
-
-  it("uses an absolute path as given", () => {
-    expect(resolveImageSrc("D:\\pics\\x.png", base)).toBe("asset://D:\\pics\\x.png");
-    expect(resolveImageSrc("D:/pics/x.png", base)).toBe("asset://D:\\pics\\x.png");
-  });
-
-  it("passes remote, protocol relative and inline images through", () => {
-    expect(resolveImageSrc("https://x.test/a.png", base)).toBe("https://x.test/a.png");
-    expect(resolveImageSrc("//cdn.test/a.png", base)).toBe("//cdn.test/a.png");
-    expect(resolveImageSrc("data:image/png;base64,AAA", base)).toBe(
-      "data:image/png;base64,AAA",
-    );
-  });
-
-  it("strips a fragment or query before resolving", () => {
-    expect(resolveImageSrc("./a.png#frag", base)).toBe(
-      "asset://F:\\VibeCoding_workspace\\PasteLabel\\a.png",
-    );
-  });
-
-  it("percent-decodes the path", () => {
-    expect(resolveImageSrc("./%E5%9B%BE.png", base)).toBe(
-      "asset://F:\\VibeCoding_workspace\\PasteLabel\\图.png",
-    );
-  });
-
-  it("handles a file:// reference", () => {
-    expect(resolveImageSrc("file:///F:/x/y.png", base)).toBe("asset://F:\\x\\y.png");
-  });
-
-  it("returns null for nothing usable", () => {
-    expect(resolveImageSrc(undefined, base)).toBeNull();
-    expect(resolveImageSrc("   ", base)).toBeNull();
-    expect(resolveImageSrc("#anchor", base)).toBeNull();
+  it("加载完回到图片自己的尺寸，260px 只当封顶 —— 徽章不许被撑成大横幅", () => {
+    const style = previewImageStyle({ ...base, loaded: true });
+    expect(style).toEqual({ maxHeight: "260px", maxWidth: "100%" });
+    expect(style.height).toBeUndefined();
   });
 });
