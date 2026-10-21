@@ -521,6 +521,46 @@ impl RepoReleasesPayload {
     }
 }
 
+/// 一个仓库的当前账号权限（决定写操作按钮在不在）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoPermissionPayload {
+    pub kind: &'static str,
+    pub repo: String,
+    /// `ADMIN` / `MAINTAIN` / `WRITE` / `TRIAGE` / `READ`；查不到时是 null。
+    pub permission: Option<String>,
+    /// 能不能做写操作。**查不动时是 true**：按钮照常渲染，让 GitHub 去拒绝。
+    pub can_write: bool,
+    pub error: Option<String>,
+}
+
+impl RepoPermissionPayload {
+    pub fn found(repo: impl Into<String>, permission: Option<String>, can_write: bool) -> Self {
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            permission,
+            can_write,
+            error: None,
+        }
+    }
+
+    /// 查不动也要给结论：按「有权限」渲染，写操作交给 GitHub 拒绝。
+    pub fn failed(kind: &'static str, repo: impl Into<String>, error: impl Into<String>) -> Self {
+        Self {
+            kind,
+            repo: repo.into(),
+            permission: None,
+            can_write: true,
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>) -> Self {
+        Self::failed(KIND_NOT_INSTALLED, repo, "未安装 gh CLI（找不到 gh 命令）")
+    }
+}
+
 /// 一次附件下载的进度。由后端按 64 KiB / 100 ms 合并后推给前端，不逐块刷 IPC。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

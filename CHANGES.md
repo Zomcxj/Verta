@@ -15,6 +15,17 @@
 <details open>
 <summary><strong>2026-10-21</strong></summary>
 
+**GitHub：权限门禁**
+
+- `src-tauri/src/modules/github/permission.rs`：新增。读 `gh repo view --json viewerPermission`，`TRIAGE` / `READ` 判成不可写；查不到或不认识的档位按可写算（按钮照样给，让 GitHub 去拒绝）。
+- `src-tauri/src/modules/github/types.rs`：新增 `RepoPermissionPayload`；失败时 `can_write` 仍是 true。
+- `src-tauri/src/modules/github/commands.rs`、`gh.rs`、`mod.rs`、`src-tauri/src/lib.rs`：新增 `github_repo_permission` 命令（30 秒超时）与注册。
+- `src/lib/native.ts`：新增 `githubRepoPermission` 与 `WireRepoPermissionPayload`。
+- `src/modules/remotes/lib/permission.ts`：新增。`canWrite`（没查出来 / 查不动都按可写）与只读提示键。
+- `src/modules/remotes/RunListDialog.tsx`：打开时查一次该仓库权限；不可写时不渲染重跑 / 取消 / 删除，并加一句只读提示。
+- `src/modules/i18n/messages.ts`：新增只读提示的中英文文案。
+- `scripts/dev/probes/permission-acceptance.mjs`：新增，权限门禁的验收脚本。
+
 **GitHub：Releases 与附件下载**
 
 - `src-tauri/src/modules/github/releases.rs`：新增。解析 Release 列表、附件名落盘预检、进度合并阈值、`<name>.verta-part` 成功才改名（失败只删临时文件），以及按 id 的取消标记。

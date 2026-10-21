@@ -19,6 +19,8 @@ pub const USER_TIMEOUT_SECS: u64 = 20;
 pub const REPOS_TIMEOUT_SECS: u64 = 45;
 /// 一次「最近一次 CI 运行」的等待上限：一条记录，比整页仓库轻。
 pub const CI_TIMEOUT_SECS: u64 = 30;
+/// 查一次仓库权限的等待上限：一条 `gh repo view`。
+pub const PERMISSION_TIMEOUT_SECS: u64 = 30;
 /// 重跑 / 取消的等待上限：一次 API 调用，比取列表轻。
 pub const RUN_ACTION_TIMEOUT_SECS: u64 = 30;
 /// 拉一次日志的等待上限：日志要一路下完，比一次 API 调用慢。

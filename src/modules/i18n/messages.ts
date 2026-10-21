@@ -238,6 +238,7 @@ const zh = {
   "remotes.runs.loading": "正在读取运行记录…",
   "remotes.runs.empty": "这个仓库还没有运行记录。",
   "remotes.runs.retry": "重新读取",
+  "remotes.permission.readOnly": "你没有这个仓库的写权限，写操作按钮就不显示了。",
   "remotes.runs.action.detail": "详情",
   "remotes.runs.detail.back": "返回列表",
   "remotes.runs.detail.inGithub": "在 GitHub 打开",
@@ -869,6 +870,8 @@ const en: Record<MessageKey, string> = {
   "remotes.runs.loading": "Loading runs…",
   "remotes.runs.empty": "This repo has no runs yet.",
   "remotes.runs.retry": "Reload",
+  "remotes.permission.readOnly":
+    "You only have read access to this repo, so write buttons are hidden.",
   "remotes.runs.action.detail": "Details",
   "remotes.runs.detail.back": "Back to list",
   "remotes.runs.detail.inGithub": "Open on GitHub",

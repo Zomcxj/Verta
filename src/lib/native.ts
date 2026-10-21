@@ -132,6 +132,21 @@ export type WireRepoCiPayload = {
   error: string | null;
 };
 
+/**
+ * 一个仓库的当前账号权限。
+ *
+ * `canWrite` 为 false 时界面不渲染写操作按钮；查不动（`notInstalled` / `notLoggedIn` / `error`）
+ * 时后端给的也是 true，按钮照常渲染，点了让 GitHub 去拒绝。
+ */
+export type WireRepoPermissionPayload = {
+  kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  /** `ADMIN` / `MAINTAIN` / `WRITE` / `TRIAGE` / `READ`；查不到时是 null。 */
+  permission: string | null;
+  canWrite: boolean;
+  error: string | null;
+};
+
 /** 运行列表里的一条（重跑/取消要用 `id`）。 */
 export type WireRepoActionRun = {
   id: number;
@@ -506,6 +521,9 @@ export const native = {
   /** 单个仓库最近一次 CI 运行；由界面按需调用，别对整份列表批量查。 */
   githubRepoCi: (repo: string) =>
     invoke<WireRepoCiPayload>("github_repo_ci", { repo }),
+  /** 单个仓库的当前账号权限；同样按需调用，界面据此决定写操作按钮在不在。 */
+  githubRepoPermission: (repo: string) =>
+    invoke<WireRepoPermissionPayload>("github_repo_permission", { repo }),
   /** 某个仓库的运行列表（默认 20 条）。 */
   githubRepoRuns: (repo: string, limit?: number) =>
     invoke<WireRepoActionRunsPayload>("github_repo_runs", {

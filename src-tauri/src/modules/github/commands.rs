@@ -23,16 +23,17 @@ use super::actions::{
 use super::ci::parse_latest_run;
 use super::ci::parse_repo_slug;
 use super::gh::{self, GhRunError, LoginProbe};
-use super::releases::{self, finish_download, safe_file_name, should_report};
+use super::permission;
 pub use super::releases::DownloadState;
+use super::releases::{self, finish_download, safe_file_name, should_report};
 use super::repos::{
     classify_failure, error_excerpt, page_path, parse_login, parse_repos, should_continue_page,
     MAX_PAGES, MAX_PER_PAGE,
 };
 use super::types::{
     ReleaseDownloadProgress, ReleaseDownloadResult, RemoteRepo, RemoteReposPayload,
-    RepoActionRunsPayload, RepoCiPayload, RepoReleasesPayload, RepoRunActionResult,
-    RepoRunJobsPayload, RepoRunLogPayload, KIND_ERROR,
+    RepoActionRunsPayload, RepoCiPayload, RepoPermissionPayload, RepoReleasesPayload,
+    RepoRunActionResult, RepoRunJobsPayload, RepoRunLogPayload, KIND_ERROR,
 };
 
 /// 当前账号能访问的仓库列表（自己的 + 协作的 + 组织成员可见的）。
@@ -159,6 +160,59 @@ fn read_repo_ci(repo: &str) -> RepoCiPayload {
             format!("gh 返回的运行记录无法解析：{error}"),
         ),
     }
+}
+
+/// 某个仓库的当前账号权限，界面据此决定写操作按钮在不在。
+///
+/// 与 CI 状态一样由界面按需触发（一次一个仓库）：列表里每个仓库都去查会把 API 配额烧光。
+#[tauri::command]
+pub async fn github_repo_permission(repo: String) -> Result<RepoPermissionPayload, String> {
+    blocking(move || Ok(read_repo_permission(&repo))).await
+}
+
+fn read_repo_permission(repo: &str) -> RepoPermissionPayload {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        // 名字本身不合法：照实说，不用去问 gh。
+        Err(message) => return RepoPermissionPayload::failed(KIND_ERROR, repo.trim(), message),
+    };
+
+    let output = match gh::run(
+        &[
+            "repo",
+            "view",
+            &slug,
+            "--json",
+            "viewerPermission",
+            "--jq",
+            ".viewerPermission",
+        ],
+        gh::PERMISSION_TIMEOUT_SECS,
+    ) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return RepoPermissionPayload::not_installed(&slug),
+        Err(GhRunError::Io(error)) => {
+            return RepoPermissionPayload::failed(
+                KIND_ERROR,
+                &slug,
+                format!("运行 gh 失败：{error}"),
+            )
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return RepoPermissionPayload::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            error_excerpt(&text),
+        );
+    }
+
+    // 拿不到权限名（输出是空的）走「按有权限渲染」，不拦用户。
+    let permission = permission::parse_permission(&output.stdout);
+    let can_write = permission::write_allowed(permission.as_deref());
+    RepoPermissionPayload::found(&slug, permission, can_write)
 }
 
 /// 某个仓库最近的运行列表。
@@ -505,11 +559,7 @@ fn read_releases(repo: &str, limit: Option<usize>) -> RepoReleasesPayload {
         Ok(output) => output,
         Err(GhRunError::NotInstalled) => return RepoReleasesPayload::not_installed(&slug),
         Err(GhRunError::Io(error)) => {
-            return RepoReleasesPayload::failed(
-                KIND_ERROR,
-                &slug,
-                format!("运行 gh 失败：{error}"),
-            )
+            return RepoReleasesPayload::failed(KIND_ERROR, &slug, format!("运行 gh 失败：{error}"))
         }
     };
 
@@ -635,10 +685,7 @@ fn download_asset(
         Ok(file) => file,
         Err(error) => {
             let _ = child.kill();
-            return ReleaseDownloadResult::failed(format!(
-                "无法写入 {}：{error}",
-                tmp.display()
-            ));
+            return ReleaseDownloadResult::failed(format!("无法写入 {}：{error}", tmp.display()));
         }
     };
 
@@ -758,10 +805,7 @@ fn download_asset(
     }
 
     if let Err(error) = finish_download(&tmp, &dest, true) {
-        return ReleaseDownloadResult::failed(format!(
-            "写入 {} 失败：{error}",
-            dest.display()
-        ));
+        return ReleaseDownloadResult::failed(format!("写入 {} 失败：{error}", dest.display()));
     }
     emit_progress(app, id, written, total);
     ReleaseDownloadResult::ok(dest.to_string_lossy().to_string())
@@ -770,18 +814,13 @@ fn download_asset(
 fn spawn_download(slug: &str, asset_id: u64) -> std::io::Result<std::process::Child> {
     let endpoint = format!("repos/{slug}/releases/assets/{asset_id}");
     let mut cmd = Command::new("gh");
-    cmd.args([
-        "api",
-        &endpoint,
-        "-H",
-        "Accept: application/octet-stream",
-    ])
-    .env("GH_PROMPT_DISABLED", "1")
-    .env("GH_NO_UPDATE_NOTIFIER", "1")
-    .env("NO_COLOR", "1")
-    .stdin(Stdio::null())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped());
+    cmd.args(["api", &endpoint, "-H", "Accept: application/octet-stream"])
+        .env("GH_PROMPT_DISABLED", "1")
+        .env("GH_NO_UPDATE_NOTIFIER", "1")
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     hide_console(&mut cmd);
     // gh 不读 Windows 的 Internet 设置，继承来的代理变量还可能为空串。
     let proxy = crate::modules::proxy::resolve(None);

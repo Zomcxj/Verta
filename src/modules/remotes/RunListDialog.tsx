@@ -18,12 +18,14 @@ import {
   native,
   type WireRepoActionRun,
   type WireRepoActionRunsPayload,
+  type WireRepoPermissionPayload,
 } from "@/lib/native";
 import { cn } from "@/lib/utils";
 import { useT, type MessageKey } from "@/modules/i18n";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { TONE_CLASS } from "./lib/ci";
+import { canWrite, readOnlyHintKey } from "./lib/permission";
 import { RunDetail } from "./RunDetail";
 import { runRowView, withoutRun } from "./lib/runs";
 
@@ -85,6 +87,33 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
   const [detail, setDetail] = useState<WireRepoActionRun | null>(null);
   /** 刚删掉的运行 id：列表里立刻拿掉，刷新回来也滤掉（GitHub 那侧会慢一拍）。 */
   const [deletedIds, setDeletedIds] = useState<number[]>([]);
+  /** 这个仓库的权限：只影响写操作按钮在不在，读的部分照常给。 */
+  const [permission, setPermission] = useState<WireRepoPermissionPayload | null>(
+    null,
+  );
+  const writable = canWrite(permission);
+  const readOnlyHint = readOnlyHintKey(permission);
+
+  /**
+   * 打开时查一次权限。
+   *
+   * 与运行列表分开读：列表每次动作后都会刷新，权限不会因为重跑一次就变，没必要跟着重问。
+   * 查不动就保持 null —— `canWrite(null)` 是「按有权限渲染」，让 GitHub 去拒绝。
+   */
+  useEffect(() => {
+    setPermission(null);
+    if (!repo) return;
+    let alive = true;
+    native
+      .githubRepoPermission(repo)
+      .then((payload) => {
+        if (alive) setPermission(payload);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [repo]);
 
   const load = useCallback(async () => {
     if (!repo) return;
@@ -180,6 +209,9 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
               {t("remotes.runs.title", { repo: repo ?? "" })}
             </DialogTitle>
             <DialogDescription>{t("remotes.runs.hint")}</DialogDescription>
+            {readOnlyHint ? (
+              <p className="text-xs text-muted-foreground">{t(readOnlyHint)}</p>
+            ) : null}
           </DialogHeader>
 
           {fatal ? (
@@ -242,7 +274,7 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
                           >
                             {t("remotes.runs.action.detail")}
                           </Button>
-                          {view.canRerun ? (
+                          {view.canRerun && writable ? (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -255,7 +287,7 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
                               {t("remotes.runs.action.rerun")}
                             </Button>
                           ) : null}
-                          {view.canCancel ? (
+                          {view.canCancel && writable ? (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -268,7 +300,7 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
                               {t("remotes.runs.action.cancel")}
                             </Button>
                           ) : null}
-                          {view.canDelete ? (
+                          {view.canDelete && writable ? (
                             <Button
                               variant="ghost"
                               size="sm"

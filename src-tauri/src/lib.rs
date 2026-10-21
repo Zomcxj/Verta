@@ -320,6 +320,7 @@ pub fn run() {
             projects::commands::projects_status,
             github::commands::github_repos,
             github::commands::github_repo_ci,
+            github::commands::github_repo_permission,
             github::commands::github_repo_runs,
             github::commands::github_run_rerun,
             github::commands::github_run_cancel,
