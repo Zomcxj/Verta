@@ -14,6 +14,10 @@ import { type MessageKey, useT } from "@/modules/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { renameAgentSession } from "../lib/sessions";
+import {
+  type SessionGroupBy,
+  groupByTool,
+} from "../lib/sessionGroups";
 import { relativeToRoot } from "../lib/sessionPaths";
 import { AGENT_TOOLS } from "../lib/tools";
 import {
@@ -73,6 +77,8 @@ export function LauncherPanel({
   const [deleting, setDeleting] = useState(false);
   /** 正在就地改名的会话（`sessionKey`）；null 表示没有。 */
   const [renaming, setRenaming] = useState<string | null>(null);
+  /** 默认全部放一块按时间排；切成 `tool` 就按 agent 分段。 */
+  const [groupBy, setGroupBy] = useState<SessionGroupBy>("all");
 
   /**
    * 改个名字。只改名字：opencode 改库里那一行、pi 追加一行 `session_info`，
@@ -196,8 +202,11 @@ export function LauncherPanel({
   const visibleKeys = useMemo(() => visible.map(sessionKey), [visible]);
 
   /**
-   * 按来源分组（本机 / 各发行版）。只有一个来源时不显示分组标题，外观与从前一致；
-   * 空列表也保留一个空分组，好让列表自身的空状态文案照常出现。
+   * 按来源分组（本机 / 各发行版）。只有一个来源时不显示来源标题，外观与从前一致。
+   *
+   * 每组里面再按 `groupBy` 摆：`all` 是整组按时间倒序的一块，`tool` 是每个 agent 一段。
+   * 来源 × agent 两层都是「小的嵌在大的里」：本机与 WSL 的会话本来就不是一个存储，
+   * 混在一起说「opencode」会让人分不清读的是哪一个。
    */
   const groups = useMemo(() => {
     const bySource = new Map<string, AgentSession[]>();
@@ -209,10 +218,15 @@ export function LauncherPanel({
     }
     const entries = [...bySource.entries()].map(([key, sessions]) => ({
       distro: key === "" ? null : key,
-      sessions,
+      sections: groupByTool(sessions, TOOLS, groupBy),
     }));
-    return entries.length > 0 ? entries : [{ distro: null, sessions: [] }];
-  }, [visible]);
+    return entries.length > 0
+      ? entries
+      : [{ distro: null, sections: groupByTool([], TOOLS, groupBy) }];
+  }, [visible, groupBy]);
+
+  /** 来源标题只在真有多个来源、或按 agent 分段时才值得画（否则一行多余的字）。 */
+  const showSourceHeadings = groups.length > 1 || groupBy === "tool";
 
   const toggleManaging = useCallback(() => {
     setManaging((was) => !was);
@@ -291,13 +305,37 @@ export function LauncherPanel({
         </button>
       </div>
 
-      <div className="shrink-0 px-2 pb-1.5">
+      <div className="flex shrink-0 flex-col gap-1 px-2 pb-1.5">
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={t("launcher.search")}
           className="w-full rounded-md border border-border/60 bg-transparent px-2 py-1 text-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
         />
+        {/* 默认「全部」：按时间排一行到底。切成「按 agent」才分段，段顺序跟着工具顺序走。 */}
+        <div
+          role="tablist"
+          aria-label={t("launcher.groupBy")}
+          className="flex items-center gap-0.5 self-start rounded-md bg-foreground/[0.05] p-0.5"
+        >
+          {(["all", "tool"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              role="tab"
+              aria-selected={groupBy === mode}
+              onClick={() => setGroupBy(mode)}
+              className={cn(
+                "cursor-pointer rounded px-1.5 py-0.5 text-[10px] outline-none transition-colors duration-[var(--dur-base)] focus-visible:ring-2 focus-visible:ring-primary/40",
+                groupBy === mode
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {mode === "all" ? t("launcher.groupAll") : t("launcher.groupByTool")}
+            </button>
+          ))}
+        </div>
       </div>
 
       {error ? (
@@ -316,42 +354,56 @@ export function LauncherPanel({
           ? null
           : groups.map((group) => (
               <div key={group.distro ?? "local"}>
-                {groups.length > 1 ? (
+                {showSourceHeadings ? (
                   <div className="px-3 pt-1.5 pb-0.5 text-[10px] font-medium text-muted-foreground">
                     {group.distro
                       ? t("launcher.sourceWsl", { distro: group.distro })
                       : t("launcher.sourceLocal")}
                   </div>
                 ) : null}
-                <SessionList
-                  sessions={group.sessions}
-                  activeId={activeSessionId}
-                  onOpen={onOpenSession}
-                  selectable={managing}
-                  actions={{
-                    onOpen: onOpenSession,
-                    onCopyAbsolute: (session) => copyText(session.cwd),
-                    onCopyRelative: (session) => {
-                      const relative = relativeToRoot(workspaceRoot, session.cwd);
-                      if (relative) copyText(relative);
-                    },
-                    onCopyId: (session) => copyText(session.id),
-                    onStartRename: (session) => setRenaming(sessionKey(session)),
-                    canCopyRelative: relativeToRoot(workspaceRoot, "") !== null,
-                    renameId: renaming,
-                    onRenameSubmit: (session, name) => {
-                      setRenaming(null);
-                      void renameSession(session, name);
-                    },
-                    onRenameCancel: () => setRenaming(null),
-                  }}
-                  selected={selected}
-                  onToggle={(session) =>
-                    setSelected((was) =>
-                      toggleSelection(was, sessionKey(session)),
-                    )
-                  }
-                />
+                {group.sections.map((section) => (
+                  <div key={section.tool ?? "all"}>
+                    {section.tool ? (
+                      <div className="px-3 pt-1 pb-0.5 text-[10px] text-muted-foreground/80">
+                        {section.tool}
+                      </div>
+                    ) : null}
+                    <SessionList
+                      sessions={section.sessions}
+                      activeId={activeSessionId}
+                      onOpen={onOpenSession}
+                      selectable={managing}
+                      actions={{
+                        onOpen: onOpenSession,
+                        onCopyAbsolute: (session) => copyText(session.cwd),
+                        onCopyRelative: (session) => {
+                          const relative = relativeToRoot(
+                            workspaceRoot,
+                            session.cwd,
+                          );
+                          if (relative) copyText(relative);
+                        },
+                        onCopyId: (session) => copyText(session.id),
+                        onStartRename: (session) =>
+                          setRenaming(sessionKey(session)),
+                        canCopyRelative:
+                          relativeToRoot(workspaceRoot, "") !== null,
+                        renameId: renaming,
+                        onRenameSubmit: (session, name) => {
+                          setRenaming(null);
+                          void renameSession(session, name);
+                        },
+                        onRenameCancel: () => setRenaming(null),
+                      }}
+                      selected={selected}
+                      onToggle={(session) =>
+                        setSelected((was) =>
+                          toggleSelection(was, sessionKey(session)),
+                        )
+                      }
+                    />
+                  </div>
+                ))}
               </div>
             ))}
       </div>

@@ -1,4 +1,10 @@
-import type { Theme, ThemeColors, ThemeVariant, TerminalPalette } from "./types";
+import type {
+  Theme,
+  ThemeColors,
+  ThemeSurface,
+  ThemeVariant,
+  TerminalPalette,
+} from "./types";
 
 export type ValidationResult =
   | { ok: true; theme: Theme }
@@ -126,7 +132,43 @@ function parseVariant(raw: unknown, path: string): ThemeVariant | string {
   if (typeof colors === "string") return colors;
   const terminal = parseTerminal(raw.terminal, `${path}.terminal`);
   if (typeof terminal === "string") return terminal;
-  return { colors, terminal };
+  const surface = parseSurface(raw.surface, `${path}.surface`);
+  if (typeof surface === "string") return surface;
+  return { colors, terminal, surface };
+}
+
+/**
+ * 表面层（渐变 / 纹理）。全是可选字段，写错了就说是哪一项，别整份主题都拒掉。
+ *
+ * `image` 只接受 CSS 的 `background-image` 值（渐变、`url(...)`），不接受别的 CSS ——
+ * 它会被写进样式变量，写进意外的属性就相当于让主题文件能改任意样式。
+ */
+function parseSurface(raw: unknown, path: string): ThemeSurface | undefined | string {
+  if (raw === undefined) return undefined;
+  if (!isObj(raw)) return `${path} must be an object`;
+  const out: ThemeSurface = {};
+  const KEYS = ["background", "image", "repeat", "size", "blend"] as const;
+  for (const key of KEYS) {
+    const value = raw[key];
+    if (value === undefined) continue;
+    if (!isStr(value)) return `${path}.${key} must be a string`;
+    if (key === "repeat") {
+      if (value !== "repeat" && value !== "no-repeat") {
+        return `${path}.repeat must be "repeat" or "no-repeat"`;
+      }
+      out.repeat = value;
+    } else {
+      out[key] = value;
+    }
+  }
+  if (raw.opacity !== undefined) {
+    const opacity = raw.opacity;
+    if (typeof opacity !== "number" || !Number.isFinite(opacity)) {
+      return `${path}.opacity must be a number`;
+    }
+    out.opacity = Math.min(1, Math.max(0, opacity));
+  }
+  return out;
 }
 
 export function validateTheme(raw: unknown): ValidationResult {

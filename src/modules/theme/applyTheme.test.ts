@@ -5,6 +5,7 @@ const removed: string[] = [];
 const written = new Map<string, string>();
 
 function stubDocument() {
+  const attributes = new Map<string, string>();
   const root = {
     style: {
       removeProperty: vi.fn((v: string) => {
@@ -15,8 +16,13 @@ function stubDocument() {
         written.set(k, v);
       }),
     },
+    // 表面层开关就是一个属性：`on` 表示这层要画。
+    setAttribute: (name: string, value: string) => attributes.set(name, value),
+    removeAttribute: (name: string) => attributes.delete(name),
+    getAttribute: (name: string) => attributes.get(name) ?? null,
   };
   vi.stubGlobal("document", { documentElement: root });
+  return attributes;
 }
 
 function variant(partial: Partial<ThemeVariant>): ThemeVariant {
@@ -130,3 +136,60 @@ describe("theme application", () => {
     expect(written.get("--foreground")).toBe("#ffffff");
   });
 });
+
+describe("theme surface", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllGlobals();
+    removed.length = 0;
+    written.clear();
+  });
+
+  it("writes the surface as variables and turns the layer on", async () => {
+    const attributes = stubDocument();
+    const { applyTheme } = await loadModule();
+    applyTheme(
+      theme({
+        dark: {
+          surface: {
+            background: "#101018",
+            image: "url(web.svg)",
+            repeat: "repeat",
+            size: "460px 460px",
+            opacity: 0.2,
+            blend: "soft-light",
+          },
+        },
+      }),
+      "dark",
+    );
+    expect(written.get("--theme-surface-background")).toBe("#101018");
+    expect(written.get("--theme-surface-image")).toBe("url(web.svg)");
+    expect(written.get("--theme-surface-repeat")).toBe("repeat");
+    expect(written.get("--theme-surface-opacity")).toBe("0.2");
+    expect(written.get("--theme-surface-blend")).toBe("soft-light");
+    expect(attributes.get("data-theme-surface")).toBe("on");
+  });
+
+  it("leaves the layer off for a theme without a surface", async () => {
+    const attributes = stubDocument();
+    const { applyTheme } = await loadModule();
+    applyTheme(theme({ dark: { colors: { background: "#000" } } }), "dark");
+    expect(attributes.has("data-theme-surface")).toBe(false);
+    expect(written.has("--theme-surface-image")).toBe(false);
+  });
+
+  it("drops the surface when switching from one textured theme to another", async () => {
+    const attributes = stubDocument();
+    const { applyTheme } = await loadModule();
+    applyTheme(
+      theme({ dark: { surface: { image: "url(web.svg)" } } }, "with-surface"),
+      "dark",
+    );
+    expect(attributes.get("data-theme-surface")).toBe("on");
+    applyTheme(theme({ dark: { colors: { background: "#000" } } }, "plain"), "dark");
+    expect(attributes.has("data-theme-surface")).toBe(false);
+    expect(written.has("--theme-surface-image")).toBe(false);
+  });
+});
+

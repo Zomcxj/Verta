@@ -42,17 +42,40 @@ pub(crate) fn list_at(path: &Path) -> Result<AgentSessionsPayload, String> {
     // 列表行要的两个数字顺手在这里算：tokens 是那一行自己的几个列（老库没有这些列，
     // 那就留空，界面显示「—」而不是 0），轮数与最后对话时间按消息表数。
     // NULL 与 0 在这里是两件事：NULL = 这个库根本不记 tokens（老库），界面显示「—」；
-    // 0 = 记了，但这场确实还没花过（新开、还没发过消息的会话）。
+    // 0 = 记了，但这场确实还没花过（新开、没发过消息的会话）。
+    //
+    // 轮数按**用户消息**数，不按消息总数：一轮里助手要发好几条（工具调用、反思），
+    // 按总数数出来是「几十轮」，按用户消息数才是人心里那根「我问了几次」。
+    // 消息表为空但 tokens 记着花过（opencode 会清理老消息）时，退回库自己的估算：
+    // 一轮至少用掉一整个上下文窗口，拿总 tokens 除以它、再取整、至少 1 轮 ——
+    // 比直接说「0 轮」诚实，也不会把 3 亿 tokens 的会话说成一轮。
+    // 注意这里是**逐项** COALESCE 再相加，不是把整条加法包进 COALESCE：
+    // SQLite 里 `COALESCE((a + b + c + d + e), 0)` 在五项全 NULL 时会被算成 0（不是 NULL），
+    // 「这个库不记 tokens」就变成了「记了 0」—— 老库与清过消息的会话都被它坑过。
     let tokens_sum = if has_tokens_columns(&conn, &table) {
-        "COALESCE((tokens_input + tokens_output + tokens_reasoning + tokens_cache_read + tokens_cache_write), 0)"
+        "COALESCE(tokens_input, 0) + COALESCE(tokens_output, 0) + COALESCE(tokens_reasoning, 0) + COALESCE(tokens_cache_read, 0) + COALESCE(tokens_cache_write, 0)"
     } else {
         "NULL"
     };
+    let role_is_user = "json_extract(m.data, '$.role') = 'user'";
+    // 有消息：数用户消息。一条都没有但 tokens 不为 0（opencode 清过老消息）：按 tokens 估。
+    // 两条都不成立（真 · 新会话）：0 轮，这是确切的 0，不是「不知道」。
+    let turns_expr = if has_message_table(&conn) {
+        format!(
+            "(SELECT CASE WHEN total > 0 AND (SELECT COUNT(*) FROM message m WHERE m.session_id = {table}.id) = 0 THEN MAX(1, total / {TOKENS_PER_TURN}) ELSE (SELECT COUNT(*) FROM message m WHERE m.session_id = {table}.id AND {role_is_user}) END FROM (SELECT {tokens_sum} AS total) AS s)"
+        )
+    } else {
+        "NULL".to_string()
+    };
+    let last_expr = if has_message_table(&conn) {
+        format!(
+            "(SELECT MAX(m.time_created) FROM message m WHERE m.session_id = {table}.id)"
+        )
+    } else {
+        "NULL".to_string()
+    };
     let sql = format!(
-        "SELECT id, parent_id, title, directory, time_updated, \
-                (SELECT COUNT(*) FROM message m WHERE m.session_id = {table}.id), \
-                {tokens_sum}, \
-                (SELECT MAX(m.time_created) FROM message m WHERE m.session_id = {table}.id) \
+        "SELECT id, parent_id, title, directory, time_updated, {turns_expr}, {tokens_sum}, {last_expr} \
          FROM {table} ORDER BY time_updated DESC LIMIT {MAX_ROWS}"
     );
     let mut statement = conn
@@ -95,6 +118,22 @@ pub(crate) fn list_at(path: &Path) -> Result<AgentSessionsPayload, String> {
         }
     }
     Ok(AgentSessionsPayload { sessions, warnings })
+}
+
+/// 一轮对话按多少 tokens 估（opencode 会把清掉的老消息从 `message` 表里删除，
+/// 但 `session_v2` 的 tokens 列还在往上加）。取 200k：比常见上下文窗口略小，
+/// 估出来不会偏大太多。
+const TOKENS_PER_TURN: u64 = 200_000;
+
+/// 这个库里有没有消息表（极老的库只有会话表）。
+fn has_message_table(conn: &Connection) -> bool {
+    conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'message'",
+        [],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|count| count > 0)
+    .unwrap_or(false)
 }
 
 /// 这张表有没有 tokens 那几个列（老库的 `session` 表没有）。
@@ -342,6 +381,15 @@ mod tests {
         (dir, path)
     }
 
+    fn insert_message(path: &Path, id: &str, session_id: &str, role: &str, time_created: i64) {
+        let conn = Connection::open(path).expect("open");
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data)              VALUES (?1, ?2, ?3, ?3, ?4)",
+            rusqlite::params![id, session_id, time_created, format!("{{\"role\":\"{role}\"}}")],
+        )
+        .expect("insert message");
+    }
+
     fn insert(
         path: &Path,
         table: &str,
@@ -390,6 +438,61 @@ mod tests {
             SessionStats::default(),
         );
         assert_eq!(session.title, "bear_bill");
+    }
+
+    #[test]
+    fn turns_count_user_messages_not_every_message() {
+        // 一轮里助手会发好几条（工具调用、反思），按消息总数数会虚高好几倍。
+        let (_dir, path) = temp_db("session_v2");
+        insert(&path, "session_v2", "ses_1", None, Some("t"), "F:/x", 10);
+        insert_message(&path, "m1", "ses_1", "user", 100);
+        insert_message(&path, "m2", "ses_1", "assistant", 200);
+        insert_message(&path, "m3", "ses_1", "assistant", 300);
+        insert_message(&path, "m4", "ses_1", "user", 400);
+        let payload = list_at(&path).expect("应能读");
+        let stats = payload.sessions[0].stats;
+        assert_eq!(stats.turns, Some(2), "两条用户消息就是两轮");
+        assert_eq!(stats.last_at_ms, Some(400), "最后对话时间也是按消息算");
+    }
+
+    #[test]
+    fn a_session_whose_messages_were_pruned_keeps_an_estimate_instead_of_zero() {
+        // opencode 会清掉老消息：消息表空了，但 tokens 列还在，说「0 轮」就是撒谎。
+        let (_dir, path) = temp_db("session_v2");
+        insert(&path, "session_v2", "ses_1", None, Some("t"), "F:/x", 10);
+        let conn = Connection::open(&path).expect("open");
+        conn.execute(
+            "UPDATE session_v2 SET tokens_input = 800000 WHERE id = 'ses_1'",
+            [],
+        )
+        .expect("update");
+        let payload = list_at(&path).expect("应能读");
+        assert_eq!(payload.sessions[0].stats.turns, Some(4), "80 万 tokens / 20 万");
+        assert_eq!(payload.sessions[0].stats.last_at_ms, None, "没有消息就没有对话时间");
+    }
+
+    #[test]
+    fn a_session_that_really_has_nothing_says_zero_turns_not_unknown() {
+        let (_dir, path) = temp_db("session_v2");
+        insert(&path, "session_v2", "ses_1", None, Some("t"), "F:/x", 10);
+        let payload = list_at(&path).expect("应能读");
+        let stats = payload.sessions[0].stats;
+        assert_eq!(stats.turns, Some(0));
+        assert_eq!(stats.tokens, Some(0), "新库记了 tokens，只是确实是 0");
+    }
+
+    #[test]
+    fn an_old_store_without_token_columns_leaves_them_unknown() {
+        let (_dir, path) = temp_db("session");
+        // 老库没有 tokens 列，也不该把「不知道」写成 0。
+        let conn = Connection::open(&path).expect("open");
+        conn.execute_batch("ALTER TABLE session DROP COLUMN tokens_input").ok();
+        insert(&path, "session", "ses_1", None, Some("t"), "F:/x", 10);
+        insert_message(&path, "m1", "ses_1", "user", 100);
+        let payload = list_at(&path).expect("应能读");
+        let stats = payload.sessions[0].stats;
+        assert_eq!(stats.turns, Some(1));
+        assert_eq!(stats.tokens, None, "老库不记 tokens，只能是「不知道」");
     }
 
     #[test]

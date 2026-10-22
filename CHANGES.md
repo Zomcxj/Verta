@@ -15,6 +15,23 @@
 <details open>
 <summary><strong>2026-10-22</strong></summary>
 
+**主题：默认主题改名 Terax，新增「液态玻璃」与「蜘蛛网纹路」**
+
+- `src/modules/theme/themes/verta-default.ts`：只把显示名从 `Verta Default` 改成 `Terax`（`id` 仍是 `verta-default`，颜色还在 `styles/globals.css`）。
+- `src/modules/theme/themes/liquid-glass.ts`、`src/modules/theme/themes/spider-web.ts`：新增两个主题（磨砂半透明 + 斜向高光的玻璃；夜蓝底上一层极淡的蛛网纹路）。
+- `src/modules/theme/types.ts`、`applyTheme.ts`、`validateTheme.ts`：主题可以带一层「表面层」（底色、渐变或纹理、不透明度、混合方式），写成 CSS 变量；自定义主题 JSON 也认这块。
+- `src/modules/theme/SurfaceLayer.tsx`、`src/styles/globals.css`：界面最底下多一个专门画这层的元素，没纹理的主题里它不显示，也不挡任何内容。
+
+**会话列表：默认全部放一块按时间排，也可以按 agent 分段**
+
+- `src/modules/launcher/lib/sessionGroups.ts`：新增，分组与排序规则（分段顺序跟着工具顺序走，不在列表里的工具名也照样列出来）。
+- `src/modules/launcher/components/LauncherPanel.tsx`：搜索框下加「全部 / 按 agent」切换，默认「全部」。
+
+**会话轮数显示成 0（有的会话明明聊了很多）**
+
+- `src-tauri/src/modules/agent_sessions/opencode.rs`：轮数改成数用户消息（原来数的是消息总数，助手一轮要发好几条）；opencode 清掉老消息后消息表为空、但 tokens 还在的会话，按 tokens 估算轮数，不再显示 0；tokens 原先在「全为 NULL」时被算成 0，一并修正。
+- `src-tauri/src/modules/agent_sessions/wsl.rs`：发行版里那条查询同步改用户消息计数。
+
 **会话列表：行上改显示轮数 / tokens / 最后对话日，右键可复制与改名**
 
 - `src-tauri/src/modules/agent_sessions/stats.rs`：新增，会话统计的纯逻辑（pi 的 usage 怎么折成 tokens、一个都没有时是「不知道」而不是 0）。

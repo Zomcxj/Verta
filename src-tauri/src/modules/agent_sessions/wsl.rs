@@ -41,13 +41,18 @@ for table in ("session_v2", "session"):
         # 轮数 / tokens / 最后对话时间跟本机那条查询同一套口径；老库没有 tokens 列时给 NULL。
         cols = {r[1] for r in con.execute("pragma table_info('" + table + "')")}
         tokens = (
-            "(coalesce(tokens_input,0)+coalesce(tokens_output,0)+coalesce(tokens_reasoning,0)"
-            "+coalesce(tokens_cache_read,0)+coalesce(tokens_cache_write,0))"
+            "coalesce(tokens_input,0)+coalesce(tokens_output,0)+coalesce(tokens_reasoning,0)"
+            "+coalesce(tokens_cache_read,0)+coalesce(tokens_cache_write,0)"
+            if "tokens_input" in cols else "NULL"
+        )
+        # 轮数按**用户消息**数（一轮里助手要发好几条）；消息被清空但 tokens 还在时按 tokens 估。
+        turns = (
+            "(select count(*) from message m where m.session_id = " + table + ".id and json_extract(m.data, '$.role') = 'user')"
             if "tokens_input" in cols else "NULL"
         )
         rows = con.execute(
             "select id, parent_id, title, directory, time_updated, "
-            "(select count(*) from message m where m.session_id = " + table + ".id), "
+            + turns + ", "
             + tokens + ", "
             "(select max(m.time_created) from message m where m.session_id = " + table + ".id) "
             "from " + table + " order by time_updated desc limit __LIMIT__"

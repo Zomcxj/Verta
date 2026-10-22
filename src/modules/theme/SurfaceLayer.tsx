@@ -23,8 +23,36 @@ export function SurfaceLayer() {
   );
   const hydrated = usePreferencesStore((s) => s.hydrated);
   const active = hydrated ? storeActive : fastPath.active;
-  if (!active) return null;
-  return <BackgroundImage fastImageId={fastPath.imageId} />;
+  return (
+    <>
+      {active ? <BackgroundImage fastImageId={fastPath.imageId} /> : null}
+      <ThemeSurface />
+    </>
+  );
+}
+
+/**
+ * 主题自带的那层质感（渐变 / 纹理），铺在整个界面底下（`-1`）。
+ *
+ * 开关与所有参数都由 `applyTheme` 写成 CSS 变量，这里只负责把那个元素放进 DOM：
+ * 主题一变变量就变，不用再走一遍 React；`data-theme-surface` 没被设上时什么都不画。
+ * 铺在底下而不是盖在上面，是因为它只是「底色好看一点」，不能挡住任何内容——
+ * 用户自己的背景图（`BackgroundImage`）仍然盖在它上面。
+ */
+function ThemeSurface() {
+  return createPortal(
+    <div
+      aria-hidden
+      data-theme-surface-layer
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: -1,
+        pointerEvents: "none",
+      }}
+    />,
+    document.body,
+  );
 }
 
 function BackgroundImage({ fastImageId }: { fastImageId: string | null }) {

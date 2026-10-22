@@ -244,6 +244,24 @@ html[data-vibrancy="on"] {
 html[data-chrome="borderless"] .verta-bg-surface {
   border-radius: 12px;
 }
+
+/* Theme surface (see `modules/theme/types.ts` → `ThemeSurface`).
+ * `applyTheme` writes these variables and sets `data-theme-surface` only when a
+ * theme actually provides something to draw; every other theme keeps this
+ * element empty. Kept as a plain background rather than a backdrop filter: a
+ * blur would need a window-sized compositing layer on every resize. */
+[data-theme-surface-layer] {
+  background-color: var(--theme-surface-background, transparent);
+  background-image: var(--theme-surface-image, none);
+  background-repeat: var(--theme-surface-repeat, no-repeat);
+  background-size: var(--theme-surface-size, cover);
+  background-position: center;
+  opacity: var(--theme-surface-opacity, 1);
+  mix-blend-mode: var(--theme-surface-blend, normal);
+}
+html:not([data-theme-surface]) [data-theme-surface-layer] {
+  display: none;
+}
 /* Window drag (macOS WebKit): while `data-live-resize` is set (see
  * modules/theme/livePageResize) the document is given an invisible size rounded
  * up to the tile quantum, so the page tile does not change size at every step.

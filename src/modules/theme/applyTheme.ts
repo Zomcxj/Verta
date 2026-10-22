@@ -1,4 +1,10 @@
-import type { Theme, ThemeColors, ThemeMode, TerminalPalette } from "./types";
+import type {
+  Theme,
+  ThemeColors,
+  ThemeMode,
+  ThemeSurface,
+  TerminalPalette,
+} from "./types";
 
 const COLOR_VAR: Record<keyof ThemeColors, string> = {
   background: "--background",
@@ -61,6 +67,16 @@ const ALL_VARS: readonly string[] = [
 
 let lastApplied: string | null = null;
 
+/** 主题自己带的表面层变量（离开一个带纹理的主题时要一起撤掉）。 */
+const SURFACE_VARS: readonly string[] = [
+  "--theme-surface-background",
+  "--theme-surface-image",
+  "--theme-surface-repeat",
+  "--theme-surface-size",
+  "--theme-surface-opacity",
+  "--theme-surface-blend",
+];
+
 export function applyTheme(theme: Theme, mode: ThemeMode): void {
   const root = document.documentElement;
   const variant = theme.variants[mode] ?? theme.variants.dark ?? theme.variants.light;
@@ -73,6 +89,7 @@ export function applyTheme(theme: Theme, mode: ThemeMode): void {
   for (const v of ALL_VARS) root.style.removeProperty(v);
   if (colors) writeColors(root, colors);
   if (terminal) writeTerminal(root, terminal);
+  writeSurface(root, variant.surface);
   lastApplied = theme.id;
 }
 
@@ -80,7 +97,35 @@ export function clearTheme(): void {
   if (lastApplied === null) return;
   const root = document.documentElement;
   for (const v of ALL_VARS) root.style.removeProperty(v);
+  writeSurface(root, undefined);
   lastApplied = null;
+}
+
+/**
+ * 表面层只写 CSS 变量，真正铺出来的是 `SurfaceLayer` 那个 `[data-theme-surface]`。
+ *
+ * 不直接往 `body` 上刷背景：开着背景图时那层是全屏覆盖的，直接给 body 上色会两边打架，
+ * 而且设置窗口 / 截图窗口也会跟着变。放在专门的元素上，谁需要谁读变量。
+ */
+function writeSurface(root: HTMLElement, surface: ThemeSurface | undefined): void {
+  for (const v of SURFACE_VARS) root.style.removeProperty(v);
+  if (!surface) {
+    root.removeAttribute("data-theme-surface");
+    return;
+  }
+  const set = (name: string, value: string | number | undefined) => {
+    if (value === undefined || value === "") return;
+    root.style.setProperty(name, String(value));
+  };
+  set("--theme-surface-background", surface.background);
+  set("--theme-surface-image", surface.image);
+  set("--theme-surface-repeat", surface.repeat);
+  set("--theme-surface-size", surface.size);
+  set("--theme-surface-opacity", surface.opacity);
+  set("--theme-surface-blend", surface.blend);
+  const drawn = surface.background || surface.image;
+  if (drawn) root.setAttribute("data-theme-surface", "on");
+  else root.removeAttribute("data-theme-surface");
 }
 
 function writeColors(root: HTMLElement, c: ThemeColors): void {
