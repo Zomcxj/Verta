@@ -871,9 +871,11 @@ export class WebGlCellRenderer {
     const backgroundAlpha = profile.theme.backgroundAlpha;
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.STENCIL_TEST);
-    // 默认底色不画矩形（只画与它不同的格子），所以「终端的底色」就是这一句清屏色 ——
-    // 主题是半透明/全透明时（亚克力）必须清成带 alpha 的颜色，否则整块画布不透，
-    // 桌面永远透不上来。画布是预乘的，RGB 也要按 alpha 预乘。
+    // The default background is never drawn as a rectangle — `buildBackgroundRow` only
+    // fills cells that differ from it — so "the terminal background" *is* this clear
+    // colour. A translucent theme (acrylic) therefore has to be cleared with an alpha, or
+    // the whole canvas stays opaque and the desktop can never show through. The canvas is
+    // premultiplied, so the colour is premultiplied as well.
     gl.clearColor(
       (background[0] / 255) * backgroundAlpha,
       (background[1] / 255) * backgroundAlpha,
@@ -895,8 +897,8 @@ export class WebGlCellRenderer {
     );
 
     gl.enable(gl.BLEND);
-    // 着色器输出预乘色（见两段片元着色器），所以混合用 ONE 而不是 SRC_ALPHA：
-    // alpha 为 1 的像素两者完全等价，半透明的字形才落得对。
+    // Both fragment shaders emit premultiplied colour, so the blend is ONE rather than
+    // SRC_ALPHA: identical for alpha 1 pixels, correct for translucent ones.
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     // biome-ignore lint/correctness/useHookAtTopLevel: WebGL method, not a React hook.
     gl.useProgram(resources.glyphProgram.value);
@@ -1426,7 +1428,8 @@ void main() {
   }
   if (style == 4 && fract(v_unitquad.x * 4.0) > 0.42) discard;
   if (style == 5 && fract(v_unitquad.x * 2.0) > 0.68) discard;
-  // 预乘输出：画布现在带 alpha，混合用 ONE（见 draw()）—— 不透明像素与原来一致。
+  // Premultiplied output: the canvas carries alpha now and the blend is ONE (see draw()).
+  // Opaque pixels come out exactly as they did before.
   outColor = vec4(v_color.rgb * v_color.a, v_color.a);
 }`;
 

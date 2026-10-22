@@ -853,9 +853,10 @@ export class WebGlTerminalSurface
   }
 
   private updateRootBackground(): void {
-    // 半透明主题的终端自己没有颜色可盖 —— 它后面的面板已经透出桌面了 ——
-    // 所以这块占位也得是透明的。WebGPU 那条路就是这么做的；这里原来一律铺主题底色，
-    // 于是没有 WebGPU 的机器上终端是一块死黑。
+    // A translucent theme's terminal has no colour of its own to cover with — the pane
+    // behind it already shows the desktop — so this placeholder has to be transparent
+    // too. The WebGPU surface does the same; this one used to paint the theme colour
+    // unconditionally, which is why a machine without WebGPU showed a black block.
     this.root.style.backgroundColor =
       this.theme.backgroundAlpha < 1
         ? "transparent"
