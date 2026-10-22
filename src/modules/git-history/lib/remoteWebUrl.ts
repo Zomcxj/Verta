@@ -17,6 +17,14 @@ const SUPPORTED_HOSTS: Record<string, RemoteWebHost> = {
   "www.bitbucket.org": "bitbucket",
 };
 
+// English defaults, kept so the helper stands alone (and stays unit-testable);
+// callers that render the label pass the translated strings instead.
+const DEFAULT_HOST_LABELS: Record<RemoteWebHost, string> = {
+  github: "View on GitHub",
+  gitlab: "View on GitLab",
+  bitbucket: "View on Bitbucket",
+};
+
 export function parseRemoteWebUrl(raw: string | null | undefined): RemoteWebInfo | null {
   if (!raw) return null;
   const trimmed = raw.trim();
@@ -70,13 +78,10 @@ export function commitWebUrl(info: RemoteWebInfo, sha: string): string {
   }
 }
 
-export function hostLabel(info: RemoteWebInfo): string {
-  switch (info.host) {
-    case "github":
-      return "View on GitHub";
-    case "gitlab":
-      return "View on GitLab";
-    case "bitbucket":
-      return "View on Bitbucket";
-  }
+/** Button label for the host's commit page, e.g. `View on GitHub`. */
+export function hostLabel(
+  info: RemoteWebInfo,
+  labels: Record<RemoteWebHost, string> = DEFAULT_HOST_LABELS,
+): string {
+  return labels[info.host];
 }

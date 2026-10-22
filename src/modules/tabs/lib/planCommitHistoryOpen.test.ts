@@ -16,7 +16,7 @@ describe("planCommitHistoryOpen", () => {
     let allocations = 0;
     const result = planCommitHistoryOpen(
       [existing],
-      { repoRoot: "/repos/a", branch: "main" },
+      { repoRoot: "/repos/a", title: "History · main" },
       () => {
         allocations += 1;
         return 2;
@@ -29,17 +29,30 @@ describe("planCommitHistoryOpen", () => {
 
     const repeated = planCommitHistoryOpen(
       result.tabs,
-      { repoRoot: "/repos/a", branch: "main" },
+      { repoRoot: "/repos/a", title: "History · main" },
       () => 2,
     );
     expect(repeated.tabs).toBe(result.tabs);
+  });
+
+  it("keeps the title the caller built", () => {
+    // The label comes from the i18n table, so the planner must not build one of
+    // its own: it takes whatever it is handed, localized strings included.
+    const existing = history(1, "/repos/a");
+    const result = planCommitHistoryOpen(
+      [existing],
+      { repoRoot: "/repos/a", title: "历史 · main" },
+      () => 2,
+    );
+
+    expect(result.tabs[0]).toMatchObject({ title: "历史 · main" });
   });
 
   it("opens separate tabs for separate repositories", () => {
     const existing = history(1, "/repos/a");
     const result = planCommitHistoryOpen(
       [existing],
-      { repoRoot: "/repos/b", branch: "feature" },
+      { repoRoot: "/repos/b", title: "History · feature" },
       () => 2,
     );
 
@@ -55,7 +68,11 @@ describe("planCommitHistoryOpen", () => {
   });
 
   it("keeps the repository name when no branch is known", () => {
-    const result = planCommitHistoryOpen([], { repoRoot: "/repos/a" }, () => 2);
+    const result = planCommitHistoryOpen(
+      [],
+      { repoRoot: "/repos/a", title: "Git History" },
+      () => 2,
+    );
 
     expect(result.targetId).toBe(2);
     expect(result.tabs[0]).toMatchObject({ title: "Git History" });

@@ -288,7 +288,7 @@ function BranchDropdown({
         {displayRepoRoot ? (
           <>
             <DropdownMenuLabel className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">
-              Repository
+              {t("scm.repository")}
             </DropdownMenuLabel>
             <div
               className="truncate px-2 pb-1.5 text-[11px] text-muted-foreground"
@@ -304,7 +304,7 @@ function BranchDropdown({
                 }}
                 className="cursor-pointer text-[12px]"
               >
-                Follow Active Context
+                {t("scm.followActiveContext")}
               </DropdownMenuItem>
             ) : null}
             <DropdownMenuSeparator />
@@ -313,7 +313,7 @@ function BranchDropdown({
         {loading ? (
           <div className="flex items-center gap-2 px-3 py-3 text-[11px] text-muted-foreground">
             <Spinner className="size-3" />
-            Loading branches…
+            {t("scm.loadingBranches")}
           </div>
         ) : error ? (
           <div className="px-3 py-3 text-[11px] leading-snug text-destructive">
@@ -333,7 +333,7 @@ function BranchDropdown({
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">
-                  Local Branches
+                  {t("scm.localBranches")}
                 </DropdownMenuLabel>
                 <DropdownMenuGroup>
                   {localBranches.map((b) => (
@@ -390,7 +390,7 @@ function BranchDropdown({
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">
-                  Worktrees
+                  {t("scm.worktrees")}
                 </DropdownMenuLabel>
                 <DropdownMenuGroup>
                   {worktrees.map((b) => (
@@ -456,7 +456,7 @@ function BranchDropdown({
             </DropdownMenuGroup>
             {branches.length === 0 && (
               <div className="px-3 py-3 text-[11px] text-muted-foreground">
-                No branches found.
+                {t("scm.noBranches")}
               </div>
             )}
           </>
@@ -512,7 +512,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   const repoLabel = useMemo(() => {
     if (fixedTargetPending) return t("scm.loadingRepo");
     if (!scm.status) return t("scm.sourceControl");
-    return scm.status.isDetached ? "detached" : scm.status.branch;
+    return scm.status.isDetached ? t("scm.detached") : scm.status.branch;
   }, [fixedTargetPending, scm.status]);
 
   const commitShortcut = IS_MAC ? "⌘↩" : "Ctrl+Enter";
@@ -529,8 +529,9 @@ export const SourceControlPanel = memo(function SourceControlPanel({
         ? t("scm.hint.messageFirst")
         : null;
   const commitHint = canCommit
-    ? `Commit with ${commitShortcut}.`
-    : (commitDisabledReason ?? `Commit with ${commitShortcut}.`);
+    ? t("scm.commitWith", { shortcut: commitShortcut })
+    : (commitDisabledReason ??
+      t("scm.commitWith", { shortcut: commitShortcut }));
   const pushHint = scm.pushHint ?? t("scm.pushUnavailable");
   const pushDisabledReason = fixedTargetPending
     ? t("scm.hint.repoLoading")
@@ -806,7 +807,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
             ) : null}
             {scm.status?.isDetached ? (
               <span className="rounded bg-muted/55 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                detached
+                {t("scm.detached")}
               </span>
             ) : null}
           </div>
@@ -913,7 +914,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
             body={scm.statusError ?? t("scm.unknownError")}
             action={
               <Button size="sm" onClick={() => void scm.refresh()}>
-                Retry
+                {t("scm.retry")}
               </Button>
             }
           />
@@ -943,10 +944,12 @@ export const SourceControlPanel = memo(function SourceControlPanel({
                 />
                 <div className="pointer-events-none absolute inset-x-3 bottom-1.5 flex items-center justify-between p-1 gap-2 text-[10px] tabular-nums text-muted-foreground/55">
                   {scm.commitMessage.length > 0 ? (
-                    <span>Ch: {scm.commitMessage.length}</span>
+                    <span>
+                      {t("scm.charCount", { count: scm.commitMessage.length })}
+                    </span>
                   ) : (
                     <span className="flex gap-2 items-center">
-                      {commitShortcut} <p>to commit</p>
+                      {commitShortcut} <p>{t("scm.commitHintSuffix")}</p>
                     </span>
                   )}
                 </div>
@@ -1128,10 +1131,10 @@ export const SourceControlPanel = memo(function SourceControlPanel({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => scm.cancelPendingDiscard()}>
-              Cancel
+              {t("scm.common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction onClick={() => void scm.confirmPendingDiscard()}>
-              Discard
+              {t("scm.common.discard")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1163,6 +1166,7 @@ function PanelCenter({
 }
 
 function CleanTreeHint({ repoLabel }: { repoLabel: string }) {
+  const t = useT();
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 px-4 text-center">
       <div className="flex size-8 items-center justify-center rounded-full border border-border/55 text-muted-foreground">
@@ -1173,10 +1177,11 @@ function CleanTreeHint({ repoLabel }: { repoLabel: string }) {
         />
       </div>
       <div className="text-[12px] font-medium text-foreground">
-        Working tree clean
+        {t("scm.workingTreeClean")}
       </div>
       <div className="text-[10.5px] leading-snug text-muted-foreground">
-        on <span className="font-mono text-foreground/80">{repoLabel}</span>
+        {t("scm.cleanTreeOn")}{" "}
+        <span className="font-mono text-foreground/80">{repoLabel}</span>
       </div>
     </div>
   );
@@ -1241,13 +1246,13 @@ function ListHeader({
   return (
     <div className="flex h-7 items-center gap-2 px-3">
       <span className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/85">
-        Changes
+        {t("scm.changes")}
       </span>
       <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border/60 px-1 text-[9.5px] font-semibold tabular-nums text-muted-foreground">
         {row.count}
       </span>
       <label className="ml-auto flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-[10.5px] font-medium text-muted-foreground hover:text-foreground">
-        <span>All</span>
+        <span>{t("scm.all")}</span>
         <Checkbox
           aria-label={t("scm.stageAll")}
           checked={checkboxValue(headerCheckState)}
@@ -1435,14 +1440,14 @@ const EntryRow = memo(function EntryRow({
           className={COMPACT_ITEM}
           onSelect={() => void copyToClipboard(entry.path.replace(/\\/g, "/"))}
         >
-          Copy Relative Path
+          {t("scm.copyRelativePath")}
         </ContextMenuItem>
         {absolutePath ? (
           <ContextMenuItem
             className={COMPACT_ITEM}
             onSelect={() => void copyToClipboard(absolutePath)}
           >
-            Copy Absolute Path
+            {t("scm.copyAbsolutePath")}
           </ContextMenuItem>
         ) : null}
 

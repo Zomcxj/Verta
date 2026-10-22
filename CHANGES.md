@@ -130,6 +130,19 @@
 - `src/app/App.tsx`、`src/modules/source-control/index.ts`：用新的 scope 键；`isRepositoryContextCurrent` 只再校验「环境没变」（拼装格式由 `repositoryTargetScope` 保证）。
 - `src/modules/source-control/repositoryTarget.test.ts`：三条用例改成断言「按根分桶」，并新增一条把用户报的现象立成回归测试（同一环境换项目 ⇒ 回到跟随上下文）。
 
+**截图覆盖窗口读不到偏好（权限没给）**
+
+- `src-tauri/capabilities/screenshot.json`：截图覆盖窗口的前端要读偏好（按当前主题给选框、把手、操作条上色），但这个能力文件当初只给了 `core:default` 与事件监听，于是每次开截图都掉一条 `store.load not allowed on window "screenshot"`，窗口里的兜底「脚本崩了就自己收起来」也跟着走了一遍。补上 `store:default`（与主窗口一致），并把说明改准确：它既监听 arm 事件，也读偏好。
+
+**界面文案长尾：标签名、源码管理面板、Git 历史面板**
+
+- `src/modules/tabs/lib/useTabs.ts`：标签兜底名原来是纯函数里硬拼的英文 —— 提交历史的标题（`History · {分支}` / `Git History`）、预览标签按 url 取名失败时的 `preview`、终端与命令块标签的 `shell` / `blocks`。改成由 hook 用 `t(...)` 生成好再交给规划函数：`planCommitHistoryOpen` 现在收 `{ repoRoot, title }`，与 `planProjectsOpen` 同一种做法，规划函数保持纯的。`t` 在 `setTabs((t) => ...)` 里会被标签数组遮住，所以三条兜底文案在 hook 顶部先算成字符串，回调依赖字符串而不是 `t`。
+- `src/modules/tabs/lib/serialize.ts`、`useTabRestore.ts`：恢复标签时预览的兜底名也按语言给 —— 存盘的只有 url，名字是恢复那一刻算的。恢复只跑一次、不能因为换语言重跑，所以这里用 ref 读文案，而不是把它塞进 effect 的依赖。
+- `src/modules/tabs/lib/planCommitHistoryOpen.test.ts`：三条用例改成「标题由调用方给」，并新增一条断言规划器不自己造标题（给中文标题也原样带上）。
+- `src/modules/source-control/SourceControlPanel.tsx`：21 处文案接上 `t()`（分支下拉、状态、提交框、文件列表、右键菜单与丢弃确认）。提交框下那句 `to commit` 现在是「提交」，`Commit with {快捷键}.` 也进了表（快捷键本身是键名，不翻）。能复用既有 `scm.*` 键的都复用了，只新增确实缺的。
+- `src/modules/git-history/GitHistoryPane.tsx`、`lib/remoteWebUrl.ts`：34 处文案接上 `t()`（表头 提交 / 主题 / 作者 / 日期 / 改动、加载与空态、`Copy SHA` / `Copied`、作者兜底名、文件数句子与 `View on GitHub` 那一组按钮）。`normalizeError` 多收一个「已经翻好的兜底」形参，`hostLabel` 多收一组可传的文案（默认仍是英文，纯函数与既有单测不受影响）。
+- `src/modules/i18n/messages.ts`：新增 `tabs.preview` / `tabs.shell` / `tabs.blocks`、`gitHistory.*` 29 条、`scm.*` 18 条（中英两份）。
+
 </details>
 
 <details>

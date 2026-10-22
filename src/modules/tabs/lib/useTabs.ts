@@ -1,5 +1,6 @@
 import { isMarkdownPath } from "@/lib/utils";
 import { type PaneCount, createPanePlan } from "./panePlan";
+import { useT } from "@/modules/i18n";
 import type { WorkspaceEnv } from "@/modules/workspace";
 import {
   findLeafCwd,
@@ -265,12 +266,12 @@ function basename(path: string): string {
   return parts.length ? parts[parts.length - 1] : path;
 }
 
-function titleFromUrl(url: string): string {
+function titleFromUrl(url: string, fallback: string): string {
   try {
     const u = new URL(url);
     return u.host || url;
   } catch {
-    return url || "preview";
+    return url || fallback;
   }
 }
 
@@ -431,13 +432,13 @@ export function planGitDiffOpen(
 
 export function planCommitHistoryOpen(
   tabs: Tab[],
-  input: { repoRoot: string; branch?: string | null },
+  input: { repoRoot: string; title: string },
   allocId: () => number,
 ): { tabs: Tab[]; targetId: number } {
   const existing = tabs.find(
     (tab) => tab.kind === "git-history" && tab.repoRoot === input.repoRoot,
   );
-  const title = input.branch ? `History · ${input.branch}` : "Git History";
+  const title = input.title;
   if (existing) {
     if (existing.title === title) return { tabs, targetId: existing.id };
     return {
@@ -517,6 +518,14 @@ export function planRemoteReposOpen(
 }
 
 export function useTabs(initial?: Partial<TerminalTab>) {
+  const t = useT();
+  // The names a tab falls back to when there is nothing better to show: a
+  // terminal with no cwd, a command-blocks terminal, a preview with no url.
+  // Resolved to strings here so the callbacks below can depend on the string
+  // (and so `setTabs((t) => ...)` cannot shadow the lookup).
+  const shellLabel = t("tabs.shell");
+  const blocksLabel = t("tabs.blocks");
+  const previewLabel = t("tabs.preview");
   const [tabs, setTabs] = useState<Tab[]>(() => {
     const tabId = 1;
     const leafId = 2;
@@ -525,7 +534,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         id: tabId,
         kind: "terminal",
         cold: true,
-        title: initial?.title ?? "shell",
+        title: initial?.title ?? shellLabel,
         cwd: initial?.cwd,
         paneTree: { kind: "leaf", id: leafId, cwd: initial?.cwd },
         activeLeafId: leafId,
@@ -578,7 +587,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         {
           id: tabId,
           kind: "terminal",
-          title: "shell",
+          title: shellLabel,
           cwd,
           paneTree: {
             kind: "leaf",
@@ -593,7 +602,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       setActiveId(tabId);
       return tabId;
     },
-    [],
+    [shellLabel],
   );
 
   const newBlockTab = useCallback((cwd?: string) => {
@@ -604,7 +613,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       {
         id: tabId,
         kind: "terminal",
-        title: "blocks",
+        title: blocksLabel,
         cwd,
         paneTree: { kind: "leaf", id: leafId, cwd },
         activeLeafId: leafId,
@@ -613,7 +622,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     ]);
     setActiveId(tabId);
     return tabId;
-  }, []);
+  }, [blocksLabel]);
 
   useEffect(() => {
     if (!import.meta.env?.DEV || typeof window === "undefined") return;
@@ -736,13 +745,13 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       {
         id,
         kind: "preview",
-        title: titleFromUrl(url),
+        title: titleFromUrl(url, previewLabel),
         url,
       },
     ]);
     setActiveId(id);
     return id;
-  }, []);
+  }, [previewLabel]);
 
   // Mirrors tabsRef like openFileTab instead of using a functional update: a
   // batch that opens a markdown file before a regular one (multi-file "Open
@@ -823,9 +832,14 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   const openCommitHistoryTab = useCallback(
     (input: { repoRoot: string; branch?: string | null }) => {
       const curr = tabsRef.current;
+      // The label is built here rather than in the planner: it depends on the
+      // language, and the planner stays a pure function over tabs.
+      const title = input.branch
+        ? t("gitHistory.tabTitle", { branch: input.branch })
+        : t("gitHistory.tabTitlePlain");
       const plan = planCommitHistoryOpen(
         curr,
-        input,
+        { repoRoot: input.repoRoot, title },
         () => nextIdRef.current++,
       );
       if (plan.tabs !== curr) {
@@ -835,7 +849,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       setActiveId(plan.targetId);
       return plan.targetId;
     },
-    [],
+    [t],
   );
 
   /** 打开项目列表标签页；只开一个。 */
@@ -970,7 +984,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
             ...(patch.title !== undefined && { title: patch.title }),
             ...(patch.url !== undefined && {
               url: patch.url,
-              title: patch.title ?? titleFromUrl(patch.url),
+              title: patch.title ?? titleFromUrl(patch.url, previewLabel),
             }),
           };
         }
@@ -998,7 +1012,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         };
       }),
     );
-  }, []);
+  }, [previewLabel]);
 
   const selectByIndex = useCallback(
     (idx: number) => {

@@ -1,4 +1,5 @@
 import { native } from "@/lib/native";
+import { useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { Tab } from "@/modules/tabs/lib/useTabs";
 import { findLeaf, isLeaf, type PaneNode } from "@/modules/terminal/lib/panes";
@@ -73,6 +74,11 @@ export function useTabRestore({
 }: BootParams): boolean {
   const [hydrated, setHydrated] = useState(false);
   const done = useRef(false);
+  // The restore runs once and must not re-run when the language changes, so the
+  // name a preview tab falls back to is read through a ref rather than a dep.
+  const previewLabel = useT()("tabs.preview");
+  const previewLabelRef = useRef(previewLabel);
+  previewLabelRef.current = previewLabel;
 
   useEffect(() => {
     if (!ready || done.current) return;
@@ -101,7 +107,12 @@ export function useTabRestore({
         }
 
         const envFallback = saved.env ?? fallbackEnv;
-        const restored = hydrateTabs(saved.tabs, allocId, envFallback);
+        const restored = hydrateTabs(
+          saved.tabs,
+          allocId,
+          previewLabelRef.current,
+          envFallback,
+        );
         const idx = Math.max(0, Math.trunc(saved.activeTabIndex) || 0);
         const restoredActive = restored[idx] ?? restored[0] ?? null;
         // 环境跟着标签走：存下来的标签可能停在另一个环境里。

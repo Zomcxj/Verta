@@ -41,11 +41,11 @@ function basename(path: string): string {
   return parts.length ? parts[parts.length - 1] : path;
 }
 
-function titleFromUrl(url: string): string {
+function titleFromUrl(url: string, fallback: string): string {
   try {
     return new URL(url).host || url;
   } catch {
-    return url || "preview";
+    return url || fallback;
   }
 }
 
@@ -176,6 +176,7 @@ function collectLeaves(node: PaneNode): Array<{ id: number; cwd?: string }> {
 function hydrateTab(
   s: SerializedTab,
   allocId: () => number,
+  previewFallback: string,
   fallbackEnv?: WorkspaceEnv,
 ): Tab | null {
   switch (s.kind) {
@@ -215,7 +216,7 @@ function hydrateTab(
         id: allocId(),
         kind: "preview",
         cold: true,
-        title: titleFromUrl(s.url),
+        title: titleFromUrl(s.url, previewFallback),
         url: s.url,
       } satisfies PreviewTab;
     case "markdown":
@@ -250,13 +251,14 @@ export function freshTerminalTab(
 export function hydrateTabs(
   serialized: SerializedTab[],
   allocId: () => number,
+  previewFallback: string,
   fallbackEnv?: WorkspaceEnv,
 ): Tab[] {
   if (!Array.isArray(serialized)) return [];
   const out: Tab[] = [];
   for (const s of serialized) {
     try {
-      const tab = hydrateTab(s, allocId, fallbackEnv);
+      const tab = hydrateTab(s, allocId, previewFallback, fallbackEnv);
       if (tab) out.push(tab);
     } catch {
       // Skip corrupted entries rather than failing the whole restore.
