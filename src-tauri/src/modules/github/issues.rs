@@ -254,30 +254,60 @@ pub fn parse_pull_request(json: &str) -> Result<PullRequestInfo, serde_json::Err
     Ok(pr)
 }
 
-/// 解析 `repos/{slug}/commits/{sha}/check-runs`。
-pub fn parse_checks(json: &str) -> Result<CheckSummary, serde_json::Error> {
-    let raw: RawCheckRuns = serde_json::from_str(json)?;
-    let runs = raw.check_runs.unwrap_or_default();
-    let total = raw.total_count.unwrap_or(runs.len() as u32);
+/// `check-runs` 一页多少条（GitHub 上限）。
+pub const CHECKS_PER_PAGE: u32 = 100;
+/// 最多翻多少页。100 × 10 = 1000 条检查，已经远超真实仓库。
+pub const CHECKS_MAX_PAGES: u32 = 10;
+
+/// 某一页 `check-runs` 的路径（`{slug}` 由调用方替换）。
+pub fn checks_page_path(sha: &str, page: u32) -> String {
+    format!("repos/{{slug}}/commits/{sha}/check-runs?per_page={CHECKS_PER_PAGE}&page={page}")
+}
+
+/// 把各页的 `check-runs` 原始 JSON 合起来数一遍。
+///
+/// 一个仓库的检查超过 100 条时得一页页取，但**计数与状态只该在合起来之后算一次**：
+/// 每页各自算再相加会丢掉「还有没取到的」这个事实。`total` 取各页里最大的 `total_count`，
+/// 拿到的条数仍然少于它就算 `truncated` —— 跟只取一页时是同一条规则。
+pub fn summarize_check_pages(pages: &[String]) -> Result<CheckSummary, serde_json::Error> {
+    let mut total = 0u32;
+    let mut seen = 0u32;
     let mut ok = 0;
     let mut failed = 0;
     let mut pending = 0;
-    for run in &runs {
-        match check_outcome(run) {
-            Outcome::Success => ok += 1,
-            Outcome::Failure => failed += 1,
-            Outcome::Pending => pending += 1,
+    for json in pages {
+        let raw: RawCheckRuns = serde_json::from_str(json)?;
+        let runs = raw.check_runs.unwrap_or_default();
+        seen += runs.len() as u32;
+        total = total.max(raw.total_count.unwrap_or(runs.len() as u32));
+        for run in &runs {
+            match check_outcome(run) {
+                Outcome::Success => ok += 1,
+                Outcome::Failure => failed += 1,
+                Outcome::Pending => pending += 1,
+            }
         }
     }
+    let truncated = seen < total;
     Ok(CheckSummary {
         total,
         ok,
         failed,
         pending,
-        // 拿到的条数少于总数：只看到了一部分（GitHub 一页最多 100 条）。
-        truncated: (runs.len() as u32) < total,
-        state: check_state(total, failed, pending, (runs.len() as u32) < total),
+        truncated,
+        state: check_state(total, failed, pending, truncated),
     })
+}
+
+/// 这一页是否说明「检查还没取完」：满页就继续，不满页或到了页数上限就停。
+pub fn checks_have_more(page_rows: usize, page: u32) -> bool {
+    page_rows >= CHECKS_PER_PAGE as usize && page < CHECKS_MAX_PAGES
+}
+
+/// 一页 `check-runs` 里有几条（解不开就是 None，调用方据此当作没有下一页）。
+pub fn count_check_runs(json: &str) -> Option<usize> {
+    let raw: RawCheckRuns = serde_json::from_str(json).ok()?;
+    Some(raw.check_runs.unwrap_or_default().len())
 }
 
 enum Outcome {
@@ -417,6 +447,24 @@ pub fn merge_method_problem(method: &str) -> Option<String> {
     }
 }
 
+/// 合并时要带上的 head sha 不合法时的说明。
+///
+/// 空串是允许的（详情没读到 / 老版本调用方）：那样就不带这道保险，照常合并。
+/// 但一旦给了值，它必须是 40 位十六进制 —— 拿个别的字符串去请求，GitHub 只会回一句
+/// 很难看懂的错，不如在本地就说清。
+pub fn head_sha_problem(sha: &str) -> Option<String> {
+    let sha = sha.trim();
+    if sha.is_empty() {
+        return None;
+    }
+    let hex = sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit());
+    if hex {
+        None
+    } else {
+        Some(format!("PR 的 head sha 看起来不对：{sha}"))
+    }
+}
+
 /// 把逗号 / 空格分隔的标签串拆开，并去掉空项与前导 `#`。
 pub fn parse_labels(raw: &str) -> Vec<String> {
     raw.split([',', ' ', '\t', '\n'])
@@ -464,6 +512,9 @@ fn logins(users: Option<Vec<RawUser>>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const SUCCESS_RUN: &str = r#"{"status": "completed", "conclusion": "success"}"#;
+    const FAILURE_RUN: &str = r#"{"status": "completed", "conclusion": "failure"}"#;
 
     #[test]
     fn a_list_holds_both_issues_and_pull_requests() {
@@ -597,7 +648,7 @@ mod tests {
             {"status": "completed", "conclusion": "failure"},
             {"status": "in_progress", "conclusion": null}
         ]}"#;
-        let checks = parse_checks(json).expect("应能解析");
+        let checks = summarize_check_pages(&[json.to_string()]).expect("应能解析");
         assert_eq!(checks.total, 3);
         assert_eq!(checks.ok, 1);
         assert_eq!(checks.failed, 1);
@@ -613,11 +664,67 @@ mod tests {
         let json = r#"{"total_count": 140, "check_runs": [
             {"status": "completed", "conclusion": "success"},
             {"status": "completed", "conclusion": "success"}]}"#;
-        let checks = parse_checks(json).expect("应能解析");
+        let checks = summarize_check_pages(&[json.to_string()]).expect("应能解析");
         assert_eq!(checks.total, 140);
         assert_eq!(checks.ok, 2);
         assert!(checks.truncated, "只看到 2 条，140 条没看完");
         assert_eq!(checks.state, "partial");
+    }
+
+    #[test]
+    fn paging_every_checked_run_can_end_in_a_pass_again() {
+        // 140 条检查分成两页取全了：这时才敢说「全部通过」。
+        let first = format!(
+            r#"{{"total_count": 4, "check_runs": [{}, {}]}}"#,
+            SUCCESS_RUN, SUCCESS_RUN
+        );
+        let second = format!(
+            r#"{{"total_count": 4, "check_runs": [{}, {}]}}"#,
+            SUCCESS_RUN, SUCCESS_RUN
+        );
+        let checks =
+            summarize_check_pages(&[first, second]).expect("应能解析");
+        assert_eq!(checks.total, 4);
+        assert_eq!((checks.ok, checks.failed), (4, 0));
+        assert!(!checks.truncated);
+        assert_eq!(checks.state, "pass", "全取到并且全绿才报通过");
+    }
+
+    #[test]
+    fn a_failure_on_a_later_page_is_not_filed_away() {
+        let first = format!(
+            r#"{{"total_count": 4, "check_runs": [{}, {}]}}"#,
+            SUCCESS_RUN, SUCCESS_RUN
+        );
+        let second = format!(
+            r#"{{"total_count": 4, "check_runs": [{}, {}]}}"#,
+            SUCCESS_RUN, FAILURE_RUN
+        );
+        let checks = summarize_check_pages(&[first, second]).expect("应能解析");
+        assert_eq!((checks.ok, checks.failed), (3, 1));
+        assert_eq!(checks.state, "fail", "看到失败就报失败");
+    }
+
+    #[test]
+    fn a_second_page_that_never_arrived_still_says_partial() {
+        // 只拿到了第一页：哪怕这一页全绿也不能说通。
+        let first = format!(
+            r#"{{"total_count": 140, "check_runs": [{}, {}]}}"#,
+            SUCCESS_RUN, SUCCESS_RUN
+        );
+        let checks = summarize_check_pages(&[first]).expect("应能解析");
+        assert!(checks.truncated);
+        assert_eq!(checks.state, "partial");
+    }
+
+    #[test]
+    fn paging_stops_on_a_short_page_or_at_the_cap() {
+        assert!(checks_have_more(100, 1));
+        assert!(!checks_have_more(99, 1));
+        assert!(!checks_have_more(100, CHECKS_MAX_PAGES));
+        assert_eq!(count_check_runs(r#"{"check_runs":[{},{}]}"#), Some(2));
+        assert_eq!(count_check_runs("not json"), None);
+        assert!(checks_page_path("abc", 2).contains("per_page=100&page=2"));
     }
 
     #[test]
@@ -633,6 +740,18 @@ mod tests {
         assert!(merge_method_problem("nope").is_some());
         assert!(state_problem("all").is_none());
         assert!(state_problem("weird").is_some());
+    }
+
+    #[test]
+    fn a_merge_guard_sha_must_be_a_real_sha_but_may_be_missing() {
+        assert!(head_sha_problem("").is_none());
+        assert!(head_sha_problem("   ").is_none());
+        assert!(head_sha_problem("abc123").is_some());
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        assert!(head_sha_problem(sha).is_none());
+        assert!(head_sha_problem(&format!(" {sha} ")).is_none());
+        assert!(head_sha_problem(&sha.replace('a', "g")).is_some());
+        assert!(head_sha_problem(&format!("{sha}00")).is_some());
     }
 
     #[test]

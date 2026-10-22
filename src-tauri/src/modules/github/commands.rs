@@ -1166,13 +1166,27 @@ fn read_issue_detail(repo: &str, number: u64) -> IssueDetailPayload {
         .unwrap_or_default();
     if !head_sha.is_empty() {
         // 一页最多 100 条，得说清楚要 100：默认一页只有 30 条，40 个检查时只看到前 30，
-        // 界面就会拿「没看完」当「全通过」。parse_checks 也据此标 truncated。
-        let path = format!("repos/{slug}/commits/{head_sha}/check-runs?per_page=100");
-        if let Ok(output) = gh::run(&["api", &path], gh::ISSUE_DETAIL_TIMEOUT_SECS) {
-            if output.is_ok() {
-                if let Ok(checks) = issues::parse_checks(&output.stdout) {
-                    detail.checks = Some(checks);
+        // 界面就会拿「没看完」当「全通过」。超过 100 条还要翻页，取完再一起数
+        // （summarize_check_pages 会记住 total_count，少拿了就标 truncated）。
+        let mut pages: Vec<String> = Vec::new();
+        for page in 1..=issues::CHECKS_MAX_PAGES {
+            let page_path = issues::checks_page_path(&head_sha, page);
+            let path = page_path.replace("{slug}", &slug);
+            match gh::run(&["api", &path], gh::ISSUE_DETAIL_TIMEOUT_SECS) {
+                Ok(output) if output.is_ok() => {
+                    let rows = issues::count_check_runs(&output.stdout);
+                    pages.push(output.stdout);
+                    if !rows.is_some_and(|count| issues::checks_have_more(count, page)) {
+                        break;
+                    }
                 }
+                // 后面几页取不到：已拿到的照样给，少拿的事实由 truncated / total 说出来。
+                _ => break,
+            }
+        }
+        if !pages.is_empty() {
+            if let Ok(checks) = issues::summarize_check_pages(&pages) {
+                detail.checks = Some(checks);
             }
         }
     }
@@ -1276,17 +1290,23 @@ fn issue_set_state(repo: &str, number: u64, state: &str) -> IssueActionResult {
 }
 
 /// 合并一个 PR。`method` 是 `merge` / `squash` / `rebase`。
+///
+/// `head_sha` 是确认框打开那一刻那条 PR 的 head，合并时带上它：你点确认到请求落地之间，
+/// 别人可能又往这个分支推了东西，不带 sha 就会把没看过的提交一起合进去。GitHub 上 sha
+/// 对不上时回 409，我们如实把它透出来，而不是悄悄合掉。
 #[tauri::command]
 pub async fn github_pr_merge(
     repo: String,
     number: u64,
     method: Option<String>,
+    head_sha: Option<String>,
 ) -> Result<IssueActionResult, String> {
     let method = method.as_deref().unwrap_or("squash").to_string();
-    blocking(move || Ok(pr_merge(&repo, number, &method))).await
+    let head_sha = head_sha.unwrap_or_default();
+    blocking(move || Ok(pr_merge(&repo, number, &method, &head_sha))).await
 }
 
-fn pr_merge(repo: &str, number: u64, method: &str) -> IssueActionResult {
+fn pr_merge(repo: &str, number: u64, method: &str, head_sha: &str) -> IssueActionResult {
     let slug = match parse_repo_slug(repo) {
         Ok(slug) => slug,
         Err(message) => {
@@ -1299,12 +1319,20 @@ fn pr_merge(repo: &str, number: u64, method: &str) -> IssueActionResult {
     if let Some(problem) = issues::merge_method_problem(method) {
         return IssueActionResult::failed(KIND_ERROR, &slug, number, problem);
     }
+    let head_sha = head_sha.trim();
+    if let Some(problem) = issues::head_sha_problem(head_sha) {
+        return IssueActionResult::failed(KIND_ERROR, &slug, number, problem);
+    }
 
     let path = format!("repos/{slug}/pulls/{number}/merge");
-    let payload = serde_json::json!({ "merge_method": method });
+    let mut body = serde_json::json!({ "merge_method": method });
+    if !head_sha.is_empty() {
+        // 空 sha 不带这个字段：老 gh / 取详情失败时还能合，只是少了那道保险。
+        body["sha"] = serde_json::Value::String(head_sha.to_string());
+    }
+    let payload = body.to_string();
     let args = ["api", "--method", "PUT", &path, "--input", "-"];
-    let output = match gh::run_with_stdin(&args, &payload.to_string(), gh::ISSUE_ACTION_TIMEOUT_SECS)
-    {
+    let output = match gh::run_with_stdin(&args, &payload, gh::ISSUE_ACTION_TIMEOUT_SECS) {
         Ok(output) => output,
         Err(GhRunError::NotInstalled) => return IssueActionResult::not_installed(&slug, number),
         Err(GhRunError::Io(error)) => {

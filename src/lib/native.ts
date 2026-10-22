@@ -843,11 +843,12 @@ export const native = {
       labels: labels ?? null,
     }),
   /** 合并一个 PR。`method` 是 `merge` / `squash` / `rebase`。 */
-  githubPrMerge: (repo: string, number: number, method?: string) =>
+  githubPrMerge: (repo: string, number: number, method?: string, headSha?: string) =>
     invoke<WireIssueActionResult>("github_pr_merge", {
       repo,
       number,
       method: method ?? null,
+      headSha: headSha ?? null,
     }),
   gitPanelSnapshot: (cwd: string) =>
     invoke<GitPanelSnapshot>("git_panel_snapshot", {

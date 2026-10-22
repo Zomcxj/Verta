@@ -168,6 +168,19 @@ describe("filters", () => {
     ).toHaveLength(4);
   });
 
+  it("searches the number with or without a leading #", () => {
+    expect(
+      filterRows(rows, { kind: "all", state: "all", keyword: "#2" }).map(
+        (row) => row.number,
+      ),
+    ).toEqual([2]);
+    expect(
+      filterRows(rows, { kind: "all", state: "all", keyword: " #2 " }).map(
+        (row) => row.number,
+      ),
+    ).toEqual([2]);
+  });
+
   it("returns nothing when the keyword matches nothing", () => {
     expect(
       filterRows(rows, { kind: "all", state: "all", keyword: "没有这个" }),

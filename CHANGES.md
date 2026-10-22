@@ -15,6 +15,14 @@
 <details open>
 <summary><strong>2026-10-22</strong></summary>
 
+**Issues / PR：合并前锁住 head sha、检查超过 100 条会翻页、列表几个小毛病**
+
+- `src-tauri/src/modules/github/commands.rs`：合并 PR 带上确认框打开时那条 PR 的 head sha（`sha` 字段）—— 你点确认到请求落地之间别人又推了提交的话，GitHub 回 409，我们把原文透出来，不会把没看过的提交一起合掉；`check-runs` 超过 100 条时按页取（最多 10 页），取完再一起数。
+- `src-tauri/src/modules/github/issues.rs`：新增 `head_sha_problem`（空的允许，给了值必须是 40 位十六进制）、`summarize_check_pages`（多页合并后只算一次状态，少拿仍是 `partial`）、`checks_page_path` / `checks_have_more` / `count_check_runs`。
+- `src/lib/native.ts`、`src/modules/remotes/IssuesDialog.tsx`：合并时把 head sha 从详情带进去；列表请求加序号，切「打开 / 已关闭」时慢响应不会盖掉新结果；空态按当前筛选说人话（「只看打开的」「只看已关闭的」「哪里都没有」）。
+- `src/modules/remotes/lib/issues.ts`：关键字里带 `#` 也能按编号搜（`#20` 与 `20` 等价）。
+- `src/modules/command-palette/commands.ts`、`src/modules/command-palette/types.ts`、`src/modules/i18n/messages.ts`：命令面板里禁用原因原来写死英文（`Last tab` / `Pane limit` / `No workspace root`），改成 i18n 键，中文界面不再蹦英文。
+
 **GitHub 面板：检查状态不再「假绿」，合并被拦的理由不再写死中文**
 
 - `src-tauri/src/modules/github/commands.rs`：取 `check-runs` 时显式带 `per_page=100`（GitHub 默认一页只有

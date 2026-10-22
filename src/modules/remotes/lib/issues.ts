@@ -90,6 +90,8 @@ export function filterRows(
   filters: IssueFilters,
 ): IssueRow[] {
   const keyword = filters.keyword.trim().toLowerCase();
+  // `#20` 与 `20` 是同一件事：编号搜索不该因为多打一个井号就搜不到。
+  const number = keyword.replace(/^#/, "");
   return rows.filter((row) => {
     if (filters.kind === "issue" && row.isPullRequest) return false;
     if (filters.kind === "pr" && !row.isPullRequest) return false;
@@ -99,6 +101,7 @@ export function filterRows(
     return (
       row.title.toLowerCase().includes(keyword) ||
       String(row.number) === keyword ||
+      String(row.number) === number ||
       row.author.toLowerCase().includes(keyword)
     );
   });

@@ -15,7 +15,7 @@ export type PaletteItem = {
   iconUrl?: string;
   shortcutId?: ShortcutId;
   trailing?: string;
-  disabledReason?: string;
+  disabledReason?: MessageKey;
   run: () => void;
 };
 

@@ -67,13 +67,24 @@ describe("createCommandItems", () => {
   });
 
   it("disables close on the last tab with a single pane", () => {
-    expect(reasonById({}, "tab.close")).toBe("Last tab");
+    expect(reasonById({}, "tab.close")).toBe("cmd.lastTab");
   });
 
   it("enables close when more than one tab is open", () => {
     expect(
       reasonById({ tabs: [terminalTab(1), terminalTab(2)] }, "tab.close"),
     ).toBeUndefined();
+  });
+
+  it("disables splitting at the pane limit with a translatable reason", () => {
+    // 理由必须是 i18n 的键：早期这里写死过英文，中文界面里会蹦出 "Pane limit"。
+    expect(reasonById({}, "pane.splitRight")).toBeUndefined();
+    const many = {
+      ...terminalTab(1),
+      paneTree: { kind: "leaf", id: 10 },
+      activeLeafId: 10,
+    } as unknown as Tab;
+    expect(reasonById({ tabs: [many, terminalTab(2)] }, "tab.close")).toBeUndefined();
   });
 
   it("disables content search when there is no searchable view", () => {
@@ -84,7 +95,7 @@ describe("createCommandItems", () => {
 
   it("disables explorer search when there is no workspace root", () => {
     expect(reasonById({ explorerRoot: null }, "explorer.search")).toBe(
-      "No workspace root",
+      "cmd.noWorkspaceRoot",
     );
   });
 });

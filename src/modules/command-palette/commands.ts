@@ -1,4 +1,5 @@
 import type { SearchTarget } from "@/modules/header";
+import type { MessageKey } from "@/modules/i18n";
 import { MAX_PANES_PER_TAB, type Tab } from "@/modules/tabs";
 import { leafIds } from "@/modules/terminal";
 import {
@@ -70,13 +71,13 @@ export function createCommandItems(
     : 0;
   const onlyOneTab = ctx.tabs.length < 2;
   const noWorkspaceRoot = !ctx.explorerRoot && !ctx.home;
-  const splitDisabled = !activeTerminalTab
+  const splitDisabled: MessageKey | undefined = !activeTerminalTab
     ? "cmd.noTerminalTab"
     : activePaneCount >= MAX_PANES_PER_TAB
-      ? "Pane limit"
+      ? "cmd.paneLimit"
       : undefined;
-  const closeDisabled =
-    onlyOneTab && activePaneCount < 2 ? "Last tab" : undefined;
+  const closeDisabled: MessageKey | undefined =
+    onlyOneTab && activePaneCount < 2 ? "cmd.lastTab" : undefined;
 
   return [
     {
@@ -153,7 +154,7 @@ export function createCommandItems(
       keywords: ["file", "editor", "create"],
       icon: FileEditIcon,
       shortcutId: "tab.newEditor",
-      disabledReason: noWorkspaceRoot ? "No workspace root" : undefined,
+      disabledReason: noWorkspaceRoot ? "cmd.noWorkspaceRoot" : undefined,
       run: ctx.openNewEditor,
     },
     {
@@ -247,7 +248,7 @@ export function createCommandItems(
       keywords: ["explorer", "workspace", "file", "open"],
       icon: Search01Icon,
       shortcutId: "explorer.search",
-      disabledReason: ctx.explorerRoot ? undefined : "No workspace root",
+      disabledReason: ctx.explorerRoot ? undefined : "cmd.noWorkspaceRoot",
       run: ctx.focusExplorerSearch,
     },
     {

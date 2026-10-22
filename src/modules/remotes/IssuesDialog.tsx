@@ -24,7 +24,13 @@ import {
 } from "@/lib/native";
 import { cn } from "@/lib/utils";
 import { useT } from "@/modules/i18n";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { IssueDetail } from "./IssueDetail";
 import {
@@ -46,6 +52,8 @@ type Props = {
 type Pending = {
   what: "close" | "reopen" | "merge";
   method?: string;
+  /** 点开确认框那一刻的 head sha：合并时带上它，防止期间有人又推了新提交。 */
+  headSha?: string;
 };
 
 /**
@@ -107,17 +115,26 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
     };
   }, [repo]);
 
+  /**
+   * 每发一次列表请求就换一个序号：慢的那次回来时如果序号已经变了，就丢掉它。
+   * 切「打开 / 已关闭」很快，不这样的话先发的慢响应会把后发的正确结果盖掉。
+   */
+  const listRequest = useRef(0);
   const load = useCallback(async () => {
     if (!repo) return;
+    const request = ++listRequest.current;
     setReading(true);
     setFatal(null);
     try {
-      setPayload(await native.githubIssues(repo, state));
+      const result = await native.githubIssues(repo, state);
+      if (request !== listRequest.current) return;
+      setPayload(result);
     } catch (e) {
+      if (request !== listRequest.current) return;
       setPayload(null);
       setFatal(String(e));
     } finally {
-      setReading(false);
+      if (request === listRequest.current) setReading(false);
     }
   }, [repo, state]);
 
@@ -183,6 +200,18 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
   const notice = issueNotice(payload, reading);
   // 筛选后一条都不剩：那是「没匹配上」，不是「这个仓库没有 issue」。
   const emptyByFilter = notice === null && visible.length === 0;
+  // 看到「一条都没有」时，把当前筛选条件翻译成一句人话 —— 不然用户会以为仓库真的是空的。
+  const emptyReason = !emptyByFilter
+    ? null
+    : keyword.trim()
+      ? t("remotes.issues.noMatch.title")
+      : state === "all"
+        ? t("remotes.issues.empty.title")
+        : t(
+            state === "open"
+              ? "remotes.issues.empty.open"
+              : "remotes.issues.empty.closed",
+          );
 
   const close = (next: boolean) => {
     if (busy) return;
@@ -223,7 +252,12 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
     try {
       const result =
         pending.what === "merge"
-          ? await native.githubPrMerge(repo, number, pending.method)
+          ? await native.githubPrMerge(
+              repo,
+              number,
+              pending.method,
+              pending.headSha,
+            )
           : await native.githubIssueSetState(
               repo,
               number,
@@ -302,7 +336,13 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
                   what: detailBody.state === "open" ? "close" : "reopen",
                 })
               }
-              onMerge={(method) => setPending({ what: "merge", method })}
+              onMerge={(method) =>
+                setPending({
+                  what: "merge",
+                  method,
+                  headSha: detail?.detail?.pullRequest?.headSha,
+                })
+              }
               onBack={() => {
                 setDetail(null);
                 setDetailNumber(null);
@@ -505,9 +545,7 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
                   ) : null}
                 </div>
               ) : emptyByFilter ? (
-                <p className="text-xs text-muted-foreground">
-                  {t("remotes.issues.noMatch.title")}
-                </p>
+                <p className="text-xs text-muted-foreground">{emptyReason}</p>
               ) : (
                 <div className="max-h-[55vh] overflow-auto">
                   {payload?.truncated ? (
