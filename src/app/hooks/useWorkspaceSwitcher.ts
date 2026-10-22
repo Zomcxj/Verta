@@ -1,6 +1,7 @@
-import { type RefObject, useCallback, useEffect, useState } from "react";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { homeDir } from "@tauri-apps/api/path";
 import { native } from "@/lib/native";
+import { useT } from "@/modules/i18n";
 import type { Tab } from "@/modules/tabs";
 import {
   getWslHome,
@@ -38,6 +39,11 @@ export function useWorkspaceSwitcher({
   const [home, setHome] = useState<string | null>(null);
   const [launchCwd, setLaunchCwd] = useState<string | null>(null);
   const [launchCwdResolved, setLaunchCwdResolved] = useState(false);
+  // 换工作区时给的提示要跟着语言走，但 switchWorkspace 的身份被上层当依赖用，
+  // 所以文案走 ref 读，不把 `t` 塞进它的依赖数组。
+  const t = useT();
+  const tRef = useRef(t);
+  tRef.current = t;
 
   useEffect(() => {
     homeDir()
@@ -118,9 +124,7 @@ export function useWorkspaceSwitcher({
       }
       const dirty = tabsRef.current.some((t) => t.kind === "editor" && t.dirty);
       if (dirty) {
-        window.alert(
-          "Save or close unsaved editor tabs before switching workspace.",
-        );
+        window.alert(tRef.current("app.switchWorkspaceDirty"));
         return false;
       }
 

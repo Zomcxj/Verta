@@ -104,7 +104,7 @@ export const PreviewAddressBar = forwardRef<PreviewAddressBarHandle, Props>(
       const ok = await probeUrl(url);
       setCheckingPort(null);
       if (!ok) {
-        setNotice(`No server listening on :${port}.`);
+        setNotice(t("preview.noServerOnPort", { port }));
         return;
       }
       setDraft(url);

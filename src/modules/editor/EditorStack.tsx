@@ -1,4 +1,5 @@
 import { cn, isMarkdownPath } from "@/lib/utils";
+import { useT } from "@/modules/i18n";
 import { MarkdownViewToggle } from "@/modules/markdown";
 import type { EditorTab, Tab } from "@/modules/tabs";
 import { useEffect, useRef } from "react";
@@ -21,6 +22,7 @@ export function EditorStack({
   onCloseTab,
   onSetMarkdownView,
 }: Props) {
+  const tr = useT();
   const editors = tabs.filter(
     (t): t is EditorTab => t.kind === "editor" && !t.cold,
   );
@@ -119,7 +121,7 @@ export function EditorStack({
                           mode="raw"
                           onChange={(mode) => onSetMarkdownView(t.id, mode)}
                           renderedDisabled={t.dirty}
-                          renderedHint="Save to preview"
+                          renderedHint={tr("markdown.saveToPreview")}
                         />
                       )
                     : undefined

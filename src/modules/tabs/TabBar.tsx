@@ -522,7 +522,7 @@ export function TabBar({
                             size={13}
                             strokeWidth={1.75}
                           />
-                          <span className="flex-1">Rename</span>
+                          <span className="flex-1">{tr("tabs.rename")}</span>
                         </ContextMenuItem>
                         {tabs.length > 1 && (
                           <>
@@ -536,7 +536,7 @@ export function TabBar({
                                 size={13}
                                 strokeWidth={1.75}
                               />
-                              <span className="flex-1">Close</span>
+                              <span className="flex-1">{tr("tabs.close")}</span>
                             </ContextMenuItem>
                           </>
                         )}

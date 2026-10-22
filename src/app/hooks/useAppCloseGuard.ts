@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { Tab } from "@/modules/tabs";
 import { leafHasForegroundProcess, leafIds } from "@/modules/terminal";
@@ -36,6 +37,7 @@ export function canOptOutOfAppClosePrompt(blocker: AppCloseBlocker): boolean {
 export function useAppCloseGuard(tabsRef: RefObject<Tab[]>) {
   const [pendingAppClose, setPendingAppClose] =
     useState<AppCloseBlocker | null>(null);
+  const t = useT();
   const forceClose = useRef(false);
   const closing = useRef(false);
   const closeWindow = useCallback(async () => {
@@ -44,11 +46,11 @@ export function useAppCloseGuard(tabsRef: RefObject<Tab[]>) {
       await getCurrentWindow().close();
     } catch (error) {
       forceClose.current = false;
-      toast.error("Could not close the window", {
+      toast.error(t("app.closeWindowFailed"), {
         description: String(error),
       });
     }
-  }, []);
+  }, [t]);
   const finishClose = useCallback(async () => {
     if (closing.current) return;
     closing.current = true;

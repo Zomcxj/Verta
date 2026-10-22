@@ -154,6 +154,20 @@
 - 顺手规范了两处破折号：设置页更新失败的 `Check failed — retry` 与 markdown 的 `Binary file — cannot render as markdown.` —— 原文用的是 U+2014，与仓库「No em-dash anywhere」的规矩冲突，改成连字符（只有这个字符变了，其它逐字不变）。
 - 明确**不翻**（都是没有消费方的死字符串、协议面或技术诊断）：`useSourceControlPanel.ts` 的 `statusLabel` 与 `stagedEmptyText` / `unstagedEmptyText`（全仓库无人读）、ghostty 渲染器的内部诊断串、`pty-bridge` 的协议字段与状态枚举、`block/lib/shellEditor.ts` 那个到不了的兜底占位（`ShellInput` 总会传 `placeholderText`）、工具专名与 `ms` / `px` 这类单位符号。
 
+**界面文案长尾（第三轮）：全仓扫描补漏**
+
+上一轮是「按交接单给的名单逐模块做」✗，所以漏了不少 ✗ —— 这轮改成**扫描驱动** ✓，扫九种形态：裸 JSX 文本 ✓、`title`/`aria-label`/`placeholder` 的字面量与 JSX 表达式 ✓、`toast(...)` ✓、模板串里的英文句子 ✓、对象数组里的英文串 ✓、原生 `alert`/`confirm` ✓、`sr-only` ✓、静态 HTML ✓、Rust 侧会进 UI 的串 ✓。
+
+- `src/modules/tabs/TabBar.tsx`：标签右键菜单的 `Rename` / `Close` 写死了 ✗（同一菜单里「关闭右侧」「关闭其他」早就在用 `tr(...)` ✗）→ 改走既有的 `tabs.rename` / `tabs.close` ✓。**用户报的就是这处** ✓，真机已验：菜单现在是「重命名标签页 / 关闭标签页 / 关闭右侧所有标签页 / 关闭其他标签页」✓。
+- `src/app/components/WorkspaceInputBar.tsx`：分支 chip 的 `` title={`Branch: ${branch}`} `` ✗ → `t("workspace.branchChip")` ✓（那个 chip 只出现在命令块标签页上 ✓）。
+- `src/modules/preview/PreviewAddressBar.tsx`：`` setNotice(`No server listening on :${port}.`) `` ✗ → `t("preview.noServerOnPort")` ✓。
+- `src/app/hooks/useAppCloseGuard.ts`、`useWorkspaceSwitcher.ts`：关窗口失败的 toast ✓ 与切换工作区前的原生长提示 ✓；后者用 ref 读文案 ✓（那个回调的身份会被消费方当依赖 ✗，不能因为换语言而换身份 ✓，照 `useTabRestore.ts` 的先例 ✓）。
+- `src/modules/editor/EditorStack.tsx`、`GitDiffPane.tsx`：`renderedHint="Save to preview"` ✓、diff 预览不可用 / 二进制 / 文件过大 / 正在加载差异 ✓。`EditorStack` 里的翻译函数取名 `tr` ✓ —— 那个文件里 `.map((t) => …)` 的 `t` 已经被标签对象占了 ✓。
+- `src/modules/editor/EditorPane.tsx`：**另一会话的在制品** ✗，本轮经用户明确点头后才一起接上 ✓ —— 14 处：语言服务器格式化的成败 toast ✓、`Binary file` / `File too large` / `Hide preview` / `Show preview` / `Original size` / `Fit to window` ✓、`Loading…` / `Open anyway` / 图片读不出 ✓。**只动文案行** ✓（文件里的半成品原样留着 ✓）。键名解析器 `Mod-s` / `Ctrl-g` 与扩展名表 ✗ 不翻 ✓。
+- `src/components/ui/*`（shadcn 原语）：`breadcrumb` 的 `sr-only`「More」与 `aria-label="breadcrumb"` ✓、`dialog` / `sheet` 的 `sr-only`「Close」✓、`dialog` 里那个**可见的** `Close` 按钮 ✓、`command` 的两个默认参数 ✓。**这是一次破例手改原语** ✓（`VERTA.md` 原本写着「别手改」✗）—— 理由：读屏与可见文案同样得跟着语言走 ✓，先例是 `spinner.tsx` 早就在用 `t("common.loading")` ✓；`command.tsx` 的改法是**删掉默认值、在组件体里 `?? t(...)` 兜底** ✓（默认参数不依赖 hook ✓、签名不变 ✓）。`VERTA.md` 已把这条例外写进规矩 ✓。
+- `src/modules/i18n/messages.ts`：新增 29 条键（中英两份 ✓），复用了 `tabs.rename` / `tabs.close` / `palette.title` / `editor.hidePreview` / `editor.showPreview` / `editor.preview.title` ✓。
+- ⚠️ 本轮顺带记下两条**留给下一轮**的：① `messages.ts` 里有多组**同义键** ✗（`editor.hidePreview` 与 `editor.preview.hide`、`preview.show` / `preview.hide` / `preview.label` ✗）—— 去重要跨文件改 ✓；② 后端来的英文 ✗（Rust 的 `Added` / `Modified` 等状态标签、主题校验串、updater 的 `status.message`、LSP stderr ✗）与两个窗口标题 ✗。
+
 </details>
 
 <details>

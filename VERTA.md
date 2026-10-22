@@ -403,7 +403,7 @@ What remains on purpose:
 
 ### UI conventions
 
-- **shadcn/ui** is configured (`components.json`, style `radix-luma`, base `mist`, icon lib **hugeicons**). Primitives in `src/components/ui/` - don't hand-edit; re-run `pnpm dlx shadcn add` to upgrade.
+- **shadcn/ui** is configured (`components.json`, style `radix-luma`, base `mist`, icon lib **hugeicons**). Primitives in `src/components/ui/` - don't hand-edit; re-run `pnpm dlx shadcn add` to upgrade. The copy they carry is the exception: it comes from the message table (`spinner.tsx` did this first, then `breadcrumb`/`dialog`/`sheet`/`command`), so a reader-visible or screen-reader string is translated in place - keep such a hand edit to the copy line so an upgrade can still be merged past it.
 - **AI Elements** were removed with the assistant. `components.json` still carries the `@ai-elements` registry entry; it is inert and should not be used to add chat surfaces back.
 - **Tailwind v4** - no `tailwind.config.*`, config is in `src/App.css` via `@theme`. Use `cn()` from `@/lib/utils`.
 - Animation: `motion` (Framer Motion successor). Resizable layout: `react-resizable-panels`.

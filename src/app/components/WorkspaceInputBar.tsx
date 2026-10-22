@@ -1,5 +1,6 @@
 import { Chip } from "@/components/Chip";
 import { homeRelativePath } from "@/lib/homeRelativePath";
+import { useT } from "@/modules/i18n";
 import { useBlockController } from "@/modules/terminal/lib/blockController";
 import { focusLeafInput } from "@/modules/terminal/lib/terminalSessionApi";
 import {
@@ -34,6 +35,7 @@ export function WorkspaceInputBar({
   home,
 }: Props) {
   const { os, shell } = useSystemInfo();
+  const t = useT();
 
   const controller = useBlockController(isBlockTab ? activeLeafId : null);
   const blockMode = controller?.blockMode ?? "prompt";
@@ -60,7 +62,7 @@ export function WorkspaceInputBar({
         </Chip>
       )}
       {branch && (
-        <Chip tone="violet" icon={GitBranchIcon} title={`Branch: ${branch}`}>
+        <Chip tone="violet" icon={GitBranchIcon} title={t("workspace.branchChip", { branch })}>
           {branch}
         </Chip>
       )}

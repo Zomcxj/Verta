@@ -180,22 +180,20 @@ export const EditorPane = memo(
           try {
             res = await lspFormatDocument(view);
           } catch (e) {
-            toast.error("Language server format failed", {
+            toast.error(tr("editor.lspFormatFailed"), {
               description: String(e),
             });
           }
           if (res === "unsupported" && !warnedNoFormatRef.current) {
             warnedNoFormatRef.current = true;
-            toast.warning("Format on save skipped", {
-              description:
-                "The active language server has no formatter. Pick an external one in Settings (Ruff for Python, Prettier, rustfmt, ...).",
+            toast.warning(tr("editor.formatSkipped.title"), {
+              description: tr("editor.formatSkipped.noFormatter"),
             });
           }
         } else if (!warnedNoLspRef.current) {
           warnedNoLspRef.current = true;
-          toast.warning("Format on save skipped", {
-            description:
-              "No active language server for this file. Enable one in the statusbar, or pick an external formatter in Settings.",
+          toast.warning(tr("editor.formatSkipped.title"), {
+            description: tr("editor.formatSkipped.noLsp"),
           });
         }
       }
@@ -211,7 +209,9 @@ export const EditorPane = memo(
           prefs.editorCustomFormatCommand,
         );
         if (error) {
-          toast.error(`${formatter} format failed`, { description: error });
+          toast.error(tr("editor.formatFailed", { formatter }), {
+            description: error,
+          });
         } else {
           const readBack = await readFileText(pathRef.current);
           if (readBack !== null && view && view.state.doc === docAtSave) {
@@ -511,7 +511,7 @@ export const EditorPane = memo(
     if (doc.status === "loading") {
       return (
         <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-          Loading…
+          {tr("editor.loading")}
         </div>
       );
     }
@@ -576,11 +576,15 @@ export const EditorPane = memo(
       return (
         <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
           <div className="text-sm text-foreground">
-            {doc.status === "binary" ? "Binary file" : "File too large"}
+            {doc.status === "binary"
+              ? tr("editor.binaryFile")
+              : tr("editor.fileTooLarge")}
           </div>
           <div className="text-xs text-muted-foreground">
             {formatBytes(doc.size)} ·{" "}
-            {canForce ? "syntax features disabled" : "preview not supported"}
+            {canForce
+              ? tr("editor.syntaxDisabled")
+              : tr("editor.previewUnsupported")}
           </div>
           {canForce && (
             <button
@@ -588,7 +592,7 @@ export const EditorPane = memo(
               onClick={openAnyway}
               className="mt-2 rounded-md border border-border bg-muted/60 px-3 py-1 text-xs text-foreground hover:bg-accent"
             >
-              Open anyway
+              {tr("editor.openAnyway")}
             </button>
           )}
         </div>
@@ -630,8 +634,12 @@ export const EditorPane = memo(
             <button
               type="button"
               onClick={toggleSide}
-              title={sideOpen ? "Hide preview" : "Show preview"}
-              aria-label={sideOpen ? "Hide preview" : "Show preview"}
+              title={
+                sideOpen ? tr("editor.hidePreview") : tr("editor.showPreview")
+              }
+              aria-label={
+                sideOpen ? tr("editor.hidePreview") : tr("editor.showPreview")
+              }
               aria-pressed={sideOpen}
               // Bottom right: the view switch owns the top right corner, and two
               // groups there overlap. No backdrop blur: it would add a
@@ -641,7 +649,7 @@ export const EditorPane = memo(
                 sideOpen && "text-foreground",
               )}
             >
-              Preview
+              {tr("editor.preview.title")}
             </button>
           )}
           <CodeMirror
@@ -695,6 +703,7 @@ function ImagePreview({
   path: string;
   name: string;
 }) {
+  const t = useT();
   const [fit, setFit] = useState(true);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [failed, setFailed] = useState(false);
@@ -702,7 +711,9 @@ function ImagePreview({
   if (failed) {
     return (
       <div className="flex flex-col items-center gap-1 text-center">
-        <div className="text-sm text-destructive">Could not read this image</div>
+        <div className="text-sm text-destructive">
+          {t("editor.image.readFailed")}
+        </div>
         <div className="text-xs text-muted-foreground">{path}</div>
       </div>
     );
@@ -722,7 +733,7 @@ function ImagePreview({
           onClick={() => setFit((was) => !was)}
           className="ml-auto shrink-0 cursor-pointer rounded px-1.5 py-0.5 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
         >
-          {fit ? "Original size" : "Fit to window"}
+          {fit ? t("editor.image.originalSize") : t("editor.image.fitToWindow")}
         </button>
       </div>
       <div className="flex min-h-0 w-full flex-1 items-center justify-center overflow-auto">

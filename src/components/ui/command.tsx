@@ -2,6 +2,7 @@ import * as React from "react"
 import { Command as CommandPrimitive } from "cmdk"
 
 import { cn } from "@/lib/utils"
+import { useT } from "@/modules/i18n"
 import {
   Dialog,
   DialogContent,
@@ -33,8 +34,8 @@ function Command({
 }
 
 function CommandDialog({
-  title = "Command Palette",
-  description = "Search for a command to run...",
+  title,
+  description,
   children,
   className,
   showCloseButton = false,
@@ -45,11 +46,14 @@ function CommandDialog({
   className?: string
   showCloseButton?: boolean
 }) {
+  const t = useT()
   return (
     <Dialog {...props}>
       <DialogHeader className="sr-only">
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
+        <DialogTitle>{title ?? t("palette.title")}</DialogTitle>
+        <DialogDescription>
+          {description ?? t("common.commandSearchDescription")}
+        </DialogDescription>
       </DialogHeader>
       <DialogContent
         className={cn(
