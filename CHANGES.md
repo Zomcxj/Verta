@@ -108,6 +108,10 @@
 - `src/modules/terminal/ghostty/webgl/WebGlTerminalSurface.ts`：根元素的占位底色在主题半透明时改成 `transparent`（与 WebGPU 那条路一致），不再一律铺不透明主题色。
 - `VERTA.md`：把「WebGL 回退有一块不透明底色」那句改成描述新的预乘 alpha 行为。
 
+**标签页：项目列表那个标签改叫「本地项目」**
+
+- `src/modules/i18n/messages.ts`：`tabs.new.projects` 从「项目 / Projects」改成「本地项目 / Local projects」，与另一个标签「远程仓库」对仗。这一个键同时决定标签页标题和标签栏「+」菜单里的那一项，两处一起变。
+
 </details>
 
 <details>
