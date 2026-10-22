@@ -61,6 +61,7 @@ import {
   useSidebarPanel,
 } from "@/modules/sidebar";
 import {
+  repositoryTargetScope,
   SourceControlPanel,
   useRepositoryTargeting,
   useSourceControlContext,
@@ -752,10 +753,10 @@ export default function App() {
       ? activeTab.path
       : null;
   const isRepositoryContextCurrent = useCallback((workspaceKey: string) => {
-    const currentWorkspaceKey = workspaceScopeKey(
-      useWorkspaceEnvStore.getState().env,
-    );
-    return workspaceKey === currentWorkspaceKey;
+    const currentEnv = workspaceScopeKey(useWorkspaceEnvStore.getState().env);
+    // The pin is scoped to the workspace root too (see `repositoryTargetScope`), and
+    // only the environment has to have stayed the same for a resolved repo to apply.
+    return workspaceKey.startsWith(`${currentEnv}\u0000`);
   }, []);
   const openSourceControl = useCallback(() => {
     toggleRightPanel();
@@ -770,7 +771,10 @@ export default function App() {
     openGitHistory: handleOpenGitHistoryForPath,
     followActiveContext: handleFollowRepositoryContext,
   } = useRepositoryTargeting({
-    workspaceKey: workspaceScopeKey(workspaceEnv),
+    workspaceKey: repositoryTargetScope(
+      workspaceScopeKey(workspaceEnv),
+      explorerRoot,
+    ),
     isContextCurrent: isRepositoryContextCurrent,
     openSourceControl,
     openCommitHistoryTab,

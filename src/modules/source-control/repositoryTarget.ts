@@ -23,9 +23,19 @@ function dirname(path: string | null): string | null {
 }
 
 /**
- * 右栏钉住的仓库按**环境**分开记：本机钉一个、某个发行版钉一个。切到 WSL 时继续显示本机
- * 那个仓库的改动，是最容易让人把两个文件系统搞混的一种做法。
+ * 右栏钉住的仓库按**工作区根**分开记（环境 + 根路径）：本机的 A 项目钉一个、B 项目钉一个，
+ * 某个发行版里的项目各钉一个。原来按空间记，空间就是一个根；删掉空间后只按环境记，
+ * 于是同一个环境里换项目（根变了）钉子还钉在老仓库上 —— 右栏继续显示上一个项目的改动与
+ * 历史，看起来就是「切到项目却没跟着切」。资源管理器早就按「环境 + 根」分桶
+ * （见 `explorer/lib/useFileTree` 的 scopeKey），这里对齐它。
  */
+export function repositoryTargetScope(
+  workspaceKey: string,
+  rootPath: string | null,
+): string {
+  return `${workspaceKey}\u0000${rootPath ?? ""}`;
+}
+
 export function repositoryTargetForWorkspace(
   targets: SourceControlRepositoryTargets,
   workspaceKey: string,

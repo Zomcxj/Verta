@@ -124,6 +124,12 @@
 - `src/app/components/CloseDialogs.tsx`：五个确认框（未保存的文件、终端里还有进程、文件已被删除、关闭右侧 / 关闭其他标签页、退出应用）原来文案全写死在 JSX 里；现在全走 `closeDialog.*`，标题复用 `tabs.unsaved` / `tabs.closeRight` / `tabs.closeOthers`，取消复用 `scm.common.cancel`。消息表没有复数规则，所以改成「按数量选键、片段也进表」：两个构造器（`appCloseMessage` / `closeManyMessage`）只返回 `{键, 参数}`，句子与片段（`closeDialog.frag.*`）都在表里，中英各自读得顺、不必引入复数引擎。
 - `src/modules/i18n/messages.ts`：新增 29 条键（中英两份）。
 
+**右栏源码管理不跟项目走（删 Spaces 时把「钉住的仓库」改粗了）**
+
+- `src/modules/source-control/repositoryTarget.ts`：钉住的仓库原来按**环境**分开记（本机一个、某个发行版一个）。删掉空间之前它是按空间记的，而空间就是一个项目根 —— 改成按环境记之后，同一个环境里换项目（根变了）钉子还钉在上一个项目的仓库上，右栏的改动列表与提交图就停在老仓库，看起来正是「切到项目却没跟着切」。改成按**工作区根**（环境 + 根路径）记，与资源管理器 `useFileTree` 的 scopeKey 同一种做法；新增 `repositoryTargetScope` 负责这层拼装。
+- `src/app/App.tsx`、`src/modules/source-control/index.ts`：用新的 scope 键；`isRepositoryContextCurrent` 只再校验「环境没变」（拼装格式由 `repositoryTargetScope` 保证）。
+- `src/modules/source-control/repositoryTarget.test.ts`：三条用例改成断言「按根分桶」，并新增一条把用户报的现象立成回归测试（同一环境换项目 ⇒ 回到跟随上下文）。
+
 </details>
 
 <details>

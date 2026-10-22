@@ -6,6 +6,7 @@ import {
   gitGraphRepositoryPath,
   repositoryTargetForWorkspace,
   repositoryTargetIsPending,
+  repositoryTargetScope,
   setRepositoryTargetForWorkspace,
   sourceControlRepositoryPath,
 } from "./repositoryTarget";
@@ -35,17 +36,20 @@ const historyTab: GitHistoryTab = {
 };
 
 describe("repository targets", () => {
-  it("records a fixed repository for one environment only", () => {
-    const targets = setRepositoryTargetForWorkspace({}, "local", "/repos/a");
+  const rootA = repositoryTargetScope("local", "/projects/a");
+  const rootB = repositoryTargetScope("local", "/projects/b");
 
-    expect(repositoryTargetForWorkspace(targets, "local")).toEqual({
+  it("records a fixed repository for one workspace root only", () => {
+    const targets = setRepositoryTargetForWorkspace({}, rootA, "/repos/a");
+
+    expect(repositoryTargetForWorkspace(targets, rootA)).toEqual({
       mode: "fixed",
       repoRoot: "/repos/a",
     });
-    expect(repositoryTargetForWorkspace(targets, "wsl:Ubuntu")).toEqual({
+    expect(repositoryTargetForWorkspace(targets, rootB)).toEqual({
       mode: "follow-context",
     });
-    expect(setRepositoryTargetForWorkspace(targets, "local", "/repos/a")).toBe(
+    expect(setRepositoryTargetForWorkspace(targets, rootA, "/repos/a")).toBe(
       targets,
     );
   });
@@ -53,42 +57,52 @@ describe("repository targets", () => {
   it("keeps repository paths isolated by workspace environment", () => {
     const localTargets = setRepositoryTargetForWorkspace(
       {},
-      "local",
+      repositoryTargetScope("local", "/projects/a"),
       "C:/repos/a",
     );
     const targets = setRepositoryTargetForWorkspace(
       localTargets,
-      "wsl:Ubuntu",
+      repositoryTargetScope("wsl:Ubuntu", "/projects/a"),
       "/repos/a",
     );
 
-    expect(repositoryTargetForWorkspace(targets, "local")).toEqual({
-      mode: "fixed",
-      repoRoot: "C:/repos/a",
-    });
-    expect(repositoryTargetForWorkspace(targets, "wsl:Ubuntu")).toEqual({
-      mode: "fixed",
-      repoRoot: "/repos/a",
+    expect(
+      repositoryTargetForWorkspace(
+        targets,
+        repositoryTargetScope("local", "/projects/a"),
+      ),
+    ).toEqual({ mode: "fixed", repoRoot: "C:/repos/a" });
+    expect(
+      repositoryTargetForWorkspace(
+        targets,
+        repositoryTargetScope("wsl:Ubuntu", "/projects/a"),
+      ),
+    ).toEqual({ mode: "fixed", repoRoot: "/repos/a" });
+  });
+
+  // 切换项目（同一个环境、根变了）不该继续显示上一个项目的仓库：
+  // 回到 follow-context，右栏才会显示新项目自己的改动与历史。
+  it("does not carry a pin into another project of the same environment", () => {
+    const pinned = setRepositoryTargetForWorkspace({}, rootA, "/repos/a");
+
+    expect(repositoryTargetForWorkspace(pinned, rootB)).toEqual({
+      mode: "follow-context",
     });
   });
 
-  it("returns to context-following without changing other environments", () => {
-    const otherEnv = setRepositoryTargetForWorkspace(
-      {},
-      "wsl:Ubuntu",
-      "/repos/b",
-    );
-    const targets = setRepositoryTargetForWorkspace(
-      otherEnv,
-      "local",
-      "/repos/a",
-    );
-    const next = clearRepositoryTargetForWorkspace(targets, "local");
+  it("scopes an empty root apart from a real one", () => {
+    expect(repositoryTargetScope("local", null)).not.toBe(rootA);
+  });
 
-    expect(repositoryTargetForWorkspace(next, "local")).toEqual({
+  it("returns to context-following without changing other roots", () => {
+    const other = setRepositoryTargetForWorkspace({}, rootB, "/repos/b");
+    const targets = setRepositoryTargetForWorkspace(other, rootA, "/repos/a");
+    const next = clearRepositoryTargetForWorkspace(targets, rootA);
+
+    expect(repositoryTargetForWorkspace(next, rootA)).toEqual({
       mode: "follow-context",
     });
-    expect(repositoryTargetForWorkspace(next, "wsl:Ubuntu")).toEqual({
+    expect(repositoryTargetForWorkspace(next, rootB)).toEqual({
       mode: "fixed",
       repoRoot: "/repos/b",
     });
