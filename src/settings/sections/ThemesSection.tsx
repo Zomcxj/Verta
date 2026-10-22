@@ -429,7 +429,9 @@ export function ThemesSection() {
               onValueChange={(v) => void setBackgroundOpacity(v[0] ?? 0)}
             />
             <div className="flex items-center justify-between gap-3 pt-1">
-              <span className="text-[11.5px] text-muted-foreground">Blur</span>
+              <span className="text-[11.5px] text-muted-foreground">
+                {t("settings.themes.blur")}
+              </span>
               <span className="tabular-nums text-[11px] text-muted-foreground">
                 {backgroundBlur}px
               </span>

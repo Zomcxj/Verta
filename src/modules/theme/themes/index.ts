@@ -7,12 +7,12 @@ import { everforest } from "./everforest";
 import { gruvbox } from "./gruvbox";
 import { kanagawa } from "./kanagawa";
 import { kanagawaDragon } from "./kanagawa-dragon";
-import { liquidGlass } from "./liquid-glass";
 import { nord } from "./nord";
 import { rosePine } from "./rose-pine";
 import { sage } from "./sage";
 import { solarized } from "./solarized";
-import { spiderWeb } from "./spider-web";
+import { teraxWarm } from "./terax-warm";
+import { teraxWeb } from "./terax-web";
 import { vertaDefault } from "./verta-default";
 import { tide } from "./tide";
 import { tokyoNight } from "./tokyo-night";
@@ -20,8 +20,8 @@ import { xcode } from "./xcode";
 
 const BUILTIN: Theme[] = [
   vertaDefault,
-  liquidGlass,
-  spiderWeb,
+  teraxWarm,
+  teraxWeb,
   xcode,
   claude,
   kanagawa,

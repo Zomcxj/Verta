@@ -15,12 +15,13 @@
 <details open>
 <summary><strong>2026-10-22</strong></summary>
 
-**主题：默认主题改名 Terax，新增「液态玻璃」与「蜘蛛网纹路」**
+**主题：默认主题改名 Terax，新增「Terax Warm」与「Terax Web」**
 
 - `src/modules/theme/themes/verta-default.ts`：只把显示名从 `Verta Default` 改成 `Terax`（`id` 仍是 `verta-default`，颜色还在 `styles/globals.css`）。
-- `src/modules/theme/themes/liquid-glass.ts`、`src/modules/theme/themes/spider-web.ts`：新增两个主题（磨砂半透明 + 斜向高光的玻璃；夜蓝底上一层极淡的蛛网纹路）。
-- `src/modules/theme/types.ts`、`applyTheme.ts`、`validateTheme.ts`：主题可以带一层「表面层」（底色、渐变或纹理、不透明度、混合方式），写成 CSS 变量；自定义主题 JSON 也认这块。
+- `src/modules/theme/themes/terax-warm.ts`、`src/modules/theme/themes/terax-web.ts`：新增两个主题，各自带深色与浅色两套 —— 暖棕的 Terax Warm（照 COFFEE CLI 的暖色：焦糖棕主色、深棕黑底、褪色的绿红蓝）与玄青的 Terax Web（底下压一层极淡的蛛网）。
+- `src/modules/theme/types.ts`、`applyTheme.ts`、`validateTheme.ts`：主题可以带一层「表面层」（底色、纹理、不透明度、混合方式），写成 CSS 变量；自定义主题 JSON 也认这块。
 - `src/modules/theme/SurfaceLayer.tsx`、`src/styles/globals.css`：界面最底下多一个专门画这层的元素，没纹理的主题里它不显示，也不挡任何内容。
+- `src/settings/sections/ThemesSection.tsx`、`src/settings/components/LspInstallDialog.tsx`、`src/modules/i18n/messages.ts`：主题设置里的「模糊」与语言服务器对话框里的「检测中… / 再检测一次」原来是写死的英文，改成中文文案（跟随界面语言）。
 
 **会话列表：默认全部放一块按时间排，也可以按 agent 分段**
 

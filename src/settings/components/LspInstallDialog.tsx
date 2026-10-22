@@ -132,7 +132,7 @@ export function LspInstallDialog({ server, onClose }: Props) {
               strokeWidth={1.9}
               className={checking ? "animate-spin" : undefined}
             />
-            {checking ? "Checking..." : "Check again"}
+            {checking ? t("settings.lsp.checking") : t("settings.lsp.checkAgain")}
           </Button>
         </DialogFooter>
       </DialogContent>

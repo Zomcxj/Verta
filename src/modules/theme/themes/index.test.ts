@@ -37,3 +37,54 @@ describe("builtin theme registry", () => {
     expect(getDefaultTheme()).toBe(listBuiltinThemes()[0]);
   });
 });
+
+describe("builtin theme palettes", () => {
+  const REQUIRED = [
+    "background",
+    "foreground",
+    "card",
+    "popover",
+    "primary",
+    "primaryForeground",
+    "muted",
+    "mutedForeground",
+    "accent",
+    "destructive",
+    "border",
+    "input",
+    "ring",
+    "sidebar",
+    "sidebarForeground",
+  ] as const;
+
+  // 上游带来的主题里有只做深色的（kanagawa-dragon），那是有意的；这里只管我们自己新加的。
+  const OURS = ["terax-warm", "terax-web"];
+
+  it("gives each of our themes both a dark and a light palette", () => {
+    for (const id of OURS) {
+      const theme = getBuiltinTheme(id);
+      expect(theme, `${id} 没注册`).toBeDefined();
+      expect(theme?.variants.dark, `${id} 缺深色`).toBeDefined();
+      expect(theme?.variants.light, `${id} 缺浅色`).toBeDefined();
+      // 名字是给用户看的界面文案，得是本项目的写法。
+      expect(theme?.name.startsWith("Terax")).toBe(true);
+    }
+  });
+
+  it("fills in every colour both modes need, so no pane falls back to another theme", () => {
+    for (const id of OURS) {
+      const theme = getBuiltinTheme(id);
+      if (!theme) continue;
+      for (const mode of ["dark", "light"] as const) {
+        const colors = theme.variants[mode]?.colors ?? {};
+        for (const key of REQUIRED) {
+          expect(colors[key], `${theme.id}.${mode}.${key}`).toBeTruthy();
+        }
+        const ansi = theme.variants[mode]?.terminal?.ansi;
+        if (ansi) expect(ansi, `${theme.id}.${mode}.ansi`).toHaveLength(16);
+      }
+    }
+  });
+
+});
+

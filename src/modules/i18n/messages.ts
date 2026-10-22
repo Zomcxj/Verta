@@ -738,6 +738,8 @@ const zh = {
   "settings.font.none": "没有匹配的字体。",
   "settings.lsp.copyCommand": "复制安装命令",
   "settings.lsp.detectAgain": "重新检测",
+  "settings.lsp.checking": "检测中…",
+  "settings.lsp.checkAgain": "再检测一次",
   "settings.lsp.removeServer": "移除服务器",
 
   "settings.startup": "启动",
@@ -790,6 +792,7 @@ const zh = {
   "settings.themes.editorTheme.auto": "自动（跟随应用主题）",
   "settings.themes.remove": "移除",
   "settings.themes.opacity": "不透明度",
+  "settings.themes.blur": "模糊",
   "settings.themes.dropImage":
     "把图片拖到这里，或点「选择图片」。保存在本机；设置之前不影响默认外观。",
   "settings.language.title": "界面语言",
@@ -808,7 +811,6 @@ const zh = {
   "settings.themes.background": "背景",
   "settings.themes.replaceImage": "更换图片",
   "settings.themes.chooseImage": "选择图片",
-  "settings.themes.blur": "模糊",
 
   "settings.shortcuts.title": "快捷键",
   "settings.shortcuts.description": "查看并自定义键盘快捷键。",
@@ -1700,6 +1702,8 @@ const en: Record<MessageKey, string> = {
   "settings.font.none": "No matching font.",
   "settings.lsp.copyCommand": "Copy install command",
   "settings.lsp.detectAgain": "Detect again",
+  "settings.lsp.checking": "Checking…",
+  "settings.lsp.checkAgain": "Check again",
   "settings.lsp.removeServer": "Remove server",
 
   "settings.startup": "Startup",
@@ -1773,9 +1777,9 @@ const en: Record<MessageKey, string> = {
     "Frost the header, status bar and gutters over what is behind the window. Panes stay solid.",
   "settings.themes.theme": "Theme",
   "settings.themes.background": "Background",
+  "settings.themes.blur": "Blur",
   "settings.themes.replaceImage": "Replace image",
   "settings.themes.chooseImage": "Choose image",
-  "settings.themes.blur": "Blur",
 
   "settings.shortcuts.title": "Shortcuts",
   "settings.shortcuts.description": "View and customize keyboard shortcuts.",
