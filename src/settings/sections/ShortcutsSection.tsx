@@ -17,6 +17,7 @@ import { setShortcuts } from "@/modules/settings/store";
 import {
   getBindingTokens,
   type KeyBinding,
+  SHORTCUT_ALIASES,
   SHORTCUT_GROUPS,
   SHORTCUTS,
   type Shortcut,
@@ -41,14 +42,26 @@ export function ShortcutsSection() {
   const filteredShortcuts = useMemo(() => {
     // Filter out internal/non-overridable shortcuts like tab.selectByIndex.
     const base = SHORTCUTS.filter((s) => s.id !== "tab.selectByIndex");
-    if (!search) return base;
-    const lower = search.toLowerCase();
-    return base.filter(
-      (s) =>
-        s.label.toLowerCase().includes(lower) ||
-        s.group.toLowerCase().includes(lower),
-    );
-  }, [search]);
+    const term = search.trim().toLowerCase();
+    if (!term) return base;
+    // Match what the user can see. Labels and group headings are message keys, so
+    // comparing the raw key never finds "关闭" or "Close" — only accidental
+    // English hits ("tab" happens to be inside "shortcut.newTab"). The binding
+    // tokens are matched too, so typing "ctrl+w" finds the row as well.
+    return base.filter((s) => {
+      const bindings = userShortcuts[s.id] ?? s.defaultBindings;
+      const haystack = [
+        t(s.label),
+        t(`shortcutGroup.${s.group}` as MessageKey),
+        // "Ctrl+W" as one token, so typing the chord finds the row too.
+        ...bindings.map((binding) => getBindingTokens(binding).join("+")),
+        ...(SHORTCUT_ALIASES[s.id] ?? []),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [search, t, userShortcuts]);
 
   const onRecord = (id: ShortcutId, binding: KeyBinding) => {
     const next = { ...userShortcuts, [id]: [binding] };

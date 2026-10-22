@@ -95,6 +95,13 @@
 
 - `src/modules/theme/themes/themeNames.ts`、`themes/acrylic.ts`、`themes/pattern-base.ts`：Acrylic 与 Carbon Fiber 采用英文名（与 Dracula 等专名同例，指的是材质本身），中文说明保留，亚克力的说明改为描述效果。
 
+**快捷键：两个搜索入口都搜得到「关闭标签页」了**
+
+- `src/settings/sections/ShortcutsSection.tsx`：快捷键列表的搜索原来拿**没翻译的 key** 比对（标签 `shortcut.closeTabOrPane`、分组 id `Tabs`），中文界面上搜「终端」「关闭」「标签」一律是空白页，只有 `tab` 这类英文能偶然命中。改成比屏幕上看得见的东西（翻译后的标签与分组名）并加上键位本身（`Ctrl+W`），两种语言都能搜。
+- `src/modules/shortcuts/shortcuts.ts`、`src/modules/shortcuts/index.ts`：新增 `SHORTCUT_ALIASES`（搜索别名，界面上不画）—— 关闭标签页这条认「终端 / 删除 / 关闭 / 标签 / 面板 / terminal / close」等说法。该行标题写的是「关闭标签页或面板」，而用户脑子里叫它「终端」，只比标题永远搜不到。
+- `src/modules/command-palette/CommandPalette.tsx`、`commands.ts`：命令面板的模糊匹配按 `shortcutId` 把这组别名一并算进去，两个入口共用同一处别名。
+- `scripts/dev/cdp-key.mjs`：原来只认 6 个具名键（注释里那条「用数字发 Ctrl+C」其实是错的），现在支持 `Ctrl+W` 这类组合键与任意字母/数字，并可用 `--match` 指定页面（设置窗口是另一个 page，默认会挑错）。
+
 </details>
 
 <details>

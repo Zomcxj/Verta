@@ -14,6 +14,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   getBindingTokens,
   type KeyBinding,
+  SHORTCUT_ALIASES,
   SHORTCUTS,
   type ShortcutId,
 } from "@/modules/shortcuts";
@@ -408,6 +409,10 @@ function rankCommands(
       visibleTitle,
       visibleGroup,
       ...(item.keywords ?? []),
+      // Some rows answer to words that are not in their title: "the terminal tab"
+      // is what you call the row that closes one. Aliases come from the shortcut
+      // catalogue so the settings list and this palette agree.
+      ...(item.shortcutId ? (SHORTCUT_ALIASES[item.shortcutId] ?? []) : []),
     ]);
     if (s !== null) scored.push({ item, s });
   }

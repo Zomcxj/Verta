@@ -170,6 +170,8 @@ export function createCommandItems(
       id: "tab.close",
       title: "cmd.closeTabOrPane",
       group: "cmdGroup.Tabs",
+      // 搜索别名（界面上不画）在 `SHORTCUT_ALIASES` 里，按 shortcutId 自动生效：
+      // 「终端」「删除」这类说法标题里没有，光比标题搜不到。
       keywords: ["close", "remove", "pane"],
       icon: Cancel01Icon,
       shortcutId: "tab.close",

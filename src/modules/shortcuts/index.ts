@@ -1,5 +1,6 @@
 export {
   SHORTCUTS,
+  SHORTCUT_ALIASES,
   getBindingTokens,
   type ShortcutId,
   type KeyBinding,

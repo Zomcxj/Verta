@@ -3,9 +3,12 @@
 // 用法：
 //   1) WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 pnpm tauri dev
 //   2) node scripts/dev/cdp-key.mjs PageUp 4 [--port=9222]
-//   node scripts/dev/cdp-key.mjs 3 1        # 直接发 Ctrl+C（key=3 = 取消，modifiers 里带 ctrl）
+//      node scripts/dev/cdp-key.mjs Ctrl+W       # 组合键：修饰键用 + 连（Ctrl / Shift / Alt / Meta）
+//      node scripts/dev/cdp-key.mjs 812,300      # 点坐标（默认再滚一格，--no-wheel 跳过）
+//      node scripts/dev/cdp-key.mjs --type=ls -la   # 往终端敲一整行并回车
 const [, , key, times = "1", ...rest] = process.argv;
 const port = rest.find((arg) => arg.startsWith("--port="))?.slice(7) ?? "9222";
+const match = rest.find((arg) => arg.startsWith("--match="))?.slice(8);
 if (!key) {
   console.error("用法: node scripts/dev/cdp-key.mjs <键名，如 PageUp> [次数] [--port=9222]");
   process.exit(2);
@@ -16,6 +19,7 @@ const KEYS = {
   PageDown: { code: "PageDown", keyCode: 34, text: "" },
   ArrowUp: { code: "ArrowUp", keyCode: 38, text: "" },
   ArrowDown: { code: "ArrowDown", keyCode: 40, text: "" },
+  Tab: { code: "Tab", keyCode: 9, text: "" },
   Enter: { code: "Enter", keyCode: 13, text: "\r" },
   Escape: { code: "Escape", keyCode: 27, text: "" },
 };
@@ -24,18 +28,79 @@ const KEYS = {
 const CLICK = /^(\d+),(\d+)$/.exec(key);
 /** Type a whole line and press Enter, as characters the terminal accepts. */
 const TYPE = /^--type=(.*)$/.exec(key);
-const spec = CLICK || TYPE ? null : KEYS[key];
+
+// CDP 的 modifiers 是位掩码：Alt=1、Ctrl=2、Meta=4、Shift=8。
+const MODIFIERS = {
+  alt: 1,
+  ctrl: 2,
+  control: 2,
+  meta: 4,
+  cmd: 4,
+  shift: 8,
+};
+
+/**
+ * 解析 `Ctrl+W` / `Ctrl+Shift+Tab` 这类组合键，或 `PageUp` 这种单键名。
+ *
+ * 组合键是必需的：终端里的 Ctrl 系按键只有真实按键才到得了（合成的 KeyboardEvent 会被丢掉），
+ * 而「某个快捷键到底有没有被终端吞掉」只能靠真机按一次来回答。
+ */
+function parseKeySpec(raw) {
+  const parts = raw.split("+").filter(Boolean);
+  const bare = parts.pop();
+  if (!bare) return null;
+  let modifiers = 0;
+  for (const part of parts) {
+    const bit = MODIFIERS[part.toLowerCase()];
+    if (!bit) return null;
+    modifiers |= bit;
+  }
+  const named = KEYS[bare] ?? KEYS[bare[0].toUpperCase() + bare.slice(1).toLowerCase()];
+  if (named) return { ...named, key: bare, modifiers };
+
+  // 单字母 / 单数字：Ctrl+W 这类组合键的主力。
+  if (/^[a-zA-Z]$/.test(bare) || /^[0-9]$/.test(bare)) {
+    const upper = bare.toUpperCase();
+    const key = (modifiers & 8) !== 0 ? upper : bare.toLowerCase();
+    // 按住 Ctrl / Alt / Meta 是命令键，不是输入字符，不带 text。
+    const text = (modifiers & (1 | 2 | 4)) !== 0 ? "" : key;
+    return {
+      key,
+      code: /^[0-9]$/.test(bare) ? `Digit${bare}` : `Key${upper}`,
+      keyCode: upper.charCodeAt(0),
+      text,
+      modifiers,
+    };
+  }
+  return null;
+}
+
+const spec = CLICK || TYPE ? null : parseKeySpec(key);
 if (!spec && !CLICK && !TYPE) {
   console.error(
-    `未定义的键：${key}。可用：${Object.keys(KEYS).join(", ")}，或 x,y 作为点击坐标，或 --type=<要输入的整行>`,
+    `未定义的键：${key}。可用：${Object.keys(KEYS).join(", ")}、单字母/单数字（可带 Ctrl+ / Shift+ / Alt+ / Meta+），` +
+      "或 x,y 作为点击坐标，或 --type=<要输入的整行>",
   );
   process.exit(2);
 }
 
 const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-const page = targets.find((target) => target.type === "page");
+const pages = targets.filter((target) => target.type === "page");
+// 可能不止一个 page（设置窗口是新开的一个 page），默认挑第一个会挑错，所以给了 --match。
+const page = match
+  ? (pages.find((target) => target.url === match) ??
+    pages.find(
+      (target) => target.url.includes(match) || (target.title ?? "").includes(match),
+    ))
+  : pages[0];
 if (!page) {
-  console.error("没找到 page 目标");
+  console.error(
+    `没找到 page 目标${match ? `（--match=${match}）` : ""}。当前目标：\n${JSON.stringify(
+      pages.map((target) => ({ title: target.title, url: target.url })),
+      null,
+      2,
+    )}`,
+  );
   process.exit(1);
 }
 
@@ -152,10 +217,11 @@ if (TYPE) {
 
 for (let index = 0; index < count; index += 1) {
   const base = {
-    key,
+    key: spec.key,
     code: spec.code,
     windowsVirtualKeyCode: spec.keyCode,
     nativeVirtualKeyCode: spec.keyCode,
+    modifiers: spec.modifiers ?? 0,
   };
   await send("Input.dispatchKeyEvent", { type: "keyDown", ...base, text: spec.text });
   await send("Input.dispatchKeyEvent", { type: "keyUp", ...base, text: "" });
