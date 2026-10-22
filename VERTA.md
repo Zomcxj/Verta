@@ -67,9 +67,11 @@ twice per window drag (below). With no visible pane (an editor tab is active) or
 an occluded window it is paused (hidden after a short delay when empty), never released. A replaced or
 recovered GPU device reconfigures the same element, and a remounted area takes
 over the old one's canvas. Only disposing the runtime tears it down. The WebGL
-fallback stays per pane (its own canvas and opaque background inside the pane
-root): a WebGPU failure in one pane falls that pane back, and a failure of the
-shared runtime falls every pane back.
+fallback stays per pane (its own canvas inside the pane root, with a premultiplied
+alpha context and premultiplied shader output, so a translucent theme's terminal
+background lets the pane behind it — and the desktop — show through exactly as it
+does on the WebGPU path): a WebGPU failure in one pane falls that pane back, and a
+failure of the shared runtime falls every pane back.
 Every submitted window frame is mirrored to JavaScriptCore (`gpu/GcPressure.ts`):
 the wrappers of a frame (texture, view, encoder, pass, command buffer) pin about
 13 KiB of WebKit malloc that JavaScriptCore does not count, so without help it

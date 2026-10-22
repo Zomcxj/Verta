@@ -102,6 +102,12 @@
 - `src/modules/command-palette/CommandPalette.tsx`、`commands.ts`：命令面板的模糊匹配按 `shortcutId` 把这组别名一并算进去，两个入口共用同一处别名。
 - `scripts/dev/cdp-key.mjs`：原来只认 6 个具名键（注释里那条「用数字发 Ctrl+C」其实是错的），现在支持 `Ctrl+W` 这类组合键与任意字母/数字，并可用 `--match` 指定页面（设置窗口是另一个 page，默认会挑错）。
 
+**没有 WebGPU 的机器上终端是一块死黑（WebGL 回退路径漏改）**
+
+- `src/modules/terminal/ghostty/webgl/WebGlCellRenderer.ts`：这条回退路径建 `webgl2` 上下文时用的是 `alpha: false`，清屏色的 alpha 写死 1，两段片元着色器输出非预乘色、字形混合用 `SRC_ALPHA`。于是主题把终端底色写成透明（亚克力）时，画布仍然是不透明的一块 —— 拿不到 WebGPU 适配器的机器上终端永远透不出桌面。现在上下文带 alpha 且预乘；清屏色按主题的 `backgroundAlpha` 预乘给出（默认底色不画矩形，清屏色就是终端底色本身）；两段片元着色器改预乘输出、混合改 `ONE`。alpha 为 1 时与原来完全等价，不透明主题不受影响。
+- `src/modules/terminal/ghostty/webgl/WebGlTerminalSurface.ts`：根元素的占位底色在主题半透明时改成 `transparent`（与 WebGPU 那条路一致），不再一律铺不透明主题色。
+- `VERTA.md`：把「WebGL 回退有一块不透明底色」那句改成描述新的预乘 alpha 行为。
+
 </details>
 
 <details>

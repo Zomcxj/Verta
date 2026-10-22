@@ -159,7 +159,11 @@ export class WebGlCellRenderer {
     this.canvas.className = "block";
     this.canvas.setAttribute("aria-hidden", "true");
     const context = this.canvas.getContext("webgl2", {
-      alpha: false,
+      // The canvas has to be able to let the desktop through when the theme's terminal
+      // background is translucent (the WebGPU surface is built the same way). Opaque
+      // themes are unaffected: with alpha 1, premultiplied output is identical output.
+      alpha: true,
+      premultipliedAlpha: true,
       antialias: false,
       depth: false,
       desynchronized: true,
@@ -864,13 +868,17 @@ export class WebGlCellRenderer {
     if (!resources || !profile || !atlas) return;
     const gl = this.gl;
     const background = profile.theme.background;
+    const backgroundAlpha = profile.theme.backgroundAlpha;
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.STENCIL_TEST);
+    // 默认底色不画矩形（只画与它不同的格子），所以「终端的底色」就是这一句清屏色 ——
+    // 主题是半透明/全透明时（亚克力）必须清成带 alpha 的颜色，否则整块画布不透，
+    // 桌面永远透不上来。画布是预乘的，RGB 也要按 alpha 预乘。
     gl.clearColor(
-      background[0] / 255,
-      background[1] / 255,
-      background[2] / 255,
-      1,
+      (background[0] / 255) * backgroundAlpha,
+      (background[1] / 255) * backgroundAlpha,
+      (background[2] / 255) * backgroundAlpha,
+      backgroundAlpha,
     );
     gl.clear(gl.COLOR_BUFFER_BIT);
 
@@ -887,7 +895,9 @@ export class WebGlCellRenderer {
     );
 
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    // 着色器输出预乘色（见两段片元着色器），所以混合用 ONE 而不是 SRC_ALPHA：
+    // alpha 为 1 的像素两者完全等价，半透明的字形才落得对。
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     // biome-ignore lint/correctness/useHookAtTopLevel: WebGL method, not a React hook.
     gl.useProgram(resources.glyphProgram.value);
     gl.bindVertexArray(resources.glyphVao);
@@ -1416,7 +1426,8 @@ void main() {
   }
   if (style == 4 && fract(v_unitquad.x * 4.0) > 0.42) discard;
   if (style == 5 && fract(v_unitquad.x * 2.0) > 0.68) discard;
-  outColor = v_color;
+  // 预乘输出：画布现在带 alpha，混合用 ONE（见 draw()）—— 不透明像素与原来一致。
+  outColor = vec4(v_color.rgb * v_color.a, v_color.a);
 }`;
 
 const GLYPH_VERTEX_SHADER = `#version 300 es
@@ -1455,9 +1466,11 @@ void main() {
   if (v_color.a < 0.0 && !u_text_blink_visible) alpha = 0.0;
   if (v_intrinsic_color > 0.5) {
     vec4 color = texture(u_color_atlas, v_texcoord);
-    outColor = vec4(color.rgb, alpha * color.a);
+    float a = alpha * color.a;
+    outColor = vec4(color.rgb * a, a);
   } else {
     float coverage = texture(u_atlas, v_texcoord).r;
-    outColor = vec4(v_color.rgb, alpha * coverage);
+    float a = alpha * coverage;
+    outColor = vec4(v_color.rgb * a, a);
   }
 }`;

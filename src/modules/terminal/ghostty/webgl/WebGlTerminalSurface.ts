@@ -853,7 +853,13 @@ export class WebGlTerminalSurface
   }
 
   private updateRootBackground(): void {
-    this.root.style.backgroundColor = rgbToCss(this.theme.background);
+    // 半透明主题的终端自己没有颜色可盖 —— 它后面的面板已经透出桌面了 ——
+    // 所以这块占位也得是透明的。WebGPU 那条路就是这么做的；这里原来一律铺主题底色，
+    // 于是没有 WebGPU 的机器上终端是一块死黑。
+    this.root.style.backgroundColor =
+      this.theme.backgroundAlpha < 1
+        ? "transparent"
+        : rgbToCss(this.theme.background);
   }
 
   private assertLive(): void {
