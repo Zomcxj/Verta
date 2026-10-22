@@ -38,20 +38,24 @@ export function AboutSection() {
   const ready = status.kind === "ready";
   const checkLabel =
     status.kind === "uptodate"
-      ? "You're up to date"
+      ? t("settings.about.update.upToDate")
       : status.kind === "error"
-        ? "Check failed — retry"
+        ? t("settings.about.update.failed")
         : checking
-          ? "Checking…"
+          ? t("settings.about.update.checking")
           : downloading
-            ? "Downloading…"
+            ? t("settings.about.update.downloading")
             : ready
-              ? "Restart to install"
+              ? t("settings.about.update.restart")
               : available
-                ? `Install v${status.update.version}`
+                ? t("settings.about.update.install", {
+                    version: status.update.version,
+                  })
                 : manualAvailable
-                  ? `Update to v${status.info.version}`
-                  : "Check for updates";
+                  ? t("settings.about.update.manual", {
+                      version: status.info.version,
+                    })
+                  : t("settings.about.update.check");
   const onUpdateClick = () => {
     if (available) void install();
     else void check({ manual: true });

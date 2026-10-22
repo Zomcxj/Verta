@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useT } from "@/modules/i18n";
 import type { ReactNode } from "react";
 
 type Mode = "rendered" | "raw";
@@ -23,6 +24,7 @@ export function MarkdownViewToggle({
   renderedHint,
   children,
 }: Props) {
+  const t = useT();
   return (
     <div className="absolute right-3 top-3 z-10 inline-flex items-center gap-0.5 rounded-md border border-border/60 bg-card p-0.5 text-[11px] shadow-sm">
       <button
@@ -39,7 +41,7 @@ export function MarkdownViewToggle({
             "cursor-not-allowed opacity-40 hover:text-muted-foreground",
         )}
       >
-        Rendered
+        {t("markdown.rendered")}
       </button>
       <button
         type="button"
@@ -51,7 +53,7 @@ export function MarkdownViewToggle({
             : "text-muted-foreground hover:text-foreground",
         )}
       >
-        Raw
+        {t("markdown.raw")}
       </button>
       {children}
     </div>

@@ -3,6 +3,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { useT } from "@/modules/i18n";
 import type { TerminalSearchController } from "@/modules/terminal/search/TerminalSearchController";
 import { Fragment, useCallback, useEffect, useRef } from "react";
 import { useTerminalDropStore } from "./lib/dropStore";
@@ -138,11 +139,12 @@ function TerminalResizableHandle() {
 }
 
 function DropOverlay({ leafId }: { leafId: number }) {
+  const t = useT();
   const active = useTerminalDropStore((s) => s.targetLeafId === leafId);
   if (!active) return null;
   return (
     <div className="pointer-events-none absolute inset-2 grid place-items-center rounded-lg border border-primary/45 bg-background/70 text-xs font-medium text-foreground shadow-lg backdrop-blur-sm">
-      Drop file path here
+      {t("term.dropFileHere")}
     </div>
   );
 }

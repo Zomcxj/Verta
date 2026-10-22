@@ -26,6 +26,7 @@ type Managed = {
   root: string;
   client: VertaLspClient;
   transport: TauriLspTransport;
+  labels: LspSessionLabels;
   refs: Map<string, number>;
   idleTimer: ReturnType<typeof setTimeout> | null;
   closing: boolean;
@@ -40,6 +41,22 @@ export type LspDocHandle = {
 const sessions = new Map<string, Managed>();
 const creating = new Map<string, Promise<Managed | null>>();
 const crashTimes = new Map<string, number[]>();
+
+/**
+ * 这个模块在 React 之外：会话建立、崩溃回调都拿不到 hook，所以界面文案由
+ * `useLspExtension` 翻好传进来。带名字的那几条收函数，因为名字要等 preset 定下来。
+ */
+export type LspSessionLabels = {
+  panels: { definitions: string; references: string };
+  toasts: {
+    failedToStart: (name: string) => string;
+    stopped: (name: string) => string;
+    keepsCrashing: (name: string) => string;
+    exited: (name: string) => string;
+    keptCrashing: string;
+    givingUp: string;
+  };
+};
 
 function basename(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
@@ -63,6 +80,7 @@ function recordCrash(key: string): void {
 export async function acquireDocExtension(
   path: string,
   langId: string,
+  labels: LspSessionLabels,
 ): Promise<LspDocHandle | null> {
   if (currentWorkspaceEnv().kind !== "local") return null;
   const prefs = usePreferencesStore.getState();
@@ -113,7 +131,7 @@ export async function acquireDocExtension(
   }
 
   const managed =
-    sessions.get(key) ?? (await getOrCreateSession(key, preset, root));
+    sessions.get(key) ?? (await getOrCreateSession(key, preset, root, labels));
   if (!managed) return null;
 
   const uri = pathToFileUri(path);
@@ -124,6 +142,7 @@ export async function acquireDocExtension(
       client: managed.client,
       documentUri: uri,
       rootPath: managed.root.replace(/\\/g, "/"),
+      labels: labels.panels,
       onExternal: (extUri, line) => {
         const target = fileUriToPath(extUri);
         if (target) getLspNavigator()?.openFile(target, line);
@@ -159,10 +178,11 @@ function getOrCreateSession(
   key: string,
   preset: LspPreset,
   root: string,
+  labels: LspSessionLabels,
 ): Promise<Managed | null> {
   let inflight = creating.get(key);
   if (!inflight) {
-    inflight = createSession(key, preset, root).finally(() =>
+    inflight = createSession(key, preset, root, labels).finally(() =>
       creating.delete(key),
     );
     creating.set(key, inflight);
@@ -174,6 +194,7 @@ async function createSession(
   key: string,
   preset: LspPreset,
   root: string,
+  labels: LspSessionLabels,
 ): Promise<Managed | null> {
   const existing = sessions.get(key);
   if (existing) return existing;
@@ -204,7 +225,7 @@ async function createSession(
   } catch (e) {
     recordCrash(key);
     store.removeSession(key, preset.id);
-    toast.error(`${preset.name} language server failed to start`, {
+    toast.error(labels.toasts.failedToStart(preset.name), {
       description: String(e),
     });
     return null;
@@ -228,6 +249,7 @@ async function createSession(
     root,
     client,
     transport,
+    labels,
     refs: new Map(),
     idleTimer: null,
     closing: false,
@@ -275,7 +297,7 @@ function handleServerExit(key: string): void {
       Array.from({ length: MAX_CRASHES }, () => Date.now()),
     );
     useLspRuntimeStore.getState().setFailed(managed.preset.id, info.reason);
-    toast.error(`${managed.preset.name} language server stopped`, {
+    toast.error(managed.labels.toasts.stopped(managed.preset.name), {
       description: info.reason,
     });
     return;
@@ -286,15 +308,15 @@ function handleServerExit(key: string): void {
       .getState()
       .setFailed(
         managed.preset.id,
-        tail ? tail.slice(-300) : "The server kept crashing.",
+        tail ? tail.slice(-300) : managed.labels.toasts.keptCrashing,
       );
-    toast.error(`${managed.preset.name} language server keeps crashing`, {
-      description: tail ? tail.slice(-300) : "Giving up for this workspace.",
+    toast.error(managed.labels.toasts.keepsCrashing(managed.preset.name), {
+      description: tail ? tail.slice(-300) : managed.labels.toasts.givingUp,
     });
     return;
   }
   if (tail) {
-    toast.error(`${managed.preset.name} language server exited`, {
+    toast.error(managed.labels.toasts.exited(managed.preset.name), {
       description: tail.slice(-300),
     });
   }

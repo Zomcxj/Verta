@@ -1,3 +1,4 @@
+import { useT } from "@/modules/i18n";
 import type { ComponentProps, CSSProperties, SyntheticEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { requestedHeight, resolveImageSrc } from "./imagePath";
@@ -162,6 +163,7 @@ export function MarkdownImage({
   height,
   ...props
 }: MarkdownImageProps) {
+  const t = useT();
   const [failed, setFailed] = useState(false);
   // 「加载完」以 src 为准：换了一张图（编辑 markdown 时常见）就自动回到未加载态，
   // 不用再开个 effect 去重置。
@@ -173,7 +175,11 @@ export function MarkdownImage({
   const loaded = loadedSrc !== null && loadedSrc === resolved;
 
   if (!resolved) {
-    return <span className="text-muted-foreground">{alt ?? "image"}</span>;
+    return (
+      <span className="text-muted-foreground">
+        {alt ?? t("markdown.imageAlt")}
+      </span>
+    );
   }
   if (failed) {
     return (
@@ -181,7 +187,9 @@ export function MarkdownImage({
         className="rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[11px] text-destructive"
         title={src}
       >
-        {alt || "image"} (not found)
+        {t("markdown.imageMissing", {
+          alt: alt || t("markdown.imageAlt"),
+        })}
       </span>
     );
   }

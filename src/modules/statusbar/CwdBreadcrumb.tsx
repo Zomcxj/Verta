@@ -46,6 +46,7 @@ function basename(path: string): string {
 }
 
 export function CwdBreadcrumb({ cwd, filePath, home, onCd }: Props) {
+  const t = useT();
   // File mode: dir segments navigate; filename is the terminal leaf.
   if (filePath) {
     const dir = dirname(filePath);
@@ -85,7 +86,9 @@ export function CwdBreadcrumb({ cwd, filePath, home, onCd }: Props) {
 
   if (!cwd) {
     return (
-      <span className="text-xs text-muted-foreground/70">no directory</span>
+      <span className="text-xs text-muted-foreground/70">
+        {t("statusbar.noDirectory")}
+      </span>
     );
   }
 
@@ -138,6 +141,7 @@ function BreadcrumbSegment({
   isHome: boolean;
   onClick: () => void;
 }) {
+  const t = useT();
   return (
     <>
       <BreadcrumbItem>
@@ -154,7 +158,7 @@ function BreadcrumbSegment({
                   strokeWidth={1.75}
                 />
               ) : null}
-              {isHome ? "Home" : label}
+              {isHome ? t("statusbar.home") : label}
             </Badge>
           </button>
         </BreadcrumbLink>
@@ -173,6 +177,7 @@ function CurrentSegmentDropdown({
   path: string;
   onCd: (p: string) => void;
 }) {
+  const t = useT();
   const showHidden = usePreferencesStore((s) => s.showHidden);
   const [open, setOpen] = useState(false);
   const [children, setChildren] = useState<string[] | null>(null);
@@ -208,7 +213,7 @@ function CurrentSegmentDropdown({
                 className="size-3"
                 strokeWidth={1.75}
               />
-              Home
+              {t("statusbar.home")}
             </>
           ) : (
             label
@@ -223,11 +228,11 @@ function CurrentSegmentDropdown({
       <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
         {children === null ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            Loading…
+            {t("explorer.loading")}
           </div>
         ) : children.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            {error ?? "No subfolders"}
+            {error ?? t("statusbar.noSubfolders")}
           </div>
         ) : (
           children.map((name) => (
@@ -287,7 +292,9 @@ function CollapsedSegments({
                   className="size-3.5 text-muted-foreground"
                   strokeWidth={1.75}
                 />
-                <span className="truncate">{s.isHome ? "Home" : s.label}</span>
+                <span className="truncate">
+                  {s.isHome ? t("statusbar.home") : s.label}
+                </span>
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>

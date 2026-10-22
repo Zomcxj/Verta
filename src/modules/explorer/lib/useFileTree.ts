@@ -12,6 +12,7 @@ import {
   useWorkspaceEnvStore,
   workspaceScopeKey,
 } from "@/modules/workspace";
+import { useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   executeBatchMove,
@@ -108,6 +109,7 @@ type Options = {
 };
 
 export function useFileTree(rootPath: string | null, options?: Options) {
+  const t = useT();
   const workspace = useWorkspaceEnvStore((s) => s.env);
   const workspaceKey = workspaceScopeKey(workspace);
   const showHidden = usePreferencesStore((s) => s.showHidden);
@@ -535,11 +537,11 @@ export function useFileTree(rootPath: string | null, options?: Options) {
           const parents = new Set(deleted.map(dirname));
           await Promise.all([...parents].map((path) => fetchChildren(path)));
         }
-        if (failed > 0) toast.error("Delete failed for one or more items");
+        if (failed > 0) toast.error(t("explorer.deleteFailed"));
       };
       await run();
     },
-    [workspace, rootPath, scopeKey, fetchChildren],
+    [workspace, rootPath, scopeKey, fetchChildren, t],
   );
 
   const resolveMoveConflict = useCallback(
@@ -554,18 +556,21 @@ export function useFileTree(rootPath: string | null, options?: Options) {
           resolve(resolution);
           if (dismiss) toast.dismiss(id);
         };
-        id = toast.warning(`"${name}" already exists`, {
+        id = toast.warning(t("explorer.alreadyExists", { name }), {
           duration: Infinity,
           action: {
-            label: "Replace",
+            label: t("explorer.replace"),
             onClick: () => finish("replace", true),
           },
-          cancel: { label: "Skip", onClick: () => finish("skip", true) },
+          cancel: {
+            label: t("explorer.skip"),
+            onClick: () => finish("skip", true),
+          },
           onDismiss: () => finish("skip", false),
         });
         conflictPromptsRef.current.set(id, () => finish("skip", true));
       }),
-    [],
+    [t],
   );
 
   const movePaths = useCallback(
@@ -597,17 +602,19 @@ export function useFileTree(rootPath: string | null, options?: Options) {
           await Promise.all([...parents].map((path) => fetchChildren(path)));
         }
         if (outcome.blocked > 0) {
-          toast.warning("Close destination before replacing");
+          toast.warning(t("explorer.closeDestination"));
         }
         if (outcome.failures > 0) {
           toast.error(
-            outcome.moved > 0 ? "Some items could not be moved" : "Move failed",
+            outcome.moved > 0
+              ? t("explorer.moveSomeFailed")
+              : t("explorer.moveFailed"),
           );
         }
       };
       await run();
     },
-    [workspace, rootPath, scopeKey, resolveMoveConflict, fetchChildren],
+    [workspace, rootPath, scopeKey, resolveMoveConflict, fetchChildren, t],
   );
 
   return {

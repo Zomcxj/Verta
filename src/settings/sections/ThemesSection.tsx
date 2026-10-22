@@ -110,14 +110,23 @@ export function ThemesSection() {
         const parsed = JSON.parse(text);
         const result = validateTheme(parsed);
         if (!result.ok) {
-          setImportError(`${file.name}: ${result.error}`);
+          setImportError(
+            t("settings.themes.importFailed", {
+              file: file.name,
+              message: result.error,
+            }),
+          );
           return;
         }
         await saveCustomTheme(result.theme);
         setThemeId(result.theme.id);
       } catch (e) {
         setImportError(
-          `${file.name}: ${e instanceof Error ? e.message : "failed to read"}`,
+          t("settings.themes.importFailed", {
+            file: file.name,
+            message:
+              e instanceof Error ? e.message : t("settings.themes.readFailed"),
+          }),
         );
         return;
       }
@@ -139,7 +148,7 @@ export function ThemesSection() {
     if (!files || files.length === 0) return;
     const file = files[0];
     if (!file.type.startsWith("image/")) {
-      setBgError(`${file.name}: not an image`);
+      setBgError(t("settings.themes.notImage", { file: file.name }));
       return;
     }
     try {
@@ -149,7 +158,9 @@ export function ThemesSection() {
       await setBackgroundKind("image");
       if (prev && prev !== id) await deleteBgImage(prev).catch(() => undefined);
     } catch (e) {
-      setBgError(e instanceof Error ? e.message : "failed to import image");
+      setBgError(
+        e instanceof Error ? e.message : t("settings.themes.importImageFailed"),
+      );
     }
   };
 

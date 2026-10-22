@@ -11,6 +11,7 @@ import {
   ensureMonoFontsLoaded,
   resolveFontStack,
 } from "@/lib/fonts";
+import { useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { TerminalBackendKind } from "@/modules/terminal/backend/contracts";
 import type { WorkspaceEnv } from "@/modules/workspace";
@@ -20,7 +21,7 @@ import { useTerminalFont } from "@/modules/terminal/lib/useTerminalFont";
 import type { TerminalSearchController } from "@/modules/terminal/search/TerminalSearchController";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { openPty, type PtySession } from "../lib/pty-bridge";
+import { openPty, type PtyNotices, type PtySession } from "../lib/pty-bridge";
 import { writeTerminalClipboard } from "../lib/terminalClipboard";
 import { LatestClipboardWrite } from "@/modules/terminal/lib/LatestClipboardWrite";
 import { GhosttySemanticEventRouter } from "./core/GhosttySemanticEventRouter";
@@ -70,6 +71,8 @@ type GhosttySession = {
   initialCwd: string | undefined;
   workspace: WorkspaceEnv | undefined;
   shell: string | undefined;
+  /** 输出暂停/失败提示的文案；由 hook 按当前界面语言填。 */
+  notices: PtyNotices | null;
   lastCwd: string | null;
   model: GhosttyTerminalModelApi | null;
   surface: GhosttySurface | null;
@@ -166,6 +169,17 @@ export function useGhosttyTerminalSession({
   onExit,
   onCwd,
 }: Options) {
+  const t = useT();
+  // 提示文案按当前语言算好；会话是长驻的，换语言后新发生的提示也要跟上。
+  const notices = useMemo<PtyNotices>(
+    () => ({
+      title: t("term.outputPaused"),
+      failed: t("term.outputFailed"),
+      stalled: t("term.outputStalled"),
+      retry: t("term.retry"),
+    }),
+    [t],
+  );
   const [model, setModel] = useState<GhosttyTerminalModelApi | null>(null);
   const [error, setError] = useState<GhosttySessionFailure | null>(null);
   const { fontFamily, fontSize, fontWeight } = useTerminalFont();
@@ -227,6 +241,13 @@ export function useGhosttyTerminalSession({
       }
     };
   }, [leafId, backend, container, blocks]);
+
+  // 会话对象活在 hook 之外，所以文案要显式挂上去；挂在这个 effect 里而不是
+  // 初始化那段里，是为了换语言后新弹出的提示用新语言。
+  useEffect(() => {
+    const session = sessions.get(leafId);
+    if (session) session.notices = notices;
+  }, [leafId, notices]);
 
   useEffect(() => {
     const session = sessions.get(leafId);
@@ -584,6 +605,7 @@ function ensureSession(
     initialCwd,
     workspace,
     shell,
+    notices: null,
     lastCwd: null,
     model: null,
     surface: null,
@@ -894,6 +916,7 @@ async function initializeSessionGeneration(
     session.shell ?? (preferences.terminalShell || undefined),
     session.leafId,
     session.workspace,
+    session.notices ?? undefined,
   );
   if (session.disposed || generation !== session.generation) {
     await pty.close();

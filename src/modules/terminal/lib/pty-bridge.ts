@@ -91,6 +91,24 @@ export type PtyHandlers = {
   onOutputStatus?: (status: PtyOutputStatus) => void;
 };
 
+/**
+ * The words of the toast shown when the output stream pauses or breaks.
+ *
+ * The interface language lives in the React layer, so the caller hands the
+ * already-translated strings down; a caller that passes nothing gets no toast,
+ * because this module only reports the status and never invents wording.
+ */
+export type PtyNotices = {
+  /** The stream stopped. */
+  title: string;
+  /** The stream is broken and only a new terminal recovers it. */
+  failed: string;
+  /** The connection is away; delivery resumes by itself. */
+  stalled: string;
+  /** Label of the button that retries the stream. */
+  retry: string;
+};
+
 export type PtySession = {
   id: number;
   write: (data: string | Uint8Array) => Promise<void>;
@@ -108,6 +126,8 @@ export async function openPty(
   paneId?: number,
   /** 这个终端跑在哪个环境里；缺省跟随当前工作区。 */
   workspace?: WorkspaceEnv,
+  /** 界面语言的提示文案；缺省不弹提示。 */
+  notices?: PtyNotices,
 ): Promise<PtySession> {
   const stream = outputHub();
   let id: number | null = null;
@@ -122,18 +142,15 @@ export async function openPty(
       if (status === "running") {
         if (notice !== undefined) toast.dismiss(notice);
         notice = undefined;
-      } else if (status === "stalled" || status === "failed") {
-        notice = toast.error("Terminal output paused", {
+      } else if (notices && (status === "stalled" || status === "failed")) {
+        notice = toast.error(notices.title, {
           id: notice,
           duration: Number.POSITIVE_INFINITY,
-          description:
-            status === "failed"
-              ? "The terminal could not process output. Reopen this terminal to recover."
-              : "Waiting for the terminal connection. Delivery will resume automatically.",
+          description: status === "failed" ? notices.failed : notices.stalled,
           action:
             status === "failed"
               ? undefined
-              : { label: "Retry", onClick: () => stream.retry() },
+              : { label: notices.retry, onClick: () => stream.retry() },
         });
       }
     },

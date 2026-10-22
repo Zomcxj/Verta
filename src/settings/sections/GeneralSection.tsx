@@ -60,15 +60,15 @@ const APPEARANCE: {
 ];
 
 const TERMINAL_FONT_WEIGHTS = [
-  { value: "normal", label: "Normal" },
-  { value: "500", label: "Medium" },
-  { value: "600", label: "Semi-Bold" },
-  { value: "bold", label: "Bold" },
+  { value: "normal", label: "settings.fontWeight.normal" },
+  { value: "500", label: "settings.fontWeight.medium" },
+  { value: "600", label: "settings.fontWeight.semiBold" },
+  { value: "bold", label: "settings.fontWeight.bold" },
 ] as const;
 const TERMINAL_CURSOR_STYLES = [
-  { value: "bar", label: "Bar" },
-  { value: "block", label: "Block" },
-  { value: "underline", label: "Underline" },
+  { value: "bar", label: "settings.cursorStyle.bar" },
+  { value: "block", label: "settings.cursorStyle.block" },
+  { value: "underline", label: "settings.cursorStyle.underline" },
 ] as const;
 const LETTER_SPACINGS = [-4, -3, -2, -1, 0, 1, 2, 3, 4] as const;
 
@@ -321,7 +321,7 @@ export function GeneralSection() {
                   value={style.value}
                   className="text-[12px]"
                 >
-                  {style.label}
+                  {t(style.label)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -357,7 +357,7 @@ export function GeneralSection() {
                   value={w.value}
                   className="text-[12px]"
                 >
-                  {w.label}
+                  {t(w.label)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -422,7 +422,7 @@ export function GeneralSection() {
                     value={`wsl:${d.name}`}
                     className="text-[12px]"
                   >
-                    WSL: {d.name}
+                    {t("settings.workspaceEnv.wsl", { distro: d.name })}
                   </SelectItem>
                 ))}
                 {defaultWorkspaceEnv.startsWith("wsl:") &&
@@ -433,7 +433,9 @@ export function GeneralSection() {
                       value={defaultWorkspaceEnv}
                       className="text-[12px]"
                     >
-                      {defaultWorkspaceEnv.slice("wsl:".length)} (unavailable)
+                      {t("settings.workspaceEnv.unavailable", {
+                        name: defaultWorkspaceEnv.slice("wsl:".length),
+                      })}
                     </SelectItem>
                   )}
               </SelectContent>

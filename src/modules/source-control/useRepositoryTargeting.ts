@@ -1,4 +1,5 @@
 import { native } from "@/lib/native";
+import { useT } from "@/modules/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -26,6 +27,7 @@ export function useRepositoryTargeting({
   openSourceControl,
   openCommitHistoryTab,
 }: Params) {
+  const t = useT();
   const [targets, setTargets] = useState<SourceControlRepositoryTargets>({});
   const sourceControlRequestRef = useRef(0);
   const historyRequestRef = useRef(0);
@@ -55,7 +57,7 @@ export function useRepositoryTargeting({
           return null;
         }
         if (!repo) {
-          toast.info("No Git repository contains this folder.");
+          toast.info(t("scm.repoTarget.none"));
         }
         return repo;
       } catch (error) {
@@ -63,14 +65,14 @@ export function useRepositoryTargeting({
           requestId === requestRef.current &&
           isContextCurrent(workspaceKey)
         ) {
-          toast.error("Could not resolve Git repository", {
+          toast.error(t("scm.repoTarget.resolveFailed"), {
             description: String(error),
           });
         }
         return null;
       }
     },
-    [isContextCurrent, workspaceKey],
+    [isContextCurrent, t, workspaceKey],
   );
 
   const openInSourceControl = useCallback(

@@ -143,6 +143,17 @@
 - `src/modules/git-history/GitHistoryPane.tsx`、`lib/remoteWebUrl.ts`：34 处文案接上 `t()`（表头 提交 / 主题 / 作者 / 日期 / 改动、加载与空态、`Copy SHA` / `Copied`、作者兜底名、文件数句子与 `View on GitHub` 那一组按钮）。`normalizeError` 多收一个「已经翻好的兜底」形参，`hostLabel` 多收一组可传的文案（默认仍是英文，纯函数与既有单测不受影响）。
 - `src/modules/i18n/messages.ts`：新增 `tabs.preview` / `tabs.shell` / `tabs.blocks`、`gitHistory.*` 29 条、`scm.*` 18 条（中英两份）。
 
+**界面文案长尾（第二轮）：资源管理器、源码管理 hook 层、设置页与外壳、终端与编辑器、更新 / LSP / 预览**
+
+- `src/modules/explorer/**`（18 键）：顺手修了那个真 bug —— **搜索结果右键菜单里写死的 `Reveal in Finder`** 在 Windows 上也照显示。现在两处调用点（搜索结果菜单与文件 / 根右键菜单）都走平台分支 `IS_MAC ? t("explorer.revealFinder") : t("explorer.revealManager")`，跟 `SourceControlPanel` 的写法一致。搜索的空态与「只显示部分结果」、删除与拖放的项数、剪贴板与粘贴 / 复制 / 移动的失败 toast、重名替换确认都进了表。
+- `src/modules/source-control/useSourceControlPanel.ts`、`useRepositoryTargeting.ts`（11 键）：push 按钮 tooltip 的那四种 `pushHint`（原来在 hook 的 `useMemo` 里硬编码）、提交 / 推送后的反馈条、discard 确认里的「几个未暂存文件」、两条 toast，以及两个 `normalizeError` 的兜底（改成收「已经翻好的兜底」这个形参，照 `GitHistoryPane` 的写法）。`useSourceControl.ts` 里那处不能因为换语言重跑的地方用 ref 读文案，依赖数组一个没动。
+- `src/settings/sections/*`、`src/settings/components/LspInstallDialog.tsx`、`src/components/WindowControls.tsx`、`src/modules/statusbar/CwdBreadcrumb.tsx`（39 键）：字重与光标形状下拉、录制指示、主题导入失败、关于页更新按钮的八种状态、格式化器选择、LSP 安装对话框、窗口控制按钮的 `aria-label` 与提示、面包屑（主目录 / 没有目录 / 没有子文件夹）。
+- `src/modules/terminal/**`、`src/modules/editor/lib/useDocument.ts`（21 键）：终端无法显示 / 无法启动 / 会话保留那组错误态、区块的复制与查找、输入框占位（**双空格照原样保留** —— 那两处是刻意的间距）、输出暂停 / 失败 / 等待这三条 toast，以及保存冲突对话框。`lib/pty-bridge.ts` 里只翻了那四条 toast；invoke 命令名、协议字段与 `"running" | "stalled" | "failed"` 状态枚举一律不动（协议面）。该模块不是组件，所以新增可选参数 `notices`，由 hook 把当前语言的字符串传进来。
+- `src/modules/updater/UpdaterDialog.tsx`、`src/modules/lsp/**`、`src/modules/markdown/**`、`src/components/chat-code.tsx`（46 键）：更新对话框的八种状态、LSP 状态卡与崩溃 / 退出 / 启动失败 toast、文档扩展的 `LspSessionLabels`（模块级代码，照先例加参数递文案）、markdown 预览的加载 / 二进制 / 过大与「渲染 / 源码」切换、chat-code 的生成中 / 已发送 / 运行。
+- `src/modules/i18n/messages.ts`：新增 135 条键（中英两份）。能复用既有键的都复用了（`explorer.revealFinder`、`explorer.loading`、`scm.unknownError`、`lsp.stopped`、`common.copyCode` 等）；同一句「Retry」这类按仓库「每模块各自出键」的惯例留在各自模块里。
+- 顺手规范了两处破折号：设置页更新失败的 `Check failed — retry` 与 markdown 的 `Binary file — cannot render as markdown.` —— 原文用的是 U+2014，与仓库「No em-dash anywhere」的规矩冲突，改成连字符（只有这个字符变了，其它逐字不变）。
+- 明确**不翻**（都是没有消费方的死字符串、协议面或技术诊断）：`useSourceControlPanel.ts` 的 `statusLabel` 与 `stagedEmptyText` / `unstagedEmptyText`（全仓库无人读）、ghostty 渲染器的内部诊断串、`pty-bridge` 的协议字段与状态枚举、`block/lib/shellEditor.ts` 那个到不了的兜底占位（`ShellInput` 总会传 `placeholderText`）、工具专名与 `ms` / `px` 这类单位符号。
+
 </details>
 
 <details>

@@ -1,4 +1,5 @@
 import { useT } from "@/modules/i18n";
+import { IS_MAC } from "@/lib/platform";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -75,6 +76,9 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
   ref,
 ) {
   const t = useT();
+  const revealLabel = IS_MAC
+    ? t("explorer.revealFinder")
+    : t("explorer.revealManager");
   const showHidden = usePreferencesStore((s) => s.showHidden);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchHit[]>([]);
@@ -232,11 +236,11 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
           <div className="py-1" ref={scrollRef}>
             {searching && results.length === 0 ? (
               <div className="px-3 py-2 text-[11px] text-muted-foreground">
-                Searching…
+                {t("explorer.searching")}
               </div>
             ) : results.length === 0 ? (
               <div className="px-3 py-2 text-[11px] text-muted-foreground">
-                No matches
+                {t("explorer.noMatches")}
               </div>
             ) : (
               results.map((hit, index) => {
@@ -284,7 +288,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
                           className={COMPACT_ITEM}
                           onSelect={() => onOpenFile(hit.path)}
                         >
-                          Open
+                          {t("explorer.open")}
                         </ContextMenuItem>
                       )}
                       {hit.is_dir && onRevealInTerminal && (
@@ -292,7 +296,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
                           className={COMPACT_ITEM}
                           onSelect={() => onRevealInTerminal(hit.path)}
                         >
-                          Open in Terminal
+                          {t("explorer.openInTerminal")}
                         </ContextMenuItem>
                       )}
                       {hit.is_dir && onOpenInSourceControl && (
@@ -300,7 +304,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
                           className={COMPACT_ITEM}
                           onSelect={() => onOpenInSourceControl(hit.path)}
                         >
-                          Open in Source Control
+                          {t("explorer.openInSourceControl")}
                         </ContextMenuItem>
                       )}
                       {hit.is_dir && onOpenGitHistory && (
@@ -308,28 +312,28 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
                           className={COMPACT_ITEM}
                           onSelect={() => onOpenGitHistory(hit.path)}
                         >
-                          Open Git History
+                          {t("explorer.openGitHistory")}
                         </ContextMenuItem>
                       )}
                       <ContextMenuItem
                         className={COMPACT_ITEM}
                         onSelect={() => void revealInFinder(hit.path)}
                       >
-                        Reveal in Finder
+                        {revealLabel}
                       </ContextMenuItem>
                       <ContextMenuSeparator />
                       <ContextMenuItem
                         className={COMPACT_ITEM}
                         onSelect={() => void copyToClipboard(hit.path)}
                       >
-                        Copy Path
+                        {t("explorer.copyPath")}
                       </ContextMenuItem>
                       <ContextMenuSeparator />
                       <ContextMenuItem
                         className={COMPACT_ITEM}
                         onSelect={() => onAttachToAgent?.(hit.path)}
                       >
-                        Attach to Agent
+                        {t("explorer.attachToAgent")}
                       </ContextMenuItem>
                     </ContextMenuContent>
                   </ContextMenu>
@@ -338,7 +342,7 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
             )}
             {truncated && results.length > 0 ? (
               <div className="px-3 py-1.5 text-[10px] text-muted-foreground">
-                Showing partial results — refine your query.
+                {t("explorer.partialResults")}
               </div>
             ) : null}
           </div>

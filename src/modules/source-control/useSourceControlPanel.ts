@@ -10,6 +10,7 @@ import {
   invalidateRepoDiffs,
   workingDiffKey,
 } from "@/modules/editor/lib/diffCache";
+import { useT } from "@/modules/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SourceControlSummary } from "./useSourceControl";
 
@@ -98,13 +99,13 @@ type SourceControlPanelState = {
   push: () => Promise<void>;
 };
 
-function normalizeError(error: unknown): string {
+function normalizeError(error: unknown, fallback: string): string {
   if (typeof error === "string") return error;
   if (error && typeof error === "object" && "message" in error) {
     const message = (error as { message?: unknown }).message;
     if (typeof message === "string") return message;
   }
-  return "Unknown source control error";
+  return fallback;
 }
 
 function normalizeStatusCode(status: string): string {
@@ -277,6 +278,7 @@ export function useSourceControlPanel(
       }) => void)
     | null,
 ): SourceControlPanelState {
+  const t = useT();
   const [panelState, setPanelState] = useState<PanelState>("closed");
   const [repo, setRepo] = useState<GitRepoInfo | null>(null);
   const [status, setStatus] = useState<GitStatusSnapshot | null>(null);
@@ -508,14 +510,14 @@ export function useSourceControlPanel(
         await ipc();
         scheduleReconcile();
       } catch (error) {
-        setActionError(normalizeError(error));
+        setActionError(normalizeError(error, t("scm.unknownError")));
         cancelReconcile();
         await summary.refresh({ remote: "never" }).catch(() => {});
       } finally {
         setLocalActionBusy(null);
       }
     },
-    [cancelReconcile, repo, scheduleReconcile, summary],
+    [cancelReconcile, repo, scheduleReconcile, summary, t],
   );
 
   const stageEntry = useCallback(
@@ -680,16 +682,16 @@ export function useSourceControlPanel(
   const pushHint = useMemo(() => {
     if (!status) return null;
     if (!status.upstream) {
-      return "Configure or publish this branch in the terminal to enable push in this iteration.";
+      return t("scm.pushHint.noUpstream");
     }
     if (status.behind > 0) {
-      return "Pull remote changes before pushing local commits.";
+      return t("scm.pushHint.behind");
     }
     if (status.ahead === 0) {
-      return `No local commits to push to ${status.upstream}.`;
+      return t("scm.pushHint.upToDate", { upstream: status.upstream });
     }
-    return `Pushes to ${status.upstream}.`;
-  }, [status]);
+    return t("scm.pushHint.ahead", { upstream: status.upstream });
+  }, [status, t]);
   const stagedEmptyText = "No staged changes";
   const unstagedEmptyText = "No unstaged changes";
 
@@ -702,16 +704,19 @@ export function useSourceControlPanel(
       const result = await native.gitCommit(repo.repoRoot, commitMessage);
       setCommitMessage("");
       setActionMessage(
-        `Committed ${result.commitSha.slice(0, 7)} ${result.summary}`,
+        t("scm.commitDone", {
+          sha: result.commitSha.slice(0, 7),
+          summary: result.summary,
+        }),
       );
       invalidateRepoDiffs(repo.repoRoot);
       await summary.refresh({ remote: "never" });
     } catch (error) {
-      setActionError(normalizeError(error));
+      setActionError(normalizeError(error, t("scm.unknownError")));
     } finally {
       setLocalActionBusy(null);
     }
-  }, [commitMessage, repo, summary]);
+  }, [commitMessage, repo, summary, t]);
 
   const push = useCallback(async () => {
     if (!repo) return;
@@ -720,14 +725,16 @@ export function useSourceControlPanel(
     const result = await summary.runRemoteAction("push");
     if (result.ok) {
       setActionMessage(
-        status?.upstream ? `Pushed to ${status.upstream}` : "Push completed",
+        status?.upstream
+          ? t("scm.pushedToUpstream", { upstream: status.upstream })
+          : t("scm.pushDone"),
       );
       return;
     }
     if (result.error) {
       setActionError(result.error);
     }
-  }, [repo, status?.upstream, summary]);
+  }, [repo, status?.upstream, summary, t]);
 
   const pendingDiscardView = useMemo<PendingDiscard | null>(() => {
     if (!pendingDiscard) return null;
@@ -741,11 +748,16 @@ export function useSourceControlPanel(
     return {
       scope: "all",
       count: pendingDiscard.entries.length,
-      label: `${pendingDiscard.entries.length} unstaged ${
-        pendingDiscard.entries.length === 1 ? "file" : "files"
-      }`,
+      label:
+        pendingDiscard.entries.length === 1
+          ? t("scm.pendingDiscard.file", {
+              count: pendingDiscard.entries.length,
+            })
+          : t("scm.pendingDiscard.files", {
+              count: pendingDiscard.entries.length,
+            }),
     };
-  }, [pendingDiscard]);
+  }, [pendingDiscard, t]);
 
   return {
     panelState,

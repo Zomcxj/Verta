@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useT } from "@/modules/i18n";
 import { currentWorkspaceEnv } from "@/modules/workspace";
 import {
   parentDir,
@@ -52,9 +53,12 @@ export function useExplorerFileDrop({
   isDir,
   onCopied,
 }: Options) {
+  const t = useT();
   const [targetDir, setTargetDir] = useState<string | null>(null);
-  const optsRef = useRef({ rootPath, isDir, onCopied });
-  optsRef.current = { rootPath, isDir, onCopied };
+  // The drop listener attaches once and must not re-attach on a language
+  // change, so the label lookup rides the same ref as the other options.
+  const optsRef = useRef({ rootPath, isDir, onCopied, t });
+  optsRef.current = { rootPath, isDir, onCopied, t };
 
   useEffect(() => {
     if (!enabled) return;
@@ -64,7 +68,7 @@ export function useExplorerFileDrop({
     void getCurrentWebview()
       .onDragDropEvent((e) => {
         const p = e.payload;
-        const { rootPath, isDir, onCopied } = optsRef.current;
+        const { rootPath, isDir, onCopied, t } = optsRef.current;
         if (p.type === "enter" || p.type === "over") {
           setTargetDir(dirAt(p.position.x, p.position.y, rootPath, isDir));
           return;
@@ -84,8 +88,10 @@ export function useExplorerFileDrop({
             root: rootPath,
             workspace,
           })
-            .then(reportCopyFailures)
-            .catch((err) => toast.error(`Copy failed: ${String(err)}`))
+            .then((result) => reportCopyFailures(result, t))
+            .catch((err) =>
+              toast.error(t("explorer.copyFailed", { error: String(err) })),
+            )
             .finally(() => {
               if (
                 !disposed &&

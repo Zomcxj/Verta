@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useT } from "@/modules/i18n";
 import { excludeNestedSources } from "./batchMove";
 
 export type ExplorerPathDropTarget = {
@@ -82,6 +83,12 @@ export function useExplorerDnd({
   collapseSelectionTo,
   pathDropTarget,
 }: Options) {
+  const t = useT();
+  // Read through a ref: the pointer handler below wires its listeners once and
+  // its dependency list stays empty, so a language switch must not be what
+  // rebuilds it.
+  const tRef = useRef(t);
+  tRef.current = t;
   const [dragLabel, setDragLabel] = useState<string | null>(null);
   const [dropTargetDir, setDropTargetDir] = useState<string | null>(null);
 
@@ -159,7 +166,7 @@ export function useExplorerDnd({
         }
         setDragLabel(
           sources.length > 1
-            ? `${sources.length} items`
+            ? tRef.current("explorer.dragItems", { count: sources.length })
             : source.slice(source.lastIndexOf("/") + 1),
         );
       }

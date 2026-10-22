@@ -3,6 +3,7 @@ import {
   type GitRepoInfo,
   type GitStatusSnapshot,
 } from "@/lib/native";
+import { useT } from "@/modules/i18n";
 import { useWorkspaceEnvStore, workspaceScopeKey } from "@/modules/workspace";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -179,13 +180,13 @@ export function beginSourceControlRefresh<
   };
 }
 
-function normalizeError(error: unknown): string {
+function normalizeError(error: unknown, fallback: string): string {
   if (typeof error === "string") return error;
   if (error && typeof error === "object" && "message" in error) {
     const message = (error as { message?: unknown }).message;
     if (typeof message === "string") return message;
   }
-  return "Unknown source control error";
+  return fallback;
 }
 
 function getContextualAction(
@@ -224,6 +225,12 @@ export function useSourceControl(
 ): SourceControlSummary {
   const workspaceEnv = useWorkspaceEnvStore((s) => s.env);
   const workspaceKey = workspaceScopeKey(workspaceEnv);
+  const t = useT();
+  // The refresh effects below depend on `refresh`, so the translated fallback is
+  // read through a ref: switching language must not re-run `git status`.
+  const unknownError = t("scm.unknownError");
+  const unknownErrorRef = useRef(unknownError);
+  unknownErrorRef.current = unknownError;
   const [state, setState] = useState<SourceControlSummaryState>({
     contextPath: null,
     repo: null,
@@ -403,7 +410,7 @@ export function useSourceControl(
             status = await native.gitStatus(repo.repoRoot);
             if (!isCurrentRequest()) return;
           } catch (error) {
-            nextRemoteError = normalizeError(error);
+            nextRemoteError = normalizeError(error, unknownErrorRef.current);
           }
         }
 
@@ -425,7 +432,7 @@ export function useSourceControl(
           hasRepo: false,
           status: null,
           isLoading: false,
-          localError: normalizeError(error),
+          localError: normalizeError(error, unknownErrorRef.current),
         }));
       } finally {
         if (isCurrentRequest()) {
@@ -497,7 +504,7 @@ export function useSourceControl(
         }
         return { ok: true, action };
       } catch (error) {
-        const message = normalizeError(error);
+        const message = normalizeError(error, unknownErrorRef.current);
         if (isCurrentContext()) {
           setState((current) => ({ ...current, lastRemoteError: message }));
           await refresh({ remote: "never" }).catch(() => {});

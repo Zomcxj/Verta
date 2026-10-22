@@ -1,3 +1,4 @@
+import { useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { TerminalSearchController } from "@/modules/terminal/search/TerminalSearchController";
 import type { WorkspaceEnv } from "@/modules/workspace";
@@ -74,6 +75,7 @@ const GhosttyTerminalPane = memo(
     },
     ref,
   ) {
+    const t = useT();
     const screenReader = usePreferencesStore(
       (state) => state.terminalScreenReader,
     );
@@ -193,16 +195,15 @@ const GhosttyTerminalPane = memo(
           >
             <strong>
               {session.error.kind === "renderer"
-                ? "Unable to display terminal"
-                : "Unable to start terminal"}
+                ? t("term.unableToDisplay")
+                : t("term.unableToStart")}
             </strong>
             <p className="max-w-md break-words text-muted-foreground">
               {session.error.message}
             </p>
             {session.error.kind === "renderer" && (
               <p className="text-muted-foreground">
-                Your terminal session is preserved. Retry to restore its
-                display.
+                {t("term.sessionPreserved")}
               </p>
             )}
             <button
@@ -210,7 +211,9 @@ const GhosttyTerminalPane = memo(
               className="rounded-md border px-3 py-1.5 hover:bg-accent focus-visible:outline-2"
               onClick={session.retry}
             >
-              {session.error.kind === "renderer" ? "Retry display" : "Retry"}
+              {session.error.kind === "renderer"
+                ? t("term.retryDisplay")
+                : t("term.retry")}
             </button>
           </div>
         )}

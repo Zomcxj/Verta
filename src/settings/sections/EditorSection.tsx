@@ -12,7 +12,7 @@ import {
   FORMATTERS,
 } from "@/modules/editor/lib/externalFormat";
 import { EXPOSED_LANGUAGES } from "@/modules/editor/lib/languageDefinitions";
-import { useT } from "@/modules/i18n";
+import { type MessageKey, useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   AUTO_SAVE_DELAY_MAX,
@@ -179,6 +179,19 @@ const FORMATTER_OPTIONS: EditorFormatter[] = [
   "custom",
 ];
 
+/**
+ * "Language server" and "Custom command" are ours to translate; every other
+ * entry in the table is a tool name (Prettier, Biome…) and stays as it is.
+ */
+function formatterLabel(
+  id: EditorFormatter,
+  t: (key: MessageKey) => string,
+): string {
+  if (id === "lsp") return t("settings.editor.formatter.lsp");
+  if (id === "custom") return t("settings.editor.formatter.custom");
+  return FORMATTER_LABELS[id];
+}
+
 function FormatterSelect({
   value,
   onChange,
@@ -186,6 +199,7 @@ function FormatterSelect({
   value: EditorFormatter;
   onChange: (v: EditorFormatter) => void;
 }) {
+  const t = useT();
   return (
     <Select value={value} onValueChange={(v) => onChange(v as EditorFormatter)}>
       <SelectTrigger className="h-8 w-40 text-[12px]">
@@ -194,7 +208,7 @@ function FormatterSelect({
       <SelectContent>
         {FORMATTER_OPTIONS.map((id) => (
           <SelectItem key={id} value={id}>
-            {FORMATTER_LABELS[id]}
+            {formatterLabel(id, t)}
           </SelectItem>
         ))}
       </SelectContent>
@@ -413,7 +427,9 @@ function WordWrapColumnInput({
           }}
           className="h-8 w-20 rounded-md border border-border bg-background px-2.5 text-right text-[12px] md:text-[12px] tabular-nums outline-none focus:border-foreground/40 focus-visible:ring-0 focus-visible:border-foreground/40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
-        <span className="text-[11px] text-muted-foreground">columns</span>
+        <span className="text-[11px] text-muted-foreground">
+          {t("settings.editor.wrapColumn.unit")}
+        </span>
       </div>
     </SettingRow>
   );

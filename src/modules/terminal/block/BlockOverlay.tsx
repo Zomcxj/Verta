@@ -216,6 +216,7 @@ function Meta({ block }: { block: PositionedBlock }) {
 }
 
 function StickyHeader({ block, all, onSearch }: ChromeProps) {
+  const t = useT();
   return (
     <div className="bt-sticky">
       <HugeiconsIcon
@@ -224,7 +225,9 @@ function StickyHeader({ block, all, onSearch }: ChromeProps) {
         size={12}
         strokeWidth={1.75}
       />
-      <span className="bt-sticky-cmd">{block.command || "command"}</span>
+      <span className="bt-sticky-cmd">
+        {block.command || t("term.command")}
+      </span>
       <Toolbar block={block} all={all} onSearch={onSearch} />
     </div>
   );
@@ -238,7 +241,11 @@ function Toolbar({ block, all, onSearch }: ChromeProps) {
   const failed = !block.running && !block.ok && block.exitCode !== null;
   return (
     <div className="bt-tools">
-      {failed && <span className="bt-exit">exit {block.exitCode}</span>}
+      {failed && (
+        <span className="bt-exit">
+          {t("term.exitCode", { code: String(block.exitCode) })}
+        </span>
+      )}
       {duration && <span className="bt-dur">{duration}</span>}
       {!block.running && block.canRerun && (
         <button
@@ -288,14 +295,14 @@ function BlockMenu({ block, all, onSearch }: ChromeProps) {
           icon={Copy01Icon}
           label={t("term.copyCommand")}
           disabled={!block.command}
-          onClick={() => copy(block.command, "Command copied")}
+          onClick={() => copy(block.command, t("term.commandCopied"))}
         />
         <MenuItem
           icon={ComputerTerminal02Icon}
           label={t("term.copyOutput")}
           onClick={() => {
             const o = output();
-            if (o) copy(o, "Output copied");
+            if (o) copy(o, t("term.outputCopied"));
           }}
         />
         <MenuItem
@@ -303,7 +310,7 @@ function BlockMenu({ block, all, onSearch }: ChromeProps) {
           label={t("term.copyBoth")}
           onClick={() => {
             const text = `$ ${block.command}\n${output()}`;
-            copy(text, "Block copied");
+            copy(text, t("term.blockCopied"));
           }}
         />
         <MenuItem
@@ -388,7 +395,7 @@ function SearchBar({
       () => {
         if (controller.signal.aborted) return;
         setPending(false);
-        toast.error("Could not search this block");
+        toast.error(t("term.searchFailed"));
       },
     );
   };
@@ -419,7 +426,7 @@ function SearchBar({
       />
       <span className="bt-search-count">
         {pending
-          ? "Searching"
+          ? t("term.searching")
           : matches.length
             ? `${idx + 1}/${matches.length}`
             : "0"}
@@ -430,7 +437,11 @@ function SearchBar({
         onClick={() => nav(-1)}
       />
       <SearchBtn title={t("term.next")} icon={ArrowDown01Icon} onClick={() => nav(1)} />
-      <SearchBtn title="Close" icon={Cancel01Icon} onClick={onClose} />
+      <SearchBtn
+        title={t("term.close")}
+        icon={Cancel01Icon}
+        onClick={onClose}
+      />
     </div>
   );
 }

@@ -134,6 +134,7 @@ function buildRows(
   rootPath: string,
   tree: ReturnType<typeof useFileTree>,
   lookup: (path: string) => GitStatusCode | null,
+  loadingLabel: string,
 ): { rows: Row[]; entryIndexByPath: Map<string, number> } {
   const rows: Row[] = [];
   const entryIndexByPath = new Map<string, number>();
@@ -189,7 +190,7 @@ function buildRows(
             key: `loading:${path}`,
             depth: depth + 1,
             tone: "muted",
-            message: "Loading…",
+            message: loadingLabel,
           });
         } else if (child?.status === "error") {
           rows.push({
@@ -233,6 +234,9 @@ export const FileExplorer = memo(
     const revealLabel = IS_MAC
       ? t("explorer.revealFinder")
       : t("explorer.revealManager");
+    // Resolved to a string so `buildRows` (and the memo below) take the
+    // translated label as plain input rather than a lookup function.
+    const loadingLabel = t("explorer.loading");
     const tree = useFileTree(rootPath, {
       onPathRenamed,
       onPathsDeleted,
@@ -282,7 +286,7 @@ export const FileExplorer = memo(
           rows: [] as Row[],
           entryIndexByPath: new Map<string, number>(),
         };
-      return buildRows(rootPath, tree, lookupGitStatus);
+      return buildRows(rootPath, tree, lookupGitStatus, loadingLabel);
       // `tree` is intentionally omitted: its identity changes every render, but
       // the listed fields are the only inputs buildRows actually reads.
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -293,6 +297,7 @@ export const FileExplorer = memo(
       tree.renaming,
       tree.pendingCreate,
       lookupGitStatus,
+      loadingLabel,
     ]);
 
     const rowActions = useMemo<RowActions>(
@@ -416,6 +421,7 @@ export const FileExplorer = memo(
             workspace,
             isCurrent,
             refresh: (path) => tree.refresh(path, true),
+            t,
           });
           if (isCurrent() && paths.length > 0)
             setPastedSelection({ scope, paths });
@@ -423,7 +429,7 @@ export const FileExplorer = memo(
           pasteBusyRef.current = false;
         }
       },
-      [rootPath, workspace, tree.refresh],
+      [rootPath, workspace, tree.refresh, t],
     );
 
     useEffect(() => {
@@ -534,7 +540,7 @@ export const FileExplorer = memo(
             className="text-muted-foreground"
           />
           <div className="text-xs text-muted-foreground">
-            No current directory
+            {t("explorer.noCurrentDirectory")}
           </div>
         </div>
       );
@@ -822,7 +828,7 @@ export const FileExplorer = memo(
                 ) : null}
                 {root?.status === "loading" && (
                   <div className="px-3 py-2 text-[11px] text-muted-foreground">
-                    Loading…
+                    {loadingLabel}
                   </div>
                 )}
                 {root?.status === "error" && (
@@ -885,8 +891,8 @@ export const FileExplorer = memo(
                   }}
                 >
                   {deleteConfirm
-                    ? "Click again to confirm"
-                    : `Delete ${selectedPaths.size} items`}
+                    ? t("explorer.clickToConfirm")
+                    : t("explorer.deleteItems", { count: selectedPaths.size })}
                 </ContextMenuItem>
               ) : menuTarget ? (
                 <>

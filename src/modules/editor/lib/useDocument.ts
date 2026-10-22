@@ -1,3 +1,4 @@
+import { useT } from "@/modules/i18n";
 import { notifyDocumentSaved } from "@/modules/lsp";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { envForPath } from "@/modules/workspace";
@@ -44,6 +45,8 @@ export function useDocument({ path, onDirtyChange }: Options) {
   const [dirty, setDirty] = useState(false);
   /** 中断前留下的草稿；有它在编辑器顶上出一条恢复条。 */
   const [pendingDraft, setPendingDraft] = useState<Draft | null>(null);
+
+  const t = useT();
 
   const autoSave = usePreferencesStore((s) => s.editorAutoSave);
   const autoSaveDelay = usePreferencesStore((s) => s.editorAutoSaveDelay);
@@ -133,17 +136,20 @@ export function useDocument({ path, onDirtyChange }: Options) {
       }).catch(() => null);
       if (stat && stat.mtime !== known) {
         const name = path.split(/[\\/]/).pop() ?? path;
-        toast.warning("File changed on disk", {
+        toast.warning(t("editor.saveConflict.title"), {
           id: `save-conflict:${path}`,
-          description: `${name} was modified by another program while you had unsaved changes. Overwrite to keep your version.`,
-          action: { label: "Overwrite", onClick: () => void writeToDisk() },
+          description: t("editor.saveConflict.body", { name }),
+          action: {
+            label: t("editor.saveConflict.overwrite"),
+            onClick: () => void writeToDisk(),
+          },
         });
         return false;
       }
     }
     await writeToDisk();
     return true;
-  }, [path, writeToDisk]);
+  }, [path, writeToDisk, t]);
 
   // Notify parent of dirty transitions.
   const onDirtyChangeRef = useRef(onDirtyChange);

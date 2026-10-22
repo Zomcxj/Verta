@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
+import { useT } from "@/modules/i18n";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useState } from "react";
 import { useUpdater } from "./useUpdater";
@@ -39,6 +40,7 @@ function formatBytes(n: number): string {
 
 export function UpdaterDialog() {
   const { status, install, dismiss } = useUpdater();
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const [distro, setDistro] = useState<DistroKey>("arch");
   const manualVersion =
@@ -88,23 +90,23 @@ export function UpdaterDialog() {
         <DialogHeader>
           <DialogTitle>
             {ready
-              ? "Update ready"
+              ? t("updater.ready")
               : downloading
-                ? "Downloading update…"
+                ? t("updater.downloading")
                 : manual
-                  ? `Verta v${manual.version} is available`
-                  : `Verta v${update?.version} is available`}
+                  ? t("updater.available", { version: manual.version })
+                  : t("updater.available", { version: update?.version ?? "" })}
           </DialogTitle>
           <DialogDescription>
             {ready
-              ? "Restart Verta to finish installing."
+              ? t("updater.restartToFinish")
               : downloading
                 ? progress !== null
                   ? `${progress.toFixed(0)}% — ${formatBytes(status.downloaded)}`
                   : formatBytes(status.downloaded)
                 : manual
-                  ? `You're on v${manual.currentVersion}. Pick your distro and run the command, or grab the package from GitHub.`
-                  : update?.body || "A new version is ready to install."}
+                  ? t("updater.manualHint", { version: manual.currentVersion })
+                  : update?.body || t("updater.newVersionReady")}
           </DialogDescription>
         </DialogHeader>
 
@@ -141,7 +143,7 @@ export function UpdaterDialog() {
                 className="h-7 px-2 text-[11px]"
                 onClick={() => void copyCommand()}
               >
-                {copied ? "Copied" : "Copy"}
+                {copied ? t("updater.copied") : t("updater.copy")}
               </Button>
             </div>
           </div>
@@ -151,23 +153,23 @@ export function UpdaterDialog() {
           {status.kind === "available" && (
             <>
               <Button variant="ghost" size="sm" onClick={dismiss}>
-                Later
+                {t("updater.later")}
               </Button>
               <Button size="sm" onClick={() => void install()}>
-                Install &amp; restart
+                {t("updater.installRestart")}
               </Button>
             </>
           )}
           {manual && (
             <>
               <Button variant="ghost" size="sm" onClick={dismiss}>
-                Later
+                {t("updater.later")}
               </Button>
               <Button
                 size="sm"
                 onClick={() => void openUrl(manual.releaseUrl)}
               >
-                Download package
+                {t("updater.downloadPackage")}
               </Button>
             </>
           )}

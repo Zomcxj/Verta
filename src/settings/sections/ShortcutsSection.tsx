@@ -271,6 +271,7 @@ function Recorder({
   onRecord: (b: KeyBinding) => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   const [_mods, setMods] = useState({
     ctrl: false,
     shift: false,
@@ -338,8 +339,12 @@ function Recorder({
 
   return (
     <div className="flex items-center gap-2 rounded bg-accent/50 px-2 py-1 text-[11px] ring-1 ring-accent">
-      <span className="animate-pulse font-medium">Recording...</span>
-      <span className="text-muted-foreground">(Esc to cancel)</span>
+      <span className="animate-pulse font-medium">
+        {t("settings.shortcuts.recording")}
+      </span>
+      <span className="text-muted-foreground">
+        {t("settings.shortcuts.recordingHint")}
+      </span>
     </div>
   );
 }

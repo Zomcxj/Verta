@@ -1,6 +1,7 @@
 import { resolveFontStack } from "@/lib/fonts";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
+import { useT } from "@/modules/i18n";
 import { useTheme } from "@/modules/theme";
 import { useEffect, useRef } from "react";
 import { runScopeHandlers } from "@codemirror/view";
@@ -42,6 +43,7 @@ export default function ShellInput({
   onInterrupt,
   getCwd,
 }: Props) {
+  const t = useT();
   const hostRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<ShellEditorHandle | null>(null);
   const commandsRef = useRef<string[]>([]);
@@ -52,6 +54,13 @@ export default function ShellInput({
   const atPrompt = mode === "prompt";
   const focusableRef = useRef(false);
   focusableRef.current = focused && atPrompt;
+  // The editor is built once and never rebuilt, so the placeholder reaches it
+  // through a ref: a language switch must not tear down a live input line.
+  const placeholder = t("term.inputPlaceholder", {
+    shortcut: fmtShortcut(MOD_KEY, "U"),
+  });
+  const placeholderRef = useRef(placeholder);
+  placeholderRef.current = placeholder;
 
   useEffect(() => {
     let alive = true;
@@ -82,7 +91,7 @@ export default function ShellInput({
       fontFamily: fontRef.current.fontFamily,
       fontSize: fontRef.current.fontSize,
       fontWeight: fontRef.current.fontWeight,
-      placeholderText: `Run a command  -  ↑ history  ${fmtShortcut(MOD_KEY, "U")} switch to AI`,
+      placeholderText: placeholderRef.current,
       commandNames: () => commandsRef.current,
       getCwd: () => cbRef.current.getCwd(),
       onChange: (text) =>
