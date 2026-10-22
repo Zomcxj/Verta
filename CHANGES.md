@@ -168,6 +168,14 @@
 - `src/modules/i18n/messages.ts`：新增 29 条键（中英两份 ✓），复用了 `tabs.rename` / `tabs.close` / `palette.title` / `editor.hidePreview` / `editor.showPreview` / `editor.preview.title` ✓。
 - ⚠️ 本轮顺带记下两条**留给下一轮**的：① `messages.ts` 里有多组**同义键** ✗（`editor.hidePreview` 与 `editor.preview.hide`、`preview.show` / `preview.hide` / `preview.label` ✗）—— 去重要跨文件改 ✓；② 后端来的英文 ✗（Rust 的 `Added` / `Modified` 等状态标签、主题校验串、updater 的 `status.message`、LSP stderr ✗）与两个窗口标题 ✗。
 
+**界面文案收口：同义键与后端来的英文**
+
+- `src/modules/i18n/messages.ts`：把「编辑器预览开关」那组同义键收成一对 —— `SidePreview.tsx` 用 `editor.preview.hide`，`EditorPane.tsx` 原来用 `editor.hidePreview` / `editor.showPreview`（同一句英文），统一成 `editor.preview.hide` / `editor.preview.show`，并删掉三条**全仓无人引用**的死键（`preview.hide` / `preview.show` / `preview.label`，前两条英文与 `editor.preview.*` 逐字相同）。
+  ⚠️ **其余九十来组同义键一律保留**：那是仓库既定的「每模块各自出键」惯例（「取消」7 处、「重试」5 处、「刷新」4 处、「关闭」5 处…），而且很多是**动态键**（`` t(`shortcut.${id}`) ``、`` t(`cmd.${id}`) ``）—— 静态脚本判「无人使用」会把它们误判成死键，所以这一轮**不碰**。审计脚本（`.superpowers/keys-audit.mjs`，可复用）的结论已记进待办，供以后参考。
+- `src/modules/editor/EditorPane.tsx`：那两处 `tr(...)` 跟着改到新键（`tr` 是它文件里的翻译别名）。
+- `src/modules/git-history/GitHistoryPane.tsx`：文件行的 `title` 原来直接显示 Rust 传来的**英文句子**（`Added` / `Modified` / `Deleted` / `Renamed` / `Copied` / `Unmerged` / `Untracked`）→ 改成前端映射到 `gitStatus.*`，**映射表命中不到的值原样透出**（后端将来新增状态时不会变成空白）。**Rust 侧一个字节没动**：不动后端就不会触发重编译重启，那两处 `status_label_for` / `parser.rs` 的英文串留着，前端已经不再依赖它们。
+- ⬜ 这轮**没做**、留给下一轮的：① `src/modules/theme/validateTheme.ts` 的校验串 —— 它返回的是**整句英文**，且 `validateTheme.test.ts` 断言的正是那些句子 → 要改就得改返回约定 + 改测试，值得另开一轮；② updater 的 `status.message`（插件给的串）与 LSP 的 stderr tail（诊断数据）；③ 两个**窗口标题**（`Verta — Settings`）。
+
 </details>
 
 <details>

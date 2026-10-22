@@ -635,10 +635,10 @@ export const EditorPane = memo(
               type="button"
               onClick={toggleSide}
               title={
-                sideOpen ? tr("editor.hidePreview") : tr("editor.showPreview")
+                sideOpen ? tr("editor.preview.hide") : tr("editor.preview.show")
               }
               aria-label={
-                sideOpen ? tr("editor.hidePreview") : tr("editor.showPreview")
+                sideOpen ? tr("editor.preview.hide") : tr("editor.preview.show")
               }
               aria-pressed={sideOpen}
               // Bottom right: the view switch owns the top right corner, and two

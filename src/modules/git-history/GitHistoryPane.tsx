@@ -13,7 +13,7 @@ import {
   type GitLogEntry,
 } from "@/lib/native";
 import { FileIcon } from "@/modules/explorer/FileIcon";
-import { useT } from "@/modules/i18n";
+import { type MessageKey, useT } from "@/modules/i18n";
 import {
   Copy01Icon,
   File02Icon,
@@ -126,6 +126,18 @@ function authorInitials(name: string): string {
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 }
+
+/** The Rust side sends these labels as English sentences. Map the ones we know
+ *  and let anything new fall through untranslated rather than hiding it. */
+const STATUS_LABEL_KEYS: Record<string, MessageKey> = {
+  Added: "gitStatus.added",
+  Modified: "gitStatus.modified",
+  Deleted: "gitStatus.deleted",
+  Renamed: "gitStatus.renamed",
+  Copied: "gitStatus.copied",
+  Unmerged: "gitStatus.unmerged",
+  Untracked: "gitStatus.untracked",
+};
 
 const AUTHOR_TINTS = [
   "#7aa2f7", // soft blue
@@ -1070,7 +1082,11 @@ const FileRow = memo(function FileRow({
           "inline-flex w-4 shrink-0 justify-center text-[9.5px] font-bold leading-none tabular-nums",
           statusTone(file.status),
         )}
-        title={file.statusLabel}
+        title={
+          STATUS_LABEL_KEYS[file.statusLabel]
+            ? t(STATUS_LABEL_KEYS[file.statusLabel])
+            : file.statusLabel
+        }
       >
         {file.status.toUpperCase()}
       </span>
