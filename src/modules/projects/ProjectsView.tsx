@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { useT, type MessageKey } from "@/modules/i18n";
 import {
   AGENT_TOOLS,
+  AgentIcon,
   type AgentSession,
   type AgentTool,
   loadAllAgentSessions,
@@ -554,7 +555,10 @@ function ProjectRowView({
 
   type Action = {
     key: string;
+    /** 画出来的文案；带 agent 的项不画文字，它只做可访问名与悬停提示。 */
     label?: string;
+    /** 带 agent 的项会挤成一行图标（见下面的渲染）。 */
+    agent?: AgentTool;
     disabled?: boolean;
     onSelect?: () => void;
     separator?: boolean;
@@ -564,6 +568,7 @@ function ProjectRowView({
     ...AGENT_TOOLS.map((tool) => ({
       key: `tool:${tool}`,
       label: t("projects.action.openWith", { tool }),
+      agent: tool,
       disabled: !usable,
       onSelect: () => onNewSession(row, tool),
     })),
@@ -671,19 +676,39 @@ function ProjectRowView({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="min-w-48">
-                  {actions.map((action) =>
-                    action.separator ? (
-                      <DropdownMenuSeparator key={action.key} />
-                    ) : (
-                      <DropdownMenuItem
-                        key={action.key}
-                        disabled={action.disabled}
-                        onSelect={action.onSelect}
-                      >
-                        {action.label}
-                      </DropdownMenuItem>
-                    ),
-                  )}
+                  {actions.some((action) => action.agent) ? (
+                    <div className="flex items-center gap-1 px-1 py-1">
+                      {actions
+                        .filter((action) => action.agent)
+                        .map((action) => (
+                          <DropdownMenuItem
+                            key={action.key}
+                            disabled={action.disabled}
+                            onSelect={action.onSelect}
+                            title={action.label}
+                            aria-label={action.label}
+                            className="justify-center px-2"
+                          >
+                            <AgentIcon agent={action.agent ?? ""} size={14} />
+                          </DropdownMenuItem>
+                        ))}
+                    </div>
+                  ) : null}
+                  {actions
+                    .filter((action) => !action.agent)
+                    .map((action) =>
+                      action.separator ? (
+                        <DropdownMenuSeparator key={action.key} />
+                      ) : (
+                        <DropdownMenuItem
+                          key={action.key}
+                          disabled={action.disabled}
+                          onSelect={action.onSelect}
+                        >
+                          {action.label}
+                        </DropdownMenuItem>
+                      ),
+                    )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -691,19 +716,39 @@ function ProjectRowView({
         </tr>
       </ContextMenuTrigger>
       <ContextMenuContent className="min-w-48">
-        {actions.map((action) =>
-          action.separator ? (
-            <ContextMenuSeparator key={action.key} />
-          ) : (
-            <ContextMenuItem
-              key={action.key}
-              disabled={action.disabled}
-              onSelect={action.onSelect}
-            >
-              {action.label}
-            </ContextMenuItem>
-          ),
-        )}
+        {actions.some((action) => action.agent) ? (
+          <div className="flex items-center gap-1 px-1 py-1">
+            {actions
+              .filter((action) => action.agent)
+              .map((action) => (
+                <ContextMenuItem
+                  key={action.key}
+                  disabled={action.disabled}
+                  onSelect={action.onSelect}
+                  title={action.label}
+                  aria-label={action.label}
+                  className="justify-center px-2"
+                >
+                  <AgentIcon agent={action.agent ?? ""} size={14} />
+                </ContextMenuItem>
+              ))}
+          </div>
+        ) : null}
+        {actions
+          .filter((action) => !action.agent)
+          .map((action) =>
+            action.separator ? (
+              <ContextMenuSeparator key={action.key} />
+            ) : (
+              <ContextMenuItem
+                key={action.key}
+                disabled={action.disabled}
+                onSelect={action.onSelect}
+              >
+                {action.label}
+              </ContextMenuItem>
+            ),
+          )}
       </ContextMenuContent>
     </ContextMenu>
   );
