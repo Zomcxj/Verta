@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { type MessageKey, useT } from "@/modules/i18n";
 import { setConfirmCloseRunningTerminal } from "@/modules/settings/store";
 import type { Tab } from "@/modules/tabs";
 import { useId, useState } from "react";
@@ -39,18 +40,30 @@ type Props = {
   onConfirmAppClose: () => void;
 };
 
-function appCloseMessage(blocker: AppCloseBlocker): string {
-  const dirty =
-    blocker.dirtyEditors === 1
-      ? "1 file has unsaved changes"
-      : `${blocker.dirtyEditors} files have unsaved changes`;
+/**
+ * These dialogs say how many files or processes are involved, and there is no plural
+ * rule in the message table: the count picks the key, the table holds the sentence.
+ */
+type Message = { key: MessageKey; values?: Record<string, string | number> };
+
+function appCloseMessage(blocker: AppCloseBlocker): Message {
   if (blocker.dirtyEditors > 0 && blocker.busyTerminal) {
-    return `A process is still running and ${dirty}. Quitting will terminate it and discard the changes.`;
+    return blocker.dirtyEditors === 1
+      ? { key: "closeDialog.quit.dirtyOneAndBusy" }
+      : {
+          key: "closeDialog.quit.dirtyManyAndBusy",
+          values: { count: blocker.dirtyEditors },
+        };
   }
   if (blocker.dirtyEditors > 0) {
-    return `${dirty.charAt(0).toUpperCase()}${dirty.slice(1)}. Quitting will discard them.`;
+    return blocker.dirtyEditors === 1
+      ? { key: "closeDialog.quit.dirtyOne" }
+      : {
+          key: "closeDialog.quit.dirtyMany",
+          values: { count: blocker.dirtyEditors },
+        };
   }
-  return "A process is still running in a terminal. Quitting will terminate it.";
+  return { key: "closeDialog.quit.busy" };
 }
 
 function OptOutRow({
@@ -61,6 +74,7 @@ function OptOutRow({
   onCheckedChange: (value: boolean) => void;
 }) {
   const id = useId();
+  const t = useT();
   return (
     <div className="-mt-3 flex items-center justify-center gap-2 sm:justify-start">
       <Checkbox
@@ -72,7 +86,7 @@ function OptOutRow({
         htmlFor={id}
         className="font-normal text-[12px] text-muted-foreground"
       >
-        Don't ask again about running processes
+        {t("closeDialog.optOut")}
       </Label>
     </div>
   );
@@ -86,34 +100,49 @@ async function persistOptOut(): Promise<void> {
   }
 }
 
-function closeManyMessage(pending: CloseManyPending, tabs: Tab[]): string {
+function closeManyMessage(
+  pending: CloseManyPending,
+  tabs: Tab[],
+  t: (key: MessageKey, values?: Record<string, string | number>) => string,
+): Message {
   const { kind, dirtyIds, busyLeafIds } = pending;
   const dirtyCount = dirtyIds.length;
   const busyCount = busyLeafIds.length;
   if (dirtyCount === 1 && busyCount === 0) {
-    const dirty = tabs.find(
+    const title = tabs.find(
       (tab) => tab.kind === "editor" && dirtyIds.includes(tab.id),
-    );
-    return dirty?.title
-      ? `"${dirty.title}" has unsaved changes. Close it anyway?`
-      : "1 tab has unsaved changes. Close it anyway?";
+    )?.title;
+    return title
+      ? { key: "closeDialog.many.oneDirtyNamed", values: { title } }
+      : { key: "closeDialog.many.oneDirtyUnnamed" };
   }
+  // Two counts, each with its own wording: translated here so the sentence that
+  // combines them can be written naturally in either language.
+  const dirty = t(
+    dirtyCount === 1
+      ? "closeDialog.frag.dirtyOne"
+      : "closeDialog.frag.dirtyMany",
+    { count: dirtyCount },
+  );
+  const busy = t(
+    busyCount === 1 ? "closeDialog.frag.busyOne" : "closeDialog.frag.busyMany",
+    { count: busyCount },
+  );
   if (dirtyCount > 0 && busyCount > 0) {
-    const dirty = `${dirtyCount} tab${dirtyCount === 1 ? " has" : "s have"} unsaved changes`;
-    const busy =
-      busyCount === 1
-        ? "a process is running"
-        : `${busyCount} processes are running`;
-    return `${dirty} and ${busy}. Closing will discard the changes and terminate the ${busyCount === 1 ? "process" : "processes"}. Close anyway?`;
+    return { key: "closeDialog.many.dirtyAndBusy", values: { dirty, busy } };
   }
   if (dirtyCount > 0) {
-    return `${dirtyCount} tabs have unsaved changes. Closing will discard them. Close anyway?`;
+    return { key: "closeDialog.many.dirtyOnly", values: { dirty } };
   }
-  const process =
-    busyCount === 1 ? "A process is" : `${busyCount} processes are`;
-  return kind === "right"
-    ? `${process} running in ${busyCount === 1 ? "a tab" : "tabs"} to the right. Closing will terminate ${busyCount === 1 ? "it" : "them"}. Close anyway?`
-    : `${process} running in ${busyCount === 1 ? "another tab" : "other tabs"}. Closing will terminate ${busyCount === 1 ? "it" : "them"}. Close anyway?`;
+  const key: MessageKey =
+    busyCount === 1
+      ? kind === "right"
+        ? "closeDialog.many.busyRightOne"
+        : "closeDialog.many.busyOtherOne"
+      : kind === "right"
+        ? "closeDialog.many.busyRightMany"
+        : "closeDialog.many.busyOtherMany";
+  return { key, values: { busy, count: busyCount } };
 }
 
 /** Confirmation dialogs for closing dirty editors and terminals with live processes. */
@@ -136,6 +165,7 @@ export function CloseDialogs({
   onCancelAppClose,
   onConfirmAppClose,
 }: Props) {
+  const t = useT();
   const [optOutTerminalClose, setOptOutTerminalClose] = useState(false);
   const [optOutAppClose, setOptOutAppClose] = useState(false);
   const appCloseCanOptOut =
@@ -165,6 +195,14 @@ export function CloseDialogs({
     onCancelAppClose();
   };
 
+  const closeTabTitle = tabs.find((tab) => tab.id === pendingCloseTab)?.title;
+  const closeManyText = pendingCloseMany
+    ? closeManyMessage(pendingCloseMany, tabs, t)
+    : null;
+  const appCloseText = pendingAppClose
+    ? appCloseMessage(pendingAppClose)
+    : null;
+
   return (
     <>
       <AlertDialog
@@ -173,21 +211,19 @@ export function CloseDialogs({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
+            <AlertDialogTitle>{t("tabs.unsaved")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {tabs.find((t) => t.id === pendingCloseTab)?.title
-                ? `"${
-                    tabs.find((t) => t.id === pendingCloseTab)?.title
-                  }" has unsaved changes. Close anyway?`
-                : "This file has unsaved changes. Close anyway?"}
+              {closeTabTitle
+                ? t("closeDialog.unsaved.named", { title: closeTabTitle })
+                : t("closeDialog.unsaved.unnamed")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={onCancelClose}>
-              Cancel
+              {t("scm.common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction onClick={onConfirmClose}>
-              Close Anyway
+              {t("closeDialog.closeAnyway")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -199,9 +235,11 @@ export function CloseDialogs({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Close Terminal?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("closeDialog.terminal.title")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              A process is running. Closing this tab will terminate it.
+              {t("closeDialog.terminal.body")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <OptOutRow
@@ -210,10 +248,10 @@ export function CloseDialogs({
           />
           <AlertDialogFooter>
             <AlertDialogCancel onClick={cancelTerminalClose}>
-              Cancel
+              {t("scm.common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction onClick={confirmTerminalClose}>
-              Close Anyway
+              {t("closeDialog.closeAnyway")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -225,7 +263,7 @@ export function CloseDialogs({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
+            <AlertDialogTitle>{t("tabs.unsaved")}</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingDeleteTabs?.length === 1
                 ? (() => {
@@ -233,18 +271,20 @@ export function CloseDialogs({
                       (t) => t.id === pendingDeleteTabs[0],
                     )?.title;
                     return title
-                      ? `"${title}" has unsaved changes. The file has been deleted. Close anyway?`
-                      : "This file has unsaved changes. The file has been deleted. Close anyway?";
+                      ? t("closeDialog.deleted.named", { title })
+                      : t("closeDialog.deleted.unnamed");
                   })()
-                : `${pendingDeleteTabs?.length ?? 0} files have unsaved changes. They have been deleted. Close all anyway?`}
+                : t("closeDialog.deleted.many", {
+                    count: pendingDeleteTabs?.length ?? 0,
+                  })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={onCancelDeleteClose}>
-              Cancel
+              {t("scm.common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction onClick={onConfirmDeleteClose}>
-              Close Anyway
+              {t("closeDialog.closeAnyway")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -257,17 +297,19 @@ export function CloseDialogs({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {pendingCloseMany?.kind === "right"
-                ? "Close Tabs to the Right"
-                : "Close Other Tabs"}
+              {t(
+                pendingCloseMany?.kind === "right"
+                  ? "tabs.closeRight"
+                  : "tabs.closeOthers",
+              )}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingCloseMany ? closeManyMessage(pendingCloseMany, tabs) : ""}
+              {closeManyText ? t(closeManyText.key, closeManyText.values) : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={onCancelCloseMany}>
-              Cancel
+              {t("scm.common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               disabled={closeManyConfirming}
@@ -276,7 +318,9 @@ export function CloseDialogs({
                 onConfirmCloseMany();
               }}
             >
-              {closeManyConfirming ? "Checking..." : "Close Anyway"}
+              {closeManyConfirming
+                ? t("closeDialog.many.confirming")
+                : t("closeDialog.closeAnyway")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -288,9 +332,9 @@ export function CloseDialogs({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Quit Verta?</AlertDialogTitle>
+            <AlertDialogTitle>{t("closeDialog.quit.title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingAppClose ? appCloseMessage(pendingAppClose) : ""}
+              {appCloseText ? t(appCloseText.key, appCloseText.values) : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {appCloseCanOptOut ? (
@@ -301,10 +345,10 @@ export function CloseDialogs({
           ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel onClick={cancelAppClose}>
-              Cancel
+              {t("scm.common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction onClick={() => void confirmAppClose()}>
-              Quit Anyway
+              {t("closeDialog.quit.anyway")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

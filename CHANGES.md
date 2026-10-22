@@ -119,6 +119,11 @@
 - `src/modules/editor/NewEditorDialog.tsx`：标题复用 `explorer.newFile`，说明与「请填文件名 / 只能是相对路径」两条校验提示新增 `editor.newFile.*`，取消与创建复用其它对话框在用的 `scm.common.cancel` / `scm.common.create`，「没有工作区根目录」复用命令面板那条 `cmd.noWorkspaceRoot`。校验提示存的是**键**而不是句子（对话框开着时切语言也跟着变），后端抛回来的原始错误串照旧原样显示。
 - `src/modules/i18n/messages.ts`：上述新增 9 条键（中英两份，集中插在同一处，减少与另一会话的冲突面）。
 
+**关闭确认框：五个对话框的文案接上 i18n**
+
+- `src/app/components/CloseDialogs.tsx`：五个确认框（未保存的文件、终端里还有进程、文件已被删除、关闭右侧 / 关闭其他标签页、退出应用）原来文案全写死在 JSX 里；现在全走 `closeDialog.*`，标题复用 `tabs.unsaved` / `tabs.closeRight` / `tabs.closeOthers`，取消复用 `scm.common.cancel`。消息表没有复数规则，所以改成「按数量选键、片段也进表」：两个构造器（`appCloseMessage` / `closeManyMessage`）只返回 `{键, 参数}`，句子与片段（`closeDialog.frag.*`）都在表里，中英各自读得顺、不必引入复数引擎。
+- `src/modules/i18n/messages.ts`：新增 29 条键（中英两份）。
+
 </details>
 
 <details>

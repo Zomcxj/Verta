@@ -147,6 +147,46 @@ const zh = {
     "文件名（相对工作区根目录）。扩展名决定语言模式。",
   "editor.newFile.nameRequired": "请填文件名",
   "editor.newFile.relative": "只能是相对路径",
+  "closeDialog.unsaved.named": "「{title}」有未保存的更改。仍然关闭？",
+  "closeDialog.unsaved.unnamed": "这个文件有未保存的更改。仍然关闭？",
+  "closeDialog.closeAnyway": "仍然关闭",
+  "closeDialog.optOut": "不再询问正在运行的进程",
+  "closeDialog.terminal.title": "关闭终端？",
+  "closeDialog.terminal.body": "还有进程在跑，关闭这个标签页会终止它。",
+  "closeDialog.deleted.named":
+    "「{title}」有未保存的更改，而文件已被删除。仍然关闭？",
+  "closeDialog.deleted.unnamed":
+    "这个文件有未保存的更改，而文件已被删除。仍然关闭？",
+  "closeDialog.deleted.many":
+    "{count} 个文件有未保存的更改，而它们已被删除。全部关闭？",
+  "closeDialog.many.oneDirtyNamed": "「{title}」有未保存的更改。仍然关闭？",
+  "closeDialog.many.oneDirtyUnnamed": "1 个标签页有未保存的更改。仍然关闭？",
+  "closeDialog.many.dirtyAndBusy":
+    "{dirty}，而且{busy}。关闭会丢弃这些改动，并终止正在跑的东西。仍然关闭？",
+  "closeDialog.many.dirtyOnly": "{dirty}。关闭会丢弃这些改动。仍然关闭？",
+  "closeDialog.many.busyRightOne":
+    "{busy}，就在右边那个标签页里。关闭会终止它。仍然关闭？",
+  "closeDialog.many.busyRightMany":
+    "{busy}，就在右边这 {count} 个标签页里。关闭会终止它们。仍然关闭？",
+  "closeDialog.many.busyOtherOne":
+    "{busy}，就在另一个标签页里。关闭会终止它。仍然关闭？",
+  "closeDialog.many.busyOtherMany":
+    "{busy}，就在另外 {count} 个标签页里。关闭会终止它们。仍然关闭？",
+  "closeDialog.many.confirming": "检查中…",
+  "closeDialog.frag.dirtyOne": "1 个标签页有未保存的更改",
+  "closeDialog.frag.dirtyMany": "{count} 个标签页有未保存的更改",
+  "closeDialog.frag.busyOne": "有一个进程在跑",
+  "closeDialog.frag.busyMany": "有 {count} 个进程在跑",
+  "closeDialog.quit.title": "退出 Verta？",
+  "closeDialog.quit.busy": "还有进程在终端里跑。退出会终止它。",
+  "closeDialog.quit.dirtyOne": "1 个文件有未保存的更改。退出会丢弃它。",
+  "closeDialog.quit.dirtyMany":
+    "{count} 个文件有未保存的更改。退出会丢弃它们。",
+  "closeDialog.quit.dirtyOneAndBusy":
+    "还有进程在跑，而且有 1 个文件未保存。退出会终止它并丢弃这份改动。",
+  "closeDialog.quit.dirtyManyAndBusy":
+    "还有进程在跑，而且有 {count} 个文件未保存。退出会终止它并丢弃这些改动。",
+  "closeDialog.quit.anyway": "仍然退出",
   "explorer.newFolder": "新建文件夹",
   "explorer.refresh": "刷新",
 
@@ -1097,6 +1137,52 @@ const en: Record<MessageKey, string> = {
     "Filename (relative to workspace root). The extension determines the language mode.",
   "editor.newFile.nameRequired": "Name is required",
   "editor.newFile.relative": "Path must be relative",
+  "closeDialog.unsaved.named": '"{title}" has unsaved changes. Close anyway?',
+  "closeDialog.unsaved.unnamed": "This file has unsaved changes. Close anyway?",
+  "closeDialog.closeAnyway": "Close Anyway",
+  "closeDialog.optOut": "Don't ask again about running processes",
+  "closeDialog.terminal.title": "Close Terminal?",
+  "closeDialog.terminal.body":
+    "A process is running. Closing this tab will terminate it.",
+  "closeDialog.deleted.named":
+    '"{title}" has unsaved changes. The file has been deleted. Close anyway?',
+  "closeDialog.deleted.unnamed":
+    "This file has unsaved changes. The file has been deleted. Close anyway?",
+  "closeDialog.deleted.many":
+    "{count} files have unsaved changes. They have been deleted. Close all anyway?",
+  "closeDialog.many.oneDirtyNamed":
+    '"{title}" has unsaved changes. Close it anyway?',
+  "closeDialog.many.oneDirtyUnnamed":
+    "1 tab has unsaved changes. Close it anyway?",
+  "closeDialog.many.dirtyAndBusy":
+    "{dirty} and {busy}. Closing will discard the changes and stop whatever is running. Close anyway?",
+  "closeDialog.many.dirtyOnly":
+    "{dirty}. Closing will discard them. Close anyway?",
+  "closeDialog.many.busyRightOne":
+    "{busy} in the tab to the right. Closing will terminate it. Close anyway?",
+  "closeDialog.many.busyRightMany":
+    "{busy} in the {count} tabs to the right. Closing will terminate them. Close anyway?",
+  "closeDialog.many.busyOtherOne":
+    "{busy} in another tab. Closing will terminate it. Close anyway?",
+  "closeDialog.many.busyOtherMany":
+    "{busy} in {count} other tabs. Closing will terminate them. Close anyway?",
+  "closeDialog.many.confirming": "Checking…",
+  "closeDialog.frag.dirtyOne": "1 tab has unsaved changes",
+  "closeDialog.frag.dirtyMany": "{count} tabs have unsaved changes",
+  "closeDialog.frag.busyOne": "a process is running",
+  "closeDialog.frag.busyMany": "{count} processes are running",
+  "closeDialog.quit.title": "Quit Verta?",
+  "closeDialog.quit.busy":
+    "A process is still running in a terminal. Quitting will terminate it.",
+  "closeDialog.quit.dirtyOne":
+    "1 file has unsaved changes. Quitting will discard it.",
+  "closeDialog.quit.dirtyMany":
+    "{count} files have unsaved changes. Quitting will discard them.",
+  "closeDialog.quit.dirtyOneAndBusy":
+    "A process is still running and 1 file has unsaved changes. Quitting will terminate it and discard the change.",
+  "closeDialog.quit.dirtyManyAndBusy":
+    "A process is still running and {count} files have unsaved changes. Quitting will terminate it and discard the changes.",
+  "closeDialog.quit.anyway": "Quit Anyway",
   "explorer.newFolder": "New folder",
   "explorer.refresh": "Refresh",
 
