@@ -3,7 +3,11 @@ import { useEffect } from "react";
 import { useTheme } from "./ThemeProvider";
 import { applyVibrancy } from "./vibrancy";
 
-/** Main window only: `window_set_backdrop` targets its caller. */
+/**
+ * Every window that paints the theme has to render this: `window_set_backdrop`
+ * targets its caller, so the main window switching to acrylic does not touch the
+ * settings window (a separate window with its own webview).
+ */
 export function WindowVibrancyBridge() {
   const enabled = usePreferencesStore((s) => s.windowVibrancy);
   const hydrated = usePreferencesStore((s) => s.hydrated);

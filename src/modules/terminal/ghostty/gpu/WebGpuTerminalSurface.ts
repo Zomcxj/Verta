@@ -527,6 +527,11 @@ export class WebGpuTerminalSurface
     return this.theme.background;
   }
 
+  /** 画布按这个不透明度清屏；小于 1 就说明这一块要透出后面的东西。 */
+  backgroundAlpha(): number {
+    return this.theme.backgroundAlpha;
+  }
+
   /** Called inside the window pass; viewport and scissor already cover the pane's rectangle. */
   encode(pass: GPURenderPassEncoder, resources: WebGpuSharedResources): void {
     if (!this.bindGroup) return;
@@ -1410,6 +1415,7 @@ export class WebGpuTerminalSurface
         : null,
       cursorColor: theme.cursor,
       background: theme.background,
+      backgroundAlpha: theme.backgroundAlpha,
       selection: bounds
         ? selectionUniform(bounds, viewportOriginLine, frame.rows)
         : NO_SELECTION,
@@ -1529,11 +1535,15 @@ export class WebGpuTerminalSurface
   /**
    * The window canvas draws the terminal background. Until it has shown this pane's first
    * frame the pane's own DOM covers whatever the canvas still holds from another tab.
+   *
+   * A translucent theme's terminal has no colour of its own to cover with — the pane behind
+   * it already shows the desktop — so that placeholder is transparent from the start.
    */
   private updateRootBackground(): void {
-    this.root.style.backgroundColor = this.revealed
-      ? "transparent"
-      : rgbToCss(this.theme.background);
+    this.root.style.backgroundColor =
+      this.revealed || this.theme.backgroundAlpha < 1
+        ? "transparent"
+        : rgbToCss(this.theme.background);
   }
 
   private assertLive(): void {

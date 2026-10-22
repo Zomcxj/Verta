@@ -22,8 +22,9 @@ import type { Theme } from "../types";
  */
 export const acrylic: Theme = {
   id: "acrylic",
-  name: "亚克力",
-  description: "照 Windows 11 的亚克力：桌面真的透进来，模糊、带噪声、微微提亮。",
+  name: "Acrylic",
+  description:
+    "Desktop Acrylic: the desktop really shows through the window — blurred, noisy, slightly lifted.",
   editorTheme: { dark: "github-dark", light: "github-light" },
   variants: {
     dark: {
@@ -58,14 +59,16 @@ export const acrylic: Theme = {
       },
       glass: {
         // 色调薄：桌面占大头。深色下略厚一点，免得浅色桌面把深色主题冲淡。
-        frame: 0.34,
-        pane: 0.4,
+        frame: 0.24,
+        pane: 0.28,
         edge: 0.3,
         sheen: 0.12,
         desktop: true,
       },
       terminal: {
-        background: "#151b20",
+        // alpha 0 = 终端自己那层底色不外画：终端区域与外面的面板同透，
+        // 桌面模糊在终端里也看得见（TUI 自己设的色块仍然是不透明的，见着色器）。
+        background: "rgba(21, 27, 32, 0)",
         foreground: "#eef2f5",
         cursor: "#8bb8d8",
         cursorAccent: "#14181c",
@@ -123,14 +126,15 @@ export const acrylic: Theme = {
       },
       glass: {
         // 浅色可以让桌面透得更多：白色面板就算薄，字也压得住。
-        frame: 0.42,
-        pane: 0.5,
+        frame: 0.3,
+        pane: 0.34,
         edge: 0.6,
         sheen: 0.2,
         desktop: true,
       },
       terminal: {
-        background: "#ffffff",
+        // 同上：浅色也让这一层全透。
+        background: "rgba(255, 255, 255, 0)",
         foreground: "#1a1f24",
         cursor: "#2d6f9e",
         cursorAccent: "#ffffff",

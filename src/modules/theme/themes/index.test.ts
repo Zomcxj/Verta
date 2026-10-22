@@ -67,6 +67,8 @@ describe("builtin theme palettes", () => {
 
   // 上游带来的主题里有只做深色的（kanagawa-dragon），那是有意的；这里只管我们自己新加的。
   const OURS = ["verta", "acrylic", "carbon-weave"];
+  // 这几个的名字是有意留在英文的：一个是品牌名，另两个说的是材质本身。
+  const ENGLISH_NAMES = new Set(["Verta", "Acrylic", "Carbon Fiber"]);
 
   it("gives each of our themes both a dark and a light palette", () => {
     for (const id of OURS) {
@@ -74,11 +76,11 @@ describe("builtin theme palettes", () => {
       expect(theme, `${id} 没注册`).toBeDefined();
       expect(theme?.variants.dark, `${id} 缺深色`).toBeDefined();
       expect(theme?.variants.light, `${id} 缺浅色`).toBeDefined();
-      // 名字是给用户看的界面文案：中文名，或者是品牌专名（只有 Verta）。
+      // 名字是给用户看的界面文案：中文名，或者明确留下的英文名（见上）。
       expect(
         /[一-龥]/.test(theme?.name ?? "") ||
-          theme?.name === "Verta",
-        `${id} 的名字要么是中文，要么是品牌专名`,
+          ENGLISH_NAMES.has(theme?.name ?? ""),
+        `${id} 的名字要么是中文，要么是有意留的英文名`,
       ).toBe(true);
       // 这几个主题都自带完整配色（不像默认主题那样把颜色留在 globals.css 里）。
       expect(theme?.variants.dark?.colors).toBeTruthy();

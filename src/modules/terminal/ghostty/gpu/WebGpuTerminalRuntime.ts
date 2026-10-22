@@ -1026,9 +1026,13 @@ export class WebGpuTerminalRuntime {
           targets: [
             {
               format,
+              // Premultiplied source (see GLYPH_SHADER): `one` instead of
+              // `src-alpha` because the colour already carries its own alpha.
+              // For an opaque destination the two forms give the same result,
+              // and this is the form a translucent canvas requires.
               blend: {
                 color: {
-                  srcFactor: "src-alpha",
+                  srcFactor: "one",
                   dstFactor: "one-minus-src-alpha",
                 },
                 alpha: {

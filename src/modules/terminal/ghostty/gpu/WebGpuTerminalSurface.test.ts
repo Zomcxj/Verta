@@ -899,6 +899,28 @@ describe("WebGPU surface resource lifecycle", () => {
     expect(root.style.backgroundColor).toBe("rgb(0 0 0)");
   });
 
+  it("never paints an opaque placeholder for a translucent terminal", async () => {
+    const h = await harness();
+    const root = h.elements.find(
+      (e) => e.getAttribute("data-verta-ghostty-surface") === "webgpu",
+    ) as unknown as { style: { backgroundColor: string } };
+    // A glass theme's terminal has no colour of its own: covering the canvas with one would
+    // flash a solid block over the desktop until the first frame lands.
+    h.surface.setTheme({
+      background: [0, 0, 0],
+      backgroundAlpha: 0,
+      foreground: [255, 255, 255],
+      cursor: [255, 255, 255],
+      selection: { color: [50, 50, 50], alpha: 0.5 },
+      palette: [],
+    });
+    expect(root.style.backgroundColor).toBe("transparent");
+    // And it stays transparent once revealed, like the opaque case.
+    h.render();
+    h.surface.handleCanvasRevealed();
+    expect(root.style.backgroundColor).toBe("transparent");
+  });
+
   it("shows the previous frame in the pane's moved rectangle while presentation is held", async () => {
     const h = await harness();
     h.render();
@@ -1414,6 +1436,7 @@ async function harness(options: { scale?: number } = {}) {
     metrics: METRICS,
     theme: {
       background: [0, 0, 0],
+      backgroundAlpha: 1,
       foreground: [255, 255, 255],
       cursor: [255, 255, 255],
       selection: { color: [50, 50, 50], alpha: 0.5 },

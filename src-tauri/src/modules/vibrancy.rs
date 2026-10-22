@@ -11,18 +11,20 @@ pub enum Backdrop {
     Vibrancy,
     /// Windows 11 Mica.
     Mica,
-    /// Windows 11 Acrylic (`DWMSBT_TRANSIENTWINDOW`): the desktop really shows
-    /// through, blurred. This is the one the glass themes are built for — Mica
-    /// only samples the wallpaper and stays mostly opaque.
+    /// Windows acrylic: the desktop really shows through, blurred, tinted with the
+    /// theme's tone. This is the one the glass themes are built for — Mica only
+    /// samples the wallpaper and stays mostly opaque, and DWM's own "Desktop
+    /// Acrylic" material is its *brightest* variant, which washes the desktop out.
     Acrylic,
     None,
 }
 
 /// First Windows 11 build. `apply_mica` fails below it.
 const WIN11_BUILD: u32 = 22000;
-/// First build with the DWM system-backdrop attribute (`DWMWA_SYSTEMBACKDROP_TYPE`,
-/// which acrylic is built on): Windows 11 22H2.
-const ACRYLIC_BUILD: u32 = 22621;
+/// First build with the accent policy's acrylic (`ACCENT_ENABLE_ACRYLICBLURBEHIND`):
+/// Windows 10 1809. Below it the glass themes fall back to Mica, which is what the
+/// focused windows use anyway.
+const ACRYLIC_BUILD: u32 = 17763;
 
 pub fn backdrop_for(os: &str, build: u32) -> Backdrop {
     match os {
@@ -247,6 +249,126 @@ fn set_window_see_through(
         .map_err(|e| e.to_string())
 }
 
+/// Windows-side DWM tweak the material crate does not do for us: the window's
+/// corner preference. DWM paints a backdrop over the whole window rectangle, so
+/// with square corners the four rounded corners of our own chrome keep a
+/// right-angle ghost of the material behind them. Best-effort — the attribute does
+/// not exist before Windows 11 22H2, and the system rejects what it does not know.
+#[cfg(target_os = "windows")]
+fn tune_dwm(hwnd: *mut core::ffi::c_void) {
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    };
+
+    let bytes = DWMWCP_ROUND.to_ne_bytes();
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            bytes.as_ptr().cast(),
+            bytes.len() as u32,
+        );
+    }
+}
+
+/// Tint laid over the acrylic's blurred backdrop, `0xAA_BB_GG_RR` (the accent
+/// policy's byte order). Deliberately low: the material only supplies the blur and
+/// a floor of tone, the theme's own `glass` tints stay in charge of how dark the
+/// window gets. Higher values are what turned the first attempt into a slab.
+#[cfg(target_os = "windows")]
+const ACRYLIC_TINT_ALPHA: u32 = 0x4d;
+
+/// The accent-policy acrylic: what is behind the window is blurred *as it is* and
+/// tinted with the colour we pass.
+///
+/// The DWM system backdrop cannot do this. `DWMSBT_TRANSIENTWINDOW` is documented
+/// as Desktop Acrylic "in its brightest variant" and measures a flat ~84/255 over a
+/// dark desktop whatever the window's dark-mode attribute says — the desktop's own
+/// colours are gone, so a dark theme reads it as "not transparent". Mica and Tabbed
+/// only sample the wallpaper. This policy is undocumented, so it is looked up at
+/// run time (linking to it would break startup where the export is missing).
+#[cfg(target_os = "windows")]
+mod accent {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
+    use windows_sys::core::BOOL;
+
+    /// `WCA_ACCENT_POLICY`.
+    const ATTRIBUTE: u32 = 0x13;
+    const ACCENT_DISABLED: u32 = 0;
+    const ACCENT_ENABLE_ACRYLICBLURBEHIND: u32 = 4;
+
+    #[repr(C)]
+    struct Policy {
+        state: u32,
+        flags: u32,
+        gradient_color: u32,
+        animation_id: u32,
+    }
+
+    #[repr(C)]
+    struct Data {
+        attribute: u32,
+        data: *mut core::ffi::c_void,
+        size: usize,
+    }
+
+    type SetWindowCompositionAttribute =
+        unsafe extern "system" fn(HWND, *mut Data) -> BOOL;
+
+    fn resolve() -> Option<SetWindowCompositionAttribute> {
+        unsafe {
+            let user32 = GetModuleHandleA(c"user32.dll".as_ptr().cast());
+            if user32.is_null() {
+                return None;
+            }
+            let address = GetProcAddress(user32, c"SetWindowCompositionAttribute".as_ptr().cast())?;
+            Some(std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                SetWindowCompositionAttribute,
+            >(address))
+        }
+    }
+
+    fn set(hwnd: HWND, mut policy: Policy) -> bool {
+        let Some(apply) = resolve() else { return false };
+        let mut data = Data {
+            attribute: ATTRIBUTE,
+            data: (&mut policy as *mut Policy).cast(),
+            size: std::mem::size_of::<Policy>(),
+        };
+        unsafe { apply(hwnd, &mut data) != 0 }
+    }
+
+    /// `tint` is `0xAABBGGRR`. Zero alpha would make acrylic paint nothing, so it
+    /// is floored at one — same guard the material crate uses.
+    pub fn apply(hwnd: HWND, tint: u32) -> bool {
+        let alpha = (tint >> 24).max(1);
+        set(
+            hwnd,
+            Policy {
+                state: ACCENT_ENABLE_ACRYLICBLURBEHIND,
+                flags: 0,
+                gradient_color: (tint & 0x00ff_ffff) | (alpha << 24),
+                animation_id: 0,
+            },
+        )
+    }
+
+    /// Leaves the acrylic policy behind (a switch to Mica, or the effect off).
+    pub fn clear(hwnd: HWND) -> bool {
+        set(
+            hwnd,
+            Policy {
+                state: ACCENT_DISABLED,
+                flags: 0,
+                gradient_color: 1,
+                animation_id: 0,
+            },
+        )
+    }
+}
+
 // Windows and Linux keep their windows transparent from creation: the custom
 // borderless chrome paints its own rounded corners over a transparent frame.
 #[cfg(target_os = "windows")]
@@ -257,19 +379,30 @@ fn set_backdrop(
     _rgb: [u8; 3],
     acrylic: bool,
 ) -> Result<(), String> {
-    use window_vibrancy::{apply_acrylic, apply_mica, clear_mica};
+    use window_vibrancy::{apply_mica, clear_mica};
+
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+    tune_dwm(hwnd.0);
+    let base = fallback_background(dark);
 
     if !enabled {
+        accent::clear(hwnd.0);
         return clear_mica(window).map_err(|e| e.to_string());
     }
-    if acrylic {
-        // Acrylic: the desktop itself shows through, blurred and noisy — this is
-        // what the glass themes want. Fall back to Mica below Windows 11 22H2,
-        // where the backdrop type attribute does not exist yet.
-        if os_build() >= ACRYLIC_BUILD {
-            return apply_acrylic(window, None).map_err(|e| e.to_string());
+    if acrylic && os_build() >= ACRYLIC_BUILD {
+        let tint = (ACRYLIC_TINT_ALPHA << 24)
+            | u32::from(base[2])
+            | (u32::from(base[1]) << 8)
+            | (u32::from(base[0]) << 16);
+        if accent::apply(hwnd.0, tint) {
+            // Only one backdrop at a time: the DWM one would sit under the tint.
+            let _ = clear_mica(window);
+            return Ok(());
         }
     }
+    // Mica: the fallback where the accent policy is unavailable (and what the
+    // non-glass themes ask for).
+    accent::clear(hwnd.0);
     apply_mica(window, Some(dark)).map_err(|e| e.to_string())
 }
 

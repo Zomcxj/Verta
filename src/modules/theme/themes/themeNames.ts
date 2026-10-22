@@ -7,8 +7,10 @@ import type { MessageKey } from "@/modules/i18n";
  * 没有条目的（用户自己导入的主题）就照原样显示。
  *
  * **专有名不翻**：Dracula、Nord、Kanagawa、Catppuccin、Solarized、Gruvbox、
- * Everforest、Tokyo Night、Rosé Pine 都是配色方案自己的名字，翻成中文反而认不出。
- * 只有描述性的那几个（Sage / Tide / Caffeine / Xcode / Claude）才有中文说法。
+ * Everforest、Tokyo Night、Rosé Pine 都是配色方案自己的名字，翻成中文反而认不出；
+ * Acrylic / Carbon Fiber 也一样（说的是材质，不是描述），名字照英文写，
+ * 只把说明译过来。只有描述性的那几个（Sage / Tide / Caffeine / Xcode / Claude）
+ * 才有中文说法。
  */
 type Entry = { name?: string; description?: string };
 
@@ -18,11 +20,11 @@ const ZH: Record<string, Entry> = {
     description: "照应用图标来的黑白：近黑的底，纯白的强调色。",
   },
   acrylic: {
-    name: "亚克力",
-    description: "照 Windows 11 的亚克力：桌面透进来、模糊、微微提亮。",
+    name: "Acrylic",
+    description: "窗口像一块磨砂玻璃，桌面真的透过来：模糊、带噪声、微微提亮。",
   },
   "carbon-weave": {
-    name: "碳纤维",
+    name: "Carbon Fiber",
     description: "石墨底上的细蜂窝网格，面板是实心的碳板。",
   },
   "verta-default": {

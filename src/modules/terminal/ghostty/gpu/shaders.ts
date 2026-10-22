@@ -202,7 +202,10 @@ fn fragment_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let pixel = vec2u(local_position);
   let cell = pixel / screen.cell_size;
   if (cell.x >= screen.dims.x || cell.y >= screen.dims.y) {
-    return vec4f(screen.theme_background.rgb, 1.0);
+    // Outside the grid is pure terminal background: the one place the theme's
+    // own alpha always applies.
+    let alpha = screen.theme_background.a;
+    return vec4f(screen.theme_background.rgb * alpha, alpha);
   }
   let index = cell.y * screen.dims.x + cell.x;
   let record = cells[index];
@@ -222,7 +225,16 @@ fn fragment_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
     local.x = local.x + screen.cell_size.x;
     span_width = 2u * screen.cell_size.x;
   }
-  return vec4f(decoration_color(record, background, local, span_width), 1.0);
+  let painted = decoration_color(record, background, local, span_width);
+  // Only pixels that are *the terminal's own background* may be translucent:
+  // a cell background an application set (a TUI's colour bars), the selection
+  // tint and the search highlight all differ from the theme background, and so
+  // does a decoration (underline, strike, overline). Those stay opaque, or the
+  // theme's alpha would erase them.
+  let plain = all(abs(background - screen.theme_background.rgb) < vec3f(0.0005)) &&
+    all(abs(painted - background) < vec3f(0.0005));
+  let alpha = select(1.0, screen.theme_background.a, plain);
+  return vec4f(painted * alpha, alpha);
 }
 `;
 
@@ -340,12 +352,21 @@ fn fragment_main(
 ) -> @location(0) vec4f {
   let texel = texel_origin + vec2i(floor(position.xy)) - vec2i(screen.origin) +
     vec2i(0, i32(screen.shift_y)) - quad_origin;
+  // Premultiplied output: the terminal canvas may be configured with a
+  // translucent alpha mode (a glass theme's terminal), and the browser then
+  // expects rgb already scaled by alpha. With an alpha of 1 these forms are
+  // identical to the straight-alpha ones, so an opaque terminal is unaffected.
   if ((glyph_flags & 1u) != 0u) {
     let sample = textureLoad(color_texture, texel, 0);
-    return vec4f(sample.rgb, sample.a * color.a);
+    let alpha = sample.a * color.a;
+    return vec4f(sample.rgb * alpha, alpha);
   }
   let coverage = textureLoad(coverage_texture, texel, 0).r;
-  if ((glyph_flags & 2u) != 0u) { return vec4f(color.rgb, color.a * coverage); }
-  return vec4f(color.rgb, color.a * apply_contrast(coverage, color.rgb));
+  if ((glyph_flags & 2u) != 0u) {
+    let alpha = color.a * coverage;
+    return vec4f(color.rgb * alpha, alpha);
+  }
+  let alpha = color.a * apply_contrast(coverage, color.rgb);
+  return vec4f(color.rgb * alpha, alpha);
 }
 `;

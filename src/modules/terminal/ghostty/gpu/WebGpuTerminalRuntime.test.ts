@@ -1270,6 +1270,7 @@ function createSurface() {
     prepareFrame: vi.fn((_resources?: unknown, _budget?: unknown) => true),
     drawable: vi.fn(() => true),
     background: vi.fn(() => [10, 20, 30] as const),
+    backgroundAlpha: vi.fn(() => 1),
     encode: vi.fn(),
     handleCanvasRevealed: vi.fn(),
     handleRuntimeReset: vi.fn(),

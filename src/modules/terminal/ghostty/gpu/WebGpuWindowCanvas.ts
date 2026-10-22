@@ -59,6 +59,13 @@ export interface WindowCanvasPane {
   drawable(): boolean;
   /** Theme background; the first drawable pane's colour clears the canvas. */
   background(): Rgb;
+  /**
+   * The theme background's opacity (0–1). Below 1 the canvas is configured with
+   * a translucent alpha mode so whatever sits behind the terminal — the pane's
+   * tint, the user's background image, the desktop through a native material —
+   * shows through it.
+   */
+  backgroundAlpha(): number;
   /** Encodes the pane's draw calls; viewport and scissor already cover its rectangle. */
   encode(pass: GPURenderPassEncoder, resources: WebGpuSharedResources): void;
   /** App lab: id in the smoothness probe. */
@@ -164,6 +171,9 @@ export class WebGpuWindowCanvas {
   private appliedTransform = "";
   private generation: number;
   private device: GPUDevice;
+  private format: GPUTextureFormat;
+  /** Does the canvas currently have a translucent alpha mode? */
+  private translucent = false;
   private gestureActive = terminalResizeInteractionActive();
   private gestureStartInner: CssSize = windowInnerSize();
   private layoutStale = true;
@@ -206,6 +216,7 @@ export class WebGpuWindowCanvas {
     this.context = context;
     this.generation = configuration.generation;
     this.device = configuration.device;
+    this.format = configuration.format;
     this.backing = new CanvasBackingStore(canvas);
     this.observer = new ResizeObserver(() => {
       if (!this.area) return;
@@ -312,10 +323,11 @@ export class WebGpuWindowCanvas {
     this.context.configure({
       device: configuration.device,
       format: configuration.format,
-      alphaMode: "opaque",
+      alphaMode: this.translucent ? "premultiplied" : "opaque",
     });
     this.generation = configuration.generation;
     this.device = configuration.device;
+    this.format = configuration.format;
     this.reconfigurations += 1;
     this.dirty = true;
     // Reconfiguring cleared the canvas, and the panes cover it again (`handleDeviceLoss`):
@@ -397,13 +409,27 @@ export class WebGpuWindowCanvas {
     resources: WebGpuSharedResources,
   ): WindowFrameResult {
     let clear: GPUColor | null = null;
+    let translucent = false;
     const drawable: Array<[WindowCanvasPane, PaneState]> = [];
     for (const entry of this.panes) {
       if (!entry[1].rect || !entry[0].drawable()) continue;
       drawable.push(entry);
-      clear ??= rgbClear(entry[0].background());
+      const alpha = entry[0].backgroundAlpha();
+      if (alpha < 1) translucent = true;
+      clear ??= rgbClear(entry[0].background(), alpha);
     }
     if (!clear) return { drawn: 0, revealed: [] };
+    // The alpha mode is a property of the canvas, not of a frame, so it can only
+    // change while no pass is open — here, before the pass below begins.
+    if (translucent !== this.translucent) {
+      this.translucent = translucent;
+      this.context.configure({
+        device: this.device,
+        format: this.format,
+        alphaMode: translucent ? "premultiplied" : "opaque",
+      });
+      this.reconfigurations += 1;
+    }
     const pass = encoder.beginRenderPass({
       label: "Verta terminal window pass",
       colorAttachments: [
@@ -618,11 +644,16 @@ export class WebGpuWindowCanvas {
   }
 }
 
-function rgbClear(color: Rgb): GPUColor {
+/**
+ * The clear colour for the terminal pass. Premultiplied when translucent, so the
+ * colour is scaled by its own alpha: with `alphaMode: "premultiplied"` the
+ * browser expects exactly that, and with an alpha of 1 the two forms coincide.
+ */
+function rgbClear(color: Rgb, alpha = 1): GPUColor {
   return {
-    r: color[0] / 255,
-    g: color[1] / 255,
-    b: color[2] / 255,
-    a: 1,
+    r: (color[0] / 255) * alpha,
+    g: (color[1] / 255) * alpha,
+    b: (color[2] / 255) * alpha,
+    a: alpha,
   };
 }

@@ -169,10 +169,14 @@ function setup(options: { scale?: number } = {}) {
   const encoder = {
     beginRenderPass: vi.fn(() => pass),
   } as unknown as GPUCommandEncoder;
-  const pane = (background: readonly [number, number, number] = [1, 2, 3]) =>
+  const pane = (
+    background: readonly [number, number, number] = [1, 2, 3],
+    backgroundAlpha = 1,
+  ) =>
     ({
       drawable: vi.fn(() => true),
       background: vi.fn(() => background),
+      backgroundAlpha: vi.fn(() => backgroundAlpha),
       encode: vi.fn(),
     }) satisfies WindowCanvasPane;
   const host = (rect: CssRect) => {
@@ -294,6 +298,61 @@ describe("WebGpuWindowCanvas", () => {
     t.canvas.beginFrame();
     // The viewport must stay inside the render target: WebGPU rejects anything else.
     expect(binding.rect()).toEqual({ x: 0, y: 0, width: 800, height: 600 });
+  });
+
+  it("keeps the canvas opaque while every pane's background is opaque", () => {
+    const t = setup();
+    t.canvas
+      .addPane(t.pane([1, 2, 3]), t.host({ left: 0, top: 0, width: 100, height: 100 }) as never)
+      .setBounds({ left: 0, top: 0, width: 100, height: 100 });
+    t.canvas.beginFrame();
+    t.canvas.encode(t.encoder, t.resources);
+    expect(t.context.configure).not.toHaveBeenCalledWith(
+      expect.objectContaining({ alphaMode: "premultiplied" }),
+    );
+    const descriptor = (t.encoder.beginRenderPass as ReturnType<typeof vi.fn>)
+      .mock.calls[0][0];
+    expect(descriptor.colorAttachments[0].clearValue).toMatchObject({ a: 1 });
+  });
+
+  it("goes translucent when a pane's theme background has alpha, premultiplying the clear", () => {
+    const t = setup();
+    t.canvas
+      .addPane(
+        t.pane([100, 50, 0], 0.4),
+        t.host({ left: 0, top: 0, width: 100, height: 100 }) as never,
+      )
+      .setBounds({ left: 0, top: 0, width: 100, height: 100 });
+    t.canvas.beginFrame();
+    t.canvas.encode(t.encoder, t.resources);
+    // The canvas is a property of the element, so the mode is switched here,
+    // before the pass opens.
+    expect(t.context.configure).toHaveBeenLastCalledWith(
+      expect.objectContaining({ alphaMode: "premultiplied" }),
+    );
+    const descriptor = (t.encoder.beginRenderPass as ReturnType<typeof vi.fn>)
+      .mock.calls[0][0];
+    const clear = descriptor.colorAttachments[0].clearValue;
+    expect(clear.a).toBeCloseTo(0.4);
+    // Premultiplied: rgb already scaled by that alpha.
+    expect(clear.r).toBeCloseTo((100 / 255) * 0.4);
+    expect(clear.b).toBeCloseTo(0);
+  });
+
+  it("switches back to opaque when the theme stops being translucent", () => {
+    const t = setup();
+    const pane = t.pane([1, 2, 3], 0.5);
+    t.canvas
+      .addPane(pane, t.host({ left: 0, top: 0, width: 100, height: 100 }) as never)
+      .setBounds({ left: 0, top: 0, width: 100, height: 100 });
+    t.canvas.beginFrame();
+    t.canvas.encode(t.encoder, t.resources);
+    pane.backgroundAlpha.mockReturnValue(1);
+    t.canvas.beginFrame();
+    t.canvas.encode(t.encoder, t.resources);
+    expect(t.context.configure).toHaveBeenLastCalledWith(
+      expect.objectContaining({ alphaMode: "opaque" }),
+    );
   });
 
   it("clears with the first drawable pane's background and draws every drawable pane with its viewport and scissor", () => {

@@ -243,8 +243,16 @@ html[data-vibrancy="on"] {
   --frame: color-mix(in oklab, var(--card) 55%, transparent);
 }
 
+/* The window's own corner radius. On Windows `vibrancy.rs` asks DWM for
+ * `DWMWCP_ROUND`, which rounds the window itself to 8px — and DWM paints the
+ * material over the whole window rectangle, so a larger CSS radius would leave a
+ * crescent of material in each corner. Keep these in step. */
+html[data-chrome="borderless"] {
+  --window-radius: 8px;
+}
+
 html[data-chrome="borderless"] .verta-bg-surface {
-  border-radius: 12px;
+  border-radius: var(--window-radius);
 }
 
 /* Theme glass (see `modules/theme/types.ts` → `ThemeGlass`).
@@ -383,7 +391,7 @@ html[data-chrome="borderless"] body {
 html[data-chrome="borderless"] #root,
 html[data-chrome="borderless"] #settings-root {
   height: 100%;
-  border-radius: 12px;
+  border-radius: var(--window-radius);
   overflow: hidden;
   border: 1px solid var(--border);
   background: var(--background);
@@ -398,6 +406,24 @@ html[data-theme-surface] #settings-root {
 }
 html[data-chrome="borderless"] #root {
   background: var(--frame);
+}
+
+/* The settings window has no panes: its root is the frame and `.settings-shell`
+ * is the one big panel. Whenever the window may show what is behind it — native
+ * vibrancy, or a theme asking for glass — both layers follow the main window's
+ * (`#root` takes the frame's colour, the shell takes the pane's tint). Until this
+ * existed the root painted an opaque `--background`, so the main window was
+ * see-through while the settings window stayed a solid slab — acrylic included. */
+html[data-vibrancy="on"]:not([data-theme-surface]) #settings-root,
+html[data-theme-glass]:not([data-theme-surface]) #settings-root {
+  background: var(--frame);
+}
+html[data-theme-glass] .settings-shell {
+  background: color-mix(
+    in oklab,
+    var(--background) calc(var(--theme-pane-opacity, 1) * 100%),
+    transparent
+  );
 }
 
 

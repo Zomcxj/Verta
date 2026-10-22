@@ -25,6 +25,7 @@ const STATE: ScreenUniformState = {
   cursor: { x: 22, y: 42, width: 11, height: 21 },
   cursorColor: [255, 128, 0],
   background: [10, 20, 30],
+  backgroundAlpha: 1,
   selection: NO_SELECTION,
   selectionColor: [51, 102, 204],
   selectionAlpha: 0.5,
@@ -228,6 +229,44 @@ describe("shader uniform layout", () => {
       });
     },
   );
+
+  it("carries the theme background's alpha so a translucent terminal can clear with it", () => {
+    const uniform = new ScreenUniform();
+    uniform.pack({ ...STATE, backgroundAlpha: 0 });
+    expect(
+      uniform.data[SCREEN_OFFSET.themeBackground / 4 + 3],
+    ).toBeCloseTo(0, 6);
+    // The colour stays the straight (un-premultiplied) one: the shader premultiplies.
+    expect(uniform.data[SCREEN_OFFSET.themeBackground / 4]).toBeCloseTo(
+      10 / 255,
+      6,
+    );
+    uniform.pack({ ...STATE, backgroundAlpha: 0.5 });
+    expect(
+      uniform.data[SCREEN_OFFSET.themeBackground / 4 + 3],
+    ).toBeCloseTo(0.5, 6);
+  });
+
+  it("premultiplies both passes and only lets the terminal's own background through", () => {
+    // A translucent canvas makes the browser read rgb as already scaled by alpha, so both
+    // the background and the glyph pass must write premultiplied values. Anything an
+    // application painted itself — a cell colour, selection, search, a decoration — stays
+    // opaque, or the theme's alpha would erase it.
+    expect(BACKGROUND_SHADER).toMatch(
+      /return vec4f\(screen\.theme_background\.rgb \* alpha, alpha\);/,
+    );
+    expect(BACKGROUND_SHADER).toMatch(
+      /let alpha = select\(1\.0, screen\.theme_background\.a, plain\);/,
+    );
+    expect(BACKGROUND_SHADER).toMatch(
+      /return vec4f\(painted \* alpha, alpha\);/,
+    );
+    expect(GLYPH_SHADER).toMatch(/return vec4f\(sample\.rgb \* alpha, alpha\);/);
+    expect(GLYPH_SHADER).toMatch(/return vec4f\(color\.rgb \* alpha, alpha\);/);
+    // Straight-alpha output would be reinterpreted as premultiplied: edges brighten.
+    expect(GLYPH_SHADER).not.toMatch(/sample\.rgb, sample\.a \* color\.a/);
+    expect(GLYPH_SHADER).not.toMatch(/color\.rgb, color\.a \* coverage/);
+  });
 
   it("subtracts the viewport origin from window-relative fragment coordinates in both passes", () => {
     // Fragment positions are relative to the whole canvas, but a pane's cells, cursor and

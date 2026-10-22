@@ -75,6 +75,26 @@
 - `src/modules/i18n/messages.ts`：新增 `remotes.issues.checks.partial` 与 `remotes.issues.mergeBlocked.*`
   六条键（中英两份）。
 
+**亚克力主题：终端底色可透明，设置窗口一并切换窗口材质**
+
+- `src/modules/terminal/ghostty/gpu/terminalVisuals.ts`、`gpu/ScreenUniform.ts`、`gpu/WebGpuTerminalSurface.ts`、`gpu/WebGpuWindowCanvas.ts`、`gpu/WebGpuTerminalRuntime.ts`、`gpu/shaders.ts`：终端底色支持透明。主题把 `terminal.background` 写成带 alpha 的颜色时，终端画布按该 alpha 清屏（画布的 alpha 模式随面板的主题底色切换）；两个着色器改为预乘输出，字形管线的混合状态同步（不透明时结果与原来一致）。**应用自己设的底色 —— TUI 色块、选中、搜索命中、下划线 —— 仍为不透明**，不受主题的透明影响；终端首帧之前的占位底色在透明主题下也不再画成实心。
+- `src/modules/theme/themes/acrylic.ts`：终端底色改为全透（玻璃覆盖到终端区域），面板与框架的色调调薄一档，名字与说明改为英文。
+- `src/settings/SettingsApp.tsx`：设置窗口补上切换窗口背景材质的组件（原先未渲染它，主窗口为亚克力时设置窗口不是）。
+- `src/styles/globals.css`：设置窗口的根节点原来写死 `--background`（不透明），与主窗口 `#root` 用的 `--frame` 不一致 —— 主窗口透明时它仍是一块不透明底色。现在窗口可能透出背后内容时（原生材质 / 玻璃主题）走同一套分层：根节点取 `--frame`，整块 `.settings-shell` 取面板的色调。
+
+**亚克力材质：改用可调色调的磨砂**
+
+- `src-tauri/src/modules/vibrancy.rs`、`src-tauri/Cargo.toml`：亚克力不再用 DWM 的 `DWMSBT_TRANSIENTWINDOW`，改用 `ACCENT_ENABLE_ACRYLICBLURBEHIND`。前者按微软文档即为该材质「最亮的那一档」，实测材质本身是一块**均匀的浅灰**（窗内像素无变化，桌面完全透不上来），加 `DWMWA_USE_IMMERSIVE_DARK_MODE` 也压不动；后者模糊的是窗口背后真实的内容，色调与不透明度由我们给出，主题的 `glass` 色调再叠在其上。该属性未公开，故运行时从 `user32.dll` 取地址，取不到则退回 Mica；`windows-sys` 相应补上 `Win32_Graphics_Dwm` 与 `Win32_System_LibraryLoader`。
+
+**窗口圆角：不再露出直角的材质**
+
+- `src-tauri/src/modules/vibrancy.rs`：切换窗口材质时一并设 `DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND`。材质铺满整个窗口矩形，窗口本身不做圆角时，四个圆角之外各留一块直角的材质。
+- `src/styles/globals.css`：窗口圆角抽成 `--window-radius: 8px`，与 DWM 的 `DWMWCP_ROUND` 对齐 —— CSS 圆角大于它时，角上会余出一条月牙形的材质。
+
+**主题名与说明：亚克力 / 碳纤维 改用英文名**
+
+- `src/modules/theme/themes/themeNames.ts`、`themes/acrylic.ts`、`themes/pattern-base.ts`：Acrylic 与 Carbon Fiber 采用英文名（与 Dracula 等专名同例，指的是材质本身），中文说明保留，亚克力的说明改为描述效果。
+
 </details>
 
 <details>

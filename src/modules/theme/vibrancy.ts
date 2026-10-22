@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 
-/** Mirrors `Backdrop` in `src-tauri/src/modules/vibrancy.rs`. */
+/**
+ * What `window_backdrop_kind` reports the platform can do. The `kind` we then ask
+ * for is narrower: `mica` or `acrylic` (see `Backdrop` in
+ * `src-tauri/src/modules/vibrancy.rs`).
+ */
 export type Backdrop = "vibrancy" | "mica" | "none";
 
 /** Must stay in sync with the pre-paint script in index.html. */

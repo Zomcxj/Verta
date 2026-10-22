@@ -14,7 +14,8 @@ import type { Theme } from "../types";
 export const verta: Theme = {
   id: "verta",
   name: "Verta",
-  description: "照应用图标来的黑白：近黑的底，纯白的强调色。",
+  description:
+    "Black and white, taken from the app icon: a near-black base and a pure-white accent.",
   editorTheme: { dark: "github-dark", light: "github-light" },
   variants: {
     dark: {

@@ -40,20 +40,24 @@ function hexGrid(stroke: string, opacity: number): string {
  */
 
 /**
- * 碳纤维：深石墨底上压一层极细的蜂窝网格，面板是半透明的碳板。
+ * Carbon fiber: a very fine honeycomb weave pressed onto a deep graphite base,
+ * with panels that stay solid.
  *
- * 两件事一起做才像碳纤维：
- * 1. 网格本身很小（13×22.75），远看只是「有一层细纹」；
- * 2. 面板只留很少的底色（`pane` 0.3 上下），网格能从面板下面透出来，
- *    否则网格只会在面板之间的缝里露一条边。
+ * Two things together make it read as carbon fiber:
+ * 1. the weave itself is small (13×22.75), so at a glance it is only "there is a
+ *    fine texture";
+ * 2. the panels are opaque and the weave is drawn on the surface layer under
+ *    them, so it shows in the frame between the panels — a weave showing *under*
+ *    the text would just look dirty.
  *
- * 网格的可见度靠 `soft-light` + 低透明度：深色底上提亮一点点就够，
- * 写成实色就变成「贴了一张网格图」。
+ * The weave's visibility comes from `soft-light` at a low opacity: on a dark
+ * base, lifting it slightly is enough, while a solid colour would look like a
+ * grid image pasted on.
  */
 export const carbonWeave: Theme = {
   id: "carbon-weave",
-  name: "碳纤维",
-  description: "石墨底上的细蜂窝网格，面板是实心的碳板。",
+  name: "Carbon Fiber",
+  description: "Fine honeycomb weave over graphite; the panels stay solid.",
   editorTheme: { dark: "github-dark", light: "github-light" },
   variants: {
     dark: {
