@@ -15,6 +15,10 @@
 <details open>
 <summary><strong>2026-10-22</strong></summary>
 
+**设置窗口：关掉再打开不再重建整个 webview**
+
+- `src-tauri/src/lib.rs`：设置窗口收到关闭请求时改成 `prevent_close()` + `hide()`，下次打开直接复用（原来它会销毁 webview，每次点设置都要重新加载一遍设置页，慢到被当成 bug 报上来）。主窗口不可见或退出时仍按原逻辑销毁。
+
 **Issues / PR：合并前锁住 head sha、检查超过 100 条会翻页、列表几个小毛病**
 
 - `src-tauri/src/modules/github/commands.rs`：合并 PR 带上确认框打开时那条 PR 的 head sha（`sha` 字段）—— 你点确认到请求落地之间别人又推了提交的话，GitHub 回 409，我们把原文透出来，不会把没看过的提交一起合掉；`check-runs` 超过 100 条时按页取（最多 10 页），取完再一起数。
