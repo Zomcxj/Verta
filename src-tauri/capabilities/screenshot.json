@@ -1,13 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "screenshot",
-  "description": "Capability for the screenshot selection overlay: it only listens for the arming event (the Rust side shows and focuses the window)",
+  "description": "Capability for the screenshot selection overlay: it reads the preferences (to paint itself in the current theme) and listens for the arming event (the Rust side shows and focuses the window)",
   "windows": [
     "screenshot"
   ],
   "permissions": [
     "core:default",
     "core:event:allow-listen",
-    "core:event:allow-unlisten"
+    "core:event:allow-unlisten",
+    "store:default"
   ]
 }
