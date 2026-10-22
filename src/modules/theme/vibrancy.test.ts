@@ -88,7 +88,7 @@ describe("applyVibrancy", () => {
     expect(backdropCalls()).toEqual([
       [
         "window_set_backdrop",
-        { enabled: false, dark: true, background: "#141414" },
+        { enabled: false, dark: true, background: "#141414", kind: "mica" },
       ],
     ]);
   });
@@ -112,6 +112,7 @@ describe("applyVibrancy", () => {
       enabled: true,
       dark: false,
       background: undefined,
+      kind: "mica",
     });
     await mod.applyVibrancy(false, false);
     expect(backdropCalls()[1][1]).toMatchObject({ enabled: false });

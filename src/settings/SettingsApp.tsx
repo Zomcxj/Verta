@@ -17,6 +17,7 @@ import { type JSX, useEffect, useState } from "react";
 import { AboutSection } from "./sections/AboutSection";
 import { EditorSection } from "./sections/EditorSection";
 import { type MessageKey, useT } from "@/modules/i18n";
+import { WindowVibrancyBridge } from "@/modules/theme";
 import { GeneralSection } from "./sections/GeneralSection";
 import { ShortcutsSection } from "./sections/ShortcutsSection";
 import { ThemesSection } from "./sections/ThemesSection";
@@ -111,7 +112,10 @@ export function SettingsApp() {
   }, []);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground select-none">
+    <div className="settings-shell flex h-screen flex-col overflow-hidden bg-background text-foreground select-none">
+      {/* 设置窗口是独立的一个窗口，也得自己把主题的窗口背景材质切好：
+          亚克力（或 Mica）是按「调用它的那个窗口」生效的，主窗口切了不等于这里也切了。 */}
+      <WindowVibrancyBridge />
       <header
         data-tauri-drag-region
         className={`flex h-11 shrink-0 items-center border-b border-border/60 bg-card/60 ${

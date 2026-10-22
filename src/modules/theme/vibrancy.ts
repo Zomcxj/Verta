@@ -130,8 +130,9 @@ export function applyVibrancy(
   enabled: boolean,
   dark: boolean,
   themeId = "",
+  acrylic = false,
 ): Promise<void> {
-  queue = queue.then(() => run(enabled, dark, themeId));
+  queue = queue.then(() => run(enabled, dark, themeId, acrylic));
   return queue;
 }
 
@@ -139,9 +140,12 @@ async function run(
   enabled: boolean,
   dark: boolean,
   themeId: string,
+  acrylic = false,
 ): Promise<void> {
   const kind = await getBackdropKind();
-  const on = enabled && kind !== "none";
+  // 主题要求玻璃时，即使用户没打开那个总开关也走亚克力：主题自己就是要透的，
+  // 不让透就等于主题没生效。关闭时仍然只认用户的总开关。
+  const on = kind !== "none" && (enabled || acrylic);
   const root = document.documentElement;
 
   const paintOpaque = () => {
@@ -169,13 +173,19 @@ async function run(
   // to be rebuilt on a mode flip; NSVisualEffectView adapts on its own.
   const key = on
     ? kind === "mica"
-      ? `on:${dark}`
+      ? `on:${dark}:${acrylic ? "acrylic" : "mica"}:${enabled ? "user" : "theme"}`
       : "on"
     : `off:${themeId}:${background ?? dark}`;
   if (key === applied) return;
 
   try {
-    await invoke("window_set_backdrop", { enabled: on, dark, background });
+    await invoke("window_set_backdrop", {
+      enabled: on,
+      dark,
+      background,
+      // Windows 上「亚克力」才是真的透桌面（Mica 只取壁纸、基本不透明）。
+      kind: acrylic ? "acrylic" : "mica",
+    });
     applied = key;
   } catch {
     // Never leave the webview transparent over nothing.

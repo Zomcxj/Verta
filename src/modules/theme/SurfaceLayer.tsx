@@ -32,25 +32,43 @@ export function SurfaceLayer() {
 }
 
 /**
- * 主题自带的那层质感（渐变 / 纹理），铺在整个界面底下（`-1`）。
+ * 主题自带的那层质感（渐变 / 纹理），铺在整个界面底下。
  *
  * 开关与所有参数都由 `applyTheme` 写成 CSS 变量，这里只负责把那个元素放进 DOM：
  * 主题一变变量就变，不用再走一遍 React；`data-theme-surface` 没被设上时什么都不画。
- * 铺在底下而不是盖在上面，是因为它只是「底色好看一点」，不能挡住任何内容——
+ *
+ * 两层：底下 `z-index:-1` 那一层给正文界面用；上面 fixed 到 0 的那一层专门给
+ * **设置窗口**（它自己一个窗口、自己一个 body，盖满它自己的整块）。两个都开着
+ * `pointer-events: none`，并且都在内容底下（`-1` / `0` 且不带背景的子元素会被
+ * 上层挡住），所以不会挡住任何东西。
+ *
  * 用户自己的背景图（`BackgroundImage`）仍然盖在它上面。
  */
 function ThemeSurface() {
   return createPortal(
-    <div
-      aria-hidden
-      data-theme-surface-layer
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: -1,
-        pointerEvents: "none",
-      }}
-    />,
+    <>
+      <div
+        aria-hidden
+        data-theme-surface-layer
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: -1,
+          pointerEvents: "none",
+        }}
+      />
+      {/* 设置窗口的根节点不铺底色（见 globals.css），靠这一层把花纹铺满整屏。 */}
+      <div
+        aria-hidden
+        data-theme-surface-fill
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 0,
+          pointerEvents: "none",
+        }}
+      />
+    </>,
     document.body,
   );
 }

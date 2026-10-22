@@ -45,16 +45,25 @@ for table in ("session_v2", "session"):
             "+coalesce(tokens_cache_read,0)+coalesce(tokens_cache_write,0)"
             if "tokens_input" in cols else "NULL"
         )
-        # 轮数按**用户消息**数（一轮里助手要发好几条）；消息被清空但 tokens 还在时按 tokens 估。
+        # 消息表有两代：新版写 `session_message`（`type` 列就是角色），
+        # 老版写 `message`（角色埋在 data 的 JSON 里）。优先新表 —— 两表并存时旧的已经不更新了。
+        msg_tables = {r[0] for r in con.execute("select name from sqlite_master where type='table'")}
+        if "session_message" in msg_tables:
+            msg_table, is_user = "session_message", "m.type = 'user'"
+        elif "message" in msg_tables:
+            msg_table, is_user = "message", "json_extract(m.data, '$.role') = 'user'"
+        else:
+            msg_table, is_user = None, None
+        # 轮数按**用户消息**数（一轮里助手要发好几条）。
         turns = (
-            "(select count(*) from message m where m.session_id = " + table + ".id and json_extract(m.data, '$.role') = 'user')"
-            if "tokens_input" in cols else "NULL"
+            "(select count(*) from " + msg_table + " m where m.session_id = " + table + ".id and " + is_user + ")"
+            if msg_table else "NULL"
         )
         rows = con.execute(
             "select id, parent_id, title, directory, time_updated, "
             + turns + ", "
             + tokens + ", "
-            "(select max(m.time_created) from message m where m.session_id = " + table + ".id) "
+            "(select max(m.time_created) from " + (msg_table or "message") + " m where m.session_id = " + table + ".id) "
             "from " + table + " order by time_updated desc limit __LIMIT__"
         ).fetchall()
     except sqlite3.Error:

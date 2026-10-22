@@ -221,6 +221,8 @@
  * (react-resizable-panels clips panel content at the panel box). Separation
  * comes from the border plus the frame/pane tone step. */
 .verta-pane {
+  /* Containing block for the glass backing layer (see `data-theme-glass`). */
+  position: relative;
   border-radius: var(--pane-radius);
   border: 1px solid var(--border);
   background: var(--background);
@@ -245,12 +247,74 @@ html[data-chrome="borderless"] .verta-bg-surface {
   border-radius: 12px;
 }
 
+/* Theme glass (see `modules/theme/types.ts` → `ThemeGlass`).
+ * The frame (`--frame`, the canvas the panes sit on) and `.verta-pane` are
+ * opaque by default, which is why a surface layer alone never shows through.
+ * A theme that opts in gets both made translucent over the surface below, so
+ * the texture/light behind them is actually visible. Everything here is gated
+ * on `data-theme-glass`, so every other theme keeps the plain opaque chrome and
+ * pays for no extra compositing. */
+html[data-theme-glass] {
+  --frame: color-mix(
+    in oklab,
+    var(--card) calc(var(--theme-frame-opacity, 1) * 100%),
+    transparent
+  );
+}
+/* No `filter` here on purpose.
+ *
+ * The blur in acrylic is *DWM's*: it is drawn behind the window, where CSS can
+ * never reach (an in-document filter only samples the element's own subtree, and
+ * a `filter` on #root would smear the interface itself instead of the desktop —
+ * that mistake is what made the first attempt look like a blurry mess rather
+ * than glass over a blurred desktop). So the app's job is only the tint and the
+ * light; the material supplies everything else.
+ *
+ * The pane carries that tint and the specular edge. */
+html[data-theme-glass] .verta-pane {
+  background: linear-gradient(
+      to bottom,
+      oklch(1 0 0 / calc(var(--theme-glass-sheen, 0.08))),
+      oklch(1 0 0 / 0) 42%
+    ),
+    color-mix(
+      in oklab,
+      var(--background) calc(var(--theme-pane-opacity, 1) * 100%),
+      transparent
+    );
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / calc(var(--theme-glass-edge, 0.12))),
+    inset 0 0 0 1px oklch(1 0 0 / calc(var(--theme-glass-edge, 0.12) * 0.45));
+}
+/* The blur now lives on #root (above), so the pseudo-element only carries the
+ * specular edge: a bright hairline along the top of the glass, which is what
+ * the eye reads as "a sheet of glass" rather than a coloured rectangle. */
+html[data-theme-glass] .verta-pane::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 0
+    oklch(1 0 0 / calc(var(--theme-glass-edge, 0.2) * 0.9));
+}
+/* The pane's children paint above that edge. */
+html[data-theme-glass] .verta-pane > * {
+  position: relative;
+  z-index: 1;
+}
+/* The frame (gaps between panes, header, status bar) lets the texture — or the
+ * desktop, for a native material — through, but never all the way: the webview's
+ * own default is white and would flood the interface. Its opacity comes from the
+ * theme (`--theme-frame-opacity`, written by applyTheme); no value is hard-coded
+ * here, or a theme's own setting would be silently overruled. */
 /* Theme surface (see `modules/theme/types.ts` → `ThemeSurface`).
  * `applyTheme` writes these variables and sets `data-theme-surface` only when a
  * theme actually provides something to draw; every other theme keeps this
- * element empty. Kept as a plain background rather than a backdrop filter: a
+ * element empty. Kept as a plain background rather than a live filter: a
  * blur would need a window-sized compositing layer on every resize. */
-[data-theme-surface-layer] {
+[data-theme-surface-layer],
+[data-theme-surface-fill] {
   background-color: var(--theme-surface-background, transparent);
   background-image: var(--theme-surface-image, none);
   background-repeat: var(--theme-surface-repeat, no-repeat);
@@ -259,8 +323,32 @@ html[data-chrome="borderless"] .verta-bg-surface {
   opacity: var(--theme-surface-opacity, 1);
   mix-blend-mode: var(--theme-surface-blend, normal);
 }
-html:not([data-theme-surface]) [data-theme-surface-layer] {
+html:not([data-theme-surface]) [data-theme-surface-layer],
+html:not([data-theme-surface]) [data-theme-surface-fill] {
   display: none;
+}
+/* The settings window is its own document: the body there is the whole screen,
+ * so it takes the theme's surface directly instead of layering a portal fill
+ * (which would sit above the settings card and hide it). */
+:root:has(#settings-root)[data-theme-surface] body {
+  background-color: var(--theme-surface-background, transparent);
+  background-image: var(--theme-surface-image, none);
+  background-repeat: var(--theme-surface-repeat, no-repeat);
+  background-size: var(--theme-surface-size, cover);
+  background-position: center;
+}
+/* The fill layer is for the main window only; the settings window has no
+ * #root, and its body already carries the surface. */
+:root:has(#settings-root) [data-theme-surface-fill] {
+  display: none;
+}
+/* Settings root would otherwise paint a solid colour over the surface. */
+:root:has(#settings-root)[data-theme-surface] #settings-root {
+  background: transparent;
+}
+/* Its card and header sit on the textured body, so they read as glass too. */
+:root:has(#settings-root)[data-theme-surface] .settings-shell {
+  background: color-mix(in oklab, var(--background) 82%, transparent);
 }
 /* Window drag (macOS WebKit): while `data-live-resize` is set (see
  * modules/theme/livePageResize) the document is given an invisible size rounded
@@ -299,6 +387,14 @@ html[data-chrome="borderless"] #settings-root {
   overflow: hidden;
   border: 1px solid var(--border);
   background: var(--background);
+}
+/* A theme with a surface wants to be seen under everything, the settings window
+ * included, so the two roots stop painting a solid colour over it. The panes
+ * and the settings card keep their own backgrounds; only these full-window
+ * shells go clear. */
+html[data-theme-surface] #root,
+html[data-theme-surface] #settings-root {
+  background: transparent;
 }
 html[data-chrome="borderless"] #root {
   background: var(--frame);

@@ -2,6 +2,7 @@ import type {
   Theme,
   ThemeColors,
   ThemeMode,
+  ThemeGlass,
   ThemeSurface,
   TerminalPalette,
 } from "./types";
@@ -77,6 +78,14 @@ const SURFACE_VARS: readonly string[] = [
   "--theme-surface-blend",
 ];
 
+/** 玻璃那套：窗口框架与面板的透明度、边缘亮度。 */
+const GLASS_VARS: readonly string[] = [
+  "--theme-frame-opacity",
+  "--theme-pane-opacity",
+  "--theme-glass-edge",
+  "--theme-glass-sheen",
+];
+
 export function applyTheme(theme: Theme, mode: ThemeMode): void {
   const root = document.documentElement;
   const variant = theme.variants[mode] ?? theme.variants.dark ?? theme.variants.light;
@@ -90,6 +99,7 @@ export function applyTheme(theme: Theme, mode: ThemeMode): void {
   if (colors) writeColors(root, colors);
   if (terminal) writeTerminal(root, terminal);
   writeSurface(root, variant.surface);
+  writeGlass(root, variant.glass);
   lastApplied = theme.id;
 }
 
@@ -98,6 +108,7 @@ export function clearTheme(): void {
   const root = document.documentElement;
   for (const v of ALL_VARS) root.style.removeProperty(v);
   writeSurface(root, undefined);
+  writeGlass(root, undefined);
   lastApplied = null;
 }
 
@@ -126,6 +137,44 @@ function writeSurface(root: HTMLElement, surface: ThemeSurface | undefined): voi
   const drawn = surface.background || surface.image;
   if (drawn) root.setAttribute("data-theme-surface", "on");
   else root.removeAttribute("data-theme-surface");
+}
+
+/**
+ * 玻璃：只有真给了透明度才打开（`data-theme-glass="on"`）。
+ *
+ * CSS 那边靠这个属性决定要不要把 `--frame` 与 `.verta-pane` 换成半透明的写法；
+ * 不给的话这两层保持原来的不透明，一点开销都不多。
+ */
+function writeGlass(root: HTMLElement, glass: ThemeGlass | undefined): void {
+  for (const v of GLASS_VARS) root.style.removeProperty(v);
+  if (!glass) {
+    root.removeAttribute("data-theme-glass");
+    return;
+  }
+  const set = (name: string, value: number | undefined) => {
+    if (value === undefined) return;
+    // 下限放到 0.02：苹果那种玻璃面板本身就几乎全透，文字靠模糊与高光托着。
+    root.style.setProperty(name, String(Math.min(1, Math.max(0.02, value))));
+  };
+  set("--theme-frame-opacity", glass.frame);
+  set("--theme-pane-opacity", glass.pane);
+  // 这里刻意不写任何 `filter`：模糊是原生材质（Windows 的 DWM 亚克力 / macOS 的
+  // NSVisualEffectView）画在窗口**背后**的，CSS 够不着；而在 #root 上写 blur 只会把
+  // 界面自己糊掉 —— 第一版就是这么错的，看起来像一团糊而不是玻璃。
+  // 饱和同理：材质自带，再叠一层会连界面颜色一起改。
+  if (glass.sheen !== undefined) {
+    root.style.setProperty(
+      "--theme-glass-sheen",
+      String(Math.min(1, Math.max(0, glass.sheen))),
+    );
+  }
+  if (glass.edge !== undefined) {
+    root.style.setProperty(
+      "--theme-glass-edge",
+      String(Math.min(1, Math.max(0, glass.edge))),
+    );
+  }
+  root.setAttribute("data-theme-glass", "on");
 }
 
 function writeColors(root: HTMLElement, c: ThemeColors): void {

@@ -57,22 +57,23 @@ pub(crate) fn list_at(path: &Path) -> Result<AgentSessionsPayload, String> {
     } else {
         "NULL"
     };
-    let role_is_user = "json_extract(m.data, '$.role') = 'user'";
-    // 有消息：数用户消息。一条都没有但 tokens 不为 0（opencode 清过老消息）：按 tokens 估。
-    // 两条都不成立（真 · 新会话）：0 轮，这是确切的 0，不是「不知道」。
-    let turns_expr = if has_message_table(&conn) {
-        format!(
-            "(SELECT CASE WHEN total > 0 AND (SELECT COUNT(*) FROM message m WHERE m.session_id = {table}.id) = 0 THEN MAX(1, total / {TOKENS_PER_TURN}) ELSE (SELECT COUNT(*) FROM message m WHERE m.session_id = {table}.id AND {role_is_user}) END FROM (SELECT {tokens_sum} AS total) AS s)"
-        )
-    } else {
-        "NULL".to_string()
+    // 消息表有两代：
+    //   `message`         —— 老版 opencode 写的，`data` 里带 `role`；
+    //   `session_message` —— 新版写的，`type` 列直接就是 `user` / `assistant` / ...
+    // 新版两个表都还在，但**只有新表在更新**。只读旧表的话，最近几天的对话一条都看不见
+    // （「今天聊了一整天，列表里还停在上周」就是这么来的）。
+    let messages = message_table(&conn);
+    let turns_expr = match messages {
+        Some((tbl, is_user)) => format!(
+            "(SELECT CASE WHEN total > 0 AND (SELECT COUNT(*) FROM {tbl} m WHERE m.session_id = {table}.id) = 0 THEN MAX(1, total / {TOKENS_PER_TURN}) ELSE (SELECT COUNT(*) FROM {tbl} m WHERE m.session_id = {table}.id AND {is_user}) END FROM (SELECT {tokens_sum} AS total) AS s)"
+        ),
+        None => "NULL".to_string(),
     };
-    let last_expr = if has_message_table(&conn) {
-        format!(
-            "(SELECT MAX(m.time_created) FROM message m WHERE m.session_id = {table}.id)"
-        )
-    } else {
-        "NULL".to_string()
+    let last_expr = match messages {
+        Some((tbl, _)) => format!(
+            "(SELECT MAX(m.time_created) FROM {tbl} m WHERE m.session_id = {table}.id)"
+        ),
+        None => "NULL".to_string(),
     };
     let sql = format!(
         "SELECT id, parent_id, title, directory, time_updated, {turns_expr}, {tokens_sum}, {last_expr} \
@@ -125,15 +126,29 @@ pub(crate) fn list_at(path: &Path) -> Result<AgentSessionsPayload, String> {
 /// 估出来不会偏大太多。
 const TOKENS_PER_TURN: u64 = 200_000;
 
-/// 这个库里有没有消息表（极老的库只有会话表）。
-fn has_message_table(conn: &Connection) -> bool {
-    conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'message'",
-        [],
-        |row| row.get::<_, i64>(0),
-    )
-    .map(|count| count > 0)
-    .unwrap_or(false)
+/// 消息在哪张表里，以及怎么判断一条是用户消息。
+///
+/// 新版 opencode 用 `session_message`（`type` 列就是角色），老版用 `message`（角色埋在
+/// `data` 的 JSON 里）。**优先新表**：两个表同时存在时，旧的已经不再更新了。
+/// 两张表都没有（极老的库）就返回 None，界面上那两个数字显示「—」。
+fn message_table(conn: &Connection) -> Option<(&'static str, &'static str)> {
+    let has = |name: &str| -> bool {
+        conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [name],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|count| count > 0)
+        .unwrap_or(false)
+    };
+    if has("session_message") {
+        // 新表：`type` 列直接是 'user' / 'assistant' / 'system' / ...
+        Some(("session_message", "m.type = 'user'"))
+    } else if has("message") {
+        Some(("message", "json_extract(m.data, '$.role') = 'user'"))
+    } else {
+        None
+    }
 }
 
 /// 这张表有没有 tokens 那几个列（老库的 `session` 表没有）。

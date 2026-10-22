@@ -11,11 +11,18 @@ pub enum Backdrop {
     Vibrancy,
     /// Windows 11 Mica.
     Mica,
+    /// Windows 11 Acrylic (`DWMSBT_TRANSIENTWINDOW`): the desktop really shows
+    /// through, blurred. This is the one the glass themes are built for — Mica
+    /// only samples the wallpaper and stays mostly opaque.
+    Acrylic,
     None,
 }
 
 /// First Windows 11 build. `apply_mica` fails below it.
 const WIN11_BUILD: u32 = 22000;
+/// First build with the DWM system-backdrop attribute (`DWMWA_SYSTEMBACKDROP_TYPE`,
+/// which acrylic is built on): Windows 11 22H2.
+const ACRYLIC_BUILD: u32 = 22621;
 
 pub fn backdrop_for(os: &str, build: u32) -> Backdrop {
     match os {
@@ -28,6 +35,38 @@ pub fn backdrop_for(os: &str, build: u32) -> Backdrop {
 #[tauri::command]
 pub fn window_backdrop_kind() -> Backdrop {
     backdrop_for(std::env::consts::OS, os_build())
+}
+
+/// Which backdrop is actually applied right now. Unlike `window_backdrop_kind`
+/// (what the platform *can* do), this flips with the setting, so the settings
+/// page can show "Acrylic" without guessing from the OS alone.
+///
+/// `None` until the frontend asks for one, which is also the honest answer while
+/// the user has the effect switched off.
+static ACTIVE_BACKDROP: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(0);
+
+fn active_code(backdrop: Backdrop) -> u8 {
+    match backdrop {
+        Backdrop::None => 0,
+        Backdrop::Vibrancy => 1,
+        Backdrop::Mica => 2,
+        Backdrop::Acrylic => 3,
+    }
+}
+
+fn code_active(code: u8) -> Backdrop {
+    match code {
+        1 => Backdrop::Vibrancy,
+        2 => Backdrop::Mica,
+        3 => Backdrop::Acrylic,
+        _ => Backdrop::None,
+    }
+}
+
+#[tauri::command]
+pub fn window_active_backdrop() -> Backdrop {
+    code_active(ACTIVE_BACKDROP.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 /// Window background used when the frontend cannot report the theme colour.
@@ -67,12 +106,29 @@ pub fn window_set_backdrop(
     enabled: bool,
     dark: bool,
     background: Option<String>,
+    // `mica` (default) or `acrylic`. Ignored where the platform has its own
+    // material.
+    kind: Option<String>,
 ) -> Result<(), String> {
     let rgb = background
         .as_deref()
         .and_then(parse_hex_rgb)
         .unwrap_or_else(|| fallback_background(dark));
-    set_backdrop(&window, enabled, dark, rgb)
+    let want_acrylic = kind.as_deref() == Some("acrylic");
+    let result = set_backdrop(&window, enabled, dark, rgb, want_acrylic);
+    if result.is_ok() {
+        ACTIVE_BACKDROP.store(
+            if !enabled {
+                0
+            } else if want_acrylic {
+                active_code(Backdrop::Acrylic)
+            } else {
+                active_code(backdrop_for(std::env::consts::OS, os_build()))
+            },
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+    result
 }
 
 #[cfg(target_os = "windows")]
@@ -101,6 +157,7 @@ fn set_backdrop(
     enabled: bool,
     _dark: bool,
     rgb: [u8; 3],
+    _acrylic: bool,
 ) -> Result<(), String> {
     use window_vibrancy::{apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial};
 
@@ -198,14 +255,22 @@ fn set_backdrop(
     enabled: bool,
     dark: bool,
     _rgb: [u8; 3],
+    acrylic: bool,
 ) -> Result<(), String> {
-    use window_vibrancy::{apply_mica, clear_mica};
+    use window_vibrancy::{apply_acrylic, apply_mica, clear_mica};
 
-    if enabled {
-        apply_mica(window, Some(dark)).map_err(|e| e.to_string())
-    } else {
-        clear_mica(window).map_err(|e| e.to_string())
+    if !enabled {
+        return clear_mica(window).map_err(|e| e.to_string());
     }
+    if acrylic {
+        // Acrylic: the desktop itself shows through, blurred and noisy — this is
+        // what the glass themes want. Fall back to Mica below Windows 11 22H2,
+        // where the backdrop type attribute does not exist yet.
+        if os_build() >= ACRYLIC_BUILD {
+            return apply_acrylic(window, None).map_err(|e| e.to_string());
+        }
+    }
+    apply_mica(window, Some(dark)).map_err(|e| e.to_string())
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -214,6 +279,7 @@ fn set_backdrop(
     _enabled: bool,
     _dark: bool,
     _rgb: [u8; 3],
+    _acrylic: bool,
 ) -> Result<(), String> {
     Ok(())
 }

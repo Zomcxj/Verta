@@ -793,6 +793,8 @@ const zh = {
   "settings.themes.remove": "移除",
   "settings.themes.opacity": "不透明度",
   "settings.themes.blur": "模糊",
+  "settings.themes.editTheme": "编辑主题",
+  "settings.themes.removeTheme": "删除主题",
   "settings.themes.dropImage":
     "把图片拖到这里，或点「选择图片」。保存在本机；设置之前不影响默认外观。",
   "settings.language.title": "界面语言",
@@ -1778,6 +1780,8 @@ const en: Record<MessageKey, string> = {
   "settings.themes.theme": "Theme",
   "settings.themes.background": "Background",
   "settings.themes.blur": "Blur",
+  "settings.themes.editTheme": "Edit theme",
+  "settings.themes.removeTheme": "Remove theme",
   "settings.themes.replaceImage": "Replace image",
   "settings.themes.chooseImage": "Choose image",
 

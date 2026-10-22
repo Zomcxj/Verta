@@ -15,12 +15,14 @@
 <details open>
 <summary><strong>2026-10-22</strong></summary>
 
-**主题：默认主题改名 Terax，新增「Terax Warm」与「Terax Web」**
+**主题：默认主题改名 Terax，新增「Verta」「亚克力」与「碳纤维」**
 
 - `src/modules/theme/themes/verta-default.ts`：只把显示名从 `Verta Default` 改成 `Terax`（`id` 仍是 `verta-default`，颜色还在 `styles/globals.css`）。
-- `src/modules/theme/themes/terax-warm.ts`、`src/modules/theme/themes/terax-web.ts`：新增两个主题，各自带深色与浅色两套 —— 暖棕的 Terax Warm（照 COFFEE CLI 的暖色：焦糖棕主色、深棕黑底、褪色的绿红蓝）与玄青的 Terax Web（底下压一层极淡的蛛网）。
-- `src/modules/theme/types.ts`、`applyTheme.ts`、`validateTheme.ts`：主题可以带一层「表面层」（底色、纹理、不透明度、混合方式），写成 CSS 变量；自定义主题 JSON 也认这块。
-- `src/modules/theme/SurfaceLayer.tsx`、`src/styles/globals.css`：界面最底下多一个专门画这层的元素，没纹理的主题里它不显示，也不挡任何内容。
+- `src/modules/theme/themes/verta.ts`、`src/modules/theme/themes/acrylic.ts`、`src/modules/theme/themes/pattern-base.ts`：新增三个主题（都带深色与浅色两套，并排在设置页最前面）—— Verta 照应用图标做黑白；亚克力用 Windows 11 的原生亚克力材质，桌面真的透进来；碳纤维是石墨底加细蜂窝网格，面板实心不透明。
+- `src/modules/theme/themes/themeNames.ts`：新增，主题名与说明的中文；原有主题也一并覆盖（Dracula / Nord 这类专名保留不翻）。
+- `src/modules/theme/types.ts`、`applyTheme.ts`、`validateTheme.ts`：主题多两项可选配置 ——「表面层」（底色、纹理、不透明度、混合方式）与「玻璃」（框架与面板的透明度、高光强度、是否连桌面一起透）；自定义主题 JSON 也认这两块。
+- `src/modules/theme/SurfaceLayer.tsx`、`src/styles/globals.css`：界面最底下多一个专门画表面层的元素，没纹理的主题里它不显示，也不挡任何内容；设置窗口同样铺满。
+- `src-tauri/src/modules/vibrancy.rs`、`src/modules/theme/vibrancy.ts`、`src/modules/theme/WindowVibrancyBridge.tsx`：窗口背景材质多一种「亚克力」（Windows 的 `DWMSBT_TRANSIENTWINDOW`，比 Mica 更透桌面），由主题自己声明，不用手动去设置里开。
 - `src/settings/sections/ThemesSection.tsx`、`src/settings/components/LspInstallDialog.tsx`、`src/modules/i18n/messages.ts`：主题设置里的「模糊」与语言服务器对话框里的「检测中… / 再检测一次」原来是写死的英文，改成中文文案（跟随界面语言）。
 
 **会话列表：默认全部放一块按时间排，也可以按 agent 分段**
@@ -28,10 +30,11 @@
 - `src/modules/launcher/lib/sessionGroups.ts`：新增，分组与排序规则（分段顺序跟着工具顺序走，不在列表里的工具名也照样列出来）。
 - `src/modules/launcher/components/LauncherPanel.tsx`：搜索框下加「全部 / 按 agent」切换，默认「全部」。
 
-**会话轮数显示成 0（有的会话明明聊了很多）**
+**会话的轮数与「最后对话时间」读不到今天的数据（新版 opencode 换了存储表）**
 
-- `src-tauri/src/modules/agent_sessions/opencode.rs`：轮数改成数用户消息（原来数的是消息总数，助手一轮要发好几条）；opencode 清掉老消息后消息表为空、但 tokens 还在的会话，按 tokens 估算轮数，不再显示 0；tokens 原先在「全为 NULL」时被算成 0，一并修正。
-- `src-tauri/src/modules/agent_sessions/wsl.rs`：发行版里那条查询同步改用户消息计数。
+- `src-tauri/src/modules/agent_sessions/opencode.rs`：消息改从新表 `session_message` 读（新版 opencode 把消息写在这里，旧表 `message` 早已停止更新，只读旧表就看不到最近几天的对话），没有新表时才退回旧表；轮数改成数用户消息（原来数的是消息总数，助手一轮要发好几条），消息被清空但 tokens 还在的会话按 tokens 估算轮数；tokens 原先在各项全为空时被算成 0，一并修正。
+- `src-tauri/src/modules/agent_sessions/wsl.rs`：发行版里那条查询同步改。
+- `src/modules/launcher/lib/sessionStats.ts`：最后对话时间细化成「刚刚 / N 分钟前 / 1·3·6·12 小时前 / 昨天 / 前天 / 具体日期」。
 
 **会话列表：行上改显示轮数 / tokens / 最后对话日，右键可复制与改名**
 

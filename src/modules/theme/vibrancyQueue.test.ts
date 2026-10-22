@@ -81,6 +81,7 @@ describe("vibrancy application", () => {
       enabled: true,
       dark: true,
       background: undefined,
+      kind: "mica",
     });
   });
 
@@ -107,7 +108,7 @@ describe("vibrancy application", () => {
       (c) => c[0] === "window_set_backdrop",
     );
     expect(backdrop).toHaveLength(2);
-    expect(backdrop[1][1]).toEqual({ enabled: true, dark: false, background: undefined });
+    expect(backdrop[1][1]).toEqual({ enabled: true, dark: false, background: undefined, kind: "mica" });
   });
 
   it("keeps an existing NSVisualEffectView across a dark-mode flip", async () => {
@@ -137,7 +138,7 @@ describe("vibrancy application", () => {
     const backdrop = core.invoke.mock.calls.filter(
       (c) => c[0] === "window_set_backdrop",
     );
-    expect(backdrop).toEqual([["window_set_backdrop", { enabled: false, dark: true, background: "#141414" }]]);
+    expect(backdrop).toEqual([["window_set_backdrop", { enabled: false, dark: true, background: "#141414", kind: "mica" }]]);
   });
 
   it("repaints opaque when the native side fails so the webview is never see-through", async () => {
@@ -173,6 +174,7 @@ describe("vibrancy application", () => {
       enabled: false,
       dark: false,
       background: "#141414",
+      kind: "mica",
     });
   });
 

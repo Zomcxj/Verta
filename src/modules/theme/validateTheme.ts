@@ -1,6 +1,7 @@
 import type {
   Theme,
   ThemeColors,
+  ThemeGlass,
   ThemeSurface,
   ThemeVariant,
   TerminalPalette,
@@ -134,7 +135,9 @@ function parseVariant(raw: unknown, path: string): ThemeVariant | string {
   if (typeof terminal === "string") return terminal;
   const surface = parseSurface(raw.surface, `${path}.surface`);
   if (typeof surface === "string") return surface;
-  return { colors, terminal, surface };
+  const glass = parseGlass(raw.glass, `${path}.glass`);
+  if (typeof glass === "string") return glass;
+  return { colors, terminal, surface, glass };
 }
 
 /**
@@ -167,6 +170,33 @@ function parseSurface(raw: unknown, path: string): ThemeSurface | undefined | st
       return `${path}.opacity must be a number`;
     }
     out.opacity = Math.min(1, Math.max(0, opacity));
+  }
+  return out;
+}
+
+/**
+ * 玻璃那几项：都是 0–1 的比例或像素数，写错了说明是哪一项。
+ *
+ * 自定义主题能用，是因为「玻璃感」靠的是把框架与面板变半透明 —— 只给颜色不够。
+ */
+function parseGlass(raw: unknown, path: string): ThemeGlass | undefined | string {
+  if (raw === undefined) return undefined;
+  if (!isObj(raw)) return `${path} must be an object`;
+  const out: ThemeGlass = {};
+  const RATIOS = ["frame", "pane", "edge"] as const;
+  for (const key of RATIOS) {
+    const value = raw[key];
+    if (value === undefined) continue;
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return `${path}.${key} must be a number`;
+    }
+    out[key] = Math.min(1, Math.max(0, value));
+  }
+  if (raw.desktop !== undefined) {
+    if (typeof raw.desktop !== "boolean") {
+      return `${path}.desktop must be a boolean`;
+    }
+    out.desktop = raw.desktop;
   }
   return out;
 }

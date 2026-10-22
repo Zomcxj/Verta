@@ -433,6 +433,7 @@ pub fn run() {
             history::history_record,
             history::history_list,
             vibrancy::window_backdrop_kind,
+            vibrancy::window_active_backdrop,
             vibrancy::window_set_backdrop,
             modules::window_presentation::window_presentation_state,
             screenshot::screenshot_begin,

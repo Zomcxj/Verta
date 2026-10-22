@@ -34,9 +34,25 @@ describe("tokensLabel", () => {
 });
 
 describe("lastTalkedDayLabel", () => {
-  it("says 今天 / 昨天 inside the last two days", () => {
-    expect(lastTalkedDayLabel(NOW, NOW - 60_000)).toBe("今天");
-    expect(lastTalkedDayLabel(NOW, NOW - 20 * 3600_000)).toBe("昨天");
+  it("gets finer the closer it is: minutes, then hours", () => {
+    expect(lastTalkedDayLabel(NOW, NOW - 5_000)).toBe("刚刚");
+    expect(lastTalkedDayLabel(NOW, NOW - 40_000)).toBe("刚刚");
+    expect(lastTalkedDayLabel(NOW, NOW - 12 * 60_000)).toBe("12 分钟前");
+    expect(lastTalkedDayLabel(NOW, NOW - 59 * 60_000)).toBe("59 分钟前");
+    // 小时归到 1 / 3 / 6 / 12 这几档，同一屏里的数字才好比。
+    expect(lastTalkedDayLabel(NOW, NOW - 70 * 60_000)).toBe("1 小时前");
+    expect(lastTalkedDayLabel(NOW, NOW - 3 * 3_600_000)).toBe("3 小时前");
+    expect(lastTalkedDayLabel(NOW, NOW - 4_600_000)).toBe("1 小时前");
+    expect(lastTalkedDayLabel(NOW, NOW - 5 * 3_600_000)).toBe("6 小时前");
+    expect(lastTalkedDayLabel(NOW, NOW - 11 * 3_600_000)).toBe("12 小时前");
+  });
+
+  it("crosses into 昨天 / 前天 by calendar day, not by elapsed hours", () => {
+    // NOW 是 15:30；20 小时前是昨天 19:30。
+    expect(lastTalkedDayLabel(NOW, NOW - 20 * 3_600_000)).toBe("昨天");
+    expect(
+      lastTalkedDayLabel(NOW, new Date(2026, 9, 20, 23, 0).getTime()),
+    ).toBe("前天");
   });
 
   it("falls back to a plain date a few days back", () => {
@@ -46,7 +62,7 @@ describe("lastTalkedDayLabel", () => {
   });
 
   it("never shows a negative day when the clock jumped backwards", () => {
-    expect(lastTalkedDayLabel(NOW, NOW + 5 * 86_400_000)).toBe("今天");
+    expect(lastTalkedDayLabel(NOW, NOW + 5 * 86_400_000)).toBe("刚刚");
   });
 
   it("no time at all is a dash", () => {

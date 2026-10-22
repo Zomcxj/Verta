@@ -7,21 +7,24 @@ import { everforest } from "./everforest";
 import { gruvbox } from "./gruvbox";
 import { kanagawa } from "./kanagawa";
 import { kanagawaDragon } from "./kanagawa-dragon";
+import { acrylic } from "./acrylic";
 import { nord } from "./nord";
+import { carbonWeave } from "./pattern-base";
 import { rosePine } from "./rose-pine";
 import { sage } from "./sage";
 import { solarized } from "./solarized";
-import { teraxWarm } from "./terax-warm";
-import { teraxWeb } from "./terax-web";
+import { verta } from "./verta";
 import { vertaDefault } from "./verta-default";
 import { tide } from "./tide";
 import { tokyoNight } from "./tokyo-night";
 import { xcode } from "./xcode";
 
 const BUILTIN: Theme[] = [
+  // 自己加的主题放最前面：设置页是按这个顺序列的，用户想找的是它们。
+  verta,
+  acrylic,
+  carbonWeave,
   vertaDefault,
-  teraxWarm,
-  teraxWeb,
   xcode,
   claude,
   kanagawa,
