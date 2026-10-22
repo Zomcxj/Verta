@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { type MessageKey, useT } from "@/modules/i18n";
 import { currentWorkspaceEnv } from "@/modules/workspace";
 import { File02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -33,13 +34,18 @@ export function NewEditorDialog({
   onCreated,
 }: Props) {
   const [name, setName] = useState("untitled.txt");
-  const [error, setError] = useState<string | null>(null);
+  // 存的是键而不是句子：语言在对话框开着的时候变了也不该留着旧语言。
+  const [error, setError] = useState<MessageKey | null>(null);
+  // The backend's own error text is a runtime message, not a key: it is shown as it comes.
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const t = useT();
 
   useEffect(() => {
     if (!open) return;
     setName("untitled.txt");
     setError(null);
+    setErrorDetail(null);
     // Pre-select the basename so the user can quickly retype the filename
     // while keeping the extension handy.
     setTimeout(() => {
@@ -54,15 +60,15 @@ export function NewEditorDialog({
   const submit = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      setError("Name is required");
+      setError("editor.newFile.nameRequired");
       return;
     }
     if (trimmed.includes("..")) {
-      setError("Path must be relative");
+      setError("editor.newFile.relative");
       return;
     }
     if (!rootPath) {
-      setError("No workspace root");
+      setError("cmd.noWorkspaceRoot");
       return;
     }
     const path = trimmed.startsWith("/")
@@ -76,7 +82,7 @@ export function NewEditorDialog({
       onCreated(path);
       onOpenChange(false);
     } catch (e) {
-      setError(String(e));
+      setErrorDetail(String(e));
     }
   };
 
@@ -86,11 +92,10 @@ export function NewEditorDialog({
         <DialogHeader>
           <DialogTitle className="flex gap-1.75">
             <HugeiconsIcon icon={File02Icon} size={16} strokeWidth={1.75} />
-            New file
+            {t("explorer.newFile")}
           </DialogTitle>
           <DialogDescription>
-            Filename (relative to workspace root). The extension determines the
-            language mode.
+            {t("editor.newFile.description")}
           </DialogDescription>
         </DialogHeader>
         <Input
@@ -99,6 +104,7 @@ export function NewEditorDialog({
           onChange={(e) => {
             setName(e.target.value);
             setError(null);
+            setErrorDetail(null);
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -109,7 +115,9 @@ export function NewEditorDialog({
           placeholder="example.ts"
         />
         {error ? (
-          <div className="text-xs text-destructive">{error}</div>
+          <div className="text-xs text-destructive">{t(error)}</div>
+        ) : errorDetail ? (
+          <div className="text-xs text-destructive">{errorDetail}</div>
         ) : (
           <div className="text-xs text-muted-foreground truncate">
             {rootPath ? joinPath(rootPath, name.trim() || "…") : "—"}
@@ -117,9 +125,11 @@ export function NewEditorDialog({
         )}
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("scm.common.cancel")}
           </Button>
-          <Button onClick={() => void submit()}>Create</Button>
+          <Button onClick={() => void submit()}>
+            {t("scm.common.create")}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

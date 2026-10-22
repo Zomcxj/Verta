@@ -136,6 +136,17 @@ const zh = {
   "explorer.searchPlaceholder": "搜索文件…",
   "explorer.clearSearch": "清除搜索",
   "explorer.newFile": "新建文件",
+  "preview.ports": "端口",
+  "preview.suspended.title": "预览已暂停",
+  "preview.suspended.body": "在后台放置太久，已释放以省内存。",
+  "preview.empty.title": "还没有可预览的内容",
+  "preview.empty.before": "在上面的地址栏输入网址，或打开 ",
+  "preview.empty.after":
+    " 下拉直接跳到正在跑的开发服务器。公开网站常常禁止内嵌；看到空白页就用链接图标在系统浏览器里打开。",
+  "editor.newFile.description":
+    "文件名（相对工作区根目录）。扩展名决定语言模式。",
+  "editor.newFile.nameRequired": "请填文件名",
+  "editor.newFile.relative": "只能是相对路径",
   "explorer.newFolder": "新建文件夹",
   "explorer.refresh": "刷新",
 
@@ -1074,6 +1085,18 @@ const en: Record<MessageKey, string> = {
   "explorer.searchPlaceholder": "Search files...",
   "explorer.clearSearch": "Clear search",
   "explorer.newFile": "New file",
+  "preview.ports": "Ports",
+  "preview.suspended.title": "Preview suspended",
+  "preview.suspended.body":
+    "Released to free memory after sitting in the background.",
+  "preview.empty.title": "Nothing to preview yet",
+  "preview.empty.before": "Type a URL above, or open the ",
+  "preview.empty.after":
+    " dropdown to jump straight to your running dev server. Public sites often block embedding. Open them in your browser via the link icon if you see a blank page.",
+  "editor.newFile.description":
+    "Filename (relative to workspace root). The extension determines the language mode.",
+  "editor.newFile.nameRequired": "Name is required",
+  "editor.newFile.relative": "Path must be relative",
   "explorer.newFolder": "New folder",
   "explorer.refresh": "Refresh",
 

@@ -112,6 +112,13 @@
 
 - `src/modules/i18n/messages.ts`：`tabs.new.projects` 从「项目 / Projects」改成「本地项目 / Local projects」，与另一个标签「远程仓库」对仗。这一个键同时决定标签页标题和标签栏「+」菜单里的那一项，两处一起变。
 
+**预览窗与「新建文件」对话框接上 i18n**
+
+- `src/modules/preview/PreviewPane.tsx`：空状态那两句、`Preview suspended` 那句与 `Reload` 按钮原来都写死在 JSX 里；现在走 `preview.empty.*`、`preview.suspended.*` 与已有的 `preview.reload`。空状态正文里那个 `Ports` 小圆角芯片拆成前后两段（`preview.empty.before` / `.after`）夹住，中英两边读起来都顺。
+- `src/modules/preview/PreviewAddressBar.tsx`：地址栏上的 `Ports` 标签改走 `preview.ports`。
+- `src/modules/editor/NewEditorDialog.tsx`：标题复用 `explorer.newFile`，说明与「请填文件名 / 只能是相对路径」两条校验提示新增 `editor.newFile.*`，取消与创建复用其它对话框在用的 `scm.common.cancel` / `scm.common.create`，「没有工作区根目录」复用命令面板那条 `cmd.noWorkspaceRoot`。校验提示存的是**键**而不是句子（对话框开着时切语言也跟着变），后端抛回来的原始错误串照旧原样显示。
+- `src/modules/i18n/messages.ts`：上述新增 9 条键（中英两份，集中插在同一处，减少与另一会话的冲突面）。
+
 </details>
 
 <details>
