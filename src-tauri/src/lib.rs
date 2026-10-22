@@ -418,6 +418,7 @@ pub fn run() {
             open_settings_window,
             agent_sessions::agent_sessions_list,
             agent_sessions::agent_sessions_delete,
+            agent_sessions::agent_sessions_rename,
             agent_sessions::agent_sessions_image,
             secrets::secrets_get,
             secrets::secrets_set,

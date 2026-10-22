@@ -38,6 +38,25 @@ export function deleteAgentSessions(
   return invoke<DeleteReport>("agent_sessions_delete", { targets });
 }
 
+/**
+ * 给会话改个名字。
+ *
+ * 只改名：opencode 改库里那一行，pi 追加一行 `session_info`。两个工具下次读会话时
+ * 都会用新名字（后端读的是「最后一个名字」）。
+ */
+export function renameAgentSession(session: {
+  tool: AgentTool;
+  id: string;
+  distro: string | null;
+}, name: string): Promise<void> {
+  return invoke("agent_sessions_rename", {
+    tool: session.tool,
+    id: session.id,
+    name,
+    distro: session.distro,
+  });
+}
+
 export type AgentSessionsLoad = {
   sessions: AgentSession[];
   warnings: string[];

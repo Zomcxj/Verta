@@ -1341,6 +1341,7 @@ export default function App() {
                         <LauncherPanel
                           activeSessionId={activeSessionId}
                           onOpenSession={handleOpenSession}
+                          workspaceRoot={explorerRoot}
                         />
                       ) : sidebarView === "explorer" ? (
                         <FileExplorer

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+use super::stats::{self, SessionStats};
 use super::types::{AgentSession, AgentSessionsPayload};
 
 pub(crate) const TOOL: &str = "pi";
@@ -115,6 +116,7 @@ fn read_session(file: &Path) -> Result<Option<AgentSession>, String> {
                 .unwrap_or(id)
                 .to_string()
         });
+    let stats = session_stats(file);
     Ok(Some(AgentSession {
         tool: TOOL.to_string(),
         id: id.to_string(),
@@ -125,7 +127,107 @@ fn read_session(file: &Path) -> Result<Option<AgentSession>, String> {
             .get("parentSession")
             .and_then(Value::as_str)
             .map(str::to_string),
+        stats,
     }))
+}
+
+/// 数一个会话文件里的轮数与 tokens。
+///
+/// pi 没有索引表，只能读整份文件：每一行 `message` 里，用户消息算一轮，
+/// 助手消息带的 `usage.totalTokens` 累加。文件可能几十 MB，所以这是列表扫描里最重的一步 ——
+/// 但它只在**列会话时**跑一次（跟读名字同一趟遍历），不是每次打开会话都跑。
+///
+/// 读不动就返回全 `None`：界面上显示「—」，不拿 0 冒充。
+fn session_stats(file: &Path) -> SessionStats {
+    let Ok(handle) = std::fs::File::open(file) else {
+        return SessionStats::default();
+    };
+    let mut turns = 0u32;
+    let mut token_parts: Vec<u64> = Vec::new();
+    let mut last_message_ms: Option<i64> = None;
+    let mut reader = BufReader::new(std::io::BufReader::new(handle).take(MAX_PREFIX_BYTES * 8));
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+        let Some(value) = parse_line(line.trim_end()) else {
+            continue;
+        };
+        if value.get("type").and_then(Value::as_str) != Some("message") {
+            continue;
+        }
+        let Some(message) = value.get("message") else {
+            continue;
+        };
+        let role = message.get("role").and_then(Value::as_str).unwrap_or("");
+        let stamp = message
+            .get("timestamp")
+            .and_then(Value::as_i64)
+            .or_else(|| {
+                value
+                    .get("timestamp")
+                    .and_then(Value::as_str)
+                    .and_then(iso_ms)
+            });
+        if let Some(ms) = stamp {
+            last_message_ms = Some(last_message_ms.map_or(ms, |kept: i64| kept.max(ms)));
+        }
+        if role == "user" {
+            turns = turns.saturating_add(1);
+        }
+        if let Some(tokens) = stats::pi_tokens_of_message(&value) {
+            token_parts.push(tokens);
+        }
+    }
+    SessionStats {
+        turns: Some(turns),
+        tokens: stats::sum_tokens(token_parts),
+        last_at_ms: last_message_ms,
+    }
+}
+
+/// `2026-09-09T05:48:06.288Z` → 毫秒。解析不了就是 None（不猜）。
+///
+/// 手写而不是拉 chrono：只支持 pi 写的这一种形状（`YYYY-MM-DDThh:mm:ss[.sss]Z`），
+/// 与其为几行代码多一个依赖，不如自己算。
+fn iso_ms(text: &str) -> Option<i64> {
+    let bytes = text.as_bytes();
+    if bytes.len() < 20 || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T' {
+        return None;
+    }
+    let num = |range: std::ops::Range<usize>| -> Option<i64> {
+        text.get(range)?.parse::<i64>().ok()
+    };
+    let (year, month, day) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    let (hour, minute, second) = (num(11..13)?, num(14..16)?, num(17..19)?);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 || second > 60 {
+        return None;
+    }
+    let millis = text
+        .get(19..)
+        .and_then(|rest| rest.strip_prefix('.'))
+        .filter(|rest| rest.len() >= 3)
+        .and_then(|rest| rest.get(0..3))
+        .and_then(|digits| digits.parse::<i64>().ok())
+        .unwrap_or(0);
+    let days = days_from_civil(year, month, day);
+    let secs = days * 86_400 + hour * 3_600 + minute * 60 + second.min(59);
+    Some(secs * 1_000 + millis)
+}
+
+/// 公历日期 → 1970-01-01 起的天数（Howard Hinnant 的算法，避开时区与闰年表）。
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
 }
 
 fn parse_line(line: &str) -> Option<Value> {
@@ -413,6 +515,83 @@ pub(crate) fn exists_at(root: &Path, id: &str) -> Result<bool, String> {
     Ok(locate(root, id).is_ok())
 }
 
+/// 给会话改个名字：往文件末尾追加一行 `session_info`，跟 pi 自己 `/name` 的做法一致。
+///
+/// 追加的是新的一行而不是改旧的，因为 pi 读的时候取**最后一个** `session_info`；
+/// 这也意味着历史不会被改写（万一名字写坏了，旧名字还在文件里）。
+pub(crate) fn rename_at(root: &Path, id: &str, name: &str) -> Result<(), String> {
+    let name = name.trim();
+    if let Some(problem) = name_problem(name) {
+        return Err(problem);
+    }
+    let located = locate(root, id)?;
+    use std::io::Write;
+    let mut handle = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&located.file)
+        .map_err(|e| format!("打开会话文件失败：{e}"))?;
+    let line = serde_json::json!({
+        "type": "session_info",
+        "timestamp": now_iso(),
+        "name": name,
+    });
+    writeln!(handle, "{line}").map_err(|e| format!("写入会话名失败：{e}"))?;
+    handle
+        .sync_all()
+        .map_err(|e| format!("写入会话名失败：{e}"))?;
+    Ok(())
+}
+
+/// 名字不合法时的说明。名字会进 JSON 的一行，过长或空都不该写进去。
+pub(crate) fn name_problem(name: &str) -> Option<String> {
+    if name.is_empty() {
+        return Some("会话名不能为空".to_string());
+    }
+    if name.chars().count() > MAX_TITLE_CHARS {
+        return Some(format!("会话名最多 {MAX_TITLE_CHARS} 个字"));
+    }
+    None
+}
+
+/// `2026-10-22T03:04:05.678Z` —— pi 自己写的时间戳就是这个形状。
+fn now_iso() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    format_iso(now as i64)
+}
+
+/// 毫秒 → `YYYY-MM-DDThh:mm:ss.sssZ`（UTC，够用且不必引依赖）。
+fn format_iso(ms: i64) -> String {
+    let secs = ms.div_euclid(1000);
+    let millis = ms.rem_euclid(1000);
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{millis:03}Z",
+        rem / 3_600,
+        (rem % 3_600) / 60,
+        rem % 60
+    )
+}
+
+/// 1970-01-01 起的天数 → 公历（`days_from_civil` 的逆运算）。
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    (if month <= 2 { y + 1 } else { y }, month, day)
+}
+
 /// The id a session file declares in its first line, without resolving anything
 /// else, so a session whose header cannot become a full record is still
 /// locatable.
@@ -474,6 +653,31 @@ mod tests {
                 "{{\"type\":\"session\",\"version\":3,\"id\":\"{id}\",\"cwd\":\"F:\\\\VibeCoding_workspace\\\\ModelHarbor\"}}\n"
             ),
         )
+    }
+
+    #[test]
+    fn renaming_appends_a_name_line_that_wins_on_the_next_read() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let project = dir.path().join("--F--x--");
+        let path = write_session(&project, "2026-09-09T05-47-23-952Z_s1", "s1");
+        rename_at(dir.path(), "s1", "  新名字  ").expect("应能改名");
+        // 读回来的名字就是新名字，而且旧内容没有被改写（追加，不是替换）。
+        let session = read_session(&path).expect("read").expect("a session");
+        assert_eq!(session.title, "新名字");
+        let body = std::fs::read_to_string(&path).expect("read file");
+        assert_eq!(body.lines().count(), 2, "第一行还是会话头，新名字追加在后面");
+        assert!(body.lines().nth(1).is_some_and(|line| line.contains("\"session_info\"")));
+        assert_eq!(name_problem(""), Some("会话名不能为空".to_string()));
+        assert!(name_problem(&"好".repeat(MAX_TITLE_CHARS + 1)).is_some());
+        assert!(rename_at(dir.path(), "nope", "x").is_err(), "id 不存在要报错");
+    }
+
+    #[test]
+    fn iso_formatting_round_trips_through_the_parser() {
+        for ms in [0, 1_709_164_800_000, 1_792_065_286_288, 1_800_000_000_123] {
+            let text = format_iso(ms);
+            assert_eq!(iso_ms(&text), Some(ms), "{text}");
+        }
     }
 
     #[test]
@@ -746,6 +950,64 @@ mod tests {
             "{\"type\":\"session\",\"id\":\"s1\",\"cwd\":\"F:\\\\x\"}\n",
         );
         assert_eq!(latest_session_name(&path), None);
+    }
+
+    #[test]
+    fn turns_tokens_and_the_last_talk_count_user_messages_and_usage() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let body = concat!(
+            r#"{"type":"session","id":"s1","cwd":"F:\\x"}"#,
+            "\n",
+            r#"{"type":"message","message":{"role":"user","content":"第一句","timestamp":1000}}"#,
+            "\n",
+            r#"{"type":"message","message":{"role":"assistant","usage":{"totalTokens":120},"timestamp":2000}}"#,
+            "\n",
+            r#"{"type":"message","message":{"role":"user","content":"第二句","timestamp":3000}}"#,
+            "\n",
+            r#"{"type":"message","message":{"role":"assistant","usage":{"input":10,"output":5},"timestamp":4000}}"#,
+            "\n",
+            r#"{"type":"session_info","name":"后来的名字"}"#,
+            "\n",
+        );
+        let path = write_file(dir.path(), "s.jsonl", body);
+        let stats = session_stats(&path);
+        assert_eq!(stats.turns, Some(2), "两条用户消息就是两轮");
+        assert_eq!(stats.tokens, Some(135), "120 + (10+5)");
+        assert_eq!(stats.last_at_ms, Some(4000));
+    }
+
+    #[test]
+    fn a_session_with_no_messages_has_zero_turns_but_no_tokens() {
+        // 轮数是确定的 0；tokens 没数据就得是「不知道」，不能用 0 冒充。
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = write_file(
+            dir.path(),
+            "s.jsonl",
+            "{\"type\":\"session\",\"id\":\"s1\",\"cwd\":\"F:\\\\x\"}\n",
+        );
+        let stats = session_stats(&path);
+        assert_eq!(stats.turns, Some(0));
+        assert_eq!(stats.tokens, None);
+        assert_eq!(stats.last_at_ms, None);
+    }
+
+    #[test]
+    fn iso_timestamps_parse_without_pulling_in_a_date_library() {
+        // 2026-09-09T05:48:06.288Z
+        let ms = iso_ms("2026-09-09T05:48:06.288Z").expect("应能解析");
+        assert_eq!(ms % 1000, 288);
+        assert_eq!(
+            iso_ms("1970-01-01T00:00:00Z"),
+            Some(0),
+            "epoch 本身要算对"
+        );
+        assert_eq!(
+            ms / 1000,
+            days_from_civil(2026, 9, 9) * 86_400 + 5 * 3600 + 48 * 60 + 6
+        );
+        assert_eq!(iso_ms("2024-02-29T00:00:00.000Z"), Some(1_709_164_800_000), "闰日");
+        assert_eq!(iso_ms("不是时间"), None);
+        assert_eq!(iso_ms("2026-13-01T00:00:00Z"), None, "月份越界不猜");
     }
 
     #[test]

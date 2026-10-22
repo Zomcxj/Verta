@@ -4,6 +4,7 @@ mod delete;
 mod image;
 mod opencode;
 mod pi;
+pub mod stats;
 pub mod watch;
 mod wsl;
 
@@ -37,6 +38,44 @@ pub async fn agent_sessions_delete(targets: Vec<SessionTarget>) -> DeleteReport 
     crate::modules::fs::blocking(move || Ok(delete::delete_sessions(&targets)))
         .await
         .unwrap_or_default()
+}
+
+/// 给会话改个名字（只改名，不做会话管理）。
+///
+/// 两种工具各用自己的写法：opencode 改库里 `title` 这一列，pi 往会话文件追加一行
+/// `session_info`（它自己 `/name` 就是这么做的）。名字只写进会话自己的存储，不动任何别的列，
+/// 所以改名**不会**把会话在列表里顶到前面去。
+#[tauri::command]
+pub async fn agent_sessions_rename(
+    tool: String,
+    id: String,
+    name: String,
+    distro: Option<String>,
+) -> Result<(), String> {
+    crate::modules::fs::blocking(move || rename_session(&tool, &id, &name, distro.as_deref())).await
+}
+
+fn rename_session(tool: &str, id: &str, name: &str, distro: Option<&str>) -> Result<(), String> {
+    if let Some(distro) = distro {
+        return Err(format!("WSL 会话的改名尚未实现（{distro}）"));
+    }
+    delete::validate_session_id(id)?;
+    let stores = delete::Stores::default_paths();
+    match tool {
+        opencode::TOOL => {
+            let path = stores
+                .opencode
+                .ok_or_else(|| "找不到 opencode 数据库的位置".to_string())?;
+            opencode::rename_at(&path, id, name)
+        }
+        pi::TOOL => {
+            let root = stores
+                .pi
+                .ok_or_else(|| "找不到 pi 会话目录的位置".to_string())?;
+            pi::rename_at(&root, id, name)
+        }
+        other => Err(format!("不支持的会话工具：{other}")),
+    }
 }
 
 /// Looks up the image a message attached, by the name the terminal printed.

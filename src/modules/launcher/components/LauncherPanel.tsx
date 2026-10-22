@@ -12,7 +12,9 @@ import { cn } from "@/lib/utils";
 import { listen } from "@tauri-apps/api/event";
 import { type MessageKey, useT } from "@/modules/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { relativeTime } from "../lib/relativeTime";
+import { toast } from "sonner";
+import { renameAgentSession } from "../lib/sessions";
+import { relativeToRoot } from "../lib/sessionPaths";
 import { AGENT_TOOLS } from "../lib/tools";
 import {
   type DeletionSummary,
@@ -31,6 +33,14 @@ import { SessionList } from "./SessionList";
 
 const TOOLS: AgentTool[] = AGENT_TOOLS;
 
+/** 复制到剪贴板，成不成都要说一声：菜单点完什么都不发生最让人心里没底。 */
+function copyText(text: string): void {
+  void navigator.clipboard
+    .writeText(text)
+    .then(() => toast.success("已复制"))
+    .catch((error) => toast.error(String(error)));
+}
+
 type PendingDelete = {
   targets: SessionTarget[];
   summary: DeletionSummary;
@@ -40,9 +50,15 @@ type PendingDelete = {
 type Props = {
   activeSessionId: string | null;
   onOpenSession: (session: AgentSession) => void;
+  /** 当前工作区根：右键「复制相对路径」以它为基准；没有就没有那一项。 */
+  workspaceRoot?: string | null;
 };
 
-export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
+export function LauncherPanel({
+  activeSessionId,
+  onOpenSession,
+  workspaceRoot = null,
+}: Props) {
   const [query, setQuery] = useState("");
   const t = useT();
   const [sessions, setSessions] = useState<AgentSession[]>([]);
@@ -55,6 +71,23 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
     null,
   );
   const [deleting, setDeleting] = useState(false);
+  /** 正在就地改名的会话（`sessionKey`）；null 表示没有。 */
+  const [renaming, setRenaming] = useState<string | null>(null);
+
+  /**
+   * 改个名字。只改名字：opencode 改库里那一行、pi 追加一行 `session_info`，
+   * 后端写完再重读一次列表，界面上看到的就是存储里真实的那个名字。
+   */
+  const renameSession = async (session: AgentSession, name: string) => {
+    const next = name.trim();
+    if (!next || next === session.title) return;
+    try {
+      await renameAgentSession(session, next);
+      await refresh({ silent: true });
+    } catch (error) {
+      toast.error(String(error));
+    }
+  };
   /**
    * Reading the list while the user picks rows for deletion makes the list jump
    * as sessions re-sort, and a mis-tick on a destructive action is not
@@ -234,7 +267,6 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
     }
   }, [pendingDelete, refresh, t]);
 
-  const nowMs = Date.now();
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -295,8 +327,24 @@ export function LauncherPanel({ activeSessionId, onOpenSession }: Props) {
                   sessions={group.sessions}
                   activeId={activeSessionId}
                   onOpen={onOpenSession}
-                  formatTime={(updatedAtMs) => relativeTime(nowMs, updatedAtMs)}
                   selectable={managing}
+                  actions={{
+                    onOpen: onOpenSession,
+                    onCopyAbsolute: (session) => copyText(session.cwd),
+                    onCopyRelative: (session) => {
+                      const relative = relativeToRoot(workspaceRoot, session.cwd);
+                      if (relative) copyText(relative);
+                    },
+                    onCopyId: (session) => copyText(session.id),
+                    onStartRename: (session) => setRenaming(sessionKey(session)),
+                    canCopyRelative: relativeToRoot(workspaceRoot, "") !== null,
+                    renameId: renaming,
+                    onRenameSubmit: (session, name) => {
+                      setRenaming(null);
+                      void renameSession(session, name);
+                    },
+                    onRenameCancel: () => setRenaming(null),
+                  }}
                   selected={selected}
                   onToggle={(session) =>
                     setSelected((was) =>

@@ -15,6 +15,17 @@
 <details open>
 <summary><strong>2026-10-22</strong></summary>
 
+**会话列表：行上改显示轮数 / tokens / 最后对话日，右键可复制与改名**
+
+- `src-tauri/src/modules/agent_sessions/stats.rs`：新增，会话统计的纯逻辑（pi 的 usage 怎么折成 tokens、一个都没有时是「不知道」而不是 0）。
+- `src-tauri/src/modules/agent_sessions/opencode.rs`、`pi.rs`、`wsl.rs`、`types.rs`、`mod.rs`：列表多带轮数、tokens、最后对话时间（取不到就是 null）；新增 `agent_sessions_rename` 命令（opencode 改 `title` 一列，pi 追加一行 `session_info`，都不碰别的字段）。
+- `src/modules/launcher/components/SessionList.tsx`、`components/LauncherPanel.tsx`：行上不再显示路径，改成「N 轮 · tokens · 最后对话日」；右键菜单给复制绝对路径 / 相对路径 / 会话 id 与就地改名。
+- `src/modules/launcher/lib/sessionStats.ts`、`lib/sessionPaths.ts`：新增，前者是三个数字的展示规则（一万以上折成「万」），后者算相对工作区的路径。
+
+**会话名读不到（Pi 长会话改名后列表还是旧名字）**
+
+- `src-tauri/src/modules/agent_sessions/pi.rs`：名字不再只从文件头 8 MB 找 —— 长会话里改名那行可能在几十 MB 之后；改成从文件末尾往回搜，取最后一个名字。
+
 **设置窗口：关掉再打开不再重建整个 webview**
 
 - `src-tauri/src/lib.rs`：设置窗口收到关闭请求时改成 `prevent_close()` + `hide()`，下次打开直接复用（原来它会销毁 webview，每次点设置都要重新加载一遍设置页，慢到被当成 bug 报上来）。主窗口不可见或退出时仍按原逻辑销毁。

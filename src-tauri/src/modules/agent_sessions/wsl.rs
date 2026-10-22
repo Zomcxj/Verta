@@ -18,6 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::Deserialize;
 
 use super::opencode::TOOL;
+use super::stats::SessionStats;
 use super::types::{AgentSession, AgentSessionsPayload};
 
 /// Rows asked for, matching what the reader for this machine asks for: the panel
@@ -37,9 +38,19 @@ con = sqlite3.connect("file:" + path + "?mode=ro", uri=True, timeout=3)
 rows = None
 for table in ("session_v2", "session"):
     try:
+        # 轮数 / tokens / 最后对话时间跟本机那条查询同一套口径；老库没有 tokens 列时给 NULL。
+        cols = {r[1] for r in con.execute("pragma table_info('" + table + "')")}
+        tokens = (
+            "(coalesce(tokens_input,0)+coalesce(tokens_output,0)+coalesce(tokens_reasoning,0)"
+            "+coalesce(tokens_cache_read,0)+coalesce(tokens_cache_write,0))"
+            if "tokens_input" in cols else "NULL"
+        )
         rows = con.execute(
-            "select id, parent_id, title, directory, time_updated from "
-            + table + " order by time_updated desc limit __LIMIT__"
+            "select id, parent_id, title, directory, time_updated, "
+            "(select count(*) from message m where m.session_id = " + table + ".id), "
+            + tokens + ", "
+            "(select max(m.time_created) from message m where m.session_id = " + table + ".id) "
+            "from " + table + " order by time_updated desc limit __LIMIT__"
         ).fetchall()
     except sqlite3.Error:
         continue
@@ -55,6 +66,9 @@ for row in rows:
         "title": row[2] if row[2] is None else str(row[2]),
         "directory": row[3],
         "updatedAtMs": row[4],
+        "turns": row[5],
+        "tokens": row[6],
+        "lastAtMs": row[7],
     }))
 "#;
 
@@ -104,6 +118,12 @@ struct WireRow {
     directory: Option<String>,
     #[serde(default)]
     updated_at_ms: i64,
+    #[serde(default)]
+    turns: Option<i64>,
+    #[serde(default)]
+    tokens: Option<i64>,
+    #[serde(default)]
+    last_at_ms: Option<i64>,
 }
 
 /// Turns the query's output into sessions. A line that does not parse is
@@ -121,6 +141,11 @@ pub(crate) fn parse_rows(stdout: &str) -> AgentSessionsPayload {
                 cwd: row.directory.unwrap_or_default(),
                 updated_at_ms: row.updated_at_ms,
                 parent_id: row.parent_id,
+                stats: SessionStats {
+                    turns: row.turns.and_then(|count| u32::try_from(count).ok()),
+                    tokens: row.tokens.and_then(|value| u64::try_from(value).ok()),
+                    last_at_ms: row.last_at_ms,
+                },
             }),
             Err(error) => {
                 warnings.push(format!("跳过一行无法解析的发行版会话：{error}"));
@@ -191,6 +216,7 @@ mod tests {
                 cwd: "/home/cxj/workspace/x".to_string(),
                 updated_at_ms: 1_792_307_910_721,
                 parent_id: None,
+                stats: SessionStats::default(),
             }]
         );
     }

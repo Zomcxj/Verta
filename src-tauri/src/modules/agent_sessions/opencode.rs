@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
 
+use super::stats::SessionStats;
 use super::types::{AgentSession, AgentSessionsPayload};
 use crate::modules::proc::capture::{self, Captured, Limits};
 use crate::modules::proc::hide_console;
@@ -38,9 +39,21 @@ pub(crate) fn list_at(path: &Path) -> Result<AgentSessionsPayload, String> {
     }
     let table = session_table(path)?;
     let conn = open_read_only(path)?;
+    // 列表行要的两个数字顺手在这里算：tokens 是那一行自己的几个列（老库没有这些列，
+    // 那就留空，界面显示「—」而不是 0），轮数与最后对话时间按消息表数。
+    // NULL 与 0 在这里是两件事：NULL = 这个库根本不记 tokens（老库），界面显示「—」；
+    // 0 = 记了，但这场确实还没花过（新开、还没发过消息的会话）。
+    let tokens_sum = if has_tokens_columns(&conn, &table) {
+        "COALESCE((tokens_input + tokens_output + tokens_reasoning + tokens_cache_read + tokens_cache_write), 0)"
+    } else {
+        "NULL"
+    };
     let sql = format!(
-        "SELECT id, parent_id, title, directory, time_updated FROM {table} \
-         ORDER BY time_updated DESC LIMIT {MAX_ROWS}"
+        "SELECT id, parent_id, title, directory, time_updated, \
+                (SELECT COUNT(*) FROM message m WHERE m.session_id = {table}.id), \
+                {tokens_sum}, \
+                (SELECT MAX(m.time_created) FROM message m WHERE m.session_id = {table}.id) \
+         FROM {table} ORDER BY time_updated DESC LIMIT {MAX_ROWS}"
     );
     let mut statement = conn
         .prepare(&sql)
@@ -53,6 +66,9 @@ pub(crate) fn list_at(path: &Path) -> Result<AgentSessionsPayload, String> {
                 row.get::<_, Option<String>>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, i64>(4)?,
+                row.get::<_, Option<i64>>(5)?,
+                row.get::<_, Option<i64>>(6)?,
+                row.get::<_, Option<i64>>(7)?,
             ))
         })
         .map_err(|e| format!("读取 opencode 会话失败：{e}"))?;
@@ -61,13 +77,33 @@ pub(crate) fn list_at(path: &Path) -> Result<AgentSessionsPayload, String> {
     let mut warnings = Vec::new();
     for row in rows {
         match row {
-            Ok((id, parent_id, title, directory, time_updated)) => {
-                sessions.push(map_row(&id, parent_id, title, &directory, time_updated));
+            Ok((id, parent_id, title, directory, time_updated, turns, tokens, last_at)) => {
+                sessions.push(map_row(
+                    &id,
+                    parent_id,
+                    title,
+                    &directory,
+                    time_updated,
+                    SessionStats {
+                        turns: turns.and_then(|count| u32::try_from(count).ok()),
+                        tokens: tokens.and_then(|value| u64::try_from(value).ok()),
+                        last_at_ms: last_at,
+                    },
+                ));
             }
             Err(error) => warnings.push(format!("跳过一行无法解析的 opencode 会话：{error}")),
         }
     }
     Ok(AgentSessionsPayload { sessions, warnings })
+}
+
+/// 这张表有没有 tokens 那几个列（老库的 `session` 表没有）。
+fn has_tokens_columns(conn: &Connection, table: &str) -> bool {
+    let sql =
+        format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = 'tokens_input'");
+    conn.query_row(&sql, [], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false)
 }
 
 pub(crate) fn session_table(path: &Path) -> Result<String, String> {
@@ -96,6 +132,22 @@ pub(super) fn open_read_only(path: &Path) -> Result<Connection, String> {
             path.display()
         )
     })?;
+    conn.busy_timeout(BUSY_TIMEOUT)
+        .map_err(|e| format!("设置 opencode 数据库超时失败：{e}"))?;
+    Ok(conn)
+}
+
+/// 改名要写库，所以是读写打开：opencode 同时开着时靠 `busy_timeout` 等它一会儿，
+/// 不肯让（一直被占着）就如实报错，不硬来。
+fn open_rw(path: &Path) -> Result<Connection, String> {
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(
+        |e| {
+            format!(
+                "无法写入 opencode 数据库 {}：{e}。若 opencode 正在写入，请稍后重试。",
+                path.display()
+            )
+        },
+    )?;
     conn.busy_timeout(BUSY_TIMEOUT)
         .map_err(|e| format!("设置 opencode 数据库超时失败：{e}"))?;
     Ok(conn)
@@ -188,6 +240,29 @@ pub(crate) fn session_directory(path: &Path, id: &str) -> Result<String, String>
     .map_err(|_| format!("opencode 里找不到会话 {id}"))
 }
 
+/// 给会话改个名字。
+///
+/// 只改 `title` 一列，别的列（`time_updated` 等）一律不碰：改名不是一次对话，
+/// 不该把这个会话在列表里顶到最前面。opencode 自己是 `/rename` 写这一列。
+pub(crate) fn rename_at(path: &Path, id: &str, name: &str) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("会话名不能为空".to_string());
+    }
+    let table = session_table(path)?;
+    let conn = open_rw(path)?;
+    let changed = conn
+        .execute(
+            &format!("UPDATE {table} SET title = ?1 WHERE id = ?2"),
+            rusqlite::params![name, id],
+        )
+        .map_err(|e| format!("写入 opencode 会话名失败：{e}"))?;
+    if changed == 0 {
+        return Err(format!("opencode 里找不到会话 {id}"));
+    }
+    Ok(())
+}
+
 pub(crate) fn exists_at(path: &Path, id: &str) -> Result<bool, String> {
     let table = session_table(path)?;
     let conn = open_read_only(path)?;
@@ -207,6 +282,7 @@ pub(crate) fn map_row(
     title: Option<String>,
     directory: &str,
     time_updated: i64,
+    stats: SessionStats,
 ) -> AgentSession {
     let title = title
         .map(|value| value.trim().to_string())
@@ -219,6 +295,7 @@ pub(crate) fn map_row(
         cwd: directory.to_string(),
         updated_at_ms: time_updated,
         parent_id,
+        stats,
     }
 }
 
@@ -246,7 +323,19 @@ mod tests {
                 parent_id TEXT,
                 title TEXT,
                 directory TEXT NOT NULL,
-                time_updated INTEGER NOT NULL
+                time_updated INTEGER NOT NULL,
+                tokens_input INTEGER,
+                tokens_output INTEGER,
+                tokens_reasoning INTEGER,
+                tokens_cache_read INTEGER,
+                tokens_cache_write INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS message (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL,
+                data TEXT
             );"
         ))
         .expect("create table");
@@ -281,6 +370,7 @@ mod tests {
             Some("Example App".to_string()),
             "F:/work/example-app",
             1_791_820_691_308,
+            SessionStats::default(),
         );
         assert_eq!(session.id, "ses_1");
         assert_eq!(session.title, "Example App");
@@ -291,19 +381,40 @@ mod tests {
 
     #[test]
     fn blank_title_falls_back_to_directory_name() {
-        let session = map_row("ses_2", None, Some("   ".to_string()), "F:/x/bear_bill", 1);
+        let session = map_row(
+            "ses_2",
+            None,
+            Some("   ".to_string()),
+            "F:/x/bear_bill",
+            1,
+            SessionStats::default(),
+        );
         assert_eq!(session.title, "bear_bill");
     }
 
     #[test]
     fn null_title_and_trailing_slash_fall_back_to_directory_name() {
-        let session = map_row("ses_3", None, None, "F:/x/PasteLabel/", 1);
+        let session = map_row(
+            "ses_3",
+            None,
+            None,
+            "F:/x/PasteLabel/",
+            1,
+            SessionStats::default(),
+        );
         assert_eq!(session.title, "PasteLabel");
     }
 
     #[test]
     fn keeps_parent_id_for_subagent_sessions() {
-        let session = map_row("ses_4", Some("ses_1".to_string()), None, "F:/x", 1);
+        let session = map_row(
+            "ses_4",
+            Some("ses_1".to_string()),
+            None,
+            "F:/x",
+            1,
+            SessionStats::default(),
+        );
         assert_eq!(session.parent_id.as_deref(), Some("ses_1"));
     }
 
