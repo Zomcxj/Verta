@@ -145,7 +145,7 @@ function buildRows(
 
   const walk = (parent: string, depth: number, parentIgnored: boolean) => {
     const node = tree.nodes[parent];
-    if (!node || node.status !== "loaded") return;
+    if (node?.status !== "loaded") return;
     for (const entry of node.entries) {
       const path = tree.joinPath(parent, entry.name);
       const isDir = entry.kind === "dir";
@@ -284,6 +284,7 @@ export const FileExplorer = memo(
     const containerRef = useRef<HTMLDivElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
 
+    // biome-ignore lint/correctness/useExhaustiveDependencies: tree is deliberately replaced by the fields buildRows reads, and listing it would rebuild every row on any unrelated tree change
     const { rows, entryIndexByPath } = useMemo(() => {
       if (!rootPath)
         return {
@@ -706,9 +707,11 @@ export const FileExplorer = memo(
     };
 
     return (
+      // biome-ignore lint/a11y/noStaticElementInteractions: the container is the focus target for the file list key handler, so a role here would claim a tree that the rows do not implement
       <div
         ref={containerRef}
         className="flex h-full flex-col outline-none"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: the container has to stay focusable or the arrow key handler never receives an event
         tabIndex={0}
         onKeyDown={handleKeyDown}
       >

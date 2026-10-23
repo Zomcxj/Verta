@@ -509,6 +509,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   });
   const panelState = fixedTargetPending ? "loading" : scm.panelState;
   const isRefreshing = panelState === "loading";
+  // biome-ignore lint/correctness/useExhaustiveDependencies: adding t would recompute the repo label on every language switch, which these three strings do not depend on
   const repoLabel = useMemo(() => {
     if (fixedTargetPending) return t("scm.loadingRepo");
     if (!scm.status) return t("scm.sourceControl");
@@ -625,7 +626,9 @@ export const SourceControlPanel = memo(function SourceControlPanel({
 
   const rowKeyToIndex = useMemo(() => {
     const map = new Map<string, number>();
-    rows.forEach((row, index) => map.set(row.key, index));
+    rows.forEach((row, index) => {
+      map.set(row.key, index);
+    });
     return map;
   }, [rows]);
 
@@ -673,7 +676,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
       if (focusableIndices.length === 0) return;
       const currentIndex =
         focusedRowKey === null ? -1 : (rowKeyToIndex.get(focusedRowKey) ?? -1);
-      let pos = focusableIndices.findIndex((i) => i === currentIndex);
+      let pos = focusableIndices.indexOf(currentIndex);
       if (pos === -1) pos = direction > 0 ? -1 : focusableIndices.length;
       let nextPos = pos + direction;
       if (nextPos < 0) nextPos = 0;
@@ -745,7 +748,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
         case "D": {
           if (meta) break;
           const entry = focusedEntry();
-          if (entry && entry.unstaged) {
+          if (entry?.unstaged) {
             event.preventDefault();
             scm.requestDiscardFile(entry);
           }
@@ -1251,6 +1254,7 @@ function ListHeader({
       <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border/60 px-1 text-[9.5px] font-semibold tabular-nums text-muted-foreground">
         {row.count}
       </span>
+      {/* biome-ignore lint/a11y/noLabelWithoutControl: the label wraps a Radix checkbox, which renders a button with its own aria-label, so the control cannot be resolved statically */}
       <label className="ml-auto flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-[10.5px] font-medium text-muted-foreground hover:text-foreground">
         <span>{t("scm.all")}</span>
         <Checkbox
@@ -1300,6 +1304,7 @@ const EntryRow = memo(function EntryRow({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
+        {/* biome-ignore lint/a11y/useFocusableInteractive: the listbox above holds DOM focus and points at the active row with aria-activedescendant, so the option must not be focusable */}
         <div
           id={`scm-row-${row.key}`}
           data-focused={focused || undefined}

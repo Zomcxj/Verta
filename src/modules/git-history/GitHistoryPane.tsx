@@ -438,6 +438,7 @@ export function GitHistoryPane({
     void loadInitial();
   }, [bumpFiles, loadInitial]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: bumpFiles drives this through refs, and listing it would rebuild the callback on every cache tick
   const fetchFiles = useCallback(
     async (sha: string) => {
       if (filesInflightRef.current.has(sha)) return;
@@ -495,6 +496,7 @@ export function GitHistoryPane({
 
   const closePopover = useCallback(() => setOpenAnchor(null), []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: filesTick is a manual re-read trigger for the ref-backed cache
   const openFilesEntry = useMemo(() => {
     if (!openAnchor) return null;
     return filesCacheRef.current.get(openAnchor.sha) ?? null;

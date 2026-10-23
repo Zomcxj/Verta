@@ -336,6 +336,7 @@ export function useDocument({ path, onDirtyChange }: Options) {
     [clearAutoSaveTimer, saveNow, path],
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: this cleanup has to run when the open file changes, so path is a trigger and not a capture
   useEffect(() => clearAutoSaveTimer, [path, clearAutoSaveTimer]);
 
   return {

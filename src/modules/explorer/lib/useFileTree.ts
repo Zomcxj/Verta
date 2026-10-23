@@ -357,6 +357,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   // change. Keyed on the prefs only: a root change already loads its own
   // tree, and re-reading the *previous* root's directories would be wasted IPC.
   // While hidden the change is just remembered; the show edge reloads.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the two prefs are the only triggers for this re-list; the body reads them through refs
   useEffect(() => {
     if (!rootPathRef.current) return;
     if (!activeRef.current) {
@@ -442,6 +443,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
 
   const cancelCreate = useCallback(() => setPendingCreate(null), []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: workspace is read for envForPath at commit time only, and listing it would rebuild the create handler on every workspace switch
   const commitCreate = useCallback(
     async (name: string) => {
       if (!pendingCreate) return;

@@ -188,9 +188,11 @@ const HighlightedPre = memo(function HighlightedPre({
       {nodes.map((node, i) =>
         node.kind === "break" ? (
           // eslint-disable-next-line react/no-array-index-key
+          // biome-ignore lint/suspicious/noArrayIndexKey: highlighted break markers carry no id of their own and are never reordered
           <span key={i}>{"\n"}</span>
         ) : (
           // eslint-disable-next-line react/no-array-index-key
+          // biome-ignore lint/suspicious/noArrayIndexKey: highlighted text spans have no id of their own and the list is never reordered
           <span key={i} className={node.cls || undefined}>
             {node.value}
           </span>
@@ -223,6 +225,7 @@ function CommandCard({ code, lang }: { code: string; lang: string }) {
         >
           {code.split("\n").map((line, i) => (
             // eslint-disable-next-line react/no-array-index-key
+            // biome-ignore lint/suspicious/noArrayIndexKey: the lines are a static render with no id and no reordering
             <span key={i} className="flex">
               <span className="mr-2 select-none text-muted-foreground/70">
                 {prompt}

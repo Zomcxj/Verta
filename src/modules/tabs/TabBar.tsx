@@ -142,6 +142,7 @@ export function TabBar({
     setPill(el ? { left: el.offsetLeft, width: el.offsetWidth } : null);
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: measurePill has an empty dep list, so these two entries are what re-run the measurement when the active tab or list changes
   useLayoutEffect(() => {
     measurePill();
   }, [measurePill, activeId, tabs]);
@@ -370,6 +371,7 @@ export function TabBar({
                       >
                         <DropdownMenuTrigger asChild>
                           {/* span, not button: a button nested in the TabsTrigger button is invalid DOM and breaks WebKit focus. */}
+                          {/* biome-ignore lint/a11y/useSemanticElements: a real button here would nest a button inside the tab trigger button and break WebKit focus */}
                           <span
                             role="button"
                             tabIndex={-1}
@@ -468,6 +470,7 @@ export function TabBar({
                       {labelFor(t)}
                     </span>
                     {t.kind === "editor" && t.dirty ? (
+                      // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the dot is decorative and the label is a hint on the tab; an image role would add a second announcement
                       <span
                         aria-label={tr("tabs.unsaved")}
                         className="size-1.5 shrink-0 rounded-full bg-foreground/70"
@@ -475,6 +478,9 @@ export function TabBar({
                     ) : null}
                   </span>
                   {tabs.length > 1 && (
+                    // biome-ignore lint/a11y/useFocusableInteractive: a tabindex here would take DOM focus off the tab trigger and onto the close chip
+                    // biome-ignore lint/a11y/useKeyWithClickEvents: this chip is mouse only by design and sits inside the tab button, which owns keyboard activation
+                    // biome-ignore lint/a11y/useSemanticElements: a real button here would nest a button inside the tab trigger button
                     <span
                       role="button"
                       aria-label={tr("tabs.close")}

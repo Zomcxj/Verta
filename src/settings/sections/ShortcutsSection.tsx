@@ -213,6 +213,8 @@ function ShortcutRow({
           <Recorder onRecord={onRecord} onCancel={onStopRecording} />
         ) : (
           <>
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: the binding chips render block content, so a button wrapper would be invalid markup; the row is a pointer affordance */}
+            {/* biome-ignore lint/a11y/useKeyWithClickEvents: a key handler here would add a second path into the recorder that the flow never had */}
             <div
               onClick={onStartRecording}
               className="flex min-w-[100px] cursor-pointer items-center justify-end gap-1"

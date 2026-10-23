@@ -175,11 +175,13 @@ export const EditorPane = memo(
     const toggleSide = useCallback(() => setSideOpen((open) => !open), []);
     // A different file starts collapsed again: the setting is per view, and
     // carrying it over would silently reflow a file the user did not ask for.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: path is the only trigger this reset has; dropping it would leave the side panel open across files
     useEffect(() => {
       setSideOpen(false);
     }, [path]);
     const sideVisible = sideOpen && previewKind !== "none";
 
+    // biome-ignore lint/correctness/useExhaustiveDependencies: tr only feeds formatter warning toasts, and listing it would rebuild the save handler on every language switch
     const performSave = useCallback(async () => {
       const view = cmRef.current?.view;
       const prefs = usePreferencesStore.getState();
@@ -411,6 +413,7 @@ export const EditorPane = memo(
       void resolveLanguage(resolvePath).catch(() => {});
     }, [path, overrideLanguage]);
 
+    // biome-ignore lint/correctness/useExhaustiveDependencies: doc.size would re-run the language effect as the buffer grows, resetting langId mid-session
     useEffect(() => {
       const ext =
         overrideLanguage || (path.split(".").pop()?.toLowerCase() ?? null);

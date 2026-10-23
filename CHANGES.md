@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**Lint: the baseline warnings are gone**
+
+- Twenty-five files under `src/` carried the 67 warnings that came in with the upstream baseline import (`1cd3921`). They are all cleared, so `pnpm lint` reports nothing at all now. Twenty-two were real fixes: optional chains, template strings, `indexOf`, two `while ((m = re.exec(t)))` loops written as `for` loops, three `reduce` blocks that accumulated into an object written as `Object.fromEntries`, a dependency in `GitDiffPane` that could not change on its own, and a `{}` in `settings/store.ts` narrowed to `Record<string, never>`.
+- Forty-five could not be fixed without changing behaviour and carry a `biome-ignore` with the reason, which the repository already used in seven places: seventeen `useExhaustiveDependencies`, where adding the entry would re-run the effect on every render, which is exactly what the code avoids; the a11y warnings on chips and rows that live inside a button, where a real `button` would nest and a `tabindex` would take DOM focus off the control that owns the keyboard; and three `noArrayIndexKey` on lists whose items have no identity of their own and are never reordered.
+- No interface changed. `tsc`, the build, the 1981 frontend tests, `cargo clippy --all-targets -D warnings` and the Rust tests are green.
+
 **Theme validation messages come from the message tables**
 
 - `src/modules/theme/validateTheme.ts`: the validator returned whole English sentences, so a bad theme file showed English whatever the interface language was. It returns a message key plus its values now (`ValidationFailure`), and the path building, the accepted ranges and the order in which fields are checked are unchanged.

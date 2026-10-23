@@ -776,7 +776,7 @@ export default function App() {
       const tabId = newTab(path);
       setTimeout(() => {
         const tab = tabsRef.current.find((x) => x.id === tabId);
-        if (!tab || tab.kind !== "terminal") return;
+        if (tab?.kind !== "terminal") return;
         const t = terminalRefs.current.get(tab.activeLeafId);
         if (!t) return;
         t.write(`cd ${quoteShellArg(path)}\r`);
@@ -944,7 +944,7 @@ export default function App() {
   const splitActivePaneInActiveTab = useCallback(
     (dir: "row" | "col") => {
       const t = tabsRef.current.find((x) => x.id === activeId);
-      if (!t || t.kind !== "terminal") return;
+      if (t?.kind !== "terminal") return;
       splitActivePane(activeId, dir);
     },
     [activeId, splitActivePane],
@@ -1054,6 +1054,7 @@ export default function App() {
     ],
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: captureActiveSelection is a deliberate extra entry; dropping it would change when the guard identity changes
   const shortcutsDisabled = useCallback(
     (id: ShortcutId, e: KeyboardEvent) => {
       const terminalPaneCount =
@@ -1161,7 +1162,7 @@ export default function App() {
       const tab = all.find(
         (t) => t.kind === "terminal" && hasLeaf(t.paneTree, leafId),
       );
-      if (!tab || tab.kind !== "terminal") return;
+      if (tab?.kind !== "terminal") return;
       // Last pane of the last tab: quit instead of respawning a shell.
       if (leafIds(tab.paneTree).length === 1 && all.length === 1) {
         void getCurrentWindow().close();
@@ -1214,6 +1215,7 @@ export default function App() {
 
   const activeCwd = activeTerminalLeafCwd;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the palette list is rebuilt from its own inputs today; adding the two openers would rebuild it whenever their identity shifts
   const commandPaletteItems = useMemo(
     () =>
       commandPaletteOpen

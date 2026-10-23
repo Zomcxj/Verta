@@ -149,11 +149,13 @@ export function useExplorerDnd({
     }
   };
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: placeGhost only reads refs, and listing it would rebuild the ghost ref callback whenever the drag state ticks
   const ghostRef = useCallback((el: HTMLDivElement | null) => {
     ghostElRef.current = el;
     if (el) placeGhost(lastPosRef.current.x, lastPosRef.current.y);
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: placeGhost reads refs only, and listing it would rebuild the pointer handler mid drag
   const onPointerDown = useCallback((e: ReactPointerEvent) => {
     if (e.button !== 0) return;
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-fs-path]");

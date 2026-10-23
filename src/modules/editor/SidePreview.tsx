@@ -119,6 +119,7 @@ export function SidePreview({
         </button>
       </div>
 
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: the scroll area only watches the pointer to place the hover scrubber; it has no interactive role to give */}
       <div
         ref={scrollRef}
         onMouseMove={seekWithin}

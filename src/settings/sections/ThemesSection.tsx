@@ -213,6 +213,7 @@ export function ThemesSection() {
         </SettingRow>
       )}
 
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: this wrapper is only a file drop target, and the import button below is the accessible path */}
       <div
         role="presentation"
         className="flex flex-col gap-2"
@@ -324,6 +325,9 @@ export function ThemesSection() {
                 </div>
                 {isCustom ? (
                   <span className="ml-1 flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+                    {/* biome-ignore lint/a11y/useFocusableInteractive: a tabindex here would take DOM focus off the theme row button and onto this icon */}
+                    {/* biome-ignore lint/a11y/useKeyWithClickEvents: this chip only shows on hover and the row button above already owns keyboard selection */}
+                    {/* biome-ignore lint/a11y/useSemanticElements: a real button here would nest inside the theme row button that wraps it */}
                     <span
                       role="button"
                       aria-label={`${t("settings.themes.editTheme")} ${themeName(theme.id, theme.name, language)}`}
@@ -339,6 +343,9 @@ export function ThemesSection() {
                         strokeWidth={1.75}
                       />
                     </span>
+                    {/* biome-ignore lint/a11y/useFocusableInteractive: a tabindex here would take DOM focus off the theme row button and onto this icon */}
+                    {/* biome-ignore lint/a11y/useKeyWithClickEvents: this chip only shows on hover and the row button above already owns keyboard selection */}
+                    {/* biome-ignore lint/a11y/useSemanticElements: a real button here would nest inside the theme row button that wraps it */}
                     <span
                       role="button"
                       aria-label={`${t("settings.themes.removeTheme")} ${themeName(theme.id, theme.name, language)}`}
@@ -427,6 +434,7 @@ export function ThemesSection() {
         </div>
       </div>
 
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: this wrapper is only a file drop target, and the import button below is the accessible path */}
       <div
         role="presentation"
         className="flex flex-col gap-2"

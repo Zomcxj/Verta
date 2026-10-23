@@ -157,6 +157,7 @@ export function Header({
         <span className="mr-1.5 h-4 w-px shrink-0 rounded-full bg-border" />
       )}
 
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: this is the window drag strip, and its context menu handler only suppresses WebKit's reload */}
       <div
         className="flex min-w-0 flex-1 items-center gap-2"
         data-tauri-drag-region

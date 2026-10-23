@@ -145,6 +145,7 @@ describe("SHORTCUTS registry", () => {
   it("binds Mod+S to editor.save", () => {
     const save = SHORTCUTS.find((s) => s.id === "editor.save");
     expect(save).toBeDefined();
+    // biome-ignore lint/style/noNonNullAssertion: save is asserted to be defined one line above; a ?. would turn a missing entry into a matcher failure instead of a hard error
     expect(save!.defaultBindings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: "s", [MOD_PROP]: true }),

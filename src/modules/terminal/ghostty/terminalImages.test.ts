@@ -166,7 +166,7 @@ describe("findImageReferences", () => {
   it("ignores chrome that shares the screen with the picture", () => {
     // The accent bar down the right edge is drawn with the same block
     // characters, so the picture has to be picked out by its own extent.
-    const accent = (line: number) => row(line, " ".repeat(30) + "█");
+    const accent = (line: number) => row(line, `${" ".repeat(30)}█`);
     const picture = (line: number) => row(line, "█████     █████");
     const rows = [
       accent(1),
