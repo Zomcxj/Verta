@@ -17,24 +17,28 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**Closing the main window quits the app on Windows too**
+
+- `src-tauri/src/lib.rs`: the settings window and the screenshot overlay hide instead of destroying, so they can be reopened without rebuilding the webview. The handler that destroyed the settings window when the main window went was macOS-only, so on Windows closing the main window left `verta.exe` running with nothing on screen. That handler now destroys both windows and exits, on every platform but macOS, which keeps an app alive with no window open by convention. It acts on `Destroyed`, so the frontend's close guard has already agreed to the close by then.
+
 **Repo panels reuse a recent read instead of asking again**
 
-- `src/modules/remotes/lib/listSnapshot.ts` (new): a small time-boxed cache keyed by what was read — repo, plus the state filter for issues — so a list is served again while it is younger than two minutes (ten for the permission answer, which changes when the user changes it rather than while they browse). The panels drop a key when they change something themselves, so an action never leaves a stale list behind.
+- `src/modules/remotes/lib/listSnapshot.ts` (new): a small time-boxed cache keyed by what was read (repo, plus the state filter for issues), so a list is served again while it is younger than two minutes (ten for the permission answer, which changes when the user changes it rather than while they browse). The panels drop a key when they change something themselves, so an action never leaves a stale list behind.
 - `src/modules/remotes/RunListDialog.tsx`, `src/modules/remotes/IssuesDialog.tsx`, `src/modules/remotes/ReleasesDialog.tsx`: reopening the same repo paints from that read instead of spending the requests again; the run list still reports to the row's CI badge from the cached payload. Issues needed the filter in the effect's dependencies, since the cache is keyed by it.
 - `src/modules/remotes/lib/listSnapshot.test.ts` (new): keys stay apart, entries expire at the TTL, forgetting forces a re-read, and a stored falsy value is still a hit.
 
 **Taskbar: a permanent button, and a flash when an agent needs you**
 
-- `src-tauri/src/modules/taskbar.rs` (new): two commands. One asks the shell for a taskbar button or deletes it (the window-style bits the shell reads, plus the taskbar's own add / delete tab call), the other flashes that button — until the window comes to the front for "an agent is asking", a fixed handful of times for "finished".
+- `src-tauri/src/modules/taskbar.rs` (new): two commands. One asks the shell for a taskbar button or deletes it (the window-style bits the shell reads, plus the taskbar's own add / delete tab call), the other flashes that button: until the window comes to the front for "an agent is asking", a fixed handful of times for "finished".
 - `src-tauri/src/modules/mod.rs`, `src-tauri/src/lib.rs`: the module and its two commands registered.
-- `src/modules/terminal/lib/agentAttention.ts` (new): decides "waiting for an answer" and "finished" from the two things visible outside an agent's full-screen UI — the leaf's cumulative output bytes and whether the shell still has a child process. The CLI repaints while it works, so four seconds of silence with the child alive is a wait; the child disappearing is a finish. None of the CLIs announce this themselves.
+- `src/modules/terminal/lib/agentAttention.ts` (new): decides "waiting for an answer" and "finished" from the two things visible outside an agent's full-screen UI: the leaf's cumulative output bytes and whether the shell still has a child process. The CLI repaints while it works, so four seconds of silence with the child alive is a wait; the child disappearing is a finish. None of the CLIs announce this themselves.
 - `src/app/hooks/useAgentAttentionFlash.ts` (new): samples the tabs that were opened for an agent, once a second, and flashes the taskbar button. `src/app/hooks/useTaskbarPresence.ts` (new): applies the button preference to the main window and re-applies it when the preference changes, since which windows get a button is the shell's call.
-- `src/modules/settings/store.ts`, `src/settings/sections/GeneralSection.tsx`: two preferences — keep a taskbar button (on by default; a frameless window is not guaranteed one) and flash on agent attention. The group is only shown on Windows, where both do something.
+- `src/modules/settings/store.ts`, `src/settings/sections/GeneralSection.tsx`: two preferences: keep a taskbar button (on by default; a frameless window is not guaranteed one) and flash on agent attention. The group is only shown on Windows, where both do something.
 - `src/modules/i18n/messages.ts`: their labels, one copy in Chinese and one in English.
 
 **Chinese text keeps its own font when the font changes**
 
-- `src/lib/fonts.ts`: the fallback chain ends in an explicit CJK run before the generic `monospace` — Windows (Microsoft YaHei UI / YaHei / DengXian / Sarasa Mono SC), macOS (PingFang SC / Hiragino Sans GB), Linux (Noto Sans CJK SC / Noto Sans Mono CJK SC / Source Han Sans SC / WenQuanYi Micro Hei). Code fonts such as Cascadia Mono carry no Han glyphs, so without that run the browser chose a system face for Chinese by itself: changing the font moved the Latin text and left the Chinese untouched, and mixed lines stopped lining up. The terminal stack and the editor family are both built from this one chain.
+- `src/lib/fonts.ts`: the fallback chain ends in an explicit CJK run before the generic `monospace`: Windows (Microsoft YaHei UI / YaHei / DengXian / Sarasa Mono SC), macOS (PingFang SC / Hiragino Sans GB), Linux (Noto Sans CJK SC / Noto Sans Mono CJK SC / Source Han Sans SC / WenQuanYi Micro Hei). Code fonts such as Cascadia Mono carry no Han glyphs, so without that run the browser chose a system face for Chinese by itself: changing the font moved the Latin text and left the Chinese untouched, and mixed lines stopped lining up. The terminal stack and the editor family are both built from this one chain.
 - `src/lib/fonts.test.ts`: reads the chain from the module instead of keeping a copy, and asserts the CJK faces are named and come after the Latin pick.
 
 **Explorer drag: Ctrl copies, and the pane header accepts drops**
@@ -45,7 +49,7 @@ swap in the new date, and drop the `open` from the day before.
 
 **Comments across the code base are in English**
 
-- The whole source tree — `src/`, `src-tauri/src/` and `scripts/` — had its comments translated to English. Code, string literals, identifiers and data (benchmark payloads, language names, the string tables) are untouched; only the prose in comments changed.
+- The whole source tree, `src/`, `src-tauri/src/` and `scripts/`, had its comments translated to English. Code, string literals, identifiers and data (benchmark payloads, language names, the string tables) are untouched; only the prose in comments changed.
 - `CHANGES.md`: this file is in English now.
 - A second pass finished the leftovers: 26 files still carried a Chinese comment the first pass missed. `src/modules/theme/themes/themeNames.ts` had a whole block (the names-versus-descriptions rule), the rest were one or two explanatory lines in twenty test files, and there were the four in `.gitignore`, the block in `screenshot.html`, one in `src-tauri/Cargo.toml` and two trailing comments in the Rust crate (`screenshot/encode.rs`, `workspace.rs`). Same rule as before: only the prose in comments changed, no string, identifier or fixture data.
 
@@ -57,32 +61,32 @@ swap in the new date, and drop the `open` from the day before.
 
 **Theme page item renamed to "session start transition"**
 
-- `src/modules/i18n/messages.ts`: the title goes from "会话打开过渡" to "会话开启过渡", and the description's "开启会话" follows (English `Session start transition`) — the item is about the moment a session starts, not about the act of clicking it open.
+- `src/modules/i18n/messages.ts`: the title goes from "会话打开过渡" to "会话开启过渡", and the description's "开启会话" follows (English `Session start transition`). The item is about the moment a session starts, not about the act of clicking it open.
 
 **A session can no longer be deleted once its project directory is gone**
 
-- `src-tauri/src/modules/agent_sessions/opencode.rs`: deletion goes through opencode's own command, and that command has to run inside the directory recorded on the session (it locates the session by working directory). When the project is deleted but the session row remains, that directory no longer exists and the launch fails at the OS layer (Windows: "The directory name is invalid"), so the session can never be deleted. Now the recorded directory is used when it still exists and a temporary directory is used when it does not — the command only finds the session by id, with or without that directory.
+- `src-tauri/src/modules/agent_sessions/opencode.rs`: deletion goes through opencode's own command, and that command has to run inside the directory recorded on the session (it locates the session by working directory). When the project is deleted but the session row remains, that directory no longer exists and the launch fails at the OS layer (Windows: "The directory name is invalid"), so the session can never be deleted. Now the recorded directory is used when it still exists and a temporary directory is used when it does not: the command only finds the session by id, with or without that directory.
 
 **Session opening transition: four animations, chosen on the theme page in settings**
 
 - `src/modules/settings/store.ts`: new preference `sessionTransition` (`ripples` / `pulse` / `orbit` / `bars` / `none`, default `ripples`), plus `coerceSessionTransition` to fall back to the default for an unrecognized older value.
-- `src/app/components/SessionOpeningOverlay.tsx`: draws a different animation per preference — ripple spread / concentric pulse / orbiting glow / bar bounce; with `none` the whole layer is not drawn (the command written into the terminal stays visible as before).
+- `src/app/components/SessionOpeningOverlay.tsx`: draws a different animation per preference: ripple spread / concentric pulse / orbiting glow / bar bounce; with `none` the whole layer is not drawn (the command written into the terminal stays visible as before).
 - `src/styles/globals.css`: styles for the three new animations, under the same constraints as the ripple (transform / opacity only, fixed iteration count, not played under `prefers-reduced-motion`).
 - `src/settings/sections/ThemesSection.tsx`: the theme page gains a "session start transition" dropdown.
 - `src/modules/i18n/messages.ts`: one key in Chinese and one in English.
 
 **The delete-session dialog no longer names opencode / pi**
 
-- `src/modules/i18n/messages.ts`: `launcher.deleteBody` drops the "(opencode N, pi N)" part, and the two notices no longer name the tool, only the consequence (child sessions / artifact directory go with it) — naming a tool in the copy means growing the sentence every time an agent is added.
+- `src/modules/i18n/messages.ts`: `launcher.deleteBody` drops the "(opencode N, pi N)" part, and the two notices no longer name the tool, only the consequence (child sessions / artifact directory go with it): naming a tool in the copy means growing the sentence every time an agent is added.
 - `src/modules/launcher/components/LauncherPanel.tsx`: those two notices are now appended **only when a session of that kind is actually part of this batch** (previously both were always concatenated regardless of the selection), and the two now-unused count placeholders are gone.
 
 **Opening a session no longer shows the command being typed into the terminal; it shows a centered transition instead**
 
-- `src/app/components/SessionOpeningOverlay.tsx` (new): a centered transition layer — three ripples spread outward in sequence, the app icon in the middle, with the icon jolting as it appears (shrink, overshoot, settle). The old behavior wrote the resume command straight into the terminal, and that line being painted is exactly what "someone typed the command for you" looks like.
-- `src/app/App.tsx`: both places that open a session (clicking one in the session list, and "open with an agent" on a project row) cover the terminal with this layer while opening the tab; it is removed **after the agent UI has painted** — the leaf's cumulative output bytes are sampled once before writing the command, and the layer is removed when both "the shell has a child process (`leafHasForegroundProcess`)" and "another 900 bytes were painted" hold, capped at 8 seconds with a hard fallback at 8.5 seconds. Watching the process alone is not enough: the agent takes another second or two to paint its first frame, and removing the layer too early exposes the terminal with the command just typed into it. "Output went quiet" does not work either — a live TUI repaints constantly (measured: never quiet for 420ms), so the criterion is **cumulative** output rather than quiet duration.
-- `src/app/components/WorkspaceSurface.tsx`: the layer is drawn **inside the terminal layer** and covers only that area, not the whole screen — the only thing that needs hiding is that one command line, so the sidebar, tab bar and status bar stay visible.
+- `src/app/components/SessionOpeningOverlay.tsx` (new): a centered transition layer: three ripples spread outward in sequence, the app icon in the middle, with the icon jolting as it appears (shrink, overshoot, settle). The old behavior wrote the resume command straight into the terminal, and that line being painted is exactly what "someone typed the command for you" looks like.
+- `src/app/App.tsx`: both places that open a session (clicking one in the session list, and "open with an agent" on a project row) cover the terminal with this layer while opening the tab; it is removed **after the agent UI has painted**: the leaf's cumulative output bytes are sampled once before writing the command, and the layer is removed when both "the shell has a child process (`leafHasForegroundProcess`)" and "another 900 bytes were painted" hold, capped at 8 seconds with a hard fallback at 8.5 seconds. Watching the process alone is not enough: the agent takes another second or two to paint its first frame, and removing the layer too early exposes the terminal with the command just typed into it. "Output went quiet" does not work either: a live TUI repaints constantly (measured: never quiet for 420ms), so the criterion is **cumulative** output rather than quiet duration.
+- `src/app/components/WorkspaceSurface.tsx`: the layer is drawn **inside the terminal layer** and covers only that area, not the whole screen: the only thing that needs hiding is that one command line, so the sidebar, tab bar and status bar stay visible.
 - `src/modules/terminal/ghostty/useGhosttyTerminalSession.ts` + `src/modules/terminal/lib/terminalSessionApi.ts`: the terminal side tracks one more counter, cumulative output bytes per leaf (`leafOutputBytes`), feeding the criterion above; it is cleared when the session is destroyed.
-- `src/styles/globals.css`: styles for the transition layer. Only transform / opacity are animated (anything that adds a compositing layer hits the compositing budget), soft edges come from radial gradients; the ripple iterations are fixed rather than an infinite loop — the global animation budget only allows infinite animations to use step timing. One ripple cycle is 1.9 seconds and the icon jolt is 0.85 seconds; no animation plays under `prefers-reduced-motion`.
+- `src/styles/globals.css`: styles for the transition layer. Only transform / opacity are animated (anything that adds a compositing layer hits the compositing budget), soft edges come from radial gradients; the ripple iterations are fixed rather than an infinite loop: the global animation budget only allows infinite animations to use step timing. One ripple cycle is 1.9 seconds and the icon jolt is 0.85 seconds; no animation plays under `prefers-reduced-motion`.
 
 **The side-by-side preview column no longer lays down its own 60% background**
 
@@ -91,7 +95,7 @@ swap in the new date, and drop the `open` from the day before.
 **Markdown "rendered / source" and the "preview" button at the editor's bottom right merged into one three-way control**
 
 - `src/modules/markdown/MarkdownViewToggle.tsx`: the control goes from two states to three (rendered / source / preview), single-select; the "preview" state is only drawn on the editor side (side-by-side preview belongs to the editor, and it is not present when a whole page is rendered).
-- `src/modules/editor/EditorPane.tsx`: the "preview" button at the bottom right is removed — document files (Markdown) are handled by the control above, while files with no view toggle such as images keep the original button. The control now receives the side-by-side preview on/off state so it can be drawn in the same group.
+- `src/modules/editor/EditorPane.tsx`: the "preview" button at the bottom right is removed: document files (Markdown) are handled by the control above, while files with no view toggle such as images keep the original button. The control now receives the side-by-side preview on/off state so it can be drawn in the same group.
 - `src/modules/editor/EditorStack.tsx`: Markdown tabs wire the side-by-side preview toggle into the control; choosing "rendered" or "source" collapses the side-by-side preview first, so the three states really are single-select.
 
 **Settings window texture uses the same values as the main window and covers the whole page**
@@ -100,8 +104,8 @@ swap in the new date, and drop the `open` from the day before.
 
 **Light appearance: Carbon Fiber's honeycomb texture shows through, Verta stays black**
 
-- `src/modules/theme/themes/pattern-base.ts`: the light-side texture was **white lines with `multiply`** — white is the identity element for `multiply`, so no opacity tweak would ever make that texture show; it now uses dark ink lines with `multiply`, with strength set against the dark side (dark: white lines lift about 22 per channel, light: ink lines knock down about 15).
-- `src/modules/theme/themes/verta.ts`: the palette comes from the icon's black background yet flipped to white background with black text in light appearance. Both appearances now share the same near-black palette, and the editor stays dark too — picking this theme is black, regardless of appearance.
+- `src/modules/theme/themes/pattern-base.ts`: the light-side texture was **white lines with `multiply`**: white is the identity element for `multiply`, so no opacity tweak would ever make that texture show; it now uses dark ink lines with `multiply`, with strength set against the dark side (dark: white lines lift about 22 per channel, light: ink lines knock down about 15).
+- `src/modules/theme/themes/verta.ts`: the palette comes from the icon's black background yet flipped to white background with black text in light appearance. Both appearances now share the same near-black palette, and the editor stays dark too: picking this theme is black, regardless of appearance.
 
 **Session tabs: draw the icon of the matching agent instead of always drawing the terminal icon**
 
@@ -112,27 +116,28 @@ swap in the new date, and drop the `open` from the day before.
 
 **Descriptions of the three new themes: each had its own narration, now one line like the others**
 
-- `src/modules/theme/themes/verta.ts`, `src/modules/theme/themes/acrylic.ts`, `src/modules/theme/themes/pattern-base.ts`: all three descriptions were long sentences (with colons or semicolons, and explaining how the material is implemented — blur, noise, whether the panel is solid). Every other entry in the theme list is one short phrase about how it looks, so these three stood out; they are now written the same way.
+- `src/modules/theme/themes/verta.ts`, `src/modules/theme/themes/acrylic.ts`, `src/modules/theme/themes/pattern-base.ts`: all three descriptions were long sentences (with colons or semicolons, and explaining how the material is implemented: blur, noise, whether the panel is solid). Every other entry in the theme list is one short phrase about how it looks, so these three stood out; they are now written the same way.
 - `src/modules/theme/themes/themeNames.ts`: the matching Chinese entries are shortened too, and the style rule is written into the file header (a description states only how it looks; origin and implementation stay in comments inside the theme file) so the next one does not turn into narration again.
 
 **Shortcut for closing a tab (terminals included): add a binding the terminal does not swallow, and the settings page draws every binding**
 
-- `src/modules/shortcuts/shortcuts.ts`: `tab.close` gains an additional default binding, `Ctrl/⌘+Shift+W`. When focus is in the terminal the plain `Ctrl+W` never reaches the app — the shell consumes it as `^W` (delete previous word), so closing a terminal tab needs a chord the shell does not recognize; it is also the chord Windows Terminal uses to close a tab. Configs that only bound the plain one are unchanged.
+- `src/modules/shortcuts/shortcuts.ts`: `tab.close` gains an additional default binding, `Ctrl/⌘+Shift+W`. When focus is in the terminal the plain `Ctrl+W` never reaches the app: the shell consumes it as `^W` (delete previous word), so closing a terminal tab needs a chord the shell does not recognize; it is also the chord Windows Terminal uses to close a tab. Configs that only bound the plain one are unchanged.
 - `src/settings/sections/ShortcutsSection.tsx`: each row in the shortcut list drew only the **first** binding, so the extra one was invisible to the user (`sidebar.toggle` / `view.zenMode` already had two), which created the impression that the shortcut did not exist. Every binding is drawn now, separated by `/`.
+- `src/settings/sections/ShortcutsSection.tsx`: the tokens of one binding are keyed by the token itself instead of the array index, which is what the one new lint warning in this change was about.
 
 **Glass themes: the editor area and Markdown preview laid down an opaque background of their own, covering the panel's tint entirely**
 
-- `src/modules/editor/EditorStack.tsx`, `src/modules/markdown/MarkdownPreviewPane.tsx`: `bg-background` removed in both — their parent is the panel (`.verta-pane`), which already paints `--background` under opaque themes (appearance unchanged) and paints its own tint under glass themes, which those two layers were completely covering (measured: 66% of the window area was solid `--background`).
+- `src/modules/editor/EditorStack.tsx`, `src/modules/markdown/MarkdownPreviewPane.tsx`: `bg-background` removed in both: their parent is the panel (`.verta-pane`), which already paints `--background` under opaque themes (appearance unchanged) and paints its own tint under glass themes, which those two layers were completely covering (measured: 66% of the window area was solid `--background`).
 
 **The two hints at the bottom of the command block: one was fake, one missed translation**
 
-- `src/modules/i18n/messages.ts`, `src/modules/terminal/block/ShellInput.tsx`: the "`{shortcut} 切换到 AI`" part of the input block placeholder is removed — **nothing** in the repository binds that chord (`Ctrl+U` exists neither in the shortcut table nor in the terminal keymap), so it advertised a shortcut that does not exist; the `fmtShortcut` interpolation goes with it.
+- `src/modules/i18n/messages.ts`, `src/modules/terminal/block/ShellInput.tsx`: the "`{shortcut} 切换到 AI`" part of the input block placeholder is removed: **nothing** in the repository binds that chord (`Ctrl+U` exists neither in the shortcut table nor in the terminal keymap), so it advertised a shortcut that does not exist; the `fmtShortcut` interpolation goes with it.
 - `src/app/components/WorkspaceInputBar.tsx`, `src/modules/i18n/messages.ts`: the hint in plain mode was hardcoded English (`Type directly in the terminal`, one spot missed in the i18n pass); it now uses the key `term.typeDirectly` (Chinese and English).
 
 **Preview page and commit graph: no longer carry their own color schemes**
 
 - `src/modules/preview/PreviewPane.tsx`: the preview page background was hardcoded `bg-white` (painted as soon as the address bar holds a URL), a blank white sheet under dark themes; it now follows the theme (`bg-background`). Colors of the previewed page itself are unchanged.
-- `src/modules/git-history/lib/graph.ts`: the commit graph lane colors were a hardcoded palette (blue-400 / purple-400 / amber-400 …) that did not change with the theme; they now come from the theme's own terminal palette (`var(--terminal-ansi-*)`) — every theme fills in those 16 colors, which are already a set made to be told apart, so the graph now recolors with the theme. The rail is still drawn with `var()` as before (that is how `--background` has always been used there); the browser re-resolves it, no React re-render needed.
+- `src/modules/git-history/lib/graph.ts`: the commit graph lane colors were a hardcoded palette (blue-400 / purple-400 / amber-400 …) that did not change with the theme; they now come from the theme's own terminal palette (`var(--terminal-ansi-*)`): every theme fills in those 16 colors, which are already a set made to be told apart, so the graph now recolors with the theme. The rail is still drawn with `var()` as before (that is how `--background` has always been used there); the browser re-resolves it, no React re-render needed.
 
 </details>
 
@@ -142,9 +147,9 @@ swap in the new date, and drop the `open` from the day before.
 **Themes: default theme renamed to Terax, plus new "Verta", "Acrylic" and "Carbon Fiber"**
 
 - `src/modules/theme/themes/verta-default.ts`: only the display name goes from `Verta Default` to `Terax` (`id` stays `verta-default`, the colors stay in `styles/globals.css`).
-- `src/modules/theme/themes/verta.ts`, `src/modules/theme/themes/acrylic.ts`, `src/modules/theme/themes/pattern-base.ts`: three new themes (each with a dark and a light variant, listed first on the settings page) — Verta is black and white after the app icon; Acrylic uses the native Windows 11 acrylic material, with the desktop really showing through; Carbon Fiber is a graphite base with a fine honeycomb grid and solid, opaque panels.
+- `src/modules/theme/themes/verta.ts`, `src/modules/theme/themes/acrylic.ts`, `src/modules/theme/themes/pattern-base.ts`: three new themes (each with a dark and a light variant, listed first on the settings page): Verta is black and white after the app icon; Acrylic uses the native Windows 11 acrylic material, with the desktop really showing through; Carbon Fiber is a graphite base with a fine honeycomb grid and solid, opaque panels.
 - `src/modules/theme/themes/themeNames.ts`: new, the Chinese theme names and descriptions; the existing themes are covered too (proper names such as Dracula / Nord stay untranslated).
-- `src/modules/theme/types.ts`, `applyTheme.ts`, `validateTheme.ts`: themes gain two optional blocks — "surface layer" (base color, texture, opacity, blend mode) and "glass" (frame and panel opacity, highlight strength, whether the desktop shows through too); custom theme JSON accepts both as well.
+- `src/modules/theme/types.ts`, `applyTheme.ts`, `validateTheme.ts`: themes gain two optional blocks: "surface layer" (base color, texture, opacity, blend mode) and "glass" (frame and panel opacity, highlight strength, whether the desktop shows through too); custom theme JSON accepts both as well.
 - `src/modules/theme/SurfaceLayer.tsx`, `src/styles/globals.css`: one more element at the very bottom of the UI dedicated to drawing the surface layer; it is not displayed in themes without a texture and does not block anything; it covers the settings window as well.
 - `src-tauri/src/modules/vibrancy.rs`, `src/modules/theme/vibrancy.ts`, `src/modules/theme/WindowVibrancyBridge.tsx`: the window background material gains an "acrylic" option (Windows' `DWMSBT_TRANSIENTWINDOW`, showing more of the desktop than Mica), declared by the theme itself rather than turned on manually in settings.
 - `src/settings/sections/ThemesSection.tsx`, `src/settings/components/LspInstallDialog.tsx`, `src/modules/i18n/messages.ts`: "blur" in the theme settings and "checking… / check again" in the language server dialog were hardcoded English and are now Chinese copy (following the UI language).
@@ -169,15 +174,15 @@ swap in the new date, and drop the `open` from the day before.
 
 **Session name unreadable (a renamed long Pi session still showed its old name in the list)**
 
-- `src-tauri/src/modules/agent_sessions/pi.rs`: the name is no longer looked for only in the first 8 MB of the file — in a long session the rename line can sit tens of MB in; it now searches backwards from the end of the file and takes the last name.
+- `src-tauri/src/modules/agent_sessions/pi.rs`: the name is no longer looked for only in the first 8 MB of the file: in a long session the rename line can sit tens of MB in; it now searches backwards from the end of the file and takes the last name.
 
 **Settings window: closing and reopening no longer rebuilds the whole webview**
 
-- `src-tauri/src/lib.rs`: on a close request the settings window now does `prevent_close()` + `hide()` and is reused on the next open (it used to destroy the webview, so every click on Settings reloaded the settings page — slow enough to be reported as a bug). It is still destroyed per the original logic when the main window is hidden or exits.
+- `src-tauri/src/lib.rs`: on a close request the settings window now does `prevent_close()` + `hide()` and is reused on the next open (it used to destroy the webview, so every click on Settings reloaded the settings page, slow enough to be reported as a bug). It is still destroyed per the original logic when the main window is hidden or exits.
 
 **Issues / PR: lock the head sha before merging, page through more than 100 checks, a few list fixes**
 
-- `src-tauri/src/modules/github/commands.rs`: the PR merge carries the head sha of the PR as it was when the confirmation dialog opened (the `sha` field) — if somebody pushes commits between your confirmation and the request landing, GitHub answers 409 and the raw text is surfaced, so commits you never saw are not merged along; `check-runs` above 100 entries are fetched page by page (up to 10 pages) and counted once all are in.
+- `src-tauri/src/modules/github/commands.rs`: the PR merge carries the head sha of the PR as it was when the confirmation dialog opened (the `sha` field): if somebody pushes commits between your confirmation and the request landing, GitHub answers 409 and the raw text is surfaced, so commits you never saw are not merged along; `check-runs` above 100 entries are fetched page by page (up to 10 pages) and counted once all are in.
 - `src-tauri/src/modules/github/issues.rs`: new `head_sha_problem` (empty is allowed, a given value must be 40 hex digits), `summarize_check_pages` (state computed once over the merged pages, still `partial` when pages are missing), `checks_page_path` / `checks_have_more` / `count_check_runs`.
 - `src/lib/native.ts`, `src/modules/remotes/IssuesDialog.tsx`: the head sha is carried from the detail into the merge; list requests are numbered so a slow response does not overwrite newer results when switching "open / closed"; the empty state speaks to the current filter ("only open ones", "only closed ones", "none at all").
 - `src/modules/remotes/lib/issues.ts`: a keyword containing `#` still searches by number (`#20` equals `20`).
@@ -188,7 +193,7 @@ swap in the new date, and drop the `open` from the day before.
 - `src-tauri/src/modules/github/commands.rs`: fetching `check-runs` now passes `per_page=100` explicitly (GitHub's default page holds only
   30 entries). With 40 checks on a page only the first 30 are seen, and the UI takes "not all seen" for "all passed".
 - `src-tauri/src/modules/github/issues.rs`: `parse_checks` records `truncated` (fewer entries received than `total_count`);
-  `check_state` gains a `partial` — **when only part was seen and the part that was seen is all green it no longer reports `pass`** (a
+  `check_state` gains a `partial`: **when only part was seen and the part that was seen is all green it no longer reports `pass`** (a
   seen failure, or something still running, still takes precedence as `fail` / `pending`). `merge_block_reason` is renamed `merge_block_code` and no
   longer returns a Chinese sentence but a reason code (`merged` / `closed` / `draft` / `conflict` / `computing` / `unknown`).
 - `src-tauri/src/modules/github/types.rs`: `CheckSummary` gains `truncated`; `merge_blocked_reason` is renamed
@@ -201,10 +206,10 @@ swap in the new date, and drop the `open` from the day before.
 
 **Acrylic theme: terminal background can be transparent, and the settings window switches window material too**
 
-- `src/modules/terminal/ghostty/gpu/terminalVisuals.ts`, `gpu/ScreenUniform.ts`, `gpu/WebGpuTerminalSurface.ts`, `gpu/WebGpuWindowCanvas.ts`, `gpu/WebGpuTerminalRuntime.ts`, `gpu/shaders.ts`: the terminal background supports transparency. When a theme writes `terminal.background` as a color with alpha, the terminal canvas clears to that alpha (the canvas alpha mode follows the panel's theme background); the two shaders output premultiplied and the glyph pipeline's blend state follows (identical results while opaque). **Colors the app itself sets — TUI blocks, selection, search hits, underlines — stay opaque** and are unaffected by theme transparency; the placeholder background before the terminal's first frame is no longer painted solid under transparent themes either.
+- `src/modules/terminal/ghostty/gpu/terminalVisuals.ts`, `gpu/ScreenUniform.ts`, `gpu/WebGpuTerminalSurface.ts`, `gpu/WebGpuWindowCanvas.ts`, `gpu/WebGpuTerminalRuntime.ts`, `gpu/shaders.ts`: the terminal background supports transparency. When a theme writes `terminal.background` as a color with alpha, the terminal canvas clears to that alpha (the canvas alpha mode follows the panel's theme background); the two shaders output premultiplied and the glyph pipeline's blend state follows (identical results while opaque). **Colors the app itself sets (TUI blocks, selection, search hits, underlines) stay opaque** and are unaffected by theme transparency; the placeholder background before the terminal's first frame is no longer painted solid under transparent themes either.
 - `src/modules/theme/themes/acrylic.ts`: terminal background made fully transparent (glass covers the terminal area), panel and frame tints thinned by one step, name and description switched to English.
 - `src/settings/SettingsApp.tsx`: the settings window now renders the component that switches the window background material (it was not rendered, so the settings window was not acrylic while the main window was).
-- `src/styles/globals.css`: the settings window root hardcoded `--background` (opaque), inconsistent with `--frame` used by `#root` in the main window — so it stayed an opaque block while the main window was transparent. When the window can show what is behind it (native material / glass theme) it now uses the same layering: the root takes `--frame`, and the `.settings-shell` block takes the panel tint.
+- `src/styles/globals.css`: the settings window root hardcoded `--background` (opaque), inconsistent with `--frame` used by `#root` in the main window, so it stayed an opaque block while the main window was transparent. When the window can show what is behind it (native material / glass theme) it now uses the same layering: the root takes `--frame`, and the `.settings-shell` block takes the panel tint.
 
 **Acrylic material: switch to a blur with an adjustable tint**
 
@@ -213,7 +218,7 @@ swap in the new date, and drop the `open` from the day before.
 **Window corners: no more square-cornered material showing through**
 
 - `src-tauri/src/modules/vibrancy.rs`: switching the window material also sets `DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND`. The material covers the entire window rectangle, so without rounding on the window itself a square patch of material is left outside each of the four corners.
-- `src/styles/globals.css`: the window corner radius is extracted into `--window-radius: 8px`, aligned with DWM's `DWMWCP_ROUND` — a larger CSS radius leaves a crescent of material at the corners.
+- `src/styles/globals.css`: the window corner radius is extracted into `--window-radius: 8px`, aligned with DWM's `DWMWCP_ROUND`: a larger CSS radius leaves a crescent of material at the corners.
 
 **Theme names and descriptions: Acrylic / Carbon Fiber use English names**
 
@@ -222,13 +227,13 @@ swap in the new date, and drop the `open` from the day before.
 **Shortcuts: "close tab" is findable from both search entry points**
 
 - `src/settings/sections/ShortcutsSection.tsx`: the shortcut list search compared against **untranslated keys** (label `shortcut.closeTabOrPane`, group id `Tabs`), so in the Chinese UI searching "终端", "关闭" or "标签" gave an empty page and only English like `tab` matched by chance. It now compares what is visible on screen (translated labels and group names) and adds the chord itself (`Ctrl+W`), so both languages work.
-- `src/modules/shortcuts/shortcuts.ts`, `src/modules/shortcuts/index.ts`: new `SHORTCUT_ALIASES` (search aliases, not drawn in the UI) — close-tab accepts "终端 / 删除 / 关闭 / 标签 / 面板 / terminal / close" and the like. The row is titled "close tab or pane" while users call it "terminal", and comparing titles alone will never find it.
+- `src/modules/shortcuts/shortcuts.ts`, `src/modules/shortcuts/index.ts`: new `SHORTCUT_ALIASES` (search aliases, not drawn in the UI): close-tab accepts "终端 / 删除 / 关闭 / 标签 / 面板 / terminal / close" and the like. The row is titled "close tab or pane" while users call it "terminal", and comparing titles alone will never find it.
 - `src/modules/command-palette/CommandPalette.tsx`, `commands.ts`: the command palette's fuzzy match folds this alias set in by `shortcutId`, so both entry points share one set of aliases.
 - `scripts/dev/cdp-key.mjs`: it used to accept only 6 named keys (the comment claiming you could send Ctrl+C with a digit was wrong); it now supports chords like `Ctrl+W` and any letter/digit, and `--match` selects the page (the settings window is a different page, and the default would pick the wrong one).
 
 **On machines without WebGPU the terminal is dead black (the WebGL fallback path was missed)**
 
-- `src/modules/terminal/ghostty/webgl/WebGlCellRenderer.ts`: this fallback path created its `webgl2` context with `alpha: false`, hardcoded the clear color's alpha to 1, had both fragment shaders output non-premultiplied colors, and blended glyphs with `SRC_ALPHA`. So when a theme made the terminal background transparent (acrylic), the canvas stayed an opaque block — on machines that get no WebGPU adapter the terminal can never show the desktop. The context now has alpha and premultiplied; the clear color is given premultiplied from the theme's `backgroundAlpha` (with the default background no rectangle is drawn, so the clear color is the terminal background itself); both fragment shaders output premultiplied and blending uses `ONE`. With alpha 1 this is exactly equivalent to before, so opaque themes are unaffected.
+- `src/modules/terminal/ghostty/webgl/WebGlCellRenderer.ts`: this fallback path created its `webgl2` context with `alpha: false`, hardcoded the clear color's alpha to 1, had both fragment shaders output non-premultiplied colors, and blended glyphs with `SRC_ALPHA`. So when a theme made the terminal background transparent (acrylic), the canvas stayed an opaque block: on machines that get no WebGPU adapter the terminal can never show the desktop. The context now has alpha and premultiplied; the clear color is given premultiplied from the theme's `backgroundAlpha` (with the default background no rectangle is drawn, so the clear color is the terminal background itself); both fragment shaders output premultiplied and blending uses `ONE`. With alpha 1 this is exactly equivalent to before, so opaque themes are unaffected.
 - `src/modules/terminal/ghostty/webgl/WebGlTerminalSurface.ts`: the root element's placeholder background becomes `transparent` when the theme is translucent (matching the WebGPU path) instead of always painting an opaque theme color.
 - `VERTA.md`: the sentence about the WebGL fallback having an opaque block now describes the new premultiplied alpha behavior.
 
@@ -251,7 +256,7 @@ swap in the new date, and drop the `open` from the day before.
 
 **The source control panel on the right does not follow the project (deleting Spaces made "pinned repository" too coarse)**
 
-- `src/modules/source-control/repositoryTarget.ts`: the pinned repository used to be recorded per **environment** (one for the host, one per distro). Before Spaces were removed it was recorded per space, and a space was a project root — after the switch to per environment, changing project within the same environment (the root changed) left the pin on the previous project's repository, so the changes list and commit graph in the right panel stayed on the old repository, which looks exactly like "switched project but nothing followed". It is now recorded per **workspace root** (environment + root path), the same approach as `useFileTree`'s scopeKey in the explorer; new `repositoryTargetScope` does that assembly.
+- `src/modules/source-control/repositoryTarget.ts`: the pinned repository used to be recorded per **environment** (one for the host, one per distro). Before Spaces were removed it was recorded per space, and a space was a project root: after the switch to per environment, changing project within the same environment (the root changed) left the pin on the previous project's repository, so the changes list and commit graph in the right panel stayed on the old repository, which looks exactly like "switched project but nothing followed". It is now recorded per **workspace root** (environment + root path), the same approach as `useFileTree`'s scopeKey in the explorer; new `repositoryTargetScope` does that assembly.
 - `src/app/App.tsx`, `src/modules/source-control/index.ts`: use the new scope key; `isRepositoryContextCurrent` now only re-checks that the environment has not changed (the assembly format is guaranteed by `repositoryTargetScope`).
 - `src/modules/source-control/repositoryTarget.test.ts`: three cases now assert "bucketed by root", plus a new case turning the reported symptom into a regression test (changing project in the same environment ⇒ follows the context again).
 
@@ -261,8 +266,8 @@ swap in the new date, and drop the `open` from the day before.
 
 **UI copy long tail: tab names, source control panel, Git history panel**
 
-- `src/modules/tabs/lib/useTabs.ts`: fallback tab names used to be English hardcoded inside pure functions — the commit history title (`History · {branch}` / `Git History`), `preview` when naming a preview tab by url fails, and `shell` / `blocks` for terminal and command block tabs. The hook now generates them with `t(...)` before handing them to the planning functions: `planCommitHistoryOpen` now takes `{ repoRoot, title }`, the same approach as `planProjectsOpen`, so the planners stay pure. `t` would be shadowed by the tab array inside `setTabs((t) => ...)`, so the three fallback strings are computed at the top of the hook and the callbacks depend on the strings rather than on `t`.
-- `src/modules/tabs/lib/serialize.ts`, `useTabRestore.ts`: the preview fallback name on restore is language-dependent too — only the url is persisted, and the name is computed at restore time. Restore runs once and must not re-run on a language switch, so the copy is read through a ref instead of being put into the effect's dependencies.
+- `src/modules/tabs/lib/useTabs.ts`: fallback tab names used to be English hardcoded inside pure functions: the commit history title (`History · {branch}` / `Git History`), `preview` when naming a preview tab by url fails, and `shell` / `blocks` for terminal and command block tabs. The hook now generates them with `t(...)` before handing them to the planning functions: `planCommitHistoryOpen` now takes `{ repoRoot, title }`, the same approach as `planProjectsOpen`, so the planners stay pure. `t` would be shadowed by the tab array inside `setTabs((t) => ...)`, so the three fallback strings are computed at the top of the hook and the callbacks depend on the strings rather than on `t`.
+- `src/modules/tabs/lib/serialize.ts`, `useTabRestore.ts`: the preview fallback name on restore is language-dependent too: only the url is persisted, and the name is computed at restore time. Restore runs once and must not re-run on a language switch, so the copy is read through a ref instead of being put into the effect's dependencies.
 - `src/modules/tabs/lib/planCommitHistoryOpen.test.ts`: three cases changed to "the title is supplied by the caller", plus a new case asserting the planner does not invent a title (a Chinese title is passed through as given).
 - `src/modules/source-control/SourceControlPanel.tsx`: 21 strings hooked up to `t()` (branch dropdown, status, commit box, file list, context menu and discard confirmation). The `to commit` line under the commit box is now "提交", and `Commit with {shortcut}.` is in the table too (the shortcut itself is a key name and is not translated). Existing `scm.*` keys were reused wherever possible; only genuinely missing ones were added.
 - `src/modules/git-history/GitHistoryPane.tsx`, `lib/remoteWebUrl.ts`: 34 strings hooked up to `t()` (table headers commit / subject / author / date / changes, loading and empty states, `Copy SHA` / `Copied`, the author fallback name, the file-count sentence and the `View on GitHub` button group). `normalizeError` takes one more parameter, an already-translated fallback, and `hostLabel` takes an optional set of strings (English by default, so the pure functions and existing unit tests are unaffected).
@@ -270,36 +275,36 @@ swap in the new date, and drop the `open` from the day before.
 
 **UI copy long tail (second round): explorer, source control hook layer, settings page and shell, terminal and editor, updater / LSP / preview**
 
-- `src/modules/explorer/**` (18 keys): also fixed the real bug — the **hardcoded `Reveal in Finder` in the search results context menu** was shown on Windows too. Both call sites (the search results menu and the file / root context menus) now branch on platform, `IS_MAC ? t("explorer.revealFinder") : t("explorer.revealManager")`, matching how `SourceControlPanel` does it. The search empty state and "showing partial results", the delete and drag-and-drop item counts, the clipboard and paste / copy / move failure toasts, and the duplicate-name replace confirmation all went into the table.
+- `src/modules/explorer/**` (18 keys): also fixed the real bug: the **hardcoded `Reveal in Finder` in the search results context menu** was shown on Windows too. Both call sites (the search results menu and the file / root context menus) now branch on platform, `IS_MAC ? t("explorer.revealFinder") : t("explorer.revealManager")`, matching how `SourceControlPanel` does it. The search empty state and "showing partial results", the delete and drag-and-drop item counts, the clipboard and paste / copy / move failure toasts, and the duplicate-name replace confirmation all went into the table.
 - `src/modules/source-control/useSourceControlPanel.ts`, `useRepositoryTargeting.ts` (11 keys): the four `pushHint` variants on the push button tooltip (previously hardcoded inside the hook's `useMemo`), the feedback bars after commit / push, "N unstaged files" in the discard confirmation, two toasts, and the fallbacks of the two `normalizeError` calls (changed to take an already-translated fallback parameter, following `GitHistoryPane`). The spot in `useSourceControl.ts` that must not re-run on a language switch reads the copy through a ref; its dependency array is untouched.
 - `src/settings/sections/*`, `src/settings/components/LspInstallDialog.tsx`, `src/components/WindowControls.tsx`, `src/modules/statusbar/CwdBreadcrumb.tsx` (39 keys): font weight and cursor shape dropdowns, the recording indicator, theme import failure, the eight states of the update button on the about page, the formatter selection, the LSP install dialog, the window controls' `aria-label` and tooltips, and the breadcrumb (home directory / no directory / no subfolders).
-- `src/modules/terminal/**`, `src/modules/editor/lib/useDocument.ts` (21 keys): the terminal cannot-display / cannot-start / session-kept error states, block copy and find, the input placeholder (**double spaces preserved exactly** — those two spots are deliberate spacing), the output paused / failed / waiting toasts, and the save conflict dialog. Only those four toasts were translated in `lib/pty-bridge.ts`; invoke command names, protocol fields and the `"running" | "stalled" | "failed"` status enum are untouched (that is the protocol surface). That module is not a component, so it gains an optional `notices` parameter through which the hook passes the current language's strings.
+- `src/modules/terminal/**`, `src/modules/editor/lib/useDocument.ts` (21 keys): the terminal cannot-display / cannot-start / session-kept error states, block copy and find, the input placeholder (**double spaces preserved exactly**: those two spots are deliberate spacing), the output paused / failed / waiting toasts, and the save conflict dialog. Only those four toasts were translated in `lib/pty-bridge.ts`; invoke command names, protocol fields and the `"running" | "stalled" | "failed"` status enum are untouched (that is the protocol surface). That module is not a component, so it gains an optional `notices` parameter through which the hook passes the current language's strings.
 - `src/modules/updater/UpdaterDialog.tsx`, `src/modules/lsp/**`, `src/modules/markdown/**`, `src/components/chat-code.tsx` (46 keys): the eight states of the update dialog, the LSP status card and the crash / exit / start-failure toasts, `LspSessionLabels` for document extensions (module-level code, so a parameter carries the copy, following precedent), the markdown preview's loading / binary / too-large states and the "rendered / source" toggle, and chat-code's generating / sent / run.
 - `src/modules/i18n/messages.ts`: 135 new keys (Chinese and English). Existing keys were reused wherever possible (`explorer.revealFinder`, `explorer.loading`, `scm.unknownError`, `lsp.stopped`, `common.copyCode` and others); strings like "Retry" stay local to each module per the repository's "each module emits its own keys" convention.
-- Two em-dashes normalized along the way: `Check failed — retry` in the settings update failure and markdown's `Binary file — cannot render as markdown.` — the originals used U+2014, conflicting with the repository rule "No em-dash anywhere", and are now hyphens (only that character changed, everything else is verbatim).
+- Two strings that used to carry an em-dash were normalized along the way: `Check failed - retry` in the settings update failure and markdown's `Binary file - cannot render as markdown.`; the originals used U+2014, conflicting with the repository rule "No em-dash anywhere", and are now hyphens (only that character changed, everything else is verbatim).
 - Explicitly **not translated** (all are dead strings with no consumer, protocol surface, or technical diagnostics): `statusLabel` and `stagedEmptyText` / `unstagedEmptyText` in `useSourceControlPanel.ts` (nothing in the repository reads them), the ghostty renderer's internal diagnostic strings, `pty-bridge`'s protocol fields and status enum, the unreachable fallback placeholder in `block/lib/shellEditor.ts` (`ShellInput` always passes `placeholderText`), tool proper names, and unit symbols like `ms` / `px`.
 
 **UI copy long tail (third round): repository-wide scan to fill the gaps**
 
-The previous round was "do the modules on the handover list one by one" ✗, which is why a fair number were missed ✗ — this round is **scan-driven** ✓, across nine shapes: bare JSX text ✓, string literals and JSX expressions in `title`/`aria-label`/`placeholder` ✓, `toast(...)` ✓, English sentences in template strings ✓, English strings in object arrays ✓, native `alert`/`confirm` ✓, `sr-only` ✓, static HTML ✓, and strings on the Rust side that reach the UI ✓.
+The previous round was "do the modules on the handover list one by one" ✗, which is why a fair number were missed ✗; this round is **scan-driven** ✓, across nine shapes: bare JSX text ✓, string literals and JSX expressions in `title`/`aria-label`/`placeholder` ✓, `toast(...)` ✓, English sentences in template strings ✓, English strings in object arrays ✓, native `alert`/`confirm` ✓, `sr-only` ✓, static HTML ✓, and strings on the Rust side that reach the UI ✓.
 
 - `src/modules/tabs/TabBar.tsx`: `Rename` / `Close` in the tab context menu were hardcoded ✗ (the same menu already used `tr(...)` for "close to the right" and "close others" ✗) → now go through the existing `tabs.rename` / `tabs.close` ✓. **This is the spot the user reported** ✓, verified on the running app: the menu now reads "重命名标签页 / 关闭标签页 / 关闭右侧所有标签页 / 关闭其他标签页" ✓.
 - `src/app/components/WorkspaceInputBar.tsx`: the branch chip's `` title={`Branch: ${branch}`} `` ✗ → `t("workspace.branchChip")` ✓ (that chip only appears on command block tabs ✓).
 - `src/modules/preview/PreviewAddressBar.tsx`: `` setNotice(`No server listening on :${port}.`) `` ✗ → `t("preview.noServerOnPort")` ✓.
 - `src/app/hooks/useAppCloseGuard.ts`, `useWorkspaceSwitcher.ts`: the window close failure toast ✓ and the native long prompt before switching workspace ✓; the latter reads the copy through a ref ✓ (the callback's identity is used as a dependency by consumers ✗, so it must not change identity on a language switch ✓, following the precedent in `useTabRestore.ts` ✓).
-- `src/modules/editor/EditorStack.tsx`, `GitDiffPane.tsx`: `renderedHint="Save to preview"` ✓, diff preview unavailable / binary / file too large / loading diff ✓. The translation function inside `EditorStack` is named `tr` ✓ — in that file `t` is already taken by the tab object in `.map((t) => …)` ✓.
-- `src/modules/editor/EditorPane.tsx`: **another session's work in progress** ✗, hooked up in this round only after explicit user sign-off ✓ — 14 spots: the language server format success / failure toasts ✓, `Binary file` / `File too large` / `Hide preview` / `Show preview` / `Original size` / `Fit to window` ✓, `Loading…` / `Open anyway` / image unreadable ✓. **Only the copy lines were touched** ✓ (the half-finished work in the file is left as is ✓). The key-name parser (`Mod-s` / `Ctrl-g`) and the extension table ✗ are not translated ✓.
-- `src/components/ui/*` (shadcn primitives): `breadcrumb`'s `sr-only` "More" and `aria-label="breadcrumb"` ✓, `dialog` / `sheet`'s `sr-only` "Close" ✓, the **visible** `Close` button in `dialog` ✓, and `command`'s two default parameters ✓. **This is a one-time exception hand-editing primitives** ✓ (`VERTA.md` used to say "do not hand-edit" ✗) — because screen-reader and visible copy alike have to follow the language ✓, with `spinner.tsx` already using `t("common.loading")` as precedent ✓; `command.tsx` was changed by **dropping the default values and falling back with `?? t(...)` in the component body** ✓ (default parameters do not depend on hooks ✓, signature unchanged ✓). `VERTA.md` now records this exception as a rule ✓.
+- `src/modules/editor/EditorStack.tsx`, `GitDiffPane.tsx`: `renderedHint="Save to preview"` ✓, diff preview unavailable / binary / file too large / loading diff ✓. The translation function inside `EditorStack` is named `tr` ✓: in that file `t` is already taken by the tab object in `.map((t) => …)` ✓.
+- `src/modules/editor/EditorPane.tsx`: **another session's work in progress** ✗, hooked up in this round only after explicit user sign-off ✓. 14 spots: the language server format success / failure toasts ✓, `Binary file` / `File too large` / `Hide preview` / `Show preview` / `Original size` / `Fit to window` ✓, `Loading…` / `Open anyway` / image unreadable ✓. **Only the copy lines were touched** ✓ (the half-finished work in the file is left as is ✓). The key-name parser (`Mod-s` / `Ctrl-g`) and the extension table ✗ are not translated ✓.
+- `src/components/ui/*` (shadcn primitives): `breadcrumb`'s `sr-only` "More" and `aria-label="breadcrumb"` ✓, `dialog` / `sheet`'s `sr-only` "Close" ✓, the **visible** `Close` button in `dialog` ✓, and `command`'s two default parameters ✓. **This is a one-time exception hand-editing primitives** ✓ (`VERTA.md` used to say "do not hand-edit" ✗), because screen-reader and visible copy alike have to follow the language ✓, with `spinner.tsx` already using `t("common.loading")` as precedent ✓; `command.tsx` was changed by **dropping the default values and falling back with `?? t(...)` in the component body** ✓ (default parameters do not depend on hooks ✓, signature unchanged ✓). `VERTA.md` now records this exception as a rule ✓.
 - `src/modules/i18n/messages.ts`: 29 new keys (Chinese and English ✓), reusing `tabs.rename` / `tabs.close` / `palette.title` / `editor.hidePreview` / `editor.showPreview` / `editor.preview.title` ✓.
-- ⚠️ Two things noted in this round and **left for the next one**: ① several groups of **synonymous keys** in `messages.ts` ✗ (`editor.hidePreview` alongside `editor.preview.hide`, and `preview.show` / `preview.hide` / `preview.label` ✗) — deduplicating spans several files ✓; ② English coming from the backend ✗ (Rust's `Added` / `Modified` status labels, theme validation strings, the updater's `status.message`, LSP stderr ✗) and the two window titles ✗.
+- ⚠️ Two things noted in this round and **left for the next one**: ① several groups of **synonymous keys** in `messages.ts` ✗ (`editor.hidePreview` alongside `editor.preview.hide`, and `preview.show` / `preview.hide` / `preview.label` ✗); deduplicating spans several files ✓; ② English coming from the backend ✗ (Rust's `Added` / `Modified` status labels, theme validation strings, the updater's `status.message`, LSP stderr ✗) and the two window titles ✗.
 
 **UI copy wrap-up: synonymous keys and English coming from the backend**
 
-- `src/modules/i18n/messages.ts`: the "editor preview toggle" group of synonymous keys is folded into one pair — `SidePreview.tsx` uses `editor.preview.hide`, while `EditorPane.tsx` used `editor.hidePreview` / `editor.showPreview` (the same English sentence), now unified as `editor.preview.hide` / `editor.preview.show`, and three dead keys **referenced by nothing in the repository** are removed (`preview.hide` / `preview.show` / `preview.label`, the first two being byte-identical in English to `editor.preview.*`).
-  ⚠️ **The other ninety-odd groups of synonymous keys are all kept**: they follow the repository's established "each module emits its own keys" convention (7 instances of "cancel", 5 of "retry", 4 of "refresh", 5 of "close"…), and many are **dynamic keys** (`` t(`shortcut.${id}`) ``, `` t(`cmd.${id}`) ``) — a static script judging "unused" would misclassify them as dead, so this round **leaves them alone**. The audit script's conclusions (`.superpowers/keys-audit.mjs`, reusable) are recorded in the todo list for later reference.
+- `src/modules/i18n/messages.ts`: the "editor preview toggle" group of synonymous keys is folded into one pair: `SidePreview.tsx` uses `editor.preview.hide`, while `EditorPane.tsx` used `editor.hidePreview` / `editor.showPreview` (the same English sentence), now unified as `editor.preview.hide` / `editor.preview.show`, and three dead keys **referenced by nothing in the repository** are removed (`preview.hide` / `preview.show` / `preview.label`, the first two being byte-identical in English to `editor.preview.*`).
+  ⚠️ **The other ninety-odd groups of synonymous keys are all kept**: they follow the repository's established "each module emits its own keys" convention (7 instances of "cancel", 5 of "retry", 4 of "refresh", 5 of "close"…), and many are **dynamic keys** (`` t(`shortcut.${id}`) ``, `` t(`cmd.${id}`) ``); a static script judging "unused" would misclassify them as dead, so this round **leaves them alone**. The audit script's conclusions (`.superpowers/keys-audit.mjs`, reusable) are recorded in the todo list for later reference.
 - `src/modules/editor/EditorPane.tsx`: those two `tr(...)` calls follow to the new keys (`tr` is the translation alias in that file).
 - `src/modules/git-history/GitHistoryPane.tsx`: the file row's `title` used to show the **English sentence** passed in from Rust directly (`Added` / `Modified` / `Deleted` / `Renamed` / `Copied` / `Unmerged` / `Untracked`) → the frontend now maps it to `gitStatus.*`, and **values the map does not match pass through as is** (so a future backend status does not turn into a blank). **Not a byte changed on the Rust side**: not touching the backend avoids a recompile and restart, the English strings in `status_label_for` / `parser.rs` stay, and the frontend no longer depends on them.
-- ⬜ **Not done** this round, left for the next one: ① the validation strings in `src/modules/theme/validateTheme.ts` — it returns **whole English sentences** and `validateTheme.test.ts` asserts exactly those sentences → changing it means changing the return contract plus the tests, worth its own round; ② the updater's `status.message` (a string from the plugin) and the LSP stderr tail (diagnostic data); ③ the two **window titles** (`Verta — Settings`).
+- ⬜ **Not done** this round, left for the next one: ① the validation strings in `src/modules/theme/validateTheme.ts`: it returns **whole English sentences** and `validateTheme.test.ts` asserts exactly those sentences → changing it means changing the return contract plus the tests, worth its own round; ② the updater's `status.message` (a string from the plugin) and the LSP stderr tail (diagnostic data); ③ the two **window titles** (`Verta` and `Settings` joined by an em-dash).
 
 </details>
 
@@ -331,7 +336,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
 - `src/modules/header/Header.tsx`: the slot reserved for the switcher in the title bar is removed.
 - `src/modules/source-control/repositoryTarget.ts`, `useRepositoryTargeting.ts`: the repository pinned in the right panel is
   recorded per **environment** (host / a given distro) rather than per space.
-- `src/modules/control/lib/context.ts`, `useControlBridge.ts`: `space_id` is kept but fixed to `default` —
+- `src/modules/control/lib/context.ts`, `useControlBridge.ts`: `space_id` is kept but fixed to `default`:
   `verta-cli identify` prints it, and removing it would change the protocol.
 - `src/modules/i18n/messages.ts`: the 14 space keys in both Chinese and English (`spaces.*`, `shortcut.nextSpace` /
   `prevSpace` / `openSpaces`, `cmd.spacesOverview` / `newSpace` / `switchToSpace` / `currentSpace`,
@@ -348,18 +353,18 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
   action bar end up in the image; the whole thing runs on a blocking thread. The window is still **created once and kept**
   (each use only shows it: about 0.4 seconds to build the webview the first time, just over 0.1 afterwards); on failure the
   window is shown again with the selection intact, so it can be adjusted and saved again.
-- `src-tauri/src/modules/screenshot/capture.rs`: new `virtual_screen_bounds()` — the capture and the overlay window take
+- `src-tauri/src/modules/screenshot/capture.rs`: new `virtual_screen_bounds()`: the capture and the overlay window take
   their extent from the same place, so selection coordinates line up. `RawShot` no longer carries an origin (the overlay
   position comes from that same place).
 - `src-tauri/src/modules/screenshot/encode.rs`: the BMP preview encoder is deleted (there is no preview file any more); only
   the PNG that gets saved remains.
 - `src/modules/screenshot/ScreenshotOverlay.tsx`: **canvas and frozen frame removed**. A 25% light gray wash covers the
-  screen; as soon as a selection is drawn the wash goes away and a shadow around the selection darkens the outside — the
+  screen; as soon as a selection is drawn the wash goes away and a shadow around the selection darkens the outside: the
   inside is a fully transparent hole, showing the live screen behind it (this is the point of "like the system tool": no
-  freeze, the screen keeps moving). A corner-radius slider (0–40, default **15**, WYSIWYG) and two icon buttons for save /
+  freeze, the screen keeps moving). A corner-radius slider (0-40, default **15**, WYSIWYG) and two icon buttons for save /
   cancel sit at the bottom right of the selection; stroke, handles and buttons take theme colors. After releasing the mouse
   the selection stays adjustable: drag the whole block, resize with the eight handles. Enter saves, Esc cancels, unchanged.
-- `screenshot.html`, `src/screenshot/main.tsx`: this window **must be transparent** — both spots paint the background
+- `screenshot.html`, `src/screenshot/main.tsx`: this window **must be transparent**: both spots paint the background
   transparent according to the window's nature (globals.css gives body a theme background) and add the `.light` / `.dark`
   classes (`--primary` and friends cannot resolve without that class on the root, and the stroke would fall back to gray). Also:
   if the window's own script crashes, it calls `screenshot_failed` to hide itself rather than leaving an unclickable gray
@@ -369,7 +374,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
   copy is in a more formal tone (no more "it is in the clipboard too", and the Rust-side error strings changed with it).
 - `src-tauri/capabilities/screenshot.json`: showing and focusing are done by Rust now, so the overlay window's permissions
   shrink to "listen to events only".
-- `scripts/dev/probes/`: the acceptance probes follow — `screenshot-arm-timing-*` (measures "message received to first
+- `scripts/dev/probes/`: the acceptance probes follow: `screenshot-arm-timing-*` (measures "message received to first
   frame"), `capture-desktop.ps1` (captures the whole screen as evidence; `CopyFromScreen` and the window's own CDP screenshot
   are not the same thing), `screenshot-begin-timing.js` (measures only "click to gray wash appearing").
 
@@ -377,7 +382,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
 
 - `src-tauri/src/modules/screenshot/` (a new module, four files):
   - `capture.rs`: Windows captures the whole virtual desktop with GDI. GDI returns BGRA with garbage alpha, which is
-    filled in as opaque RGBA — without that, the saved PNG and the clipboard image are semi-transparent; other platforms
+    filled in as opaque RGBA: without that, the saved PNG and the clipboard image are semi-transparent; other platforms
     refuse honestly instead of pretending to work.
   - `geom.rs`: selection snapping (dragging back and dragging off-screen are handled correctly), cropping by selection, file
     names and local timestamps. All pure functions with unit tests.
@@ -388,19 +393,19 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
     the backend and selection in the frontend, so the backend snaps the selection once more.
 - `src-tauri/src/modules/mod.rs`, `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`: register the module, state and commands;
   windows-sys gains `Win32_UI_WindowsAndMessaging` (for `GetSystemMetrics` and the virtual screen constants).
-- `src-tauri/capabilities/screenshot.json` (new): the overlay window gets its own **minimal** capability — events only, with
+- `src-tauri/capabilities/screenshot.json` (new): the overlay window gets its own **minimal** capability: events only, with
   show and focus done by Rust, and none of the store / dialog / opener permissions it does not need.
 - `screenshot.html`, `src/screenshot/main.tsx`, `vite.config.ts`: the frontend entry of the second window (a transparent
   window), one more entry in the multi-page build.
 - `src/modules/screenshot/ScreenshotOverlay.tsx` (new): light gray wash, drag a box (with a physical-pixel size hint),
   movable and resizable after release, corner-radius slider, save / cancel icon buttons, Enter to save, Esc to cancel; no
-  screen freeze — the screen stays live.
-- `src/modules/screenshot/lib/selection.ts` (new): CSS pixel ↔ physical pixel conversion — at 125% display scaling the two
+  screen freeze: the screen stays live.
+- `src/modules/screenshot/lib/selection.ts` (new): CSS pixel ↔ physical pixel conversion: at 125% display scaling the two
   differ by a devicePixelRatio and sending CSS coordinates directly crops off target; rounding is "one column too many rather
   than one too few". With unit tests.
 - `src/modules/header/Header.tsx`: a "screenshot" entry appears to the left of the Git button at the top right.
 - `src/app/App.tsx`, `src/lib/native.ts`, `src/modules/i18n/messages.ts`: the completion toast (stating where it was saved
-  and whether the clipboard worked, reported separately) and "insert path" — clicking it inserts the path into the current
+  and whether the clipboard worked, reported separately) and "insert path": clicking it inserts the path into the current
   terminal input line with bracketed paste, so spaces in the path are fine, with no automatic insert and no Enter; on tabs
   that are not a terminal the button is not offered at all (there would be nowhere to insert it).
 - `scripts/dev/cdp-input.mjs` (new) plus `scripts/dev/probes/` (the probes for this area and `capture-desktop.ps1`):
@@ -447,7 +452,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
 - `src-tauri/src/modules/github/auth.rs`: new. Parses `gh auth status --json hosts` (picks the active account, splits scopes,
   does not crash on missing fields), and rejects obviously wrong pasted tokens locally.
 - `src-tauri/src/modules/github/gh.rs`: extracts `command()` (arguments passed one by one, interactive prompts off, proxy applied,
-  console hidden — all prepared centrally); new `spawn` / `pump` / `run_with_stdin` (a pasted PAT can only come in over stdin);
+  console hidden: all prepared centrally); new `spawn` / `pump` / `run_with_stdin` (a pasted PAT can only come in over stdin);
   new `AUTH_TOKEN_TIMEOUT_SECS` / `AUTH_WEB_TIMEOUT_SECS`.
 - `src-tauri/src/modules/github/types.rs`: new `AuthStatusPayload` / `AuthActionPayload` / `AuthLoginProgress`.
 - `src-tauri/src/modules/github/commands.rs`, `mod.rs`, `src-tauri/src/lib.rs`: new `github_auth_status` /
@@ -489,7 +494,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
 - `src/modules/remotes/RemoteReposView.tsx`: the row menu gains "clone locally…" and "repository settings…"; a successful description /
   visibility change updates only that row; the clone and settings dialogs are wired in. Also fixed: the menu content is portalled to
   the body by Radix, but React events still bubble along the component tree, so clicking a menu item also triggered the row click
-  (and "repository settings…" therefore also opened the runs panel) — intercepted on the menu content.
+  (and "repository settings…" therefore also opened the runs panel): intercepted on the menu content.
 - `src/modules/remotes/RunListDialog.tsx`: fixed: the confirmation dialog (AlertDialog) is another Radix layer, and clicking it was
   taken by the layer above as "clicked outside the panel", closing the panel too; it no longer closes while the confirmation is open.
 - `src/modules/projects/CloneRepoDialog.tsx`: optional prefilling of the URL and target directory (used when entering from a remote
@@ -544,18 +549,18 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
   action bar end up in the image; the whole thing runs on a blocking thread. The window is still **created once and kept**
   (each use only shows it: about 0.4 seconds to build the webview the first time, just over 0.1 afterwards); on failure the
   window is shown again with the selection intact, so it can be adjusted and saved again.
-- `src-tauri/src/modules/screenshot/capture.rs`: new `virtual_screen_bounds()` — the capture and the overlay window take
+- `src-tauri/src/modules/screenshot/capture.rs`: new `virtual_screen_bounds()`: the capture and the overlay window take
   their extent from the same place, so selection coordinates line up. `RawShot` no longer carries an origin (the overlay
   position comes from that same place).
 - `src-tauri/src/modules/screenshot/encode.rs`: the BMP preview encoder is deleted (there is no preview file any more); only
   the PNG that gets saved remains.
 - `src/modules/screenshot/ScreenshotOverlay.tsx`: **canvas and frozen frame removed**. A 25% light gray wash covers the
-  screen; as soon as a selection is drawn the wash goes away and a shadow around the selection darkens the outside — the
+  screen; as soon as a selection is drawn the wash goes away and a shadow around the selection darkens the outside: the
   inside is a fully transparent hole, showing the live screen behind it (this is the point of "like the system tool": no
-  freeze, the screen keeps moving). A corner-radius slider (0–40, default **15**, WYSIWYG) and two icon buttons for save /
+  freeze, the screen keeps moving). A corner-radius slider (0-40, default **15**, WYSIWYG) and two icon buttons for save /
   cancel sit at the bottom right of the selection; stroke, handles and buttons take theme colors. After releasing the mouse
   the selection stays adjustable: drag the whole block, resize with the eight handles. Enter saves, Esc cancels, unchanged.
-- `screenshot.html`, `src/screenshot/main.tsx`: this window **must be transparent** — both spots paint the background
+- `screenshot.html`, `src/screenshot/main.tsx`: this window **must be transparent**: both spots paint the background
   transparent according to the window's nature (globals.css gives body a theme background) and add the `.light` / `.dark`
   classes (`--primary` and friends cannot resolve without that class on the root, and the stroke would fall back to gray). Also:
   if the window's own script crashes, it calls `screenshot_failed` to hide itself rather than leaving an unclickable gray
@@ -565,7 +570,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
   copy is in a more formal tone (no more "it is in the clipboard too", and the Rust-side error strings changed with it).
 - `src-tauri/capabilities/screenshot.json`: showing and focusing are done by Rust now, so the overlay window's permissions
   shrink to "listen to events only".
-- `scripts/dev/probes/`: the acceptance probes follow — `screenshot-arm-timing-*` (measures "message received to first
+- `scripts/dev/probes/`: the acceptance probes follow: `screenshot-arm-timing-*` (measures "message received to first
   frame"), `capture-desktop.ps1` (captures the whole screen as evidence; `CopyFromScreen` and the window's own CDP screenshot
   are not the same thing), `screenshot-begin-timing.js` (measures only "click to gray wash appearing").
 
@@ -573,7 +578,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
 
 - `src-tauri/src/modules/screenshot/` (a new module, four files):
   - `capture.rs`: Windows captures the whole virtual desktop with GDI. GDI returns BGRA with garbage alpha, which is
-    filled in as opaque RGBA — without that, the saved PNG and the clipboard image are semi-transparent; other platforms
+    filled in as opaque RGBA: without that, the saved PNG and the clipboard image are semi-transparent; other platforms
     refuse honestly instead of pretending to work.
   - `geom.rs`: selection snapping (dragging back and dragging off-screen are handled correctly), cropping by selection, file
     names and local timestamps. All pure functions with unit tests.
@@ -584,19 +589,19 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
     the backend and selection in the frontend, so the backend snaps the selection once more.
 - `src-tauri/src/modules/mod.rs`, `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`: register the module, state and commands;
   windows-sys gains `Win32_UI_WindowsAndMessaging` (for `GetSystemMetrics` and the virtual screen constants).
-- `src-tauri/capabilities/screenshot.json` (new): the overlay window gets its own **minimal** capability — events only, with
+- `src-tauri/capabilities/screenshot.json` (new): the overlay window gets its own **minimal** capability: events only, with
   show and focus done by Rust, and none of the store / dialog / opener permissions it does not need.
 - `screenshot.html`, `src/screenshot/main.tsx`, `vite.config.ts`: the frontend entry of the second window (a transparent
   window), one more entry in the multi-page build.
 - `src/modules/screenshot/ScreenshotOverlay.tsx` (new): light gray wash, drag a box (with a physical-pixel size hint),
   movable and resizable after release, corner-radius slider, save / cancel icon buttons, Enter to save, Esc to cancel; no
-  screen freeze — the screen stays live.
-- `src/modules/screenshot/lib/selection.ts` (new): CSS pixel ↔ physical pixel conversion — at 125% display scaling the two
+  screen freeze: the screen stays live.
+- `src/modules/screenshot/lib/selection.ts` (new): CSS pixel ↔ physical pixel conversion: at 125% display scaling the two
   differ by a devicePixelRatio and sending CSS coordinates directly crops off target; rounding is "one column too many rather
   than one too few". With unit tests.
 - `src/modules/header/Header.tsx`: a "screenshot" entry appears to the left of the Git button at the top right.
 - `src/app/App.tsx`, `src/lib/native.ts`, `src/modules/i18n/messages.ts`: the completion toast (stating where it was saved
-  and whether the clipboard worked, reported separately) and "insert path" — clicking it inserts the path into the current
+  and whether the clipboard worked, reported separately) and "insert path": clicking it inserts the path into the current
   terminal input line with bracketed paste, so spaces in the path are fine, with no automatic insert and no Enter; on tabs
   that are not a terminal the button is not offered at all (there would be nowhere to insert it).
 - `scripts/dev/cdp-input.mjs` (new) plus `scripts/dev/probes/` (the probes for this area and `capture-desktop.ps1`):
@@ -643,7 +648,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
 - `src-tauri/src/modules/github/auth.rs`: new. Parses `gh auth status --json hosts` (picks the active account, splits scopes,
   does not crash on missing fields), and rejects obviously wrong pasted tokens locally.
 - `src-tauri/src/modules/github/gh.rs`: extracts `command()` (arguments passed one by one, interactive prompts off, proxy applied,
-  console hidden — all prepared centrally); new `spawn` / `pump` / `run_with_stdin` (a pasted PAT can only come in over stdin);
+  console hidden: all prepared centrally); new `spawn` / `pump` / `run_with_stdin` (a pasted PAT can only come in over stdin);
   new `AUTH_TOKEN_TIMEOUT_SECS` / `AUTH_WEB_TIMEOUT_SECS`.
 - `src-tauri/src/modules/github/types.rs`: new `AuthStatusPayload` / `AuthActionPayload` / `AuthLoginProgress`.
 - `src-tauri/src/modules/github/commands.rs`, `mod.rs`, `src-tauri/src/lib.rs`: new `github_auth_status` /
@@ -685,7 +690,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
 - `src/modules/remotes/RemoteReposView.tsx`: the row menu gains "clone locally…" and "repository settings…"; a successful description /
   visibility change updates only that row; the clone and settings dialogs are wired in. Also fixed: the menu content is portalled to
   the body by Radix, but React events still bubble along the component tree, so clicking a menu item also triggered the row click
-  (and "repository settings…" therefore also opened the runs panel) — intercepted on the menu content.
+  (and "repository settings…" therefore also opened the runs panel): intercepted on the menu content.
 - `src/modules/remotes/RunListDialog.tsx`: fixed: the confirmation dialog (AlertDialog) is another Radix layer, and clicking it was
   taken by the layer above as "clicked outside the panel", closing the panel too; it no longer closes while the confirmation is open.
 - `src/modules/projects/CloneRepoDialog.tsx`: optional prefilling of the URL and target directory (used when entering from a remote
@@ -748,7 +753,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
 
 - `src/modules/remotes/lib/runs.ts`: new `ciFromRuns` (folds the runs list into what that one CI badge should show:
   the newest run is the badge; an empty list is a confirmed "no runs"; a failed query is passed through as is); with unit tests.
-  The "check CI" item in the row menu and "runs…" were two ways of saying one thing — the badge is cached per row, so after an
+  The "check CI" item in the row menu and "runs…" were two ways of saying one thing: the badge is cached per row, so after an
   old run was deleted it could keep an outdated verdict and contradict the panel. The panel is now the single source.
 - `src/modules/remotes/RunListDialog.tsx`: new `onLoaded`, called once each time the runs list is fetched (including the
   reconciliation after a delete).
@@ -761,7 +766,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
   `github_run_delete` (`gh run delete <id> --repo <slug>`). Rerun / cancel / delete share one path, with the same pre-checks,
   failure classification and raw-text pass-through. **After deleting, whether that run still exists is re-checked**
   (`repos/{o}/{r}/actions/runs/{id}`): only an explicit 404 reports success, a run still there is reported honestly as
-  "possibly not deleted", and anything unclear (rate limiting / a flaky proxy / permissions) carries its reason out —
+  "possibly not deleted", and anything unclear (rate limiting / a flaky proxy / permissions) carries its reason out:
   the exit code of `gh run delete` alone is not enough, and if any link in that chain misleads us once, the UI permanently
   hides a record that is actually still on GitHub (the row is removed and filtered out again on refresh).
 - `src-tauri/src/modules/github/actions.rs`: new `classify_run_probe` (the re-check verdict: gone / still there / unclear)
@@ -769,7 +774,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
 - `src/modules/remotes/RunListDialog.tsx`: a "delete" item in the row, offered only for finished runs (GitHub does not allow
   deleting a running one); the confirmation states that logs and results are deleted with it and cannot be restored, and on failure
   keeps gh's own wording in the confirmation. After the delete is **confirmed by the backend re-check**, the UI drops that row
-  immediately and reconciles in the background — previously it showed a toast first and waited two or three seconds for the refresh,
+  immediately and reconciles in the background; previously it showed a toast first and waited two or three seconds for the refresh,
   so the toast and the panel disagreed briefly and the user saw it; freshly deleted ids are also recorded and filtered out on refresh so
   GitHub lagging a beat does not bring the row back (only "confirmed deleted" ids are filtered; failed deletes always stay in the list).
 - `src/modules/remotes/RemoteReposView.tsx`: clicking a repository row and clicking the CI badge both open that repository's runs panel
@@ -791,7 +796,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
   `github_run_log` (`failed_only` goes through `gh run view --log-failed`).
 - `src/modules/remotes/RunDetail.tsx`: new. In-app run detail: job and step tree (a status per step), a log pane
   (time + step shown only when it changes + coloring by `##[error]` / `##[warning]`), a "failures only" toggle, and a
-  separate notice per truncation kind; "open on GitHub" drops to a secondary exit — it is only really needed when the log was truncated.
+  separate notice per truncation kind; "open on GitHub" drops to a secondary exit: it is only really needed when the log was truncated.
 - `src/modules/remotes/RunListDialog.tsx`: the row's "open browser" becomes "detail", switching views inside the same dialog
   (no stacked dialogs).
 - `src/modules/remotes/lib/runs.ts`: new `logLineTone` (error / warning / group / normal) and `logClock`; with unit tests.
@@ -821,7 +826,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
 - `src/modules/remotes/lib/runs.ts`: new. The per-row view rules (only finished runs can be rerun; cancel only applies before that) and time
   parsing; with 4 unit tests.
 - `src/modules/remotes/lib/ci.ts`: `runState` / `runDetail` / `TONE_CLASS` are extracted for the CI column and the runs list to share;
-  one inconsistency fixed along the way — `timed_out` had a red badge but read "finished", and now reads as a failure.
+  one inconsistency fixed along the way: `timed_out` had a red badge but read "finished", and now reads as a failure.
 - `src/modules/remotes/RemoteReposView.tsx`: the row menu gains "runs…".
 - `src/lib/native.ts`, `src/modules/i18n/messages.ts`: command wrappers and Chinese / English copy.
 
@@ -832,7 +837,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
 - `src/modules/header/SearchInline.tsx`: "Search" and "Git search" in the header search box now go through i18n (the shortcut suffix is still
   concatenated as before).
 - `src/modules/explorer/FileExplorer.tsx`, `src/modules/explorer/TreeRow.tsx`: the inline placeholders for new file / new folder
-  now use `explorer.newFile` / `explorer.newFolder` — both keys existed already but were never used.
+  now use `explorer.newFile` / `explorer.newFolder`: both keys existed already but were never used.
 
 **GitHub: CI status column (remote repository list)**
 
@@ -852,7 +857,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
 **Git panel: branch create / rename / delete, worktrees, commit-level actions**
 
 - `src-tauri/src/modules/git/types.rs`: `MAX_TIMEOUT_SECS` goes up to 900 seconds, and cloning uses its own
-  `CLONE_TIMEOUT_SECS` — a clone transfers the whole history from scratch and 120 seconds is not enough.
+  `CLONE_TIMEOUT_SECS`: a clone transfers the whole history from scratch and 120 seconds is not enough.
 - `src-tauri/src/modules/git/errors.rs`: new `InvalidRefName`; empty names and names starting with `-` are rejected here, and
   errors show the value quoted so an empty value is visible too.
 - `src-tauri/src/modules/git/operations.rs`: new branch create / rename / delete, worktree add / remove, cherry-pick, revert, soft reset,
@@ -885,7 +890,7 @@ The previous round was "do the modules on the handover list one by one" ✗, whi
   losing focus and closing the window all flush immediately. When a file is opened (including tabs restored after a crash) and the disk
   content differs from the draft, "restore / discard" is handed to the UI.
 - `src/modules/editor/EditorPane.tsx`: a restore notice with the interruption time at the top of the editor; it does not block editing
-  and does not change the file automatically — restoring only puts the content back into the buffer, and saving is up to the user.
+  and does not change the file automatically: restoring only puts the content back into the buffer, and saving is up to the user.
 - `src/modules/i18n/messages.ts`: Chinese and English copy for this notice.
 
 **Tests**

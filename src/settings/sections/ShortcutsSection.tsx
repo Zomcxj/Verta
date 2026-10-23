@@ -232,9 +232,9 @@ function ShortcutRow({
                         <span className="text-[10px] text-muted-foreground">/</span>
                       ) : null}
                       <KbdGroup>
-                        {getBindingTokens(binding).map((token, i) => (
+                        {getBindingTokens(binding).map((token) => (
                           <Kbd
-                            key={i}
+                            key={token}
                             className="group-hover:bg-accent group-hover:text-accent-foreground transition-colors"
                           >
                             {token}

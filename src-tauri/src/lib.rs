@@ -258,15 +258,24 @@ pub fn run() {
                 }
                 Err(error) => log::warn!("agent session watch not started: {error}"),
             }
-            #[cfg(target_os = "macos")]
             if let Some(main) = _app.get_webview_window("main") {
                 let handle = _app.handle().clone();
                 main.on_window_event(move |event| {
-                    // CloseRequested can be cancelled by the frontend guard.
+                    // CloseRequested can be cancelled by the frontend guard, so act on
+                    // Destroyed: by then the guard has already agreed to the close.
                     if matches!(event, WindowEvent::Destroyed) {
-                        if let Some(settings) = handle.get_webview_window("settings") {
-                            let _ = settings.destroy();
+                        // Both of these are hidden rather than destroyed. On their own they
+                        // would leave the process running with no window on screen, which is
+                        // what "I quit it hours ago and verta.exe is still there" was.
+                        for label in ["settings", "screenshot"] {
+                            if let Some(window) = handle.get_webview_window(label) {
+                                let _ = window.destroy();
+                            }
                         }
+                        // macOS keeps an app alive with no window open, by convention.
+                        // Windows and Linux exit when the main window goes.
+                        #[cfg(not(target_os = "macos"))]
+                        handle.exit(0);
                     }
                 });
             }
