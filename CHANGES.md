@@ -17,6 +17,17 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**A notification-area icon keeps the app reachable, and closing the window can hide it there**
+
+- `src-tauri/src/modules/tray.rs` (new): the notification-area icon. A left click brings the main window back and focuses it; the right-button menu shows the window or asks the page to quit. The menu labels arrive from the frontend, which owns the message table, so the menu is in the interface language from its first paint instead of being hard-coded here. A second command mirrors the close-to-tray preference into an atomic, because the handler that decides what the window's close button does runs in Rust, where the preferences store cannot be reached.
+- `src-tauri/Cargo.toml`, `src-tauri/src/modules/mod.rs`, `src-tauri/src/lib.rs`: the `tray-icon` feature is on, the module and its commands are registered, and the main window's close request hides the window instead of ending the process while the preference is on.
+- `src/app/hooks/useTray.ts` (new): sends the menu labels again whenever the language changes, mirrors the preference into Rust, and forwards the tray's quit request to the page.
+- `src/app/hooks/useAppCloseGuard.ts`: the close listener stops the close in both cases and then decides, and it hands out `requestAppQuit` for the tray to call. Stopping the close is not optional: registering that listener is what makes Tauri withhold the close, and the JS side destroys the window by itself when a handler does not stop it, so a handler that returned early would have hidden the window and then destroyed it, ending the app.
+- `src/app/hooks/useTaskbarPresence.ts` (deleted), `src/app/hooks/useAgentAttentionFlash.ts`, `src-tauri/src/modules/taskbar.rs`: the permanent taskbar button is gone, since the tray is what keeps the app reachable and that preference only ever added a button. The flash for a waiting or finished agent is unchanged.
+- `src/modules/settings/store.ts`, `src/settings/sections/GeneralSection.tsx`: a close-to-tray preference replaces the permanent-button one, on by default.
+- `src/modules/i18n/messages.ts`: the tray menu labels and the preference, one in Chinese and one in English each.
+- Verified on the running app with the help of the window manager: with the preference on, the close button leaves the window hidden and the process running, three times in a row, and the hidden window can be brought back; with it off, the close button ends the process, after nothing was left unsaved.
+
 **Issues can be deleted**
 
 - `src-tauri/src/modules/github/commands.rs`, `src-tauri/src/lib.rs`: a new `github_issue_delete` command removes an issue through `gh api --method DELETE repos/{slug}/issues/{number}`, with the same local validation and error classification the other write commands use.
@@ -87,9 +98,9 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/statusbar/CwdBreadcrumb.tsx`: the more button in the collapsed path took the show-hidden-folders string for its tooltip; it has its own string now.
 - `src/modules/i18n/messages.ts`: three new strings (the two window titles and the more-paths tooltip), one in Chinese and one in English each.
 
-**Closing the main window quits the app on Windows too**
+**Helper windows do not outlive the main window**
 
-- `src-tauri/src/lib.rs`: the settings window and the screenshot overlay hide instead of destroying, so they can be reopened without rebuilding the webview. The handler that destroyed the settings window when the main window went was macOS-only, so on Windows closing the main window left `verta.exe` running with nothing on screen. That handler now destroys both windows and exits, on every platform but macOS, which keeps an app alive with no window open by convention. It acts on `Destroyed`, so the frontend's close guard has already agreed to the close by then.
+- `src-tauri/src/lib.rs`: the settings window and the screenshot overlay hide instead of destroying, so they can be reopened without rebuilding the webview. Since they hide rather than close, something else has to end them, and the handler that destroyed the settings window when the main window went was macOS-only, so on Windows closing the main window left `verta.exe` running with nothing on screen. That handler now destroys both windows and exits, on every platform but macOS, which keeps an app alive with no window open by convention. It acts on `Destroyed`, so it fires when the window is really gone rather than when its close button was pressed, which now only hides it by default.
 
 **Repo panels reuse a recent read instead of asking again**
 
@@ -97,14 +108,14 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/remotes/RunListDialog.tsx`, `src/modules/remotes/IssuesDialog.tsx`, `src/modules/remotes/ReleasesDialog.tsx`: reopening the same repo paints from that read instead of spending the requests again; the run list still reports to the row's CI badge from the cached payload. Issues needed the filter in the effect's dependencies, since the cache is keyed by it.
 - `src/modules/remotes/lib/listSnapshot.test.ts` (new): keys stay apart, entries expire at the TTL, forgetting forces a re-read, and a stored falsy value is still a hit.
 
-**Taskbar: a permanent button, and a flash when an agent needs you**
+**Taskbar: a flash when an agent needs you**
 
-- `src-tauri/src/modules/taskbar.rs` (new): two commands. One asks the shell for a taskbar button or deletes it (the window-style bits the shell reads, plus the taskbar's own add / delete tab call), the other flashes that button: until the window comes to the front for "an agent is asking", a fixed handful of times for "finished".
-- `src-tauri/src/modules/mod.rs`, `src-tauri/src/lib.rs`: the module and its two commands registered.
+- `src-tauri/src/modules/taskbar.rs` (new): flashes the window's taskbar button: until the window comes to the front for "an agent is asking", a fixed handful of times for "finished". Whether the window gets a button at all is the shell's call and no longer a setting here, since the notification-area icon is what keeps the app reachable.
+- `src-tauri/src/modules/mod.rs`, `src-tauri/src/lib.rs`: the module and its command registered.
 - `src/modules/terminal/lib/agentAttention.ts` (new): decides "waiting for an answer" and "finished" from the two things visible outside an agent's full-screen UI: the leaf's cumulative output bytes and whether the shell still has a child process. The CLI repaints while it works, so four seconds of silence with the child alive is a wait; the child disappearing is a finish. None of the CLIs announce this themselves.
-- `src/app/hooks/useAgentAttentionFlash.ts` (new): samples the tabs that were opened for an agent, once a second, and flashes the taskbar button. `src/app/hooks/useTaskbarPresence.ts` (new): applies the button preference to the main window and re-applies it when the preference changes, since which windows get a button is the shell's call.
-- `src/modules/settings/store.ts`, `src/settings/sections/GeneralSection.tsx`: two preferences: keep a taskbar button (on by default; a frameless window is not guaranteed one) and flash on agent attention. The group is only shown on Windows, where both do something.
-- `src/modules/i18n/messages.ts`: their labels, one copy in Chinese and one in English.
+- `src/app/hooks/useAgentAttentionFlash.ts` (new): samples the tabs that were opened for an agent, once a second, and flashes the taskbar button.
+- `src/modules/settings/store.ts`, `src/settings/sections/GeneralSection.tsx`: a preference for the flash, on by default. The switch is only shown on Windows, where it does something.
+- `src/modules/i18n/messages.ts`: its label, one copy in Chinese and one in English.
 
 **Chinese text keeps its own font when the font changes**
 

@@ -1,16 +1,15 @@
 //! Taskbar behaviour of the main window.
 //!
-//! Two things the OS, not the page, decides:
+//! One thing the OS, not the page, decides: **alerting the user while they are
+//! looking elsewhere.** When an agent asks for input or finishes, the taskbar
+//! button flashes. `FlashWindowEx` is the only supported way to do that: drawing a
+//! badge or colouring the button needs private shell APIs.
 //!
-//! - **Whether the window has a taskbar button at all.** Windows only puts one
-//!   there for a window it considers a main window; `WS_EX_TOOLWINDOW` (which
-//!   Tauri sets for some window kinds) hides it. A setting lets the user keep it
-//!   pinned into the taskbar as a permanent entry, which is what people who use
-//!   the app all day expect from a desktop tool.
-//! - **Alerting the user while they are looking elsewhere.** When an agent asks
-//!   for input or finishes, the taskbar button flashes. `FlashWindowEx` is the
-//!   only supported way to do that: drawing a badge or colouring the button needs
-//!   private shell APIs.
+//! Whether the window has a taskbar button at all used to live here too, as a
+//! setting that forced `WS_EX_APPWINDOW` on. It is gone: the tray icon
+//! (`modules::tray`) is what keeps the app reachable, and a setting that claimed
+//! to be about "staying resident" while only adding a taskbar button was the wrong
+//! idea to begin with.
 
 /// What the taskbar button should do to get attention.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -29,29 +28,12 @@ mod imp {
     use super::TaskbarAttention;
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        FLASHW_ALL, FLASHWINFO, FLASHW_TIMERNOFG, FlashWindowEx, GetWindowLongPtrW, GWL_EXSTYLE,
-        SetWindowLongPtrW, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+        FLASHW_ALL, FLASHWINFO, FLASHW_TIMERNOFG, FlashWindowEx,
     };
 
     /// How many times "done" flashes. Enough to notice, few enough to ignore.
     const DONE_FLASH_COUNT: u32 = 5;
     const DONE_FLASH_MS: u32 = 400;
-
-    pub fn set_taskbar_visible(window: &tauri::WebviewWindow, visible: bool) -> Result<(), String> {
-        let hwnd = hwnd_of(window)?;
-        // The button is the shell's call, and the style bits are what it reads:
-        // a tool window gets none, an app window keeps one. Tauri's
-        // `set_skip_taskbar` then tells the already-open taskbar to add or
-        // delete the tab, so the change shows up without restarting the window.
-        if visible {
-            set_style(hwnd, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW)?;
-        } else {
-            set_style(hwnd, WS_EX_TOOLWINDOW, WS_EX_APPWINDOW)?;
-        }
-        window
-            .set_skip_taskbar(!visible)
-            .map_err(|e| format!("set_skip_taskbar failed: {e}"))
-    }
 
     pub fn flash(window: &tauri::WebviewWindow, attention: TaskbarAttention) -> Result<(), String> {
         let hwnd = hwnd_of(window)?;
@@ -81,40 +63,17 @@ mod imp {
         let hwnd = window.hwnd().map_err(|e| format!("no window handle: {e}"))?;
         Ok(hwnd.0 as HWND)
     }
-
-    fn set_style(hwnd: HWND, set: u32, clear: u32) -> Result<(), String> {
-        let current = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
-        let next = (current | set) & !clear;
-        if next == current {
-            return Ok(());
-        }
-        unsafe { SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next as isize) };
-        Ok(())
-    }
 }
 
-/// On other platforms the taskbar is the platform's own business; both calls
-/// succeed as no-ops so the settings toggle still stores cleanly there.
+/// On other platforms the taskbar is the platform's own business; the call
+/// succeeds as a no-op so the settings toggle still stores cleanly there.
 #[cfg(not(windows))]
 mod imp {
     use super::TaskbarAttention;
 
-    pub fn set_taskbar_visible(_window: &tauri::WebviewWindow, _visible: bool) -> Result<(), String> {
-        Ok(())
-    }
-
     pub fn flash(_window: &tauri::WebviewWindow, _attention: TaskbarAttention) -> Result<(), String> {
         Ok(())
     }
-}
-
-/// Keep the main window in the taskbar (or let it be a background window).
-#[tauri::command]
-pub fn window_set_taskbar_visible(
-    window: tauri::WebviewWindow,
-    visible: bool,
-) -> Result<(), String> {
-    imp::set_taskbar_visible(&window, visible)
 }
 
 /// Flash the window's taskbar button.

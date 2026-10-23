@@ -21,6 +21,7 @@ pub mod screenshot;
 pub mod secrets;
 pub mod shell;
 pub mod taskbar;
+pub mod tray;
 pub mod vibrancy;
 pub mod window_presentation;
 pub mod workspace;

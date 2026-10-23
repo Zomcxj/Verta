@@ -260,10 +260,21 @@ pub fn run() {
             }
             if let Some(main) = _app.get_webview_window("main") {
                 let handle = _app.handle().clone();
-                main.on_window_event(move |event| {
-                    // CloseRequested can be cancelled by the frontend guard, so act on
-                    // Destroyed: by then the guard has already agreed to the close.
-                    if matches!(event, WindowEvent::Destroyed) {
+                main.on_window_event(move |event| match event {
+                    // Closing hides the window instead of ending the process while the
+                    // preference says so: the tray keeps it reachable, and the terminals
+                    // behind the hidden window keep running. When the preference is off
+                    // the close goes through and the frontend guard has already asked
+                    // about unsaved work by the time it does.
+                    WindowEvent::CloseRequested { api, .. } => {
+                        if modules::tray::should_close_to_tray() {
+                            api.prevent_close();
+                            if let Some(window) = handle.get_webview_window("main") {
+                                let _ = window.hide();
+                            }
+                        }
+                    }
+                    WindowEvent::Destroyed => {
                         // Both of these are hidden rather than destroyed. On their own they
                         // would leave the process running with no window on screen, which is
                         // what "I quit it hours ago and verta.exe is still there" was.
@@ -277,6 +288,7 @@ pub fn run() {
                         #[cfg(not(target_os = "macos"))]
                         handle.exit(0);
                     }
+                    _ => {}
                 });
             }
             Ok(())
@@ -449,8 +461,10 @@ pub fn run() {
             vibrancy::window_backdrop_kind,
             vibrancy::window_active_backdrop,
             vibrancy::window_set_backdrop,
-            modules::taskbar::window_set_taskbar_visible,
             modules::taskbar::window_flash_taskbar,
+            modules::tray::app_quit,
+            modules::tray::tray_set_close_to_tray,
+            modules::tray::tray_set_labels,
             modules::window_presentation::window_presentation_state,
             screenshot::screenshot_begin,
             screenshot::screenshot_finish,

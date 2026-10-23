@@ -37,7 +37,6 @@ import { setLspNavigator } from "@/modules/lsp";
 import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { useAgentAttentionFlash } from "@/app/hooks/useAgentAttentionFlash";
-import { useTaskbarPresence } from "@/app/hooks/useTaskbarPresence";
 import { useT } from "@/modules/i18n";
 import {
   basename as projectBasename,
@@ -138,6 +137,7 @@ import { WorkspaceInputBar } from "./components/WorkspaceInputBar";
 import { WorkspaceSurface } from "./components/WorkspaceSurface";
 import { hasOpenPathTab, renamedPath } from "./hooks/tabCloseGuards";
 import { useAppCloseGuard } from "./hooks/useAppCloseGuard";
+import { useTray } from "./hooks/useTray";
 import { useTabCloseGuards } from "./hooks/useTabCloseGuards";
 import { useWorkspaceSwitcher } from "./hooks/useWorkspaceSwitcher";
 
@@ -396,7 +396,6 @@ export default function App() {
 
   useWindowTitle(activeTab, explorerRoot);
 
-  useTaskbarPresence();
   const taskbarAttentionFlash = usePreferencesStore(
     (s) => s.taskbarAttentionFlash,
   );
@@ -480,8 +479,13 @@ export default function App() {
     disposeTabs,
   });
 
-  const { pendingAppClose, confirmAppClose, cancelAppClose } =
-    useAppCloseGuard(tabsRef);
+  const {
+    pendingAppClose,
+    confirmAppClose,
+    cancelAppClose,
+    requestAppQuit,
+  } = useAppCloseGuard(tabsRef);
+  useTray(requestAppQuit);
 
   useEffect(() => {
     const live = new Set<number>();

@@ -834,10 +834,10 @@ const zh = {
   "settings.gitDecorations.title": "Git 标记",
   "settings.gitDecorations.description":
     "在文件树中给已修改的文件着色，并淡化被 gitignore 的条目。",
-  "settings.taskbar": "任务栏",
-  "settings.taskbarVisible.title": "常驻任务栏",
-  "settings.taskbarVisible.description":
-    "在系统任务栏始终保留 Verta 的按钮，与其他应用一样。",
+  "settings.taskbar": "任务栏与通知区域",
+  "settings.closeToTray.title": "关闭时收进托盘",
+  "settings.closeToTray.description":
+    "开启后，关闭主窗口会隐藏到通知区域；关闭后，关闭主窗口会直接退出。",
   "settings.taskbarFlash.title": "任务栏提醒",
   "settings.taskbarFlash.description":
     "智能体等待你回答或完成任务时，让任务栏按钮闪烁。",
@@ -1239,6 +1239,8 @@ const zh = {
   "workspace.branchChip": "分支：{branch}",
   "app.closeWindowFailed": "无法关闭窗口",
   "app.switchWorkspaceDirty": "切换工作区之前，请先保存或关闭未保存的编辑器标签页。",
+  "tray.show": "显示主窗口",
+  "tray.quit": "退出",
   "markdown.saveToPreview": "先保存再看预览",
   "gitDiff.previewUnavailable": "这个文件没有可用的 diff 预览。",
   "gitDiff.binaryFallback": "二进制文件，显示补丁",
@@ -2171,10 +2173,10 @@ const en: Record<MessageKey, string> = {
   "settings.gitDecorations.title": "Git decorations",
   "settings.gitDecorations.description":
     "Tint changed files and dim gitignored entries in the file explorer.",
-  "settings.taskbar": "Taskbar",
-  "settings.taskbarVisible.title": "Keep a taskbar button",
-  "settings.taskbarVisible.description":
-    "Keep Verta in the system taskbar at all times, like any other app.",
+  "settings.taskbar": "Taskbar and notification area",
+  "settings.closeToTray.title": "Close to tray",
+  "settings.closeToTray.description":
+    "When enabled, closing the main window hides it in the notification area; otherwise it exits the app.",
   "settings.taskbarFlash.title": "Taskbar reminders",
   "settings.taskbarFlash.description":
     "Flash the taskbar button when an agent is waiting for an answer or has finished.",
@@ -2584,6 +2586,8 @@ const en: Record<MessageKey, string> = {
   "workspace.branchChip": "Branch: {branch}",
   "app.closeWindowFailed": "Could not close the window",
   "app.switchWorkspaceDirty": "Save or close unsaved editor tabs before switching workspace.",
+  "tray.show": "Show main window",
+  "tray.quit": "Quit",
   "markdown.saveToPreview": "Save to preview",
   "gitDiff.previewUnavailable": "Diff preview is not available for this file.",
   "gitDiff.binaryFallback": "Binary / patch fallback",

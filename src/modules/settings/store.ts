@@ -139,12 +139,8 @@ export type Preferences = {
   editorWordWrapColumn: number;
   showHidden: boolean;
   explorerGitDecorations: boolean;
-  /**
-   * Keep a button for Verta in the taskbar at all times (Windows). On by
-   * default: a frameless window is not guaranteed one, and an app you drive
-   * agents from should be reachable from the taskbar.
-   */
-  taskbarAlwaysVisible: boolean;
+  /** Hide the main window in the tray when its close button is pressed. */
+  closeToTray: boolean;
   /** Flash that button when an agent asks for input or finishes. */
   taskbarAttentionFlash: boolean;
   terminalRenderer: "auto" | "webgl";
@@ -236,7 +232,7 @@ const LEGACY_KEY_SHOW_HIDDEN_DIRS = "showHiddenDirectories";
 const KEY_WSL_ENABLED = "wslEnabled";
 const KEY_WSL_SHUTDOWN_ON_DISABLE = "wslShutdownOnDisable";
 const KEY_EXPLORER_GIT_DECORATIONS = "explorerGitDecorations";
-const KEY_TASKBAR_ALWAYS_VISIBLE = "taskbarAlwaysVisible";
+const KEY_CLOSE_TO_TRAY = "closeToTray";
 const KEY_TASKBAR_ATTENTION_FLASH = "taskbarAttentionFlash";
 const KEY_TERMINAL_RENDERER = "terminalRenderer";
 const KEY_TERMINAL_SCREEN_READER = "terminalScreenReader";
@@ -311,7 +307,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   editorWordWrapColumn: EDITOR_WORD_WRAP_COLUMN_DEFAULT,
   showHidden: false,
   explorerGitDecorations: true,
-  taskbarAlwaysVisible: true,
+  closeToTray: true,
   taskbarAttentionFlash: true,
   terminalRenderer: "auto",
   terminalScreenReader: false,
@@ -406,9 +402,8 @@ export async function loadPreferences(): Promise<Preferences> {
     explorerGitDecorations:
       get<boolean>(KEY_EXPLORER_GIT_DECORATIONS) ??
       DEFAULT_PREFERENCES.explorerGitDecorations,
-    taskbarAlwaysVisible:
-      get<boolean>(KEY_TASKBAR_ALWAYS_VISIBLE) ??
-      DEFAULT_PREFERENCES.taskbarAlwaysVisible,
+    closeToTray:
+      get<boolean>(KEY_CLOSE_TO_TRAY) ?? DEFAULT_PREFERENCES.closeToTray,
     taskbarAttentionFlash:
       get<boolean>(KEY_TASKBAR_ATTENTION_FLASH) ??
       DEFAULT_PREFERENCES.taskbarAttentionFlash,
@@ -607,8 +602,8 @@ export async function setExplorerGitDecorations(value: boolean): Promise<void> {
   await writePref(KEY_EXPLORER_GIT_DECORATIONS, value);
 }
 
-export async function setTaskbarAlwaysVisible(value: boolean): Promise<void> {
-  await writePref(KEY_TASKBAR_ALWAYS_VISIBLE, value);
+export async function setCloseToTray(value: boolean): Promise<void> {
+  await writePref(KEY_CLOSE_TO_TRAY, value);
 }
 
 export async function setTaskbarAttentionFlash(value: boolean): Promise<void> {
@@ -789,7 +784,7 @@ export async function onPreferencesChange(
     [KEY_WSL_ENABLED]: "wslEnabled",
     [KEY_WSL_SHUTDOWN_ON_DISABLE]: "wslShutdownOnDisable",
     [KEY_EXPLORER_GIT_DECORATIONS]: "explorerGitDecorations",
-    [KEY_TASKBAR_ALWAYS_VISIBLE]: "taskbarAlwaysVisible",
+    [KEY_CLOSE_TO_TRAY]: "closeToTray",
     [KEY_TASKBAR_ATTENTION_FLASH]: "taskbarAttentionFlash",
     [KEY_TERMINAL_RENDERER]: "terminalRenderer",
     [KEY_TERMINAL_SCREEN_READER]: "terminalScreenReader",

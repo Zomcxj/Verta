@@ -16,10 +16,10 @@ import {
   setLanguage,
   setConfirmCloseRunningTerminal,
   setDefaultWorkspaceEnv,
+  setCloseToTray,
   setExplorerGitDecorations,
   setRestoreWindowState,
   setShowHidden,
-  setTaskbarAlwaysVisible,
   setTaskbarAttentionFlash,
   setWslEnabled,
   setWslShutdownOnDisable,
@@ -117,9 +117,7 @@ export function GeneralSection() {
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
   );
-  const taskbarAlwaysVisible = usePreferencesStore(
-    (s) => s.taskbarAlwaysVisible,
-  );
+  const closeToTray = usePreferencesStore((s) => s.closeToTray);
   const taskbarAttentionFlash = usePreferencesStore(
     (s) => s.taskbarAttentionFlash,
   );
@@ -212,18 +210,18 @@ export function GeneralSection() {
         </div>
       </div>
 
-      {/* Both switches drive Windows' taskbar only; elsewhere they would be dead
-          controls, so the group is not shown at all. */}
+      {/* These switches drive Windows' taskbar and tray only, so they are hidden
+          elsewhere. */}
       {IS_WINDOWS ? (
         <div className="flex flex-col gap-2">
           <Label>{t("settings.taskbar")}</Label>
           <SettingRow
-            title={t("settings.taskbarVisible.title")}
-            description={t("settings.taskbarVisible.description")}
+            title={t("settings.closeToTray.title")}
+            description={t("settings.closeToTray.description")}
           >
             <Switch
-              checked={taskbarAlwaysVisible}
-              onCheckedChange={(v) => void setTaskbarAlwaysVisible(v)}
+              checked={closeToTray}
+              onCheckedChange={(v) => void setCloseToTray(v)}
             />
           </SettingRow>
           <SettingRow
