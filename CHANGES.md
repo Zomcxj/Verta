@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**Repo panels reuse a recent read instead of asking again**
+
+- `src/modules/remotes/lib/listSnapshot.ts` (new): a small time-boxed cache keyed by what was read — repo, plus the state filter for issues — so a list is served again while it is younger than two minutes (ten for the permission answer, which changes when the user changes it rather than while they browse). The panels drop a key when they change something themselves, so an action never leaves a stale list behind.
+- `src/modules/remotes/RunListDialog.tsx`, `src/modules/remotes/IssuesDialog.tsx`, `src/modules/remotes/ReleasesDialog.tsx`: reopening the same repo paints from that read instead of spending the requests again; the run list still reports to the row's CI badge from the cached payload. Issues needed the filter in the effect's dependencies, since the cache is keyed by it.
+- `src/modules/remotes/lib/listSnapshot.test.ts` (new): keys stay apart, entries expire at the TTL, forgetting forces a re-read, and a stored falsy value is still a hit.
+
 **Taskbar: a permanent button, and a flash when an agent needs you**
 
 - `src-tauri/src/modules/taskbar.rs` (new): two commands. One asks the shell for a taskbar button or deletes it (the window-style bits the shell reads, plus the taskbar's own add / delete tab call), the other flashes that button — until the window comes to the front for "an agent is asking", a fixed handful of times for "finished".

@@ -41,6 +41,12 @@ import {
   issueNotice,
   toRows,
 } from "./lib/issues";
+import {
+  LIST_SNAPSHOT_TTL_MS,
+  PERMISSION_SNAPSHOT_TTL_MS,
+  readListSnapshot,
+  writeListSnapshot,
+} from "./lib/listSnapshot";
 import { canWrite, readOnlyHintKey } from "./lib/permission";
 
 type Props = {
@@ -105,12 +111,25 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
   const readOnlyHint = readOnlyHintKey(permission);
 
   useEffect(() => {
+    if (!repo) {
+      setPermission(null);
+      return;
+    }
+    const key = `permission:${repo}`;
+    const cached = readListSnapshot<WireRepoPermissionPayload>(
+      key,
+      PERMISSION_SNAPSHOT_TTL_MS,
+    );
+    if (cached) {
+      setPermission(cached);
+      return;
+    }
     setPermission(null);
-    if (!repo) return;
     let alive = true;
     native
       .githubRepoPermission(repo)
       .then((result) => {
+        writeListSnapshot(key, result);
         if (alive) setPermission(result);
       })
       .catch(() => {});
@@ -133,6 +152,7 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
     try {
       const result = await native.githubIssues(repo, state);
       if (request !== listRequest.current) return;
+      writeListSnapshot(`issues:${repo}:${state}`, result);
       setPayload(result);
     } catch (e) {
       if (request !== listRequest.current) return;
@@ -158,8 +178,18 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
       setKeyword("");
       return;
     }
+    // Served from the last read while it is fresh: the same repo, the same
+    // filter, so the answer can only differ if something changed it outside.
+    const cached = readListSnapshot<WireIssueListPayload>(
+      `issues:${repo}:${state}`,
+      LIST_SNAPSHOT_TTL_MS,
+    );
+    if (cached) {
+      setPayload(cached);
+      return;
+    }
     void load();
-  }, [repo, load]);
+  }, [repo, state, load]);
 
   const openDetail = useCallback(async (number: number) => {
     if (!repo) return;

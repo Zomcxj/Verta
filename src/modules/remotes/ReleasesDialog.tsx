@@ -17,6 +17,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ReleaseDetail } from "./ReleaseDetail";
+import { readListSnapshot, writeListSnapshot } from "./lib/listSnapshot";
 import { pickDownloadDir } from "./lib/pickDownloadDir";
 import {
   type DownloadEntry,
@@ -62,7 +63,9 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
     setReading(true);
     setFatal(null);
     try {
-      setPayload(await native.githubReleases(repo));
+      const payload = await native.githubReleases(repo);
+      writeListSnapshot(`releases:${repo}`, payload);
+      setPayload(payload);
     } catch (error) {
       setPayload(null);
       setFatal(String(error));
@@ -74,10 +77,17 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
   useEffect(() => {
     if (!repo || loadedRepo.current === repo) return;
     loadedRepo.current = repo;
-    setPayload(null);
     setFatal(null);
     setDetail(null);
     setDownloads({});
+    // A read from a few moments ago is as good as asking again, and this dialog
+    // is closed and reopened constantly while browsing repos.
+    const cached = readListSnapshot<WireReleasesPayload>(`releases:${repo}`);
+    if (cached) {
+      setPayload(cached);
+      return;
+    }
+    setPayload(null);
     void load();
   }, [repo, load]);
 

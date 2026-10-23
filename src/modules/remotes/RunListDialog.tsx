@@ -25,6 +25,12 @@ import { useT, type MessageKey } from "@/modules/i18n";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { TONE_CLASS } from "./lib/ci";
+import {
+  LIST_SNAPSHOT_TTL_MS,
+  PERMISSION_SNAPSHOT_TTL_MS,
+  readListSnapshot,
+  writeListSnapshot,
+} from "./lib/listSnapshot";
 import { canWrite, readOnlyHintKey } from "./lib/permission";
 import { RunDetail } from "./RunDetail";
 import { runRowView, withoutRun } from "./lib/runs";
@@ -107,12 +113,25 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
    * as if allowed" so GitHub gets to refuse.
    */
   useEffect(() => {
+    if (!repo) {
+      setPermission(null);
+      return;
+    }
+    const key = `permission:${repo}`;
+    const cached = readListSnapshot<WireRepoPermissionPayload>(
+      key,
+      PERMISSION_SNAPSHOT_TTL_MS,
+    );
+    if (cached) {
+      setPermission(cached);
+      return;
+    }
     setPermission(null);
-    if (!repo) return;
     let alive = true;
     native
       .githubRepoPermission(repo)
       .then((payload) => {
+        writeListSnapshot(key, payload);
         if (alive) setPermission(payload);
       })
       .catch(() => {});
@@ -127,6 +146,7 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
     setFatal(null);
     try {
       const payload = await native.githubRepoRuns(repo);
+      writeListSnapshot(`runs:${repo}`, payload);
       setPayload(payload);
       // The badge follows the panel: one fact, one source.
       onLoaded?.(payload);
@@ -149,8 +169,19 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
       setDeletedIds([]);
       return;
     }
+    // Reopening the same repo inside the snapshot window is served from the last
+    // read: this panel is read-only, and every action below refreshes it.
+    const cached = readListSnapshot<WireRepoActionRunsPayload>(
+      `runs:${repo}`,
+      LIST_SNAPSHOT_TTL_MS,
+    );
+    if (cached) {
+      setPayload(cached);
+      onLoaded?.(cached);
+      return;
+    }
     void load();
-  }, [repo, load]);
+  }, [repo, load, onLoaded]);
 
   const close = (next: boolean) => {
     if (busy) return;
