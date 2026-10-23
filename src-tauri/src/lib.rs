@@ -137,16 +137,19 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     #[cfg_attr(windows, allow(unused_variables))]
     let window = builder.build().map_err(|e| e.to_string())?;
 
-    // 关掉设置窗口只是把它藏起来，不销毁 webview。
+    // Closing the settings window only hides it; the webview is not destroyed.
     //
-    // 原来走默认的「关 = 销毁」：下一次 `open_settings_window` 得重建整个 webview
-    // （拉 JS、起 React、连 IPC），用户点「设置」到看见内容要等上好几秒 —— 被当成 bug 报过。
-    // 藏起来之后第二次打开几乎是瞬时的；代价是一个闲置的设置窗口常驻（它的 WebContent
-    // 进程会留着），所以真正要释放时由主窗口不可见/退出时统一销毁（见 run() 里的窗口事件）。
+    // The default "close = destroy" was used before: the next `open_settings_window` had to
+    // rebuild the whole webview (fetch JS, boot React, connect IPC), so clicking "Settings"
+    // meant waiting several seconds for content — which was reported as a bug. Hidden, the
+    // second open is near-instant; the cost is an idle settings window lingering (its
+    // WebContent process stays), so real teardown happens when the main window is hidden
+    // or exits (see the window events in run()).
     let hide_instead_of_close = window.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
-            // 只拦「用户点关闭」这一路；程序里主动 destroy 走的是 Destroyed，不受影响。
+            // Only the "user clicked close" path is intercepted; an explicit destroy from
+            // code goes through Destroyed and is unaffected.
             api.prevent_close();
             let _ = hide_instead_of_close.hide();
         }

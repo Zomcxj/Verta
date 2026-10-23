@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::modules::workspace::WorkspaceEnv;
 
-/// 前端要查状态的一个项目。环境随请求走：同一个列表里可能混着本机与发行版里的项目，
-/// 状态必须在项目所在的那一侧去取。
+/// A project whose status the frontend is asking about. The environment travels with the
+/// request: one list may mix host projects with distro projects, and status must be read
+/// on the side the project actually lives on.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectTarget {
@@ -12,12 +13,15 @@ pub struct ProjectTarget {
     pub workspace: WorkspaceEnv,
 }
 
-/// 一个项目的状态。`kind` 说明这次查到了什么，其余字段按它的含义填：
+/// A project's status. `kind` says what was found; the remaining fields are filled
+/// accordingly:
 ///
-/// - `repo`：真的是 git 仓库，后面各字段有效；
-/// - `notRepo`：路径在，但它（以及所有上级）不在仓库里；
-/// - `missing`：路径不存在（盘拔了、目录改名、发行版没开）；
-/// - `error`：其它失败，原因在 `error` 里如实带出来，不伪装成「干净」。
+/// - `repo`: it really is a git repository, so the other fields are valid;
+/// - `notRepo`: the path exists but neither it nor any parent is inside a repository;
+/// - `missing`: the path does not exist (drive unplugged, directory renamed, distro not
+///   running);
+/// - `error`: any other failure, with the cause carried in `error` — never disguised as
+///   a clean tree.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectStatus {
@@ -30,9 +34,9 @@ pub struct ProjectStatus {
     pub ahead: u32,
     pub behind: u32,
     pub detached: bool,
-    /// 未提交的文件数（含未跟踪）。
+    /// Number of uncommitted files (untracked included).
     pub dirty: u32,
-    /// 储藏条数。
+    /// Number of stash entries.
     pub stashed: u32,
     pub error: Option<String>,
 }

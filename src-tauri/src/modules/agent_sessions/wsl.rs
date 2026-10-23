@@ -38,15 +38,17 @@ con = sqlite3.connect("file:" + path + "?mode=ro", uri=True, timeout=3)
 rows = None
 for table in ("session_v2", "session"):
     try:
-        # 轮数 / tokens / 最后对话时间跟本机那条查询同一套口径；老库没有 tokens 列时给 NULL。
+        # Turns / tokens / last-talked time follow the same rules as the query for this
+        # machine; give NULL when an old store has no tokens columns.
         cols = {r[1] for r in con.execute("pragma table_info('" + table + "')")}
         tokens = (
             "coalesce(tokens_input,0)+coalesce(tokens_output,0)+coalesce(tokens_reasoning,0)"
             "+coalesce(tokens_cache_read,0)+coalesce(tokens_cache_write,0)"
             if "tokens_input" in cols else "NULL"
         )
-        # 消息表有两代：新版写 `session_message`（`type` 列就是角色），
-        # 老版写 `message`（角色埋在 data 的 JSON 里）。优先新表 —— 两表并存时旧的已经不更新了。
+        # Two generations of message table: new versions write `session_message` (the
+        # `type` column is the role), old ones write `message` (the role sits in the JSON
+        # under data). Prefer the new table — the old one stops being updated once both exist.
         msg_tables = {r[0] for r in con.execute("select name from sqlite_master where type='table'")}
         if "session_message" in msg_tables:
             msg_table, is_user = "session_message", "m.type = 'user'"
@@ -54,7 +56,7 @@ for table in ("session_v2", "session"):
             msg_table, is_user = "message", "json_extract(m.data, '$.role') = 'user'"
         else:
             msg_table, is_user = None, None
-        # 轮数按**用户消息**数（一轮里助手要发好几条）。
+        # Turns count **user messages** (the assistant posts several per turn).
         turns = (
             "(select count(*) from " + msg_table + " m where m.session_id = " + table + ".id and " + is_user + ")"
             if msg_table else "NULL"
@@ -295,7 +297,8 @@ mod tests {
 
     #[test]
     fn two_writes_never_share_one_file() {
-        // 面板的刷新会重叠；同名文件会被先跑完的那次删掉，另一条就找不到脚本。
+        // Panel refreshes overlap; a shared file name would be deleted by whichever run
+        // finishes first, leaving the other unable to find its script.
         let first = write_script().expect("first script");
         let second = write_script().expect("second script");
         assert_ne!(first, second);

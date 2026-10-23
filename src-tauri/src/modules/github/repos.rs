@@ -1,31 +1,35 @@
-//! 远程仓库列表里的纯逻辑：拼分页路径、解析 gh 的 JSON、判定失败类别。
+//! Pure logic for the remote repository list: build paging paths, parse gh's JSON,
+//! classify failures.
 //!
-//! 这里不跑进程、不读凭据、不联网，单测可以直接调。
+//! Nothing here spawns processes, reads credentials or touches the network, so the
+//! tests can call it directly.
 
 use serde::Deserialize;
 
 use super::types::{RemoteRepo, KIND_ERROR, KIND_NOT_LOGGED_IN};
 
-/// GitHub 的 `user/repos` 允许的最大每页条数。
+/// The largest page size GitHub's `user/repos` allows.
 pub const MAX_PER_PAGE: usize = 100;
-/// 翻页上限。10 页 × 100 条足够覆盖绝大多数账号，再多只是把时间花在网络上。
+/// Page limit. 10 pages × 100 rows covers the vast majority of accounts; beyond that
+/// it only spends time on the network.
 pub const MAX_PAGES: usize = 10;
 
-/// `gh api` 取仓库用的分页路径。三类 affiliation 都要：自己的、被拉去协作的、
-/// 通过组织成员身份能看到的。
+/// The paged path for fetching repos with `gh api`. All three affiliations are needed:
+/// owned, collaborator, and visible through organization membership.
 pub fn page_path(page: usize, per_page: usize) -> String {
     format!(
         "user/repos?per_page={per_page}&page={page}&sort=pushed&affiliation=owner,collaborator,organization_member"
     )
 }
 
-/// 这一页是否说明「后面还有」：只有返回条数等于每页条数时才继续翻。
-/// 不满页就说明到末尾了（这个接口是顺序的，不会中途给个不满页）。
+/// Whether a page means "there is more": keep paging only when the row count equals the
+/// page size. A short page means the end (the endpoint is ordered and never returns a
+/// short page mid-way).
 pub fn should_continue_page(count: usize, per_page: usize) -> bool {
     per_page > 0 && count >= per_page
 }
 
-/// 一次 gh 调用失败属于哪一类。
+/// Which category a failed gh call falls into.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Failure {
     NotLoggedIn,
@@ -41,16 +45,17 @@ impl Failure {
     }
 }
 
-/// 按 gh 的原文判类别。`text` 是这一跳的 stdout + stderr。
+/// Classify by gh's own wording. `text` is the stdout + stderr of this hop.
 ///
-/// 分类口径：
-/// - gh 未登录时会引导 `gh auth login`（"To get started with GitHub CLI, please run:
-///   gh auth login"），归 `notLoggedIn`；
-/// - keyring 里的 token 失效时 `gh auth status` 仍 exit 0，但输出里带
-///   "token in keyring is invalid"，这个也得归 `notLoggedIn`；
-/// - `bad credentials` / `HTTP 401` 是凭据无效，同样归 `notLoggedIn`；
-/// - `HTTP 403` 不归未登录：它更常见的是限流（"API rate limit exceeded"）或权限不足
-///   （"Resource not accessible by integration"），用户重新登录也没用，照实归 `error`。
+/// Rules:
+/// - when logged out, gh points at `gh auth login` ("To get started with GitHub CLI,
+///   please run: gh auth login") → `notLoggedIn`;
+/// - an expired keyring token leaves `gh auth status` exiting 0 with "token in keyring
+///   is invalid" in the output, which also counts as `notLoggedIn`;
+/// - `bad credentials` / `HTTP 401` mean invalid credentials, likewise `notLoggedIn`;
+/// - `HTTP 403` is not logged-out: it is far more often a rate limit ("API rate limit
+///   exceeded") or insufficient permissions ("Resource not accessible by integration"),
+///   where logging in again does not help, so it is honestly an `error`.
 pub fn classify_failure(text: &str) -> Failure {
     const NOT_LOGGED_IN_HINTS: [&str; 7] = [
         "gh auth login",
@@ -72,9 +77,10 @@ pub fn classify_failure(text: &str) -> Failure {
     }
 }
 
-/// `gh api ... --jq <expr>` 打印出来的单个值。
+/// A single value printed by `gh api ... --jq <expr>`.
 ///
-/// 空输出、或 jq 对空值打印的 `null`，都算「没有」；尾换行与前后空格吃掉。
+/// Empty output, or the `null` jq prints for a null value, both count as "absent";
+/// trailing newlines and surrounding spaces are trimmed.
 pub fn parse_login(text: &str) -> Option<String> {
     let value = text.lines().map(str::trim).find(|line| !line.is_empty())?;
     if value == "null" {
@@ -84,17 +90,19 @@ pub fn parse_login(text: &str) -> Option<String> {
     }
 }
 
-/// 解析 `gh api user/repos` 的响应体。
+/// Parse the body of `gh api user/repos`.
 ///
-/// 逐条容错：单个条目缺 `full_name`（或它不是 `owner/name` 形状）就丢掉那一条，
-/// 不影响整页；`fork` / `archived` / `private` 缺省当 false；`owner.login` 缺失时
-/// 用 `full_name` 的前半段补，不 panic。
+/// Tolerant per entry: an entry without `full_name` (or not shaped like `owner/name`) is
+/// dropped without affecting the page; `fork` / `archived` / `private` default to false;
+/// a missing `owner.login` is filled from the first half of `full_name` rather than
+/// panicking.
 pub fn parse_repos(json: &str) -> Result<Vec<RemoteRepo>, serde_json::Error> {
     let raw: Vec<RawRepo> = serde_json::from_str(json)?;
     Ok(raw.into_iter().filter_map(convert).collect())
 }
 
-/// gh 的失败原文照抄给前端，但别把整篇 usage 塞过去：最多 5 行 / 600 字符。
+/// gh's failure text is passed to the frontend verbatim, but without the whole usage
+/// dump: at most 5 lines / 600 characters.
 pub fn error_excerpt(text: &str) -> String {
     const MAX_LINES: usize = 5;
     const MAX_CHARS: usize = 600;
@@ -297,7 +305,7 @@ mod tests {
 
     #[test]
     fn classify_failure_knows_the_unlogged_in_wording() {
-        // keyring 里的 token 失效：`gh auth status` 仍 exit 0，但输出里有这句。
+        // An expired keyring token: `gh auth status` still exits 0, but prints this line.
         assert_eq!(
             classify_failure("The token in keyring is invalid. Run gh auth login to renew."),
             Failure::NotLoggedIn

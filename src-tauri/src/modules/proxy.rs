@@ -1,13 +1,17 @@
-//! 给外部程序准备的代理地址（现在给 `gh` 用，将来 git 的 fetch / push / clone 也要用）。
+//! Proxy addresses for external programs (used by `gh` today; git's fetch / push /
+//! clone will need them too).
 //!
-//! `gh` 不读 Windows 的 Internet 设置，而进程继承来的 `HTTPS_PROXY` 可能是**空串**
-//! （本机就是：变量在、值为空），于是它直连 `api.github.com`，在有代理的机器上只会拿到
-//! `TLS handshake timeout`。这里按「显式传入 > 环境变量 > 系统设置」取一个地址塞给子进程，
-//! 并把继承来的那几个代理变量先清掉，免得空串或过期的值干扰。
+//! `gh` ignores Windows' Internet settings, and the inherited `HTTPS_PROXY` may be an
+//! **empty string** (as on this machine: the variable exists, its value is blank), so it
+//! connects to `api.github.com` directly and on a machine behind a proxy only ever gets
+//! `TLS handshake timeout`. This resolves an address by "explicit > environment > system
+//! settings", hands it to the child process, and clears the inherited proxy variables
+//! first so empty or stale values cannot interfere.
 
 use std::process::Command;
 
-/// 子进程环境里跟代理有关的变量：先全清，再按需要设回大写那几个。
+/// Proxy-related variables in the child environment: all cleared first, then the
+/// upper-case ones set back as needed.
 const PROXY_ENV_KEYS: [&str; 6] = [
     "HTTP_PROXY",
     "HTTPS_PROXY",
@@ -17,7 +21,8 @@ const PROXY_ENV_KEYS: [&str; 6] = [
     "all_proxy",
 ];
 
-/// 空串等同于「没设」。界面上留白的输入框、环境里的空变量都会走到这里。
+/// An empty string counts as "not set". Blank inputs in the UI and empty environment
+/// variables both end up here.
 pub fn normalize(value: Option<&str>) -> Option<String> {
     let trimmed = value?.trim();
     if trimmed.is_empty() {
@@ -27,19 +32,19 @@ pub fn normalize(value: Option<&str>) -> Option<String> {
     }
 }
 
-/// 从 `ProxyServer` 这类字符串里取出能用的 http(s) 代理地址，取不到就 None。
+/// Extract a usable http(s) proxy address from strings like `ProxyServer`, or None.
 ///
-/// - `127.0.0.1:7890`：只有主机端口，按 http 代理补上 scheme；
-/// - `http=127.0.0.1:7890;https=127.0.0.1:7891`：按条目取，优先 https；
-/// - `socks=127.0.0.1:1080`：只有 socks 条目时返回 None（gh 不能直接吃）；
-/// - 空串、认不出的串返回 None。
+/// - `127.0.0.1:7890`: host and port only, so the http scheme is filled in;
+/// - `http=127.0.0.1:7890;https=127.0.0.1:7891`: per-entry, preferring https;
+/// - `socks=127.0.0.1:1080`: None when only socks entries exist (gh cannot use them);
+/// - empty or unrecognised strings: None.
 pub fn parse_proxy_server(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return None;
     }
 
-    // 已经是完整地址：只认 http(s)，别的（socks、ftp）一律不要。
+    // Already a full address: only http(s) is accepted, nothing else (socks, ftp).
     if trimmed.contains("://") {
         let value = trimmed.trim_end_matches('/');
         return if value.starts_with("http://") || value.starts_with("https://") {
@@ -58,17 +63,18 @@ pub fn parse_proxy_server(raw: &str) -> Option<String> {
         }
         let (scheme, value) = match entry.split_once('=') {
             Some((scheme, value)) => (scheme.trim().to_ascii_lowercase(), value.trim()),
-            // 光秃秃一个主机端口：按 http 代理算。
+            // A bare host and port: treat it as an http proxy.
             None => ("http".to_string(), entry),
         };
         if value.is_empty() || value.contains(char::is_whitespace) {
             continue;
         }
-        // `https=` 给的是「https 请求走哪个代理」，代理本身仍是 http 端点。
+        // `https=` says which proxy https requests use; the proxy itself is still an
+        // http endpoint.
         let endpoint = format!("http://{value}");
         match scheme.as_str() {
             "https" => https = Some(endpoint),
-            // 同一档里出现多个 http 条目时取第一个。
+            // With several http entries in the same tier, take the first.
             "http" if http.is_none() => http = Some(endpoint),
             _ => {}
         }
@@ -76,19 +82,21 @@ pub fn parse_proxy_server(raw: &str) -> Option<String> {
     https.or(http)
 }
 
-/// 环境变量里的代理。大小写都认，空串当没设。
+/// The proxy from environment variables. Case-insensitive; an empty string counts as
+/// unset.
 pub fn from_env() -> Option<String> {
     ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]
         .into_iter()
         .find_map(|key| normalize(std::env::var(key).ok().as_deref()))
 }
 
-/// 本次调用实际用的代理：显式传入 > 环境变量 > 系统设置。
+/// The proxy actually used for this call: explicit > environment > system settings.
 pub fn resolve(explicit: Option<&str>) -> Option<String> {
     normalize(explicit).or_else(from_env).or_else(from_system)
 }
 
-/// 把代理应用到子进程：先清掉继承来的那几个变量，再按需要设回。
+/// Apply the proxy to a child process: clear the inherited variables first, then set
+/// them back as needed.
 pub fn apply(cmd: &mut Command, proxy: Option<&str>) {
     for key in PROXY_ENV_KEYS {
         cmd.env_remove(key);
@@ -100,7 +108,7 @@ pub fn apply(cmd: &mut Command, proxy: Option<&str>) {
     }
 }
 
-/// 系统设置里的代理。
+/// The proxy from system settings.
 #[cfg(windows)]
 pub fn from_system() -> Option<String> {
     use windows_sys::Win32::System::Registry::{
@@ -109,7 +117,7 @@ pub fn from_system() -> Option<String> {
 
     const KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
 
-    // ProxyEnable 不是 1（或读不到）就按没开代理算。
+    // If ProxyEnable is not 1 (or cannot be read), treat proxying as off.
     let mut enabled: u32 = 0;
     let mut size = std::mem::size_of::<u32>() as u32;
     let status = unsafe {
@@ -131,7 +139,7 @@ pub fn from_system() -> Option<String> {
     parse_proxy_server(&raw)
 }
 
-/// 非 Windows 上系统设置就是环境变量那一份。
+/// Off Windows, system settings are just the environment variables.
 #[cfg(not(windows))]
 pub fn from_system() -> Option<String> {
     from_env()
@@ -142,7 +150,7 @@ fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// 读一个 REG_SZ：先问长度，再取内容。
+/// Read a REG_SZ: ask for the length first, then read the value.
 #[cfg(windows)]
 fn read_registry_string(
     root: windows_sys::Win32::System::Registry::HKEY,
@@ -167,7 +175,7 @@ fn read_registry_string(
         return None;
     }
 
-    // size 是字节数（含结尾的 NUL），多要一个 u16 兜底。
+    // size is in bytes (including the trailing NUL); allocate one extra u16 as slack.
     let mut buffer = vec![0u16; (size as usize / 2) + 1];
     let status = unsafe {
         RegGetValueW(
@@ -243,7 +251,8 @@ mod tests {
 
     #[test]
     fn an_explicit_setting_wins_over_everything_else() {
-        // 环境变量在本机是空串，正好验证「空串不算设置了代理」。
+        // On this machine the environment variable is an empty string, which exercises
+        // "an empty string is not a configured proxy".
         assert_eq!(
             resolve(Some("http://127.0.0.1:9999")).as_deref(),
             Some("http://127.0.0.1:9999")
@@ -274,8 +283,8 @@ mod tests {
 
     #[test]
     fn applying_no_proxy_leaves_no_proxy_values_behind() {
-        // 注意 `env_remove` 对「父进程里本来就没有」的变量是 no-op，不会留下记录，
-        // 所以这里断言的是「没有任何代理变量被设成值」。
+        // Note that `env_remove` is a no-op for variables absent from the parent, leaving
+        // no record, so this only asserts that no proxy variable holds a value.
         let mut cmd = Command::new("gh");
         apply(&mut cmd, None);
         for (key, value) in cmd.get_envs() {

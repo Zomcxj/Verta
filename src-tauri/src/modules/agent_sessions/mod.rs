@@ -40,11 +40,12 @@ pub async fn agent_sessions_delete(targets: Vec<SessionTarget>) -> DeleteReport 
         .unwrap_or_default()
 }
 
-/// 给会话改个名字（只改名，不做会话管理）。
+/// Rename a session (rename only, no session management).
 ///
-/// 两种工具各用自己的写法：opencode 改库里 `title` 这一列，pi 往会话文件追加一行
-/// `session_info`（它自己 `/name` 就是这么做的）。名字只写进会话自己的存储，不动任何别的列，
-/// 所以改名**不会**把会话在列表里顶到前面去。
+/// Each tool has its own mechanism: opencode updates the `title` column, pi appends a
+/// `session_info` line to the session file (which is what its own `/name` does). The name
+/// is written only to the session's own storage and no other column is touched, so a
+/// rename **never** pushes the session to the top of the list.
 #[tauri::command]
 pub async fn agent_sessions_rename(
     tool: String,

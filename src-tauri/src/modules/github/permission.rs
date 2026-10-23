@@ -1,9 +1,11 @@
-//! 一个仓库的当前账号权限：界面据此决定写操作按钮在不在。
+//! The current account's permission on a repository; the UI decides from it whether to
+//! offer write actions.
 //!
-//! 取数走 `gh repo view <slug> --json viewerPermission --jq .viewerPermission`，
-//! 起进程在 `commands.rs`，这里只放能单测的纯逻辑。
+//! Fetched via `gh repo view <slug> --json viewerPermission --jq .viewerPermission`.
+//! Process spawning lives in `commands.rs`; only unit-testable logic is here.
 
-/// 把 `--jq .viewerPermission` 的输出读成权限名；空输出算查不到。
+/// Read the output of `--jq .viewerPermission` as a permission name; empty output means
+/// unknown.
 pub fn parse_permission(stdout: &str) -> Option<String> {
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
@@ -13,11 +15,12 @@ pub fn parse_permission(stdout: &str) -> Option<String> {
     }
 }
 
-/// 这个权限能不能做写操作。
+/// Whether this permission allows write operations.
 ///
-/// GitHub 给的是 `ADMIN` / `MAINTAIN` / `WRITE` / `TRIAGE` / `READ`，前三个能写。
-/// **查不到、或者是我们不认识的档位时返回 true**：按钮照常渲染，点下去由 GitHub 拒绝并透传原文。
-/// 反过来把按钮全藏了，会让一个本来能操作的用户彻底没入口。
+/// GitHub reports `ADMIN` / `MAINTAIN` / `WRITE` / `TRIAGE` / `READ`, of which the first
+/// three may write. **Unknown or unrecognised levels return true**: the buttons still
+/// render, and GitHub rejects the click with its own message. Hiding them instead would
+/// leave a perfectly capable user with no way in.
 pub fn write_allowed(permission: Option<&str>) -> bool {
     let Some(level) = permission else {
         return true;
@@ -25,19 +28,22 @@ pub fn write_allowed(permission: Option<&str>) -> bool {
     !matches!(level.trim().to_ascii_uppercase().as_str(), "TRIAGE" | "READ")
 }
 
-/// 能不能改仓库设置（改描述 / 切可见性 / 删仓库）。
+/// Whether the repository settings may be changed (edit description / toggle visibility
+/// / delete).
 ///
-/// 这几件事 GitHub 只让管理员做，所以比 [`write_allowed`] 严：只有 `ADMIN` 算数。
-/// **查不到、或者是不认识的档位时同样返回 true** —— 理由和写操作一样，宁可让 GitHub 拒。
+/// GitHub only allows admins to do these, so this is stricter than [`write_allowed`]:
+/// only `ADMIN` counts. **Unknown or unrecognised levels also return true** — for the same
+/// reason as write access, better to let GitHub reject it.
 pub fn admin_allowed(permission: Option<&str>) -> bool {
     let Some(level) = permission else {
         return true;
     };
     let level = level.trim().to_ascii_uppercase();
     match level.as_str() {
-        // 空输出算查不到；不认识的档位同理按「有权限」渲染，点了让 GitHub 拒。
+        // Empty output means unknown; unrecognised levels likewise render as "allowed" and
+        // let GitHub reject the click.
         "" | "ADMIN" => true,
-        // 认得的档位里，除了 ADMIN 都不够改设置。
+        // Among the recognised levels, anything but ADMIN is insufficient for settings.
         "MAINTAIN" | "WRITE" | "TRIAGE" | "READ" => false,
         _ => true,
     }

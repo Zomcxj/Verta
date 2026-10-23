@@ -1,7 +1,8 @@
-//! GitHub 面板：借本机已登录的 gh CLI 取当前账号能访问的仓库、CI 状态、运行列表与运行详情
-//! （job/step 与日志），并能重跑/取消一次运行。
+//! GitHub panel: use the locally logged-in gh CLI to fetch the repositories the current
+//! account can reach, CI status, run lists and run details (job/step and logs), and to
+//! rerun / cancel a run.
 //!
-//! Releases 与资产下载留给后续切片。
+//! Releases and asset downloads come in a later slice.
 
 mod actions;
 mod auth;

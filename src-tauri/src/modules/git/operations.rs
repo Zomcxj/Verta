@@ -162,7 +162,8 @@ fn status_inner(repo_root: &ResolvedGitDirectory) -> Result<GitStatusSnapshot> {
     })
 }
 
-/// 储藏条数。`git stash list` 的每一行是一条储藏，数行数即可。
+/// Number of stash entries. Each line of `git stash list` is one entry, so just
+/// count the lines.
 pub fn stash_count(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -173,7 +174,8 @@ pub fn stash_count(
     Ok(lines.len() as u32)
 }
 
-/// 储藏列表。用 NUL 分隔引用与说明，避免说明里的空格把解析搅乱。
+/// The stash list. Reference and description are NUL separated so spaces in the
+/// description cannot confuse parsing.
 pub fn stash_list(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -186,12 +188,12 @@ pub fn stash_list(
         &repo_root.git_path,
         ["stash", "list", "--format=%gd%x00%gs"],
     )?;
-    // 复用行列表再拼回一段文本，解析逻辑只写一份。
+    // Join the lines back into one string so the parsing logic exists only once.
     Ok(parse_stash_list(&lines.join("\n")))
 }
 
-/// 把当前改动收进储藏。`include_untracked` 决定未跟踪的文件跟不跟着走；
-/// `message` 为空时用 git 自己的默认说明。
+/// Stash the current changes. `include_untracked` decides whether untracked files go
+/// along; an empty `message` uses git's own default description.
 pub fn stash_push(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -218,11 +220,12 @@ pub fn stash_push(
         args,
         DEFAULT_TIMEOUT_SECS,
     )?;
-    // 没有改动时 git 以 0 退出并说 "No local changes"，那不算失败。
+    // With no changes git exits 0 and says "No local changes"; that is not a failure.
     ensure_success(&output, "git stash push failed")
 }
 
-/// 把一条储藏应用回工作区并保留它。`reference` 形如 `stash@{0}`。
+/// Apply a stash entry back to the worktree and keep it. `reference` looks like
+/// `stash@{0}`.
 pub fn stash_apply(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -240,7 +243,8 @@ pub fn stash_apply(
     ensure_success(&output, "git stash apply failed")
 }
 
-/// 把一条储藏应用回工作区并从列表里删掉。冲突时 git 会保留它，如实报错。
+/// Apply a stash entry back to the worktree and drop it. On conflict git keeps the
+/// entry; the error is passed through as-is.
 pub fn stash_pop(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -258,7 +262,8 @@ pub fn stash_pop(
     ensure_success(&output, "git stash pop failed")
 }
 
-/// 丢掉一条储藏。调用方要先让用户确认，这一步不可撤销。
+/// Drop a stash entry. The caller must confirm with the user first: this is
+/// irreversible.
 pub fn stash_drop(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -1293,11 +1298,12 @@ pub fn checkout_branch(
     ensure_success(&output, "git checkout failed")
 }
 
-/// 分支名与修订号的预检。
+/// Pre-check for branch names and revisions.
 ///
-/// git 自己会拒绝非法的名字，这里只挡两件 git 拒绝得不够早的事：空值，以及以 `-`
-/// 开头的值 —— 后者会被 git 当选项解析，等于让参数注入成真。其余合法性交给 git，
-/// 它给的报错原样透传给用户。
+/// git rejects invalid names on its own; this only catches the two things git does not
+/// reject early enough: empty values, and values starting with `-` — the latter get
+/// parsed as options, which is argument injection in practice. Everything else is left
+/// to git, whose error is passed through to the user verbatim.
 fn check_ref(value: &str) -> Result<String> {
     let value = value.trim();
     if value.is_empty() || value.starts_with('-') {
@@ -1306,7 +1312,8 @@ fn check_ref(value: &str) -> Result<String> {
     Ok(value.to_string())
 }
 
-/// 克隆地址的预检：空值、以 `-` 开头、含空白或控制字符都不收。
+/// Clone URL pre-check: reject empty values, values starting with `-`, and anything
+/// containing whitespace or control characters.
 fn check_clone_url(url: &str) -> Result<String> {
     let url = url.trim();
     let unusable = url.is_empty()
@@ -1321,9 +1328,9 @@ fn check_clone_url(url: &str) -> Result<String> {
     Ok(url.to_string())
 }
 
-/// 把 `F:/code/thing` 拆成 (`F:/code`, `thing`)；`/home/me/thing` 同理。
+/// Split `F:/code/thing` into (`F:/code`, `thing`); likewise `/home/me/thing`.
 ///
-/// 只按字符串拆，不碰磁盘：目标是那个还不存在的目录。
+/// Purely a string split, no disk access: the target directory does not exist yet.
 fn split_new_dir(path: &str) -> Option<(&str, &str)> {
     let trimmed = path.trim().trim_end_matches(['/', '\\']);
     let index = trimmed.rfind(['/', '\\'])?;
@@ -1333,16 +1340,18 @@ fn split_new_dir(path: &str) -> Option<(&str, &str)> {
         return None;
     }
     if head.is_empty() {
-        // `/thing`：父目录就是根。
+        // `/thing`: the parent is the root.
         return trimmed.starts_with(['/', '\\']).then_some(("/", tail));
     }
     Some((head, tail))
 }
 
-/// 解析一个「现在还不存在、命令跑完才会有」的目录。
+/// Resolve a directory that does not exist yet but will once the command finishes.
 ///
-/// 上一级必须已经存在（git 不会替我们建上层目录），并且会被登记为已授权：用户手打
-/// 的路径就是授权依据，和项目页添加路径同一套规则。返回 (git 侧路径, 主机侧路径)。
+/// The parent must already exist (git will not create intermediate directories) and
+/// gets registered as authorized: a path the user typed is itself the authorization,
+/// the same rule as adding a path on the projects page. Returns (git-side path,
+/// host-side path).
 fn resolve_new_dir(
     registry: &WorkspaceRegistry,
     path: &str,
@@ -1364,7 +1373,8 @@ fn resolve_new_dir(
         .map_err(GitError::Io)?;
     registry.authorize(&parent_local).map_err(GitError::Io)?;
 
-    // WSL 那边的路径是 Linux 形态，原样用；本机用规范化后的主机路径（git 两种都认 `/`）。
+    // WSL paths are Linux-shaped, so use them as-is; on the host use the canonical host
+    // path (git accepts `/` either way).
     let parent_for_git = if workspace.is_wsl() {
         parent_git.to_string()
     } else {
@@ -1374,9 +1384,11 @@ fn resolve_new_dir(
     Ok((target_git, parent_local.join(name)))
 }
 
-/// 新建分支；`switch` 为真时建完直接切过去（`git checkout -b`）。
+/// Create a branch; with `switch` set, switch to it right away
+/// (`git checkout -b`).
 ///
-/// `start_point` 可以是分支名或提交号，留空就从当前 HEAD 起。
+/// `start_point` may be a branch name or a commit id; leave it empty to start from the
+/// current HEAD.
 pub fn create_branch(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -1408,7 +1420,8 @@ pub fn create_branch(
     ensure_success(&output, "git branch create failed")
 }
 
-/// 删除分支。`force` 走 `-D`：未合并的提交会被一起丢掉，调用方必须先确认。
+/// Delete a branch. `force` uses `-D`: unmerged commits are discarded too, so the
+/// caller must confirm first.
 pub fn delete_branch(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -1430,7 +1443,8 @@ pub fn delete_branch(
     ensure_success(&output, "git branch delete failed")
 }
 
-/// 改名一个分支。当前分支也能改（`git branch -m <旧> <新>`）。
+/// Rename a branch. The current branch can be renamed too
+/// (`git branch -m <old> <new>`).
 pub fn rename_branch(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -1452,10 +1466,11 @@ pub fn rename_branch(
     ensure_success(&output, "git branch rename failed")
 }
 
-/// 新建一个 worktree。
+/// Create a worktree.
 ///
-/// `create_new_branch` 为真时在那边开一个新分支（`-b`），否则把已有分支挂过去 ——
-/// 已经在别处检出的分支 git 会拒绝，报错原样透传。返回新 worktree 的路径。
+/// With `create_new_branch` a new branch is created there (`-b`), otherwise an existing
+/// branch is checked out into it — git refuses a branch already checked out elsewhere
+/// and that error is passed through. Returns the new worktree's path.
 pub fn worktree_add(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -1492,12 +1507,14 @@ pub fn worktree_add(
     )?;
     ensure_success(&output, "git worktree add failed")?;
 
-    // 新目录也要能从这里打开；登记失败不算克隆失败，前端还会再授权一次。
+    // The new directory must be openable from here too; a failed registration does not
+    // fail the operation, since the frontend authorizes it again.
     let _ = registry.authorize(&target_host);
     Ok(target_git)
 }
 
-/// 移除一个 worktree。目录里有改动时 git 会拒绝，`force` 是那条明确的「就是要删」。
+/// Remove a worktree. git refuses when the directory has changes; `force` is the
+/// explicit "yes, delete it anyway".
 pub fn worktree_remove(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -1533,8 +1550,9 @@ pub fn worktree_remove(
     ensure_success(&output, "git worktree remove failed")
 }
 
-/// 把某个提交拣选到当前分支（`git cherry-pick`）。冲突时 git 会停下并报原文，
-/// 用户可以用 `abort_operation` 退出这个中间状态。
+/// Cherry-pick a commit onto the current branch (`git cherry-pick`). On conflict git
+/// stops and reports its own message; the user can leave that in-between state with
+/// `abort_operation`.
 pub fn cherry_pick(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -1555,7 +1573,7 @@ pub fn cherry_pick(
     ensure_success(&output, "git cherry-pick failed")
 }
 
-/// 还原某个提交（`git revert --no-edit`）：它自己生成一个反向提交。
+/// Revert a commit (`git revert --no-edit`): produces an inverse commit of its own.
 pub fn revert_commit(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -1576,7 +1594,8 @@ pub fn revert_commit(
     ensure_success(&output, "git revert failed")
 }
 
-/// 软撤回：把分支指针退到某个提交，工作区与暂存区都保持原样（`git reset --soft`）。
+/// Soft reset: move the branch pointer back to a commit, leaving worktree and index
+/// untouched (`git reset --soft`).
 pub fn reset_soft(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -1597,7 +1616,8 @@ pub fn reset_soft(
     ensure_success(&output, "git reset --soft failed")
 }
 
-/// 中止一次卡住的拣选或还原（冲突后 git 会停在中间状态，只能靠 `--abort` 退出）。
+/// Abort a stuck cherry-pick or revert (after a conflict git stays in an
+/// in-between state that only `--abort` leaves).
 pub fn abort_operation(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -1620,10 +1640,11 @@ pub fn abort_operation(
     ensure_success(&output, "git abort failed")
 }
 
-/// 克隆一个新仓库到 `dest`。
+/// Clone a new repository into `dest`.
 ///
-/// 目标目录可以还不存在，上一级必须存在并会被登记为已授权（用户手打的路径就是授权
-/// 依据）。返回目标目录在 `workspace` 视角下的路径，调用方授权后即可打开它。
+/// The target directory may not exist yet; the parent must exist and is registered as
+/// authorized (a path the user typed is itself the authorization). Returns the target
+/// path as seen from `workspace`, which the caller can open once authorized.
 pub fn clone_repo(
     registry: &WorkspaceRegistry,
     url: &str,
@@ -1634,7 +1655,7 @@ pub fn clone_repo(
     let url = check_clone_url(url)?;
     let (target_git, target_host) = resolve_new_dir(registry, dest, workspace)?;
 
-    // 不设 cwd：目标是绝对路径，落在哪儿都行。
+    // No cwd: the target is an absolute path, so it does not matter where we run.
     let output = run_git(
         workspace,
         None,
@@ -1714,7 +1735,7 @@ mod tests {
             split_new_dir("/home/me/thing/"),
             Some(("/home/me", "thing"))
         );
-        // 挂在根上的路径，父目录就是根。
+        // For a path directly under the root, the parent is the root.
         assert_eq!(split_new_dir("/thing"), Some(("/", "thing")));
     }
 
@@ -1722,7 +1743,7 @@ mod tests {
     fn split_new_dir_needs_a_parent_and_a_leaf() {
         assert_eq!(split_new_dir("thing"), None);
         assert_eq!(split_new_dir(""), None);
-        // 只有根：没有叶子可取。
+        // Root only: there is no leaf to take.
         assert_eq!(split_new_dir("/"), None);
         assert_eq!(split_new_dir("C:\\"), None);
     }
@@ -1734,13 +1755,14 @@ mod tests {
         let registry = WorkspaceRegistry::default();
         let workspace = WorkspaceEnv::Local;
 
-        // 上一级不存在：报清楚缺的是哪一级，而不是让 git 之后再说。
+        // Missing parent: say which level is missing instead of letting git complain
+        // later.
         let missing = base.join("nope").join("child");
         let err = resolve_new_dir(&registry, &missing.to_string_lossy(), &workspace)
             .expect_err("missing parent");
         assert!(err.to_string().contains("not a directory"), "{err}");
 
-        // 上一级存在：拼出目标，并把它登记为已授权。
+        // Parent exists: build the target and register it as authorized.
         let target = base.join("child");
         let (git_path, host_path) =
             resolve_new_dir(&registry, &target.to_string_lossy(), &workspace).expect("resolve");

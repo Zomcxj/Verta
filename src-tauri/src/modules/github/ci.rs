@@ -1,19 +1,20 @@
-//! 单个仓库的 CI 状态：读最近一次 workflow 运行。
+//! CI status for a single repository: read its latest workflow run.
 //!
-//! 一次查一个仓库 —— 列表里每个仓库都去查会把 API 配额烧光，所以由界面按需触发。
-//! 起进程在 `commands.rs`，这里只放能单测的纯逻辑：仓库名的预检、gh 输出的解析。
+//! One repository per query — querying every repo in the list would burn through the API
+//! quota, so the UI triggers this on demand. Process spawning lives in `commands.rs`; only
+//! the unit-testable logic is here: validating the repo name and parsing gh's output.
 //!
-//! 读的是 `repos/{owner}/{repo}/actions/runs?per_page=1`：GitHub 按更新时间倒序返回，
-//! 第一条就是最近一次运行。
+//! The endpoint is `repos/{owner}/{repo}/actions/runs?per_page=1`: GitHub returns
+//! newest-updated first, so the first entry is the latest run.
 
 use serde_json::Value;
 
 use super::types::RepoCiRun;
 
-/// 解析一次「最近一次运行」的 JSON。
+/// Parse the JSON for "the latest run".
 ///
-/// 返回 `Ok(None)` 表示仓库里确实没有运行记录（没配 CI 或还没跑过），那是查清楚了的
-/// 「没有」，不是解析失败。
+/// `Ok(None)` means the repository genuinely has no runs (CI not configured, or never
+/// run): a definite "nothing", not a parse failure.
 pub fn parse_latest_run(stdout: &str) -> Result<Option<RepoCiRun>, String> {
     let value: Value = serde_json::from_str(stdout).map_err(|e| format!("JSON 解析失败：{e}"))?;
     let runs = value
@@ -24,15 +25,17 @@ pub fn parse_latest_run(stdout: &str) -> Result<Option<RepoCiRun>, String> {
         return Ok(None);
     };
 
-    // status 与 url 是判断「跑到哪了、点哪里」的必需品；缺了就说清楚缺什么，别猜。
+    // status and url are needed to know "how far along" and "where to click"; when missing,
+    // say which one instead of guessing.
     let status = text_field(first, "status").ok_or_else(|| "运行里没有 status".to_string())?;
     let url = text_field(first, "html_url").ok_or_else(|| "运行里没有 html_url".to_string())?;
 
     Ok(Some(RepoCiRun {
-        // workflow 名字可能为空（老数据），给个中性兜底而不是空字符串。
+        // The workflow name may be empty (old data): give a neutral fallback rather than an
+        // empty string.
         name: text_field(first, "name").unwrap_or_else(|| "workflow".to_string()),
         status,
-        // 这几种状态下 GitHub 会给 conclusion 为 null 或直接不写这个字段。
+        // In these states GitHub either sends conclusion as null or omits the field.
         conclusion: text_field(first, "conclusion"),
         run_number: first
             .get("run_number")
@@ -44,16 +47,18 @@ pub fn parse_latest_run(stdout: &str) -> Result<Option<RepoCiRun>, String> {
     }))
 }
 
-/// 取一个非空的字符串字段；null / 空串 / 非字符串一律算没有。
+/// Take a non-empty string field; null / empty / non-string all count as absent.
 fn text_field(value: &Value, key: &str) -> Option<String> {
     let raw = value.get(key)?.as_str()?.trim();
     (!raw.is_empty()).then(|| raw.to_string())
 }
 
-/// 校验界面递过来的 `owner/repo`。
+/// Validate the `owner/repo` coming from the UI.
 ///
-/// gh 的参数是一条一条传的（不拼 shell），但 `-` 开头的值仍会被 gh 当成选项，所以先挡掉；
-/// 其余只允许 GitHub 真正会用到的字符集，越界的一律拒收而不是让 gh 去报错。
+/// gh's arguments are passed one by one (no shell), but a value starting with `-` would
+/// still be read as an option, so it is rejected up front. The rest must match the
+/// character set GitHub actually uses; anything outside it is refused here rather than
+/// bounced back by gh.
 pub fn parse_repo_slug(raw: &str) -> Result<String, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -124,7 +129,7 @@ mod tests {
         assert_eq!(run.status, "in_progress");
         assert_eq!(run.conclusion, None);
         assert_eq!(run.run_number, 0);
-        // 没有 workflow 名字时给中性兜底，不留空。
+        // Without a workflow name, use a neutral fallback rather than leaving it empty.
         let unnamed =
             parse_latest_run(r#"{"workflow_runs": [{"status": "queued", "html_url": "u"}]}"#)
                 .unwrap()
@@ -138,7 +143,7 @@ mod tests {
         assert!(parse_latest_run("{}")
             .unwrap_err()
             .contains("workflow_runs"));
-        // 有运行但缺 status / url：缺什么说什么。
+        // A run exists but status / url is missing: name what is missing.
         let missing_status = r#"{"workflow_runs": [{"html_url": "u"}]}"#;
         assert!(parse_latest_run(missing_status)
             .unwrap_err()

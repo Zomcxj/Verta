@@ -1,28 +1,31 @@
-//! 登录态：读 `gh auth status --json hosts`，以及粘 PAT 之前能在本地拦掉的东西。
+//! Login state: read `gh auth status --json hosts`, plus whatever can be caught locally
+//! before a PAT is pasted.
 //!
-//! **token 一律交给 gh 管**：这里只做解析与判定，粘贴的串直接写进 gh 的 stdin，不落任何存储。
+//! **Tokens are always gh's business**: this module only parses and validates; a pasted
+//! token goes straight to gh's stdin and is never persisted.
 
 use serde_json::Value;
 
-/// 一个已登录（或登录失败）的账号，字段取自 gh 的 JSON。
+/// A logged-in (or failed) account, with fields taken from gh's JSON.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthAccount {
     pub host: String,
     pub login: Option<String>,
-    /// gh 给的 `success` / `failed` 等。
+    /// The `success` / `failed` etc. gh reports.
     pub state: String,
-    /// 是不是当前活跃账号。
+    /// Whether this is the active account.
     pub active: bool,
-    /// `keyring` / `GH_TOKEN` 等，说明 token 从哪来。
+    /// `keyring` / `GH_TOKEN` etc., i.e. where the token comes from.
     pub token_source: Option<String>,
     pub git_protocol: Option<String>,
-    /// 已授权的能力，逗号分隔的那串拆开。
+    /// Granted scopes, split out of the comma-separated string.
     pub scopes: Vec<String>,
 }
 
-/// 从 `gh auth status --json hosts` 的输出里挑出要展示的那个账号。
+/// Pick the account to display out of `gh auth status --json hosts`.
 ///
-/// 返回 `None` 表示这台机器一个 host 都没登录（gh 给的是 `{"hosts":{}}`），不是错误。
+/// `None` means no host is logged in on this machine (gh returns `{"hosts":{}}`), which
+/// is not an error.
 pub fn parse_status(stdout: &str) -> Result<Option<AuthAccount>, String> {
     let value: Value =
         serde_json::from_str(stdout).map_err(|e| format!("gh 返回的登录态无法解析：{e}"))?;
@@ -31,7 +34,8 @@ pub fn parse_status(stdout: &str) -> Result<Option<AuthAccount>, String> {
         .and_then(Value::as_object)
         .ok_or_else(|| "gh 返回的登录态里没有 hosts".to_string())?;
 
-    // 优先 github.com 上的活跃账号；没有活跃的就退而取第一个能解析的。
+    // Prefer the active account on github.com; without one, fall back to the first that
+    // parses.
     let mut fallback: Option<AuthAccount> = None;
     for (host, entry) in hosts {
         let accounts = entry
@@ -77,12 +81,14 @@ pub fn parse_status(stdout: &str) -> Result<Option<AuthAccount>, String> {
     Ok(fallback)
 }
 
-/// 粘贴的 token 在本地能不能过；不能过就给一句话。
+/// Whether a pasted token passes the local check; if not, a one-line reason.
 ///
-/// 只拦明显不对的（空、带空白、短得不可能）。真正的判断交给 gh —— 它会去问 GitHub，
-/// 我们不该在这里假装能验真伪。
+/// Only the obviously wrong ones are rejected (empty, containing whitespace, impossibly
+/// short). The real verdict belongs to gh — it asks GitHub, and we must not pretend to
+/// verify authenticity here.
 pub fn token_problem(token: &str) -> Option<String> {
-    // 前后空白是粘贴常态，先去掉；中间的空白才是真问题（多半粘了两段）。
+    // Surrounding whitespace is normal when pasting, so trim it; whitespace in the middle
+    // is the real problem (usually two chunks were pasted).
     let trimmed = token.trim();
     if trimmed.is_empty() {
         return Some("还没有粘贴 token".to_string());
@@ -90,7 +96,7 @@ pub fn token_problem(token: &str) -> Option<String> {
     if trimmed.split_whitespace().count() > 1 {
         return Some("token 里不能有空白（是不是粘了两段？）".to_string());
     }
-    // gh 的 PAT 最短也有几十个字符；太短的一律是粘错了。
+    // A gh PAT is dozens of characters at the very least; anything shorter was mispasted.
     if trimmed.chars().count() < 20 {
         return Some("token 太短了，像是没粘全".to_string());
     }
@@ -163,7 +169,7 @@ mod tests {
         assert!(token_problem("   ").is_some());
         assert!(token_problem("abc").is_some());
         assert!(token_problem("ghp_short").is_some());
-        // 带空白的（粘进来时最常见的脏东西）
+        // With whitespace (the most common dirt from pasting)
         assert!(token_problem("ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaa ghp_b").is_some());
     }
 
@@ -177,7 +183,7 @@ mod tests {
             token_problem("github_pat_11ABCDEFG0abcdefghijkl_abcdefghijklmnopqrstuvwxyz0123456789ABCD"),
             None
         );
-        // 前后空白是粘贴常态，先 trim 再判。
+        // Surrounding whitespace is normal when pasting, so trim before judging.
         assert_eq!(
             token_problem("  ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"),
             None

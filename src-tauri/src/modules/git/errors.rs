@@ -11,7 +11,8 @@ pub enum GitError {
     NotADirectory(String),
     PathOutsideWorkspace(PathBuf),
     InvalidPath(String),
-    /// 空的分支名，或者以 `-` 开头的名字（会被 git 当成选项）。
+    /// An empty branch name, or one starting with `-` (which git would read as an
+    /// option).
     InvalidRefName(String),
     FileTooLarge {
         path: PathBuf,

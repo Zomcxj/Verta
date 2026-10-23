@@ -1,20 +1,23 @@
-//! issue / PR 的纯逻辑：把 gh 的 JSON 翻成 wire 结构，并做参数预检。
+//! Pure issue / PR logic: turn gh's JSON into the wire types and pre-validate
+//! arguments.
 //!
-//! 取数与编排在 `commands.rs`，这里只放能被单测覆盖的判断。
+//! Fetching and orchestration live in `commands.rs`; only unit-testable decisions
+//! belong here.
 //!
-//! 一个 GitHub 事实上的细节：`issues` 端点**同时返回 issue 和 PR**，PR 多带一个
-//! `pull_request` 对象。列表因此一次就能拿全两类，靠这个字段区分。
+//! One GitHub quirk: the `issues` endpoint **returns issues and PRs alike**, with
+//! PRs carrying an extra `pull_request` object. A single list request therefore
+//! covers both kinds, told apart by that field.
 
 use serde::Deserialize;
 
 use super::types::{CheckSummary, IssueComment, IssueDetail, IssueSummary, PullRequestInfo};
 
-/// 列表一次要几条。上限与运行列表同一档。
+/// Rows per list request. The cap matches the run list's.
 pub const ISSUES_MAX_LIMIT: usize = 100;
-/// 列表默认条数。
+/// Default number of rows per list request.
 pub const ISSUES_DEFAULT_LIMIT: usize = 50;
 
-// ------------------------------------------------------------ gh 的原始形状
+// ------------------------------------------------------------ raw gh shapes
 
 #[derive(Deserialize)]
 struct RawUser {
@@ -26,10 +29,10 @@ struct RawLabel {
     name: Option<String>,
 }
 
-/// issue 端点里 PR 额外带的那一小块。
+/// The small extra block PRs carry in the issue endpoint.
 ///
-/// 只有 `merged_at` 有用：它非空就说明这个 PR 已经合进基线了。
-/// `draft` 不在这里（那是 PR 详情才有的字段），所以列表里判不出草稿。
+/// Only `merged_at` matters: non-empty means the PR is already merged into the base.
+/// `draft` is not here (it only exists in PR details), so a list cannot tell drafts.
 #[derive(Deserialize)]
 struct RawPullRef {
     merged_at: Option<String>,
@@ -106,20 +109,22 @@ struct RawCheckRuns {
     check_runs: Option<Vec<RawCheck>>,
 }
 
-// ------------------------------------------------------------ 解析
+// ------------------------------------------------------------ parsing
 
-/// 解析 `repos/{slug}/issues` 的响应体。
+/// Parse the body of `repos/{slug}/issues`.
 ///
-/// 逐条容错：缺 `number` 的条目直接丢掉，不影响整页；正文 / 标签 / 指派人缺省当空。
+/// Tolerant per entry: an entry without `number` is dropped without affecting the
+/// page; missing body / labels / assignees default to empty.
 pub fn parse_issue_list(json: &str) -> Result<Vec<IssueSummary>, serde_json::Error> {
     let raw: Vec<RawIssue> = serde_json::from_str(json)?;
     Ok(raw.into_iter().filter_map(convert_issue).collect())
 }
 
-/// 解析单条 issue（详情用）。
+/// Parse a single issue (for the detail view).
 ///
-/// 详情比列表多两块：评论列表，以及留给 PR 专属信息 / 检查状态的空位
-/// （那两块要在拿到 PR 信息之后才填）。
+/// The detail has two blocks the list lacks: the comment list, and placeholders for
+/// the PR-specific info / check status (which are only filled in once the PR info
+/// has arrived).
 pub fn parse_issue(json: &str) -> Result<IssueDetail, serde_json::Error> {
     let raw: RawIssue = serde_json::from_str(json)?;
     Ok(convert_detail(raw))
@@ -172,7 +177,8 @@ fn convert_issue(raw: RawIssue) -> Option<IssueSummary> {
         body: raw.body.unwrap_or_default(),
         state: raw.state.unwrap_or_else(|| "open".to_string()),
         is_pull_request,
-        // 草稿只有 PR 详情里有；列表端点给不出，如实当不是草稿。
+        // Drafts only exist in PR details; the list endpoint cannot tell, so report
+        // "not a draft" rather than guessing.
         is_draft: false,
         merged,
         author: raw
@@ -189,7 +195,7 @@ fn convert_issue(raw: RawIssue) -> Option<IssueSummary> {
     })
 }
 
-/// 解析 `repos/{slug}/issues/{n}/comments`。
+/// Parse `repos/{slug}/issues/{n}/comments`.
 pub fn parse_comments(json: &str) -> Result<Vec<IssueComment>, serde_json::Error> {
     let raw: Vec<RawComment> = serde_json::from_str(json)?;
     Ok(raw
@@ -208,7 +214,7 @@ pub fn parse_comments(json: &str) -> Result<Vec<IssueComment>, serde_json::Error
         .collect())
 }
 
-/// 解析 `repos/{slug}/pulls/{n}`。
+/// Parse `repos/{slug}/pulls/{n}`.
 pub fn parse_pull_request(json: &str) -> Result<PullRequestInfo, serde_json::Error> {
     let raw: RawPull = serde_json::from_str(json)?;
     let mut pr = PullRequestInfo {
@@ -229,8 +235,8 @@ pub fn parse_pull_request(json: &str) -> Result<PullRequestInfo, serde_json::Err
             .unwrap_or_default(),
         draft: raw.draft.unwrap_or(false),
         merged: raw.merged.unwrap_or(false),
-        // mergeable 是 Option：GitHub 异步算，刚开的 PR 这一栏是 null，
-        // 意思是「还不知道」，不是「不能合」。
+        // mergeable is an Option: GitHub computes it asynchronously, so a fresh PR has
+        // null here, meaning "not known yet", not "cannot merge".
         mergeable: raw.mergeable,
         mergeable_state: raw.mergeable_state.unwrap_or_default(),
         merge_blocked: None,
@@ -254,21 +260,23 @@ pub fn parse_pull_request(json: &str) -> Result<PullRequestInfo, serde_json::Err
     Ok(pr)
 }
 
-/// `check-runs` 一页多少条（GitHub 上限）。
+/// Rows per `check-runs` page (GitHub's maximum).
 pub const CHECKS_PER_PAGE: u32 = 100;
-/// 最多翻多少页。100 × 10 = 1000 条检查，已经远超真实仓库。
+/// Maximum number of pages. 100 × 10 = 1000 checks, far beyond any real repo.
 pub const CHECKS_MAX_PAGES: u32 = 10;
 
-/// 某一页 `check-runs` 的路径（`{slug}` 由调用方替换）。
+/// Path of one `check-runs` page (the caller substitutes `{slug}`).
 pub fn checks_page_path(sha: &str, page: u32) -> String {
     format!("repos/{{slug}}/commits/{sha}/check-runs?per_page={CHECKS_PER_PAGE}&page={page}")
 }
 
-/// 把各页的 `check-runs` 原始 JSON 合起来数一遍。
+/// Count the raw `check-runs` JSON of all pages together.
 ///
-/// 一个仓库的检查超过 100 条时得一页页取，但**计数与状态只该在合起来之后算一次**：
-/// 每页各自算再相加会丢掉「还有没取到的」这个事实。`total` 取各页里最大的 `total_count`，
-/// 拿到的条数仍然少于它就算 `truncated` —— 跟只取一页时是同一条规则。
+/// Repos with more than 100 checks are fetched page by page, but **counting and the
+/// overall state must happen once, over the union**: per-page tallies added up would
+/// lose the fact that some checks were never fetched. `total` is the largest
+/// `total_count` across pages, and fewer rows than that means `truncated` — the
+/// same rule as for a single page.
 pub fn summarize_check_pages(pages: &[String]) -> Result<CheckSummary, serde_json::Error> {
     let mut total = 0u32;
     let mut seen = 0u32;
@@ -299,12 +307,14 @@ pub fn summarize_check_pages(pages: &[String]) -> Result<CheckSummary, serde_jso
     })
 }
 
-/// 这一页是否说明「检查还没取完」：满页就继续，不满页或到了页数上限就停。
+/// Whether this page leaves more checks to fetch: keep going on a full page, stop
+/// on a short page or at the page cap.
 pub fn checks_have_more(page_rows: usize, page: u32) -> bool {
     page_rows >= CHECKS_PER_PAGE as usize && page < CHECKS_MAX_PAGES
 }
 
-/// 一页 `check-runs` 里有几条（解不开就是 None，调用方据此当作没有下一页）。
+/// How many rows one `check-runs` page holds (None when unparsable, which the
+/// caller treats as "no next page").
 pub fn count_check_runs(json: &str) -> Option<usize> {
     let raw: RawCheckRuns = serde_json::from_str(json).ok()?;
     Some(raw.check_runs.unwrap_or_default().len())
@@ -318,7 +328,7 @@ enum Outcome {
 
 fn check_outcome(run: &RawCheck) -> Outcome {
     let status = run.status.as_deref().unwrap_or("");
-    // 还在排队 / 在跑：结论还没出来，一律算「进行中」。
+    // Queued / running: no conclusion yet, so everything counts as pending.
     if matches!(status, "queued" | "in_progress" | "waiting" | "requested" | "pending") {
         return Outcome::Pending;
     }
@@ -327,17 +337,21 @@ fn check_outcome(run: &RawCheck) -> Outcome {
         "failure" | "cancelled" | "timed_out" | "action_required" | "stale" | "startup_failure" => {
             Outcome::Failure
         }
-        // 结论缺失但状态是 completed：说不好算什么，如实当「进行中」。
+        // completed without a conclusion: cannot be called either way, so report
+        // pending.
         _ => Outcome::Pending,
     }
 }
 
-/// 整体检查状态：先看失败，再看进行中，最后才敢说通过。
+/// Overall check state: failures first, then pending, and only then pass.
 ///
-/// 一个失败就盖过其它：整体是「红」的，不能因为还有几个在跑就说「进行中」。
+/// A single failure outweighs everything else: the whole thing is red, and a few
+/// still-running checks do not make it "pending".
 ///
-/// `truncated`（只看到了一部分检查）时**绝不能**报 `pass` —— 没看到的那几条可能正红着，
-/// 报「全部通过」就是在骗人。被看到的那部分全绿时改报 `partial`，让界面如实说「只统计到前 N 项」。
+/// When `truncated` (only part of the checks were seen) it must **never** report
+/// `pass` — the unseen ones may be red, and claiming "all green" would be a lie.
+/// If everything seen is green, report `partial` so the UI can say "only the first
+/// N counted".
 pub fn check_state(
     total: u32,
     failed: u32,
@@ -357,14 +371,17 @@ pub fn check_state(
     }
 }
 
-/// 合并按钮现在该不该禁着，以及禁的**原因码**。
+/// Whether the merge button should be disabled right now, and the **reason code**
+/// for it.
 ///
-/// 返回 `None` 表示可以合。GitHub 算 mergeable 是异步的，刚开的 PR 会返回
-/// `mergeable: null` / `mergeable_state: "unknown"` —— 这时**不能**当成「不能合」
-/// （那是「还不知道」），但也不能放行，得等它算完。
+/// `None` means it can merge. GitHub computes mergeable asynchronously, so a fresh PR
+/// returns `mergeable: null` / `mergeable_state: "unknown"` — that is **not** "cannot
+/// merge" (it is "not known yet"), but it must not be allowed through either; wait
+/// for the computation.
 ///
-/// 给码不给句子：这句话是要显示给用户的，得跟着界面语言走，所以文案由界面按码取。
-/// 码是 `merged` / `closed` / `draft` / `conflict` / `computing` / `unknown`。
+/// A code, not a sentence: the text is shown to the user and must follow the UI
+/// language, so the UI resolves the wording from the code. The codes are `merged` /
+/// `closed` / `draft` / `conflict` / `computing` / `unknown`.
 pub fn merge_block_code(pr: &PullRequestInfo) -> Option<&'static str> {
     if pr.merged {
         return Some("merged");
@@ -388,11 +405,11 @@ pub fn merge_block_code(pr: &PullRequestInfo) -> Option<&'static str> {
     }
 }
 
-/// 解析合并 PR 的响应体。
+/// Parse the merge response body.
 ///
-/// GitHub 有个坑：合并**没成功**时也可能返回 200，body 里是
-/// `{"merged": false, "message": "..."}`。只看退出码会把「没合」当成「合了」，
-/// 所以这里看 body 里的 `merged`。
+/// GitHub trap: a merge that **did not** happen can still return 200 with
+/// `{"merged": false, "message": "..."}` in the body. The exit code alone would read
+/// "not merged" as "merged", so this looks at `merged` in the body.
 pub fn parse_merge_result(json: &str) -> Result<(), String> {
     let raw: RawMerge = serde_json::from_str(json)
         .map_err(|error| format!("gh 返回的合并结果无法解析：{error}"))?;
@@ -405,9 +422,9 @@ pub fn parse_merge_result(json: &str) -> Result<(), String> {
     Err(message)
 }
 
-// ------------------------------------------------------------ 参数预检
+// ------------------------------------------------------------ argument checks
 
-/// 编号不合法时的说明。0 只可能是界面传错了。
+/// Message for an invalid number. 0 can only be a bad value from the UI.
 pub fn number_problem(number: u64) -> Option<String> {
     if number == 0 {
         Some("编号不合法：0".to_string())
@@ -416,7 +433,7 @@ pub fn number_problem(number: u64) -> Option<String> {
     }
 }
 
-/// 标题不合法时的说明。
+/// Message for an invalid title.
 pub fn title_problem(title: &str) -> Option<String> {
     let trimmed = title.trim();
     if trimmed.is_empty() {
@@ -428,7 +445,7 @@ pub fn title_problem(title: &str) -> Option<String> {
     }
 }
 
-/// 评论正文不合法时的说明。
+/// Message for an invalid comment body.
 pub fn body_problem(body: &str) -> Option<String> {
     if body.trim().is_empty() {
         Some("内容不能为空".to_string())
@@ -439,7 +456,7 @@ pub fn body_problem(body: &str) -> Option<String> {
     }
 }
 
-/// 合并方式不合法时的说明。
+/// Message for an invalid merge method.
 pub fn merge_method_problem(method: &str) -> Option<String> {
     match method {
         "merge" | "squash" | "rebase" => None,
@@ -447,11 +464,12 @@ pub fn merge_method_problem(method: &str) -> Option<String> {
     }
 }
 
-/// 合并时要带上的 head sha 不合法时的说明。
+/// Message for an invalid head sha on merge.
 ///
-/// 空串是允许的（详情没读到 / 老版本调用方）：那样就不带这道保险，照常合并。
-/// 但一旦给了值，它必须是 40 位十六进制 —— 拿个别的字符串去请求，GitHub 只会回一句
-/// 很难看懂的错，不如在本地就说清。
+/// An empty string is allowed (detail fetch failed / older callers): the merge then
+/// proceeds without that safeguard. But once a value is given it must be 40 hex
+/// characters — anything else only earns an incomprehensible error from GitHub, so
+/// say it locally instead.
 pub fn head_sha_problem(sha: &str) -> Option<String> {
     let sha = sha.trim();
     if sha.is_empty() {
@@ -465,7 +483,7 @@ pub fn head_sha_problem(sha: &str) -> Option<String> {
     }
 }
 
-/// 把逗号 / 空格分隔的标签串拆开，并去掉空项与前导 `#`。
+/// Split a comma / space separated label string, dropping empties and leading `#`.
 pub fn parse_labels(raw: &str) -> Vec<String> {
     raw.split([',', ' ', '\t', '\n'])
         .map(|label| label.trim().trim_start_matches('#'))
@@ -474,7 +492,7 @@ pub fn parse_labels(raw: &str) -> Vec<String> {
         .collect()
 }
 
-/// 列表状态参数不合法时的说明。
+/// Message for an invalid list state parameter.
 pub fn state_problem(state: &str) -> Option<String> {
     match state {
         "open" | "closed" | "all" => None,
@@ -482,14 +500,14 @@ pub fn state_problem(state: &str) -> Option<String> {
     }
 }
 
-/// 列表条数夹到合法范围。
+/// Clamp the row count to a valid range.
 pub fn clamp_limit(limit: Option<usize>) -> usize {
     limit
         .unwrap_or(ISSUES_DEFAULT_LIMIT)
         .clamp(1, ISSUES_MAX_LIMIT)
 }
 
-// ------------------------------------------------------------ 小工具
+// ------------------------------------------------------------ helpers
 
 fn names(labels: Option<Vec<RawLabel>>) -> Vec<String> {
     labels
@@ -546,7 +564,7 @@ mod tests {
 
     #[test]
     fn a_broken_entry_does_not_take_the_whole_list_down() {
-        // 缺 number 的条目丢掉，其余照常。
+        // Entries without a number are dropped; the rest are unaffected.
         let json = r#"[{"title": "没有编号"}, {"number": 5, "title": "好的"}]"#;
         let rows = parse_issue_list(json).expect("应能解析");
         assert_eq!(rows.len(), 1);
@@ -580,13 +598,15 @@ mod tests {
         assert_eq!(pr.changed_files, 2);
         assert_eq!(pr.mergeable, Some(true));
         assert!(merge_block_code(&pr).is_none(), "能合的不该被拦");
-        // 「能不能合」要随 wire 一起送出去：界面只照着禁按钮。
+        // Whether it can merge ships with the wire data: the UI just disables the
+        // button accordingly.
         assert!(pr.merge_blocked.is_none());
     }
 
     #[test]
     fn an_unknown_mergeable_blocks_the_merge_without_saying_it_cannot_merge() {
-        // GitHub 刚建 PR 时 mergeable 是 null：这是「还不知道」，不是「合不了」。
+        // GitHub reports mergeable as null right after a PR is created: that is
+        // "not known yet", not "cannot merge".
         let json = r#"{"number": 8, "state": "open", "mergeable": null,
             "mergeable_state": "unknown", "head": {"ref": "f"}, "base": {"ref": "main"}}"#;
         let pr = parse_pull_request(json).expect("应能解析");
@@ -632,11 +652,11 @@ mod tests {
         assert_eq!(check_state(0, 0, 0, false), "none");
         assert_eq!(check_state(3, 0, 0, false), "pass");
         assert_eq!(check_state(3, 0, 1, false), "pending");
-        // 一个失败就盖过还在跑的：整体是红的。
+        // One failure outweighs running checks: the whole thing is red.
         assert_eq!(check_state(3, 1, 1, false), "fail");
-        // 只看到一部分时不许报通过：没看到的那几条可能正红着。
+        // A partial view must not report a pass: the unseen checks may be red.
         assert_eq!(check_state(140, 0, 0, true), "partial");
-        // 但看到的那些里已经有失败 / 还在跑，照旧如实报。
+        // But an actual failure / pending among those seen is still reported as-is.
         assert_eq!(check_state(140, 1, 0, true), "fail");
         assert_eq!(check_state(140, 0, 2, true), "pending");
     }
@@ -659,8 +679,9 @@ mod tests {
 
     #[test]
     fn a_truncated_check_page_never_reports_a_pass() {
-        // GitHub 一页最多 100 条：拿到 2 条而总数 140 时，整体只能是 partial ——
-        // 报「140 项检查全部通过」等于把没看到的 138 项当成绿的。
+        // A GitHub page holds at most 100: with 2 rows out of 140 the overall state can
+        // only be partial — claiming "all 140 checks passed" would treat the 138
+        // unseen ones as green.
         let json = r#"{"total_count": 140, "check_runs": [
             {"status": "completed", "conclusion": "success"},
             {"status": "completed", "conclusion": "success"}]}"#;
@@ -673,7 +694,7 @@ mod tests {
 
     #[test]
     fn paging_every_checked_run_can_end_in_a_pass_again() {
-        // 140 条检查分成两页取全了：这时才敢说「全部通过」。
+        // All 140 checks fetched across two pages: only now is "all green" justified.
         let first = format!(
             r#"{{"total_count": 4, "check_runs": [{}, {}]}}"#,
             SUCCESS_RUN, SUCCESS_RUN
@@ -707,7 +728,7 @@ mod tests {
 
     #[test]
     fn a_second_page_that_never_arrived_still_says_partial() {
-        // 只拿到了第一页：哪怕这一页全绿也不能说通。
+        // Only the first page arrived: even an all-green page is not a pass.
         let first = format!(
             r#"{{"total_count": 140, "check_runs": [{}, {}]}}"#,
             SUCCESS_RUN, SUCCESS_RUN
@@ -767,14 +788,15 @@ mod tests {
 
     #[test]
     fn a_merge_that_did_not_happen_is_not_a_success() {
-        // GitHub 会用 200 + merged:false 回答一次没合上的合并：只看退出码会误报成功。
+        // GitHub answers a failed merge with 200 + merged:false; the exit code alone
+        // would falsely report success.
         assert!(parse_merge_result(r#"{"merged": true, "sha": "abc"}"#).is_ok());
         let failed = parse_merge_result(
             r#"{"merged": false, "message": "Pull Request is not mergeable"}"#,
         )
         .expect_err("没合上就该是失败");
         assert!(failed.contains("not mergeable"), "{failed}");
-        // 连 body 都没有：不能当成成功，如实说不知道。
+        // Not even a body: that is not a success, so report that we don't know.
         assert!(parse_merge_result("").is_err());
     }
 

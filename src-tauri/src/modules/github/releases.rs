@@ -1,6 +1,8 @@
-//! Releases 与附件下载的纯逻辑：解析 GitHub 的返回、校验落盘文件名、把临时文件转正。
+//! Pure logic for releases and asset downloads: parse GitHub's responses, validate the
+//! on-disk file name, promote the temporary file.
 //!
-//! 起 gh 进程、读管道、发进度事件在 `commands.rs`；这里只放能单测的部分。
+//! Spawning gh, reading pipes and emitting progress events live in `commands.rs`; only
+//! the unit-testable parts are here.
 
 use std::collections::HashMap;
 use std::fs;
@@ -13,24 +15,28 @@ use serde_json::Value;
 
 use super::types::{RepoRelease, RepoReleaseAsset};
 
-/// 一次进度事件至少攒够这么多字节才发，避免把 IPC 刷爆。
+/// Minimum bytes accumulated before a progress event is sent, so IPC is not flooded.
 const REPORT_BYTES: u64 = 64 * 1024;
-/// 或者至少隔这么久发一次：下载慢的时候进度条也要动。
+/// Or at least this much time between events: the bar must move even on a slow
+/// download.
 const REPORT_INTERVAL: Duration = Duration::from_millis(100);
 
-/// 文件名的字符上限。要给它后面的 `.verta-part` 和用户选的目录留出余量。
+/// Maximum characters in the file name, leaving headroom for the `.verta-part` suffix
+/// and the user-chosen directory.
 const MAX_NAME_CHARS: usize = 180;
 
-/// Windows 不能当文件名用的设备名（不分大小写，带扩展名也算）。
+/// Device names Windows does not allow as file names (case-insensitive, extensions
+/// included).
 const RESERVED_NAMES: [&str; 22] = [
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
-/// 解析 `repos/{owner}/{repo}/releases` 的 JSON。
+/// Parse the JSON of `repos/{owner}/{repo}/releases`.
 ///
-/// 逐条容错：缺 id / tag 的条目跳过，其余字段缺了按空处理。但如果返回里本来有条目、
-/// 最后一个都没留下，那是解析失败，不能报成「没有 Release」。
+/// Tolerant per entry: entries without an id / tag are skipped and other missing fields
+/// default to empty. But if entries came back and none survived, parsing failed and it
+/// must not be reported as "no releases".
 pub fn parse_releases(stdout: &str, limit: usize) -> Result<Vec<RepoRelease>, String> {
     let value: Value = serde_json::from_str(stdout).map_err(|e| format!("JSON 解析失败：{e}"))?;
     let items = value
@@ -55,7 +61,8 @@ pub fn parse_releases(stdout: &str, limit: usize) -> Result<Vec<RepoRelease>, St
 fn convert_release(value: &Value) -> Option<RepoRelease> {
     let id = number_field(value, "id")?;
     let tag_name = text_field(value, "tag_name")?;
-    // 标题为空（老数据里常见）时用 tag 兜底，界面不用再判一次。
+    // A blank title (common in old data) falls back to the tag, so the UI need not check
+    // again.
     let name = text_field(value, "name").unwrap_or_else(|| tag_name.clone());
     let body = text_field(value, "body").unwrap_or_default();
     let assets = value
@@ -92,13 +99,15 @@ fn convert_asset(value: &Value) -> Option<RepoReleaseAsset> {
     })
 }
 
-/// 非空的字符串字段；null / 空串 / 纯空白 / 非字符串一律算没有。
+/// A non-empty string field; null / empty / whitespace-only / non-string all count as
+/// absent.
 fn text_field(value: &Value, key: &str) -> Option<String> {
     let raw = value.get(key)?.as_str()?.trim();
     (!raw.is_empty()).then(|| raw.to_string())
 }
 
-/// 数字字段。GitHub 的 id 有时是数字、有时是字符串，两种都认。
+/// A numeric field. GitHub's ids are sometimes numbers and sometimes strings; both are
+/// accepted.
 fn number_field(value: &Value, key: &str) -> Option<u64> {
     let raw = value.get(key)?;
     if let Some(number) = raw.as_u64() {
@@ -107,7 +116,8 @@ fn number_field(value: &Value, key: &str) -> Option<u64> {
     raw.as_str()?.trim().parse().ok()
 }
 
-/// 附件名要能安全地拼进用户选的目录：只允许一个普通文件名，不允许任何路径语义。
+/// The asset name must join the user-chosen directory safely: only a plain file name is
+/// allowed, with no path semantics whatsoever.
 pub fn safe_file_name(raw: &str) -> Result<String, String> {
     if raw.trim().is_empty() {
         return Err("附件名是空的".to_string());
@@ -137,14 +147,15 @@ pub fn safe_file_name(raw: &str) -> Result<String, String> {
     Ok(raw.to_string())
 }
 
-/// 这一块数据到没到该报进度的程度。
+/// Whether this chunk of data is enough to warrant a progress report.
 pub fn should_report(last_written: u64, written: u64, since: Duration) -> bool {
     written.saturating_sub(last_written) >= REPORT_BYTES || since >= REPORT_INTERVAL
 }
 
-/// 下载收尾：成功才把临时文件转正，失败只清临时文件。
+/// Finish a download: promote the temporary file on success, clean it up on failure.
 ///
-/// 既有目标文件永远不参与失败清理：重复下载同名附件失败时，上一次的完整文件必须还在。
+/// An existing destination is never touched by failure cleanup: when re-downloading the
+/// same asset fails, the previous complete file must still be there.
 pub fn finish_download(tmp: &Path, dest: &Path, ok: bool) -> std::io::Result<()> {
     if !ok {
         let _ = fs::remove_file(tmp);
@@ -157,9 +168,10 @@ pub fn finish_download(tmp: &Path, dest: &Path, ok: bool) -> std::io::Result<()>
     Ok(())
 }
 
-/// 正在进行的下载，按前端给的 id 存一个取消标记。
+/// In-flight downloads, each with a cancel flag keyed by the id the frontend supplied.
 ///
-/// 流式读的循环每 250 ms 看一次这个标记，看到就杀掉 gh、删掉临时文件。
+/// The streaming read loop checks the flag every 250 ms and, when set, kills gh and
+/// removes the temporary file.
 #[derive(Default)]
 pub struct DownloadState {
     inner: Mutex<HashMap<String, Arc<AtomicBool>>>,

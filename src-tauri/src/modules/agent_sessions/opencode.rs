@@ -39,29 +39,37 @@ pub(crate) fn list_at(path: &Path) -> Result<AgentSessionsPayload, String> {
     }
     let table = session_table(path)?;
     let conn = open_read_only(path)?;
-    // 列表行要的两个数字顺手在这里算：tokens 是那一行自己的几个列（老库没有这些列，
-    // 那就留空，界面显示「—」而不是 0），轮数与最后对话时间按消息表数。
-    // NULL 与 0 在这里是两件事：NULL = 这个库根本不记 tokens（老库），界面显示「—」；
-    // 0 = 记了，但这场确实还没花过（新开、没发过消息的会话）。
+    // The two numbers each list row needs are computed right here: tokens come from that
+    // row's own columns (old stores lack them, so they stay NULL and the UI shows "—"
+    // instead of 0), while turns and the last conversation time are counted from the
+    // message table.
+    // NULL and 0 mean two different things here: NULL = this store does not track tokens
+    // at all (old stores), shown as "—"; 0 = tracked, but this session really has not
+    // spent any yet (newly opened, no messages sent).
     //
-    // 轮数按**用户消息**数，不按消息总数：一轮里助手要发好几条（工具调用、反思），
-    // 按总数数出来是「几十轮」，按用户消息数才是人心里那根「我问了几次」。
-    // 消息表为空但 tokens 记着花过（opencode 会清理老消息）时，退回库自己的估算：
-    // 一轮至少用掉一整个上下文窗口，拿总 tokens 除以它、再取整、至少 1 轮 ——
-    // 比直接说「0 轮」诚实，也不会把 3 亿 tokens 的会话说成一轮。
-    // 注意这里是**逐项** COALESCE 再相加，不是把整条加法包进 COALESCE：
-    // SQLite 里 `COALESCE((a + b + c + d + e), 0)` 在五项全 NULL 时会被算成 0（不是 NULL），
-    // 「这个库不记 tokens」就变成了「记了 0」—— 老库与清过消息的会话都被它坑过。
+    // Turns count **user messages**, not all messages: the assistant posts several per
+    // turn (tool calls, reasoning), so counting everything yields "dozens of turns",
+    // whereas user messages match the user's own "how many times did I ask".
+    // When the message table is empty but tokens were still spent (opencode prunes old
+    // messages), fall back to the store's own estimate: one turn uses at least a whole
+    // context window, so divide total tokens by it, round up, floor at 1 turn — more
+    // honest than claiming "0 turns", and it keeps a 300M-token session from reading as
+    // a single turn.
+    // Note the COALESCE is **per term**, then summed, rather than wrapping the whole sum:
+    // in SQLite `COALESCE((a + b + c + d + e), 0)` evaluates to 0 (not NULL) when all five
+    // are NULL, turning "this store does not track tokens" into "tracked 0" — which bit
+    // both old stores and sessions with pruned messages.
     let tokens_sum = if has_tokens_columns(&conn, &table) {
         "COALESCE(tokens_input, 0) + COALESCE(tokens_output, 0) + COALESCE(tokens_reasoning, 0) + COALESCE(tokens_cache_read, 0) + COALESCE(tokens_cache_write, 0)"
     } else {
         "NULL"
     };
-    // 消息表有两代：
-    //   `message`         —— 老版 opencode 写的，`data` 里带 `role`；
-    //   `session_message` —— 新版写的，`type` 列直接就是 `user` / `assistant` / ...
-    // 新版两个表都还在，但**只有新表在更新**。只读旧表的话，最近几天的对话一条都看不见
-    // （「今天聊了一整天，列表里还停在上周」就是这么来的）。
+    // There are two generations of message table:
+    //   `message`         — written by old opencode, with `role` inside `data`;
+    //   `session_message` — written by new opencode, with the role right in `type`.
+    // A new install keeps both tables, but **only the new one is updated**. Reading just
+    // the old table hides the last few days of conversations entirely (that is how "I
+    // chatted all day and the list is still on last week" happens).
     let messages = message_table(&conn);
     let turns_expr = match messages {
         Some((tbl, is_user)) => format!(
@@ -121,16 +129,17 @@ pub(crate) fn list_at(path: &Path) -> Result<AgentSessionsPayload, String> {
     Ok(AgentSessionsPayload { sessions, warnings })
 }
 
-/// 一轮对话按多少 tokens 估（opencode 会把清掉的老消息从 `message` 表里删除，
-/// 但 `session_v2` 的 tokens 列还在往上加）。取 200k：比常见上下文窗口略小，
-/// 估出来不会偏大太多。
+/// Tokens assumed per turn (opencode deletes pruned old messages from the `message`
+/// table, but the token columns of `session_v2` keep growing). 200k is slightly below a
+/// typical context window, so the estimate does not overshoot by much.
 const TOKENS_PER_TURN: u64 = 200_000;
 
-/// 消息在哪张表里，以及怎么判断一条是用户消息。
+/// Which table holds messages, and how to tell a user message apart.
 ///
-/// 新版 opencode 用 `session_message`（`type` 列就是角色），老版用 `message`（角色埋在
-/// `data` 的 JSON 里）。**优先新表**：两个表同时存在时，旧的已经不再更新了。
-/// 两张表都没有（极老的库）就返回 None，界面上那两个数字显示「—」。
+/// New opencode uses `session_message` (the role is the `type` column), old opencode uses
+/// `message` (the role is buried in the JSON of `data`). **Prefer the new table**: when
+/// both exist, the old one is no longer updated. With neither (a very old store) this
+/// returns None and the two numbers in the UI show "—".
 fn message_table(conn: &Connection) -> Option<(&'static str, &'static str)> {
     let has = |name: &str| -> bool {
         conn.query_row(
@@ -142,7 +151,7 @@ fn message_table(conn: &Connection) -> Option<(&'static str, &'static str)> {
         .unwrap_or(false)
     };
     if has("session_message") {
-        // 新表：`type` 列直接是 'user' / 'assistant' / 'system' / ...
+        // New table: the `type` column is 'user' / 'assistant' / 'system' / ...
         Some(("session_message", "m.type = 'user'"))
     } else if has("message") {
         Some(("message", "json_extract(m.data, '$.role') = 'user'"))
@@ -151,7 +160,7 @@ fn message_table(conn: &Connection) -> Option<(&'static str, &'static str)> {
     }
 }
 
-/// 这张表有没有 tokens 那几个列（老库的 `session` 表没有）。
+/// Whether this table has the token columns (old stores' `session` table does not).
 fn has_tokens_columns(conn: &Connection, table: &str) -> bool {
     let sql =
         format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = 'tokens_input'");
@@ -191,8 +200,9 @@ pub(super) fn open_read_only(path: &Path) -> Result<Connection, String> {
     Ok(conn)
 }
 
-/// 改名要写库，所以是读写打开：opencode 同时开着时靠 `busy_timeout` 等它一会儿，
-/// 不肯让（一直被占着）就如实报错，不硬来。
+/// Renaming writes to the store, so this opens read-write: when opencode is running
+/// concurrently, `busy_timeout` waits a while, and if it never yields (the database stays
+/// locked) the error is reported honestly rather than forced through.
 fn open_rw(path: &Path) -> Result<Connection, String> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(
         |e| {
@@ -308,10 +318,11 @@ pub(crate) fn session_directory(path: &Path, id: &str) -> Result<String, String>
     .map_err(|_| format!("opencode 里找不到会话 {id}"))
 }
 
-/// 给会话改个名字。
+/// Rename a session.
 ///
-/// 只改 `title` 一列，别的列（`time_updated` 等）一律不碰：改名不是一次对话，
-/// 不该把这个会话在列表里顶到最前面。opencode 自己是 `/rename` 写这一列。
+/// Only the `title` column changes; nothing else (`time_updated` etc.) is touched: a
+/// rename is not a conversation, so it must not push the session to the top of the list.
+/// opencode itself writes this column from `/rename`.
 pub(crate) fn rename_at(path: &Path, id: &str, name: &str) -> Result<(), String> {
     let name = name.trim();
     if name.is_empty() {
@@ -471,7 +482,8 @@ mod tests {
 
     #[test]
     fn turns_count_user_messages_not_every_message() {
-        // 一轮里助手会发好几条（工具调用、反思），按消息总数数会虚高好几倍。
+        // The assistant posts several messages per turn (tool calls, reasoning), so
+        // counting all messages inflates the number several-fold.
         let (_dir, path) = temp_db("session_v2");
         insert(&path, "session_v2", "ses_1", None, Some("t"), "F:/x", 10);
         insert_message(&path, "m1", "ses_1", "user", 100);
@@ -486,7 +498,8 @@ mod tests {
 
     #[test]
     fn a_session_whose_messages_were_pruned_keeps_an_estimate_instead_of_zero() {
-        // opencode 会清掉老消息：消息表空了，但 tokens 列还在，说「0 轮」就是撒谎。
+        // opencode prunes old messages: the message table is empty but the token columns
+        // remain, so claiming "0 turns" would be a lie.
         let (_dir, path) = temp_db("session_v2");
         insert(&path, "session_v2", "ses_1", None, Some("t"), "F:/x", 10);
         let conn = Connection::open(&path).expect("open");
@@ -513,7 +526,7 @@ mod tests {
     #[test]
     fn an_old_store_without_token_columns_leaves_them_unknown() {
         let (_dir, path) = temp_db("session");
-        // 老库没有 tokens 列，也不该把「不知道」写成 0。
+        // An old store has no token columns, and "unknown" must not be written as 0.
         let conn = Connection::open(&path).expect("open");
         conn.execute_batch("ALTER TABLE session DROP COLUMN tokens_input").ok();
         insert(&path, "session", "ses_1", None, Some("t"), "F:/x", 10);
@@ -620,8 +633,10 @@ mod tests {
         assert_eq!(delete_arguments("ses_1"), vec!["session", "delete", "ses_1"]);
     }
 
-    /// 项目目录被删掉之后会话还在列表里（用户报的那条「目录名称无效」）：删除不能因此
-    /// 卡死 —— 删不掉目录就退到临时目录去跑命令。这里用一个确定不存在的目录当记录目录。
+    /// A session stays listed after its project directory was deleted (the reported "The
+    /// directory name is invalid"): deletion must not get stuck because of it — if the
+    /// directory is unusable, run the command from the temp directory instead. This uses
+    /// a directory that certainly does not exist as the recorded one.
     #[test]
     fn deleting_a_session_whose_directory_is_gone_still_runs() {
         let (dir, db) = temp_db(TABLE_ORDER[0]);
@@ -634,8 +649,9 @@ mod tests {
             "D:/no/such/project",
             1,
         );
-        // 命令本身会失败（这里没装 opencode），但失败的原因不该是「目录不存在」：
-        // 只要走到执行这一步就算通过这条不变式。
+        // The command itself fails (opencode is not installed here), but the reason must
+        // not be "directory does not exist": reaching execution is enough to satisfy the
+        // invariant.
         let error = delete_at(&db, "ses_gone").expect_err("no CLI in the test env");
         assert!(
             !error.contains("目录名称无效")

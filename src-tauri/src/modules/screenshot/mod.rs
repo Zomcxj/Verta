@@ -1,14 +1,20 @@
-//! 区域截图：覆盖窗口上拖框 → 点保存那一刻抓屏 → 按选区裁剪、编码、落盘、进剪贴板。
+//! Region screenshots: drag a box on the overlay window → grab the screen when Save
+//! is clicked → crop to the selection, encode, write to disk, copy to the clipboard.
 //!
-//! 抓屏为什么放在「保存」而不是「点截图按钮」：
+//! Why the grab happens on "save" instead of when the screenshot button is clicked:
 //!
-//! 1. 覆盖窗口自己就压在屏幕上（一层浅灰 + 选择框 + 把手 + 操作条），抓屏必须发生在它藏起来
-//!    之后，否则这些东西会一起进到图里。所以顺序是：藏窗口 → 等它真的从屏幕上消失 → 抓屏。
-//! 2. 在那之前屏幕一直是活的。用户框选时看到的就是屏幕本身，跟 Windows 自带的「区域截图」
-//!    同一套手感：只压一层浅灰，松手（这里是点保存）那一下才真的抓。不冻屏，也就没有「冻住的
-//!    那一下」需要等，覆盖窗口可以立刻亮出来。
+//! 1. The overlay itself sits on the screen (a grey veil + selection box + handles +
+//!    action bar), so the grab must happen after it is hidden, or all of that ends up
+//!    in the image. Hence: hide the window → wait until it is really off the screen →
+//!    grab.
+//! 2. Until then the screen stays live. While dragging, the user sees the screen
+//!    itself, matching the feel of the Windows built-in Snipping Tool: only a grey
+//!    veil on top, and the actual grab happens on release (here: on Save). Nothing is
+//!    frozen, so there is no frozen frame to wait for and the overlay can appear
+//!    instantly.
 //!
-//! 裁剪、圆角、编码都在后端做：前端只管画，把选区坐标交回来。
+//! Cropping, rounding and encoding all happen in the backend: the frontend only draws
+//! and hands back the selection coordinates.
 
 mod capture;
 mod encode;
@@ -26,30 +32,35 @@ use tauri::{
 };
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-/// 覆盖窗口的 label。建窗、藏窗、发事件三处用的是同一个名字。
+/// Label of the overlay window. Window creation, hiding and event routing all use
+/// this one name.
 const OVERLAY: &str = "screenshot";
-/// 「该干活了」——发给覆盖窗口的频道。窗口是养着的，每次截图都从这条消息开始。
+/// "Time to work" — the channel sent to the overlay window. The window is kept
+/// alive, so every screenshot starts with this message.
 pub const ARMED_EVENT: &str = "screenshot:armed";
-/// 「存好了」告诉主窗口用的频道。
+/// Channel used to tell the main window "saved".
 pub const SAVED_EVENT: &str = "screenshot:saved";
-/// 「没做成」告诉主窗口用的频道。
+/// Channel used to tell the main window "failed".
 pub const FAILED_EVENT: &str = "screenshot:failed";
 
-/// 藏起窗口之后等多久再抓屏。
+/// How long to wait after hiding the window before grabbing.
 ///
-/// `hide()` 只是把请求交给系统，屏幕上那一帧还留着；这时候抓屏会把灰层、选择框、把手、操作条
-/// 一起拍进去。一帧多一点就够（60 Hz 下一帧 16 ms），代价是这一小段时间里屏幕会短暂地不带灰层
-/// ——自带截图也有这一下。
+/// `hide()` only hands the request to the system and that frame is still on screen;
+/// grabbing now would capture the veil, selection box, handles and action bar. A bit
+/// over one frame is enough (16 ms at 60 Hz); the cost is a brief moment without the
+/// veil — the built-in snipping tool has the same flicker.
 const HIDE_SETTLE: Duration = Duration::from_millis(80);
 
-/// 状态只有一件事：现在有没有一次正在进行的截图。
+/// The state is one bit: whether a screenshot is currently in progress.
 ///
-/// 比「手里存着一份待用的像素」简单得多——像素不再留着了（见文件头的说明），这里只是不让一次
-/// 散落的调用（覆盖窗口早收起来了，却又来一次 finish）凭空存出一张图。
+/// Much simpler than holding pending pixels — pixels are not kept around (see the
+/// module docs); this only stops a stray call (the overlay is long gone but a
+/// `finish` arrives anyway) from writing out an image out of nowhere.
 #[derive(Default)]
 pub struct ScreenshotState(AtomicBool);
 
-/// 选区：物理像素，相对整块虚拟桌面左上角（也就是覆盖窗口的左上角）。宽高可能是负的（往回拖）。
+/// The selection: physical pixels relative to the top-left of the virtual desktop
+/// (i.e. of the overlay window). Width and height may be negative (dragging back).
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenshotRect {
@@ -65,20 +76,22 @@ pub struct ScreenshotSaved {
     path: String,
     width: u32,
     height: u32,
-    /// 图存好了、但剪贴板没写进去时的原因。别把「一半成了」说成「全成了」。
+    /// Why the image was saved but not written to the clipboard. Half a success must
+    /// not be reported as a full one.
     clipboard_error: Option<String>,
 }
 
-/// 点「截图」：把覆盖窗口亮出来，浅灰立刻上来。
+/// "Screenshot" clicked: show the overlay window so the veil comes up immediately.
 ///
-/// 这一步不抓屏、不落盘，所以快得没有东西可以「弹」。
+/// This step neither grabs the screen nor writes anything, so nothing pops.
 #[tauri::command]
 pub async fn screenshot_begin(
     app: AppHandle,
     state: tauri::State<'_, ScreenshotState>,
 ) -> Result<(), String> {
-    // 窗口建一次就养着（见 `ensure_overlay`）：新建一个 webview 要等它起页面、启动 React，
-    // 现实里是点一下按钮等两三秒；养着之后每次只是把它亮出来。
+    // The window is created once and kept (see `ensure_overlay`): a fresh webview has
+    // to load its page and boot React, which in practice means a two-to-three second
+    // wait per click; kept alive, each screenshot just shows it.
     let window = match ensure_overlay(&app) {
         Ok(window) => window,
         Err(e) => {
@@ -87,7 +100,8 @@ pub async fn screenshot_begin(
         }
     };
     state.0.store(true, Ordering::SeqCst);
-    // 先叫一声再亮出来：上一次用剩的选区、圆角、报错都得清掉（窗口可能是几小时前那一次留下的）。
+    // Signal first, then show: leftovers from the previous run — selection, corner
+    // radius, error — must be cleared (the window may date from hours ago).
     let _ = app.emit_to(OVERLAY, ARMED_EVENT, ());
     window
         .show()
@@ -98,9 +112,11 @@ pub async fn screenshot_begin(
     Ok(())
 }
 
-/// 点了保存：藏起覆盖窗口 → 等它从屏幕上消失 → 抓屏 → 裁剪、抠圆角、编码、落盘、进剪贴板。
+/// Save clicked: hide the overlay → wait for it to leave the screen → grab → crop,
+/// round the corners, encode, write, copy to the clipboard.
 ///
-/// 失败时把覆盖窗口亮回来：选区还在，用户能接着调、接着存。
+/// On failure the overlay comes back: the selection is still there, so the user can
+/// adjust it and save again.
 #[tauri::command]
 pub async fn screenshot_finish(
     app: AppHandle,
@@ -112,7 +128,8 @@ pub async fn screenshot_finish(
         return Err("当前没有正在进行的截图".into());
     }
 
-    // 藏窗口之后要等、抓屏也是阻塞的，所以整段挪到阻塞线程上去做，不占着异步运行时。
+    // Hiding involves a wait and the grab blocks, so the whole sequence moves to a
+    // blocking thread instead of occupying the async runtime.
     let task = {
         let app = app.clone();
         tauri::async_runtime::spawn_blocking(move || {
@@ -126,12 +143,14 @@ pub async fn screenshot_finish(
 
     match saved {
         Ok(saved) => {
-            // 覆盖窗口不在这儿收：`capture_after_hiding` 抓屏之前就把它藏了，之后一直藏着。
+            // The overlay is not taken down here: `capture_after_hiding` hides it
+            // before the grab and it stays hidden.
             let _ = app.emit_to("main", SAVED_EVENT, saved.clone());
             Ok(saved)
         }
         Err(e) => {
-            // 亮回来接着选。状态也放回去，用户直接再点一次保存就行。
+            // Bring it back so the user can keep selecting. Restore the state too, so
+            // clicking save again just works.
             state.0.store(true, Ordering::SeqCst);
             show_overlay(&app);
             Err(e)
@@ -139,7 +158,8 @@ pub async fn screenshot_finish(
     }
 }
 
-/// 藏掉覆盖窗口 → 等合成器把它摘下去 → 抓整块虚拟桌面 → 裁剪落盘。
+/// Hide the overlay → wait for the compositor to drop it → grab the whole virtual
+/// desktop → crop and write.
 fn capture_after_hiding(
     app: &AppHandle,
     rect: ScreenshotRect,
@@ -152,7 +172,8 @@ fn capture_after_hiding(
     finish_shot(app, &shot, rect, corner_radius, stamp)
 }
 
-/// 裁剪 → 抠圆角 → 编码 → 落盘 → 剪贴板。任何一步真出错都原样返回，由调用方决定怎么交代。
+/// Crop → round corners → encode → write → clipboard. Any real failure is returned
+/// as-is and the caller decides how to report it.
 fn finish_shot(
     app: &AppHandle,
     shot: &capture::RawShot,
@@ -178,8 +199,8 @@ fn finish_shot(
     })?;
     let pixels = geom::crop_rgba(&shot.rgba, shot.width, shot.height, region)
         .ok_or_else(|| "选区超出画面范围".to_string())?;
-    // 圆角是「把四个角抠透明」，所以要在编码之前做，也要在进剪贴板之前做——
-    // 存下来的文件和剪贴板里的图得是同一张。
+    // Rounding makes the four corners transparent, so it has to happen before encoding
+    // and before the clipboard — the file and the pasted image must be the same image.
     let mut pixels = pixels;
     geom::apply_corner_radius(&mut pixels, region.width, region.height, corner_radius);
     let png = encode::encode_png(&pixels, region.width, region.height)?;
@@ -190,7 +211,8 @@ fn finish_shot(
     let path = dir.join(name);
     std::fs::write(&path, &png).map_err(|e| format!("无法写入 {}：{e}", path.display()))?;
 
-    // 存好了再进剪贴板；剪贴板写不进去也不该把「存好了」抹掉，所以两件事分开报。
+    // Save first, then the clipboard; a clipboard failure must not erase "saved", so
+    // the two are reported separately.
     let clipboard_error =
         match app
             .clipboard()
@@ -208,10 +230,13 @@ fn finish_shot(
     })
 }
 
-/// 建好或复用覆盖窗口，并把它按物理像素压在整块虚拟桌面上。
+/// Create or reuse the overlay window and lay it over the whole virtual desktop in
+/// physical pixels.
 ///
-/// 复用是为了「快」：新建一个 webview 要等它起页面、启动 React，现实里就是点一下按钮等两三秒；
-/// 养着它之后，每次截图只是把它亮出来。位置与尺寸每次都重算，显示器插拔、分辨率改了也跟着走。
+/// Reuse is about speed: a fresh webview has to load its page and boot React, i.e. a
+/// two-to-three second wait per click; kept alive, each screenshot just shows it.
+/// Position and size are recomputed every time, so monitor hot-plugging and
+/// resolution changes are followed.
 fn ensure_overlay(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
     let window = match app.get_webview_window(OVERLAY) {
         Some(existing) => existing,
@@ -222,8 +247,10 @@ fn ensure_overlay(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
             .always_on_top(true)
             .skip_taskbar(true)
             .shadow(false)
-            // 透明：屏幕要能从窗口里透出来。那层浅灰是窗口自己画的半透明黑，没被压到的像素就是
-            // 全透明，用户看到的是活着的屏幕——这正是「不冻屏」的关键。
+            // Transparent: the screen must show through the window. The veil is a
+            // semi-transparent black drawn by the window itself, unpainted pixels are
+            // fully transparent, and the user sees the live screen — that is what keeps
+            // the screen unfrozen.
             .transparent(true)
             .visible(false)
             .build()
@@ -244,16 +271,18 @@ fn ensure_overlay(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
     Ok(window)
 }
 
-/// 按 Esc、或者点了取消：收起覆盖窗口，当没发生过（这时还没有抓屏，什么都没产生）。
+/// Esc or cancel: put the overlay away as if nothing happened (nothing was grabbed,
+/// so nothing was produced).
 #[tauri::command]
 pub fn screenshot_cancel(app: AppHandle, state: tauri::State<'_, ScreenshotState>) {
     state.0.store(false, Ordering::SeqCst);
     hide_overlay(&app);
 }
 
-/// 覆盖窗口自己出岔子时把原文交回来。
+/// Hand back the raw message when the overlay itself fails.
 ///
-/// 不吭声地消失最糟：用户点了按钮、画面闪一下、什么都没发生，只能猜。
+/// Vanishing silently is the worst outcome: the user clicks, the screen flashes, and
+/// nothing happens — leaving them to guess.
 #[tauri::command]
 pub fn screenshot_failed(
     app: AppHandle,
@@ -265,7 +294,8 @@ pub fn screenshot_failed(
     let _ = app.emit_to("main", FAILED_EVENT, message);
 }
 
-/// 图放哪儿：用户自己的「图片\屏幕截图」。找不到「图片」目录就退回主目录。
+/// Where images go: the user's Pictures\Screenshots. Falls back to the home directory
+/// when Pictures cannot be located.
 fn screenshots_dir() -> Result<PathBuf, String> {
     let base = dirs::picture_dir()
         .or_else(dirs::home_dir)
@@ -273,7 +303,7 @@ fn screenshots_dir() -> Result<PathBuf, String> {
     Ok(base.join("Screenshots"))
 }
 
-/// 亮出来并拿焦点：没有焦点就收不到 Esc 与 Enter。
+/// Show it and take focus: without focus it gets neither Esc nor Enter.
 fn show_overlay(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(OVERLAY) {
         let _ = window.show();
@@ -281,7 +311,8 @@ fn show_overlay(app: &AppHandle) {
     }
 }
 
-/// 藏起来而不是关掉：webview 养着，下次截图不用再等它起一遍页面。
+/// Hide rather than close: the webview stays alive, so the next screenshot does not
+/// have to load its page again.
 fn hide_overlay(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(OVERLAY) {
         let _ = window.hide();

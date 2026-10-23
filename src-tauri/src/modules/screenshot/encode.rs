@@ -1,9 +1,11 @@
-//! PNG 编码。
+//! PNG encoding.
 //!
-//! 用 `image`（本来就在依赖树里），只开 `png` 一个 feature：截图的产物就是要一张 PNG 文件，
-//! 别的格式用不上，也不值得为此多拉一堆解码器。
+//! Uses `image` (already in the dependency tree) with only the `png` feature: a screenshot
+//! produces a PNG file and nothing else, so no other format is needed — and not worth
+//! pulling in a pile of decoders for.
 
-/// RGBA 像素编码成 PNG 字节。存盘就是这一份（覆盖窗口显示走 IPC，不经编码）。
+/// Encode RGBA pixels into PNG bytes. This is exactly what gets written to disk (the
+/// overlay renders via IPC and is not encoded).
 pub fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
     let expected = width as usize * height as usize * 4;
     if rgba.len() != expected {
@@ -31,7 +33,7 @@ mod tests {
             255, 0, 0, 255, 0, 255, 0, 255, // 两个像素：红、绿
         ];
         let png = encode_png(&rgba, 2, 1).expect("该编出来");
-        // PNG 的幻数：89 50 4E 47 0D 0A 1A 0A。
+        // The PNG magic number: 89 50 4E 47 0D 0A 1A 0A.
         assert_eq!(&png[..8], &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
         let back = image::load_from_memory(&png)
             .expect("该能读回去")

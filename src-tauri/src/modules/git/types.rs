@@ -2,8 +2,8 @@ use serde::Serialize;
 
 pub(crate) const DEFAULT_TIMEOUT_SECS: u64 = 30;
 pub(crate) const NETWORK_TIMEOUT_SECS: u64 = 120;
-/// 克隆一个新仓库要从头传完整个历史，比 fetch/pull 慢得多，单独给一档；它同时是
-/// `run_git` 用到的总上限。
+/// Cloning a new repository transfers the whole history from scratch, far slower than
+/// fetch/pull, so it gets its own tier; it is also the overall ceiling `run_git` applies.
 pub(crate) const CLONE_TIMEOUT_SECS: u64 = 900;
 pub(crate) const MAX_TIMEOUT_SECS: u64 = CLONE_TIMEOUT_SECS;
 pub(crate) const MAX_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
@@ -134,17 +134,19 @@ pub struct GitBranchListResult {
     pub branches: Vec<GitBranchEntry>,
 }
 
-/// 一条储藏。界面只读，改它要走储藏操作命令。
+/// A stash entry. Read-only for the UI; changing it goes through the stash commands.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GitStashEntry {
-    /// `stash@{0}` 这种引用，操作命令原样收回去。
+    /// A reference like `stash@{0}`, passed back verbatim to the operation commands.
     pub reference: String,
-    /// 储藏列表里的顺序，0 是最新的一条。
+    /// Position in the stash list, 0 being the newest.
     pub index: u32,
-    /// 储藏里的提交说明（`stash@{0}: WIP on main: 1a2b3c4 ...` 的后半段）。
+    /// The stash's commit message (the part of `stash@{0}: WIP on main: 1a2b3c4 ...` after
+    /// the reference).
     pub message: String,
-    /// 这条储藏建在哪个分支上；`--include-untracked` 之类的自定义说明解析不出时为 None。
+    /// Which branch the stash was made on; None when a custom message such as
+    /// `--include-untracked` gives nothing to parse.
     pub branch: Option<String>,
 }
 

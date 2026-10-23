@@ -346,7 +346,7 @@ pub async fn git_stash_pop(
     .await
 }
 
-/// 丢掉一条储藏。界面上这一步必须先用确认框问过用户。
+/// Drop a stash entry. The UI must confirm with the user before this step.
 #[tauri::command]
 pub async fn git_stash_drop(
     repo_root: String,
@@ -412,7 +412,8 @@ pub async fn git_create_branch(
     .await
 }
 
-/// 删除分支。`force` 走 `-D`，界面上这一步必须先用确认框问过用户。
+/// Delete a branch. `force` uses `-D`; the UI must confirm with the user before this
+/// step.
 #[tauri::command]
 pub async fn git_delete_branch(
     repo_root: String,
@@ -443,7 +444,8 @@ pub async fn git_rename_branch(
     .await
 }
 
-/// 新建 worktree，返回新目录的路径（调用方再授权一次即可打开）。
+/// Create a worktree and return the new directory's path (the caller authorizes it once
+/// more and can then open it).
 #[tauri::command]
 pub async fn git_worktree_add(
     repo_root: String,
@@ -470,7 +472,8 @@ pub async fn git_worktree_add(
     .await
 }
 
-/// 移除 worktree。`force` 会丢掉那里的未提交改动，界面上必须先确认。
+/// Remove a worktree. `force` discards uncommitted changes there, so the UI must
+/// confirm first.
 #[tauri::command]
 pub async fn git_worktree_remove(
     repo_root: String,
@@ -514,7 +517,7 @@ pub async fn git_revert_commit(
     .await
 }
 
-/// 软撤回：分支指针退到某个提交，工作区原样保留。
+/// Soft reset: move the branch pointer back to a commit, leaving the worktree intact.
 #[tauri::command]
 pub async fn git_reset_soft(
     repo_root: String,
@@ -529,7 +532,7 @@ pub async fn git_reset_soft(
     .await
 }
 
-/// 中止一次卡住的拣选或还原；`kind` 只认 `cherry-pick` 与 `revert`。
+/// Abort a stuck cherry-pick or revert; `kind` accepts only `cherry-pick` and `revert`.
 #[tauri::command]
 pub async fn git_abort_operation(
     repo_root: String,
@@ -544,7 +547,8 @@ pub async fn git_abort_operation(
     .await
 }
 
-/// 克隆仓库到 `dest`，返回目标目录路径（调用方再授权一次即可打开）。
+/// Clone a repository into `dest` and return the target path (the caller authorizes it
+/// once more and can then open it).
 #[tauri::command]
 pub async fn git_clone_repo(
     url: String,

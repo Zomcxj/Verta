@@ -1,20 +1,24 @@
-//! 抓屏本身。
+//! The screen grab itself.
 //!
-//! Windows 走 GDI，一次抓下整块虚拟桌面（所有显示器拼起来的那块）。别的平台先在这儿挡回去——
-//! 覆盖窗口、裁剪、Screenshots 目录这条线是照着 Windows 做的，没在别的平台上设计过，不该假装能跑。
+//! Windows goes through GDI and grabs the whole virtual desktop (all monitors stitched
+//! together) in one go. Other platforms are turned away here — the overlay window,
+//! cropping and the Screenshots directory were built for Windows and never designed
+//! elsewhere, so they must not pretend to work.
 
-/// 抓下来的一整块画面。
+/// One full grab of the screen.
 pub struct RawShot {
-    /// RGBA，行序自上而下。
+    /// RGBA, rows stored top-down.
     pub rgba: Vec<u8>,
     pub width: u32,
     pub height: u32,
 }
 
-/// 整块虚拟桌面（所有显示器拼起来那块）在屏幕坐标里的物理像素范围。
+/// The physical-pixel extent of the virtual desktop (all monitors stitched together) in
+/// screen coordinates.
 ///
-/// 抓屏与覆盖窗口都从这儿取：两边用的是同一个范围，选区坐标才对得上。
-/// 副屏在主屏左边时 `x` 会是负的。
+/// Both the grab and the overlay window read it from here so they share one extent, which
+/// is what makes the selection coordinates line up. `x` is negative when a secondary
+/// monitor sits left of the primary one.
 pub struct ScreenBounds {
     pub x: i32,
     pub y: i32,
@@ -22,9 +26,10 @@ pub struct ScreenBounds {
     pub height: u32,
 }
 
-/// GDI 给的是 BGRA，而且屏幕上抓下来的 alpha 是垃圾值 —— 顺手补成不透明。
+/// GDI hands back BGRA, and the alpha grabbed from the screen is junk — fill it in as
+/// opaque.
 ///
-/// 不补的话，存成 PNG 是半透明的，进了剪贴板也一样。
+/// Otherwise the PNG ends up semi-transparent, and so does the clipboard image.
 pub fn bgra_to_rgba(bgra: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bgra.len());
     for px in bgra.as_chunks::<4>().0 {
@@ -48,7 +53,7 @@ mod win {
         SM_YVIRTUALSCREEN,
     };
 
-    /// 整块虚拟桌面的物理像素范围。
+    /// The physical-pixel extent of the virtual desktop.
     pub fn virtual_screen_bounds() -> Result<ScreenBounds, String> {
         let (x, y, width, height) = unsafe {
             (
@@ -69,7 +74,7 @@ mod win {
         })
     }
 
-    /// 抓整块虚拟桌面。
+    /// Grab the whole virtual desktop.
     pub fn capture_virtual_screen() -> Result<RawShot, String> {
         let screen = virtual_screen_bounds()?;
         unsafe {
@@ -82,7 +87,8 @@ mod win {
         }
     }
 
-    /// 本地时间戳。文件名按本地时间排 —— 用户找图时看的就是本机时间。
+    /// A local timestamp. File names sort by local time — which is the time the user
+    /// sees when looking for an image.
     pub fn now_stamp() -> String {
         let mut now: SYSTEMTIME = unsafe { std::mem::zeroed() };
         unsafe { GetLocalTime(&mut now) };
@@ -96,7 +102,8 @@ mod win {
         )
     }
 
-    /// 真正的抓屏。DC 与位图必须自己收干净，所以每一步失败都照着同一条路退出。
+    /// The actual grab. The DC and bitmap must be cleaned up by us, so every failure exits
+    /// along the same path.
     unsafe fn grab(x: i32, y: i32, w: i32, h: i32) -> Result<RawShot, String> {
         let screen = GetDC(std::ptr::null_mut());
         if screen.is_null() {
@@ -141,7 +148,8 @@ mod win {
         if BitBlt(mem, 0, 0, w, h, screen, x, y, SRCCOPY) == 0 {
             return Err("BitBlt 拷贝屏幕失败".into());
         }
-        // 负高度 = 自上而下的行序：省一次翻转，也跟后面裁剪假定的一致。
+        // A negative height means top-down rows: saves a flip and matches what cropping
+        // later assumes.
         let mut info: BITMAPINFO = std::mem::zeroed();
         info.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
         info.bmiHeader.biWidth = w;
@@ -191,7 +199,7 @@ mod tests {
 
     #[test]
     fn bgra_is_swapped_into_rgba_and_made_opaque() {
-        // GDI 抓下来的 alpha 是垃圾值（这里给 0），出来必须是不透明的。
+        // The alpha GDI grabs is junk (0 here); the result must be opaque.
         assert_eq!(
             bgra_to_rgba(&[1, 2, 3, 0, 10, 20, 30, 0]),
             vec![3, 2, 1, 255, 30, 20, 10, 255]

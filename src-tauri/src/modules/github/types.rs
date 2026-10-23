@@ -1,49 +1,53 @@
-//! 远程仓库列表的 wire 结构。字段名前端已经按这个调用，改名等于改契约。
+//! Wire types for the remote repository list. The frontend already calls these
+//! field names, so renaming one is a contract change.
 
 use serde::Serialize;
 
-/// 查询成功的 `kind`。
+/// `kind` for a successful query.
 pub const KIND_READY: &str = "ready";
-/// 本机没有 gh CLI。
+/// The machine has no gh CLI.
 pub const KIND_NOT_INSTALLED: &str = "notInstalled";
-/// 装了 gh，但当前账号没登录 / 凭据失效。
+/// gh is installed, but the current account is logged out / its credentials expired.
 pub const KIND_NOT_LOGGED_IN: &str = "notLoggedIn";
-/// 其它失败（网络、限流、解析不了）。
+/// Any other failure (network, rate limit, unparsable output).
 pub const KIND_ERROR: &str = "error";
-/// 仓库里没有任何 workflow 运行（要么没配 CI，要么还没跑过）。
+/// The repository has no workflow runs at all (CI not configured, or never run).
 ///
-/// 这不是失败：查得清清楚楚「没有」，所以单独一类，界面说「没有 CI」而不是报错。
+/// This is not a failure: we know for certain there is nothing, so it gets its
+/// own kind and the UI says "no CI" instead of showing an error.
 pub const KIND_NONE: &str = "none";
 
-/// gh 没有给出任何可展示的原文时的兜底，免得前端拿到空字符串。
+/// Fallback when gh produced no displayable output, so the frontend never gets
+/// an empty string.
 const NO_DETAIL: &str = "gh 没有给出错误输出";
 
-/// 一次「远程仓库列表」查询的结果。
+/// Result of one "remote repository list" query.
 ///
-/// `kind` 说明这次查到了什么：
-/// - `ready`：查询成功（`repos` 可能就是空数组，那是真的没有仓库）；
-/// - `notInstalled` / `notLoggedIn` / `error`：失败，原因在 `error` 里如实带出来，
-///   绝不伪装成空列表。
+/// `kind` says what was found:
+/// - `ready`: the query succeeded (`repos` may be empty, meaning there really are no repos);
+/// - `notInstalled` / `notLoggedIn` / `error`: a failure, with the cause carried in
+///   `error` verbatim — never disguised as an empty list.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteReposPayload {
     pub kind: &'static str,
-    /// 已登录时的用户名。
+    /// The logged-in username.
     pub login: Option<String>,
-    /// `gh api user` 里的 `name`，可能为空。
+    /// The `name` from `gh api user`, possibly empty.
     pub account_name: Option<String>,
     pub repos: Vec<RemoteRepo>,
-    /// 翻到页数上限，且最后一页仍是满页：后面多半还有仓库没取。
+    /// Hit the page limit and the last page was still full: there are likely more repos.
     pub truncated: bool,
-    /// `kind` 非 `ready` 时的原文（gh 的 stderr / stdout 前几行）。
+    /// Raw output when `kind` is not `ready` (the first few lines of gh's stderr / stdout).
     pub error: Option<String>,
 }
 
-/// 一个远程仓库。只带列表要展示的字段，细节（Releases / Actions）留给后续切片。
+/// A remote repository. Only the fields the list renders; details (Releases /
+/// Actions) belong to later slices.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteRepo {
-    /// `owner/name`。
+    /// `owner/name`.
     pub full_name: String,
     pub owner: String,
     pub name: String,
@@ -51,10 +55,10 @@ pub struct RemoteRepo {
     pub is_fork: bool,
     pub is_archived: bool,
     pub language: Option<String>,
-    /// 原样带上 GitHub 的 ISO8601，相对时间由前端自己转。
+    /// GitHub's ISO8601 string as-is; the frontend turns it into relative time.
     pub pushed_at: Option<String>,
     pub description: Option<String>,
-    /// `https://github.com/owner/name`。
+    /// `https://github.com/owner/name`.
     pub web_url: String,
 }
 
@@ -75,13 +79,15 @@ impl RemoteReposPayload {
         }
     }
 
-    /// 失败：`repos` 为空，`error` 必须有内容（空的话给兜底文案，别让前端显示空白）。
+    /// Failure: `repos` is empty and `error` always has content (the fallback text
+    /// when it is blank, so the frontend never renders nothing).
     pub fn failed(kind: &'static str, error: impl Into<String>) -> Self {
         Self::failed_after(kind, error, Vec::new())
     }
 
-    /// 翻页中途失败：已经拿到的仓库照样带回去，不白扔。`kind` 已经不是 `ready`，
-    /// 前端不会把它当成一份完整列表。
+    /// Failure midway through paging: keep the repos already fetched rather than
+    /// throwing them away. `kind` is no longer `ready`, so the frontend will not
+    /// treat this as a complete list.
     pub fn failed_after(
         kind: &'static str,
         error: impl Into<String>,
@@ -108,29 +114,32 @@ impl RemoteReposPayload {
     }
 }
 
-/// 一个仓库最近一次 workflow 运行。只带界面要展示与要跳转的字段。
+/// A repository's most recent workflow run. Only the fields the UI shows and
+/// links to.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoCiRun {
-    /// workflow 名字（`build`、`CI` 之类）。
+    /// Workflow name (something like `build` or `CI`).
     pub name: String,
-    /// `queued` / `in_progress` / `completed` 等，GitHub 原样给的值。
+    /// `queued` / `in_progress` / `completed` etc., exactly what GitHub returns.
     pub status: String,
-    /// `success` / `failure` / `cancelled` 等；还没跑完时为空。
+    /// `success` / `failure` / `cancelled` etc.; empty until the run finishes.
     pub conclusion: Option<String>,
     pub run_number: u64,
     pub head_branch: Option<String>,
-    /// ISO8601，相对时间由前端自己转。
+    /// ISO8601; the frontend turns it into relative time.
     pub updated_at: Option<String>,
     pub url: String,
 }
 
-/// 单个仓库的 CI 查询结果。`kind` 与仓库列表同一套语义，另加 `none`（没有运行记录）。
+/// CI query result for a single repository. `kind` shares the repository list's
+/// semantics, plus `none` (no runs recorded).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoCiPayload {
     pub kind: &'static str,
-    /// 查的是哪个仓库（`owner/name`），前端按它把结果放回对应行。
+    /// Which repository was queried (`owner/name`); the frontend uses it to put the
+    /// result back on the matching row.
     pub repo: String,
     pub run: Option<RepoCiRun>,
     pub error: Option<String>,
@@ -169,7 +178,8 @@ impl RepoCiPayload {
     }
 }
 
-/// 兜底文案：gh 没给出可展示的原文时用它，免得前端拿到空字符串。
+/// Fallback text: used when gh produced no displayable output, so the frontend
+/// never gets an empty string.
 fn or_no_detail(error: String) -> String {
     if error.trim().is_empty() {
         NO_DETAIL.to_string()
@@ -178,25 +188,26 @@ fn or_no_detail(error: String) -> String {
     }
 }
 
-/// 一条 workflow 运行（运行列表里的一行）。
+/// One workflow run (a row in the run list).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoActionRun {
-    /// GitHub 那边的运行 id：重跑/取消要原样带回去。
+    /// GitHub's run id: rerun/cancel must send it back unchanged.
     pub id: u64,
     pub name: String,
     pub status: String,
     pub conclusion: Option<String>,
     pub run_number: u64,
     pub head_branch: Option<String>,
-    /// `push` / `pull_request` / `workflow_dispatch` 等，GitHub 原样给的值。
+    /// `push` / `pull_request` / `workflow_dispatch` etc., exactly what GitHub returns.
     pub event: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
     pub url: String,
 }
 
-/// 某个仓库的运行列表。`kind` 与 CI 那条同一套语义（`none` 是「确实没有运行记录」）。
+/// A repository's run list. `kind` shares the CI payload's semantics (`none`
+/// means there really are no runs).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoActionRunsPayload {
@@ -207,7 +218,8 @@ pub struct RepoActionRunsPayload {
 }
 
 impl RepoActionRunsPayload {
-    /// 查到了。空列表归 `none`（真没有运行记录），不归 `ready` —— 与 CI 那条一致。
+    /// Query succeeded. An empty list maps to `none` (genuinely no runs), not
+    /// `ready` — consistent with the CI payload.
     pub fn found(repo: impl Into<String>, runs: Vec<RepoActionRun>) -> Self {
         if runs.is_empty() {
             return Self::empty(repo);
@@ -243,10 +255,11 @@ impl RepoActionRunsPayload {
     }
 }
 
-/// 重跑 / 取消的结果。
+/// Outcome of a rerun / cancel.
 ///
-/// 成功不带数据（gh 成功时也没什么有用的输出），失败把 gh 原文照实带回去 —— 比如对一次
-/// 已经跑完的运行点取消，GitHub 会拒绝，那句话就是用户需要看到的东西。
+/// Success carries no data (gh has nothing useful to say when it works); failure
+/// returns gh's own words — cancelling an already-finished run, for instance, is
+/// rejected by GitHub and that message is exactly what the user needs to see.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoRunActionResult {
@@ -290,7 +303,7 @@ impl RepoRunActionResult {
     }
 }
 
-/// 运行详情里的一个步骤。
+/// A single step inside the run details.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoRunStep {
@@ -300,7 +313,7 @@ pub struct RepoRunStep {
     pub conclusion: Option<String>,
 }
 
-/// 运行详情里的一个 job（含它的步骤树）。
+/// A job inside the run details (with its step tree).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoRunJob {
@@ -311,12 +324,13 @@ pub struct RepoRunJob {
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
     pub url: Option<String>,
-    /// 跑在哪个 runner 上；GitHub 没给 runner 名时用第一个 label 兜底。
+    /// Which runner it ran on; falls back to the first label when GitHub gives no
+    /// runner name.
     pub runner: Option<String>,
     pub steps: Vec<RepoRunStep>,
 }
 
-/// 一次运行的 job 列表。
+/// The job list of one run.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoRunJobsPayload {
@@ -338,7 +352,8 @@ impl RepoRunJobsPayload {
         }
     }
 
-    /// 一个 job 都没有（还在排队、或工作流本来就没有任务）：查清楚了的「没有」。
+    /// No jobs at all (still queued, or the workflow has no jobs): an answer we
+    /// know to be "none".
     pub fn empty(repo: impl Into<String>, run_id: u64) -> Self {
         Self {
             kind: KIND_NONE,
@@ -374,21 +389,22 @@ impl RepoRunJobsPayload {
     }
 }
 
-/// 日志里的一行：前缀拆成 job / step / 时间，正文单独放。
+/// One log line: the prefix is split into job / step / time, the rest is the body.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoRunLogLine {
     pub job: String,
     pub step: String,
-    /// ISO8601（GitHub 给的是带小数秒的 UTC）；认不出来时为空。
+    /// ISO8601 (GitHub returns UTC with fractional seconds); empty when unrecognised.
     pub time: String,
     pub text: String,
 }
 
-/// 一次运行的日志。
+/// The log of one run.
 ///
-/// `clipped` 与 `capped` 是两件事，界面上说法也不同：`clipped` 是我们只留了尾部（日志本来更
-/// 长），`capped` 是一次能取的上限就被撑满了（拿到的是开头那一段，后面还有）。
+/// `clipped` and `capped` are different things and read differently in the UI:
+/// `clipped` means we kept only the tail (the log was longer), `capped` means the
+/// per-fetch limit was hit (we got the leading chunk and there is more after it).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoRunLogPayload {
@@ -396,7 +412,7 @@ pub struct RepoRunLogPayload {
     pub repo: String,
     pub run_id: u64,
     pub lines: Vec<RepoRunLogLine>,
-    /// 截断前一共多少行。
+    /// Total number of lines before truncation.
     pub total_lines: usize,
     pub clipped: bool,
     pub capped: bool,
@@ -452,29 +468,32 @@ impl RepoRunLogPayload {
     }
 }
 
-/// 一个 Release 里的附件（安装包之类）。
+/// An attachment on a release (an installer, say).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoReleaseAsset {
-    /// GitHub 那边的附件 id：下载要原样带回去。
+    /// GitHub's asset id: downloads must send it back unchanged.
     pub id: u64,
     pub name: String,
-    /// 字节数；GitHub 没给时是 0（界面据此走不确定态，不假装知道总量）。
+    /// Size in bytes; 0 when GitHub omits it (the UI then shows an indeterminate
+    /// state instead of pretending to know the total).
     pub size: u64,
     pub download_count: u64,
     pub content_type: Option<String>,
     pub updated_at: Option<String>,
 }
 
-/// 一个 Release：列表与详情共用同一份数据（正文就在列表响应里，不多打一次 API）。
+/// A release: the list and the detail view share one shape (the body already
+/// comes with the list response, so no extra API call).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoRelease {
     pub id: u64,
     pub tag_name: String,
-    /// Release 标题；为空时解析阶段就兜底成 tag，界面不用再判一次。
+    /// Release title; falls back to the tag while parsing when empty, so the UI
+    /// never has to check again.
     pub name: String,
-    /// Markdown 正文；GitHub 给 null 时是空串。
+    /// Markdown body; empty string when GitHub returns null.
     pub body: String,
     pub draft: bool,
     pub prerelease: bool,
@@ -484,10 +503,11 @@ pub struct RepoRelease {
     pub assets: Vec<RepoReleaseAsset>,
 }
 
-/// 某个仓库的 Release 列表。
+/// A repository's release list.
 ///
-/// 空列表是查清楚了的「没有 Release」，归 `ready`（与运行列表不同：这里空列表本身就是
-/// 一个合法的完整答案，界面只看 `releases.len()`）。
+/// An empty list is a definite "no releases" and maps to `ready` (unlike the run
+/// list: here an empty list is itself a valid, complete answer and the UI just
+/// looks at `releases.len()`).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoReleasesPayload {
@@ -521,15 +541,17 @@ impl RepoReleasesPayload {
     }
 }
 
-/// 一个仓库的当前账号权限（决定写操作按钮在不在）。
+/// The current account's permission on a repository (decides whether write
+/// actions are offered).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoPermissionPayload {
     pub kind: &'static str,
     pub repo: String,
-    /// `ADMIN` / `MAINTAIN` / `WRITE` / `TRIAGE` / `READ`；查不到时是 null。
+    /// `ADMIN` / `MAINTAIN` / `WRITE` / `TRIAGE` / `READ`; null when unknown.
     pub permission: Option<String>,
-    /// 能不能做写操作。**查不动时是 true**：按钮照常渲染，让 GitHub 去拒绝。
+    /// Whether write operations are allowed. **True when the lookup fails**: the
+    /// buttons still render and GitHub gets to reject them.
     pub can_write: bool,
     pub error: Option<String>,
 }
@@ -545,7 +567,8 @@ impl RepoPermissionPayload {
         }
     }
 
-    /// 查不动也要给结论：按「有权限」渲染，写操作交给 GitHub 拒绝。
+    /// Still needs an answer when the lookup fails: render as "allowed" and let
+    /// GitHub reject the write.
     pub fn failed(kind: &'static str, repo: impl Into<String>, error: impl Into<String>) -> Self {
         Self {
             kind,
@@ -561,17 +584,19 @@ impl RepoPermissionPayload {
     }
 }
 
-/// 一个仓库的管理面板要的那几样（描述、可见性、以及能不能改）。
+/// What a repository's settings panel needs (description, visibility, and
+/// whether they can be changed).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoSettingsPayload {
     pub kind: &'static str,
     pub repo: String,
-    /// 没有描述时是 null。
+    /// null when there is no description.
     pub description: Option<String>,
-    /// `PUBLIC` / `PRIVATE` / `INTERNAL`。
+    /// `PUBLIC` / `PRIVATE` / `INTERNAL`.
     pub visibility: Option<String>,
-    /// 能不能改设置 / 删仓库。**查不动时是 true**：按钮照常给，让 GitHub 去拒绝。
+    /// Whether settings can be changed / the repository deleted. **True when the
+    /// lookup fails**: show the buttons and let GitHub reject them.
     pub can_admin: bool,
     pub error: Option<String>,
 }
@@ -605,7 +630,8 @@ impl RepoSettingsPayload {
     }
 }
 
-/// 一次仓库管理动作（改描述 / 切可见性 / 删仓库）的结果。
+/// Result of a repository admin action (edit description / toggle visibility /
+/// delete).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoActionResult {
@@ -636,18 +662,19 @@ impl RepoActionResult {
     }
 }
 
-/// 本机 gh 当前的登录态。
+/// The local gh CLI's current login state.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthStatusPayload {
-    /// `ready`（登着）/ `none`（一个 host 都没登）/ `notInstalled` / `error`。
+    /// `ready` (logged in) / `none` (no host logged in) / `notInstalled` / `error`.
     pub kind: &'static str,
     pub host: Option<String>,
     pub login: Option<String>,
-    /// gh 给的状态，`success` / `failed` 等。
+    /// The state gh reports, `success` / `failed` etc.
     pub state: Option<String>,
     pub active: bool,
-    /// token 从哪来（`keyring` 等）。**token 本身永远不出现在这里。**
+    /// Where the token comes from (`keyring` etc.). **The token itself never
+    /// appears here.**
     pub token_source: Option<String>,
     pub git_protocol: Option<String>,
     pub scopes: Vec<String>,
@@ -669,7 +696,7 @@ impl AuthStatusPayload {
         }
     }
 
-    /// 查清楚了：这台机器没登任何 host。不是错误。
+    /// Definite answer: no host is logged in on this machine. Not an error.
     pub fn none() -> Self {
         Self {
             kind: "none",
@@ -706,12 +733,13 @@ impl AuthStatusPayload {
     }
 }
 
-/// 一次登录 / 登出动作的结果。
+/// Result of a login / logout action.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthActionPayload {
     pub kind: &'static str,
-    /// 浏览器授权时 gh 打出来的那些话（一次性码、失败原因）；没有就是 null。
+    /// What gh printed during browser auth (one-time code, failure reason); null
+    /// when there is nothing.
     pub output: Option<String>,
     pub error: Option<String>,
 }
@@ -733,7 +761,8 @@ impl AuthActionPayload {
         }
     }
 
-    /// 用户自己中止的（浏览器授权那条）：不是错误，界面不用弹红字。
+    /// Aborted by the user (the browser-auth path): not an error, so the UI does
+    /// not need a red banner.
     pub fn cancelled(output: Option<String>) -> Self {
         Self {
             kind: "cancelled",
@@ -751,33 +780,35 @@ impl AuthActionPayload {
     }
 }
 
-/// 浏览器授权过程中 gh 打出来的一段话（一次性码就在里面）。
+/// A chunk of output gh printed during browser auth (the one-time code is in it).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthLoginProgress {
     pub text: String,
 }
 
-/// 一次附件下载的进度。由后端按 64 KiB / 100 ms 合并后推给前端，不逐块刷 IPC。
+/// Progress of an asset download. The backend coalesces at 64 KiB / 100 ms before
+/// pushing, so IPC is not hammered per chunk.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReleaseDownloadProgress {
-    /// 前端生成的下载标识，用来把进度对回那一行。
+    /// Download id generated by the frontend, used to match progress to its row.
     pub id: String,
     pub written: u64,
-    /// 附件大小；GitHub 没给时是 0。
+    /// Asset size; 0 when GitHub omits it.
     pub total: u64,
 }
 
-/// 一次附件下载的结局。
+/// Outcome of an asset download.
 ///
-/// 取消不是错误：用户自己停的，界面不该弹红字。失败时 `error` 是 gh / 文件系统的原话。
+/// Cancellation is not an error: the user stopped it, so the UI should not show a
+/// red banner. On failure `error` is gh's / the filesystem's own message.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ReleaseDownloadResult {
-    /// `ok` / `cancelled` / `error`。
+    /// `ok` / `cancelled` / `error`.
     pub kind: &'static str,
-    /// 成功时的最终路径。
+    /// Final path on success.
     pub path: Option<String>,
     pub error: Option<String>,
 }
@@ -810,51 +841,53 @@ impl ReleaseDownloadResult {
 
 // ------------------------------------------------------------ issue / PR
 
-/// 一条 issue 或 PR（列表用）。
+/// An issue or PR (as used in lists).
 ///
-/// GitHub 的 `issues` 端点两者都返回，PR 多带一个 `pull_request` 对象 ——
-/// `is_pull_request` 就是照那个字段判的。
+/// GitHub's `issues` endpoint returns both; PRs additionally carry a
+/// `pull_request` object, and that is what `is_pull_request` is derived from.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssueSummary {
     pub number: u64,
     pub title: String,
-    /// 正文。列表不显示，但前端筛关键字要用，所以一并带上。
+    /// Body. Not shown in the list, but the frontend needs it for keyword
+    /// filtering, so it is passed along.
     pub body: String,
-    /// `open` / `closed`。
+    /// `open` / `closed`.
     pub state: String,
     pub is_pull_request: bool,
-    /// 草稿只有 PR 详情里有；列表端点给不出，如实当不是草稿。
+    /// Drafts only exist in PR details; the list endpoint cannot tell, so we
+    /// honestly report "not a draft".
     pub is_draft: bool,
-    /// 已经合进基线（PR 专有）。
+    /// Already merged into the base (PR only).
     pub merged: bool,
     pub author: String,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
-    /// 评论条数。
+    /// Comment count.
     pub comments: u32,
     pub labels: Vec<String>,
     pub assignees: Vec<String>,
     pub html_url: String,
-    /// 锁了的 issue 不能评论。
+    /// Locked issues cannot be commented on.
     pub locked: bool,
 }
 
-/// 某个仓库的 issue / PR 列表。
+/// A repository's issue / PR list.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssueListPayload {
     pub kind: &'static str,
     pub repo: String,
     pub issues: Vec<IssueSummary>,
-    /// 到了条数上限且最后一页仍是满页：后面多半还有没取。
+    /// Hit the item limit and the last page was still full: there are likely more.
     pub truncated: bool,
-    /// `kind` 非 `ready` 时的原文。
+    /// Raw output when `kind` is not `ready`.
     pub error: Option<String>,
 }
 
 impl IssueListPayload {
-    /// 查到了。空列表归 `none`（真没有），不归 `ready`。
+    /// Query succeeded. An empty list maps to `none` (genuinely nothing), not `ready`.
     pub fn found(repo: impl Into<String>, issues: Vec<IssueSummary>, truncated: bool) -> Self {
         if issues.is_empty() {
             return Self::empty(repo);
@@ -893,7 +926,7 @@ impl IssueListPayload {
     }
 }
 
-/// 一条评论。
+/// A comment.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssueComment {
@@ -903,27 +936,28 @@ pub struct IssueComment {
     pub created_at: Option<String>,
 }
 
-/// PR 专属信息（普通 issue 没有这一块）。
+/// PR-only information (plain issues have none of this).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestInfo {
-    /// 源分支。
+    /// Source branch.
     pub head: String,
     pub head_sha: String,
-    /// 目标分支。
+    /// Target branch.
     pub base: String,
     pub draft: bool,
     pub merged: bool,
-    /// `None` = GitHub 还在算（异步），不是「不能合」。
+    /// `None` = GitHub is still computing (asynchronously), not "cannot merge".
     pub mergeable: Option<bool>,
     pub mergeable_state: String,
-    /// 现在为什么合不了，给的是**原因码**：`merged` / `closed` / `draft` / `conflict` /
-    /// `computing` / `unknown`。能合时是 `None`。
+    /// Why it cannot merge right now, as a **reason code**: `merged` / `closed` /
+    /// `draft` / `conflict` / `computing` / `unknown`. `None` when it can merge.
     ///
-    /// 码而不是句子：这句话要显示给用户，得跟着界面语言走，所以由界面按码取文案。
+    /// A code rather than a sentence: this text is shown to the user and must
+    /// follow the UI language, so the UI resolves the wording from the code.
     ///
-    /// 这个判断放在后端算好再送出去：「能不能合」只有一处说了算，
-    /// 界面直接照着禁按钮，不用自己再判一遍。
+    /// Computed here rather than in the UI so there is exactly one authority on
+    /// "can this merge"; the UI just disables the button accordingly.
     pub merge_blocked: Option<String>,
     pub additions: u32,
     pub deletions: u32,
@@ -939,7 +973,7 @@ pub struct PullRequestInfo {
     pub locked: bool,
 }
 
-/// 检查状态汇总。
+/// Check status rollup.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CheckSummary {
@@ -947,13 +981,14 @@ pub struct CheckSummary {
     pub ok: u32,
     pub failed: u32,
     pub pending: u32,
-    /// 只看到了一部分检查（GitHub 一页最多 100 条）。这时整体不能报「全部通过」。
+    /// Only part of the checks were seen (GitHub caps a page at 100). The overall
+    /// state must not claim "all green" in that case.
     pub truncated: bool,
-    /// `pass` / `fail` / `pending` / `partial` / `none`。
+    /// `pass` / `fail` / `pending` / `partial` / `none`.
     pub state: &'static str,
 }
 
-/// 一条 issue / PR 的详情。
+/// Details of one issue / PR.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssueDetail {
@@ -972,24 +1007,25 @@ pub struct IssueDetail {
     pub html_url: String,
     pub locked: bool,
     pub comments: Vec<IssueComment>,
-    /// 评论取不到时的说明。正文照样给，评论区自己说一声。
+    /// Why the comments are missing. The body is still shown; the comment section
+    /// says so itself.
     pub comments_error: Option<String>,
-    /// PR 才有。
+    /// PRs only.
     pub pull_request: Option<PullRequestInfo>,
-    /// PR 信息取不到时的说明（是 PR、但这一块没拿到）。
+    /// Why the PR information is missing (this is a PR, but that block failed).
     pub pull_request_error: Option<String>,
-    /// PR 才有。`None` = 取不到（与「这个 PR 没有检查」不同，那种是
-    /// `Some` 且 `state == "none"`）。
+    /// PRs only. `None` = unavailable (different from "this PR has no checks",
+    /// which is `Some` with `state == "none"`).
     pub checks: Option<CheckSummary>,
 }
 
-/// 某个 issue / PR 的详情查询结果。
+/// Result of a single issue / PR detail query.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssueDetailPayload {
     pub kind: &'static str,
     pub repo: String,
-    /// 失败时是 `None`。
+    /// `None` on failure.
     pub detail: Option<IssueDetail>,
     pub error: Option<String>,
 }
@@ -1022,13 +1058,14 @@ impl IssueDetailPayload {
     }
 }
 
-/// 一次写操作（评论 / 开 / 关 / 合并 / 新建）的结果。
+/// Result of a write action (comment / open / close / merge / create).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssueActionResult {
     pub kind: &'static str,
     pub repo: String,
-    /// 新建 issue 时是新条目的编号；其它操作是被操作的条目编号。
+    /// The new item's number when creating an issue; otherwise the number of the
+    /// item acted on.
     pub number: u64,
     pub error: Option<String>,
 }

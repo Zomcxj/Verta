@@ -1,4 +1,5 @@
-//! 项目列表用的两条命令：扫描目录找仓库、批量取每个项目的状态。
+//! The two commands behind the project list: scan a directory for repositories, and
+//! fetch the status of many projects at once.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
@@ -11,10 +12,12 @@ use crate::modules::workspace::{resolve_path, WorkspaceRegistry};
 use super::scan::discover_git_repos;
 use super::types::{ProjectStatus, ProjectTarget};
 
-/// 取状态要起 git 进程，按 4 路并发跑：15 个仓库不至于串成十几秒，也不会把机器压满。
+/// Status checks spawn git processes, run 4-way concurrently: 15 repositories do not
+/// degenerate into ten-plus seconds, and the machine is not saturated.
 const WORKERS: usize = 4;
 
-/// 扫描 `root` 之下 `max_depth` 层以内的仓库。调用方应先把 `root` 授权过。
+/// Scan for repositories up to `max_depth` levels below `root`. The caller should have
+/// authorized `root` first.
 #[tauri::command]
 pub async fn projects_scan(root: String, max_depth: Option<usize>) -> Result<Vec<String>, String> {
     crate::modules::fs::blocking(move || {
@@ -28,8 +31,9 @@ pub async fn projects_scan(root: String, max_depth: Option<usize>) -> Result<Vec
     .await
 }
 
-/// 批量取状态。每条都独立成败：一个项目读不出来不影响其余项目，失败原因放在那一行的
-/// `error` 里（spec 约定：不许静默失败）。
+/// Fetch statuses in bulk. Each row succeeds or fails on its own: one unreadable project
+/// does not affect the others, and the reason lands in that row's `error` (per the spec:
+/// never fail silently).
 #[tauri::command]
 pub async fn projects_status(
     app: AppHandle,
@@ -84,7 +88,8 @@ fn status_for(registry: &WorkspaceRegistry, target: &ProjectTarget) -> ProjectSt
                     row.behind = snapshot.behind;
                     row.detached = snapshot.is_detached;
                     row.dirty = snapshot.changed_files.len() as u32;
-                    // 储藏数读不出来不算致命：给 0，但不能因此说这个项目「干净」而瞒着。
+                    // An unreadable stash count is not fatal: use 0, but do not let that
+                    // pretend the project is clean.
                     row.stashed = operations::stash_count(registry, &repo.repo_root, &workspace)
                         .unwrap_or_default();
                 }
@@ -97,7 +102,8 @@ fn status_for(registry: &WorkspaceRegistry, target: &ProjectTarget) -> ProjectSt
         }
         Ok(None) => ProjectStatus::bare(target, name, "notRepo"),
         Err(e) => {
-            // 路径压根不在 与 其它失败要分开：前者在界面上是「路径不存在」，后者要露出原因。
+            // "The path does not exist" must be told apart from other failures: the UI shows
+            // "path missing" for the former and the cause for the latter.
             let resolved = resolve_path(&target.path, &workspace);
             if std::fs::metadata(&resolved).is_err() {
                 ProjectStatus::bare(target, name, "missing")

@@ -588,8 +588,9 @@ pub async fn wsl_list_distros() -> Result<Vec<WslDistro>, String> {
     }
 }
 
-/// 关掉所有发行版与 WSL2 工具 VM。只有用户明确打开「关闭时同时关掉 WSL」才会走到这里，
-/// 所以不额外弹确认框；成功与失败都如实回报给界面（沿用 §5.5 不静默失败）。
+/// Shut down all distros and the WSL2 utility VM. This is only reached when the user
+/// explicitly enabled "also shut down WSL on exit", so no extra confirmation is shown; both
+/// success and failure are reported honestly (per §5.5, no silent failures).
 #[tauri::command]
 pub async fn wsl_shutdown() -> Result<(), String> {
     #[cfg(not(windows))]
@@ -960,8 +961,9 @@ mod auth_tests {
         missing.push(format!("verta-orhome-missing-{}", std::process::id()));
         let reg = WorkspaceRegistry::default();
         let s = missing.to_string_lossy().into_owned();
-        // 给的目录用不了 → 落到默认目录（本机 Windows 上是桌面），而不是把 cwd 留空让 shell
-        // 继承 Verta 自己的启动目录。
+        // An unusable directory falls back to the default one (the desktop on Windows hosts)
+        // rather than leaving cwd empty and letting the shell inherit Verta's own working
+        // directory.
         assert_eq!(
             user_spawn_cwd_or_default(&reg, Some(&s), &WorkspaceEnv::Local),
             dirs::desktop_dir()

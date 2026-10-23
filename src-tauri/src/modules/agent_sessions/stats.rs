@@ -1,28 +1,32 @@
-//! 会话列表要显示的几个数字：**轮数**、**tokens 合计**、**最后对话时间（到日）**。
+//! The numbers the session list shows: **turns**, **total tokens**, and **last talked
+//! at (to the day)**.
 //!
-//! 这里只放纯逻辑：两种工具各有一套原始写法，怎么折成数字、以及折不出来时怎么如实说「不知道」。
-//! 取数（读文件 / 读 sqlite）在各自的模块里，它们的测试只覆盖 SQL 与遍历那一层。
+//! Only pure logic lives here: each tool has its own raw format, and this is how it folds
+//! into numbers — and how it honestly says "unknown" when it cannot. Fetching (reading
+//! files / sqlite) lives in the per-tool modules, whose tests only cover SQL and traversal.
 
 use serde::Serialize;
 
-/// 一个会话的三个数字，前端照着画。
+/// A session's three numbers, which the frontend renders as-is.
 ///
-/// `None` 一律表示**这个工具的存储里没有这项数据**，不是零。界面上要说「—」，
-/// 不能说 0 —— 那会让人以为真的没聊过。
+/// `None` always means **the tool's storage does not track this**, not zero. The UI must
+/// show "—", never 0 — which would suggest nothing was ever discussed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStats {
-    /// 对话轮数（用户发起的回合数）。
+    /// Number of turns (rounds the user started).
     pub turns: Option<u32>,
-    /// 累计 tokens（输入 + 输出 + 缓存读 + 缓存写，由各工具自己的口径给）。
+    /// Total tokens (input + output + cache read + cache write, by each tool's own
+    /// accounting).
     pub tokens: Option<u64>,
-    /// 最后一次对话的时间（毫秒）。
+    /// When the last conversation happened (milliseconds).
     pub last_at_ms: Option<i64>,
 }
 
-/// pi 的一行 `message` 里有没有 `usage`，有就把 `totalTokens` 累加。
+/// Whether a pi `message` line carries `usage`, whose `totalTokens` gets summed.
 ///
-/// pi 的 usage 记在**助手消息**上，一条消息一个 usage；用户消息没有。
+/// pi records usage on **assistant messages**, one usage per message; user messages have
+/// none.
 pub fn pi_tokens_of_message(value: &serde_json::Value) -> Option<u64> {
     if value.get("type").and_then(serde_json::Value::as_str) != Some("message") {
         return None;
@@ -32,7 +36,7 @@ pub fn pi_tokens_of_message(value: &serde_json::Value) -> Option<u64> {
     usage_total(usage)
 }
 
-/// pi 的 usage 口径：有 `totalTokens` 就用它，否则把四个分项加起来。
+/// pi's usage accounting: use `totalTokens` when present, otherwise sum the four parts.
 pub fn usage_total(usage: &serde_json::Value) -> Option<u64> {
     if let Some(total) = as_u64(usage.get("totalTokens")) {
         return Some(total);
@@ -52,14 +56,15 @@ pub fn usage_total(usage: &serde_json::Value) -> Option<u64> {
 fn as_u64(value: Option<&serde_json::Value>) -> Option<u64> {
     match value? {
         serde_json::Value::Number(number) => number.as_u64().or_else(|| {
-            // 有些字段是浮点（cost 写成 0.0），tokens 不该是，但别因此丢掉整条。
+            // Some fields are floats (cost written as 0.0); tokens should not be, but do not
+            // drop the whole entry over it.
             number.as_f64().filter(|v| *v >= 0.0).map(|v| v as u64)
         }),
         _ => None,
     }
 }
 
-/// 把一串「一条消息的 tokens」累加起来；一条都没有就是 `None`。
+/// Sum a series of per-message token counts; none at all means `None`.
 pub fn sum_tokens<I: IntoIterator<Item = u64>>(values: I) -> Option<u64> {
     let mut total = 0u64;
     let mut found = false;
@@ -70,9 +75,11 @@ pub fn sum_tokens<I: IntoIterator<Item = u64>>(values: I) -> Option<u64> {
     found.then_some(total)
 }
 
-/// 折「最后对话时间」：有消息时间就用消息时间，否则退回文件/记录的更新时间。
+/// Compute "last talked at": the message time when there is one, else the file/record
+/// update time.
 ///
-/// 用消息时间是因为有些工具改写元数据也会刷新 `time_updated`，那不代表有人说过话。
+/// Message time wins because some tools refresh `time_updated` when rewriting metadata,
+/// which does not mean anyone said anything.
 pub fn last_talked_at(message_ms: Option<i64>, fallback_ms: i64) -> i64 {
     message_ms.unwrap_or(fallback_ms)
 }

@@ -1,4 +1,5 @@
-//! 项目列表：用户维护的一份仓库路径清单，以及每行的 git 状态查询。
+//! Project list: a user-maintained list of repository paths, plus the per-row git status
+//! query.
 
 pub mod commands;
 pub mod scan;

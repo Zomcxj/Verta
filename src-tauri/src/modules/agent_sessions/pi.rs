@@ -9,17 +9,20 @@ use super::types::{AgentSession, AgentSessionsPayload};
 pub(crate) const TOOL: &str = "pi";
 
 const MAX_TITLE_CHARS: usize = 80;
-/// 头部窗口只用来取会话头（id / cwd）和**第一条**用户消息（实测都在 77 KiB 以内）。
-/// 名字不靠它 —— 见 `latest_session_name`，那个是从文件末尾往回找的。
+/// The head window is only used for the session header (id / cwd) and the **first**
+/// user message (measured at under 77 KiB). The name does not rely on it — see
+/// `latest_session_name`, which scans backwards from the end of the file.
 const MAX_PREFIX_LINES: usize = 100_000;
 const MAX_PREFIX_BYTES: u64 = 1024 * 1024;
-/// 往回翻名字时一次读多少字节。
+/// Bytes read per step when scanning backwards for the name.
 const NAME_SCAN_STEP: u64 = 4 * 1024 * 1024;
-/// 最多往回翻这么多（超大文件不整份读）。
+/// Upper bound on the backward scan (huge files are never read in full).
 const NAME_SCAN_LIMIT: u64 = 256 * 1024 * 1024;
-/// 名字行走不了这么长；超过的当正文，免得去解一行几 MB 的消息（也是找行首行尾时的读取上限）。
+/// A name line can never be this long; anything longer is treated as a message body,
+/// so a multi-megabyte line is never parsed (also the read limit for finding line
+/// boundaries).
 const MAX_NAME_LINE_BYTES: usize = 64 * 1024;
-/// 名字行里必然出现的文本。
+/// Text that always appears in a name line.
 const NAME_NEEDLE: &[u8] = b"\"session_info\"";
 
 pub(crate) fn default_root() -> Option<PathBuf> {
@@ -131,13 +134,16 @@ fn read_session(file: &Path) -> Result<Option<AgentSession>, String> {
     }))
 }
 
-/// 数一个会话文件里的轮数与 tokens。
+/// Count turns and tokens in one session file.
 ///
-/// pi 没有索引表，只能读整份文件：每一行 `message` 里，用户消息算一轮，
-/// 助手消息带的 `usage.totalTokens` 累加。文件可能几十 MB，所以这是列表扫描里最重的一步 ——
-/// 但它只在**列会话时**跑一次（跟读名字同一趟遍历），不是每次打开会话都跑。
+/// pi keeps no index, so the whole file has to be read: for each `message` line a user
+/// message counts as one turn, and the `usage.totalTokens` of assistant messages is
+/// summed. Files can be tens of MB, so this is the heaviest part of a list scan — but
+/// it only runs **while listing sessions** (in the same pass that reads names), not
+/// every time a session is opened.
 ///
-/// 读不动就返回全 `None`：界面上显示「—」，不拿 0 冒充。
+/// If it cannot be read, everything is `None`: the UI shows "—" instead of passing 0
+/// off as a real value.
 fn session_stats(file: &Path) -> SessionStats {
     let Ok(handle) = std::fs::File::open(file) else {
         return SessionStats::default();
@@ -190,10 +196,11 @@ fn session_stats(file: &Path) -> SessionStats {
     }
 }
 
-/// `2026-09-09T05:48:06.288Z` → 毫秒。解析不了就是 None（不猜）。
+/// `2026-09-09T05:48:06.288Z` → milliseconds. None when unparsable (no guessing).
 ///
-/// 手写而不是拉 chrono：只支持 pi 写的这一种形状（`YYYY-MM-DDThh:mm:ss[.sss]Z`），
-/// 与其为几行代码多一个依赖，不如自己算。
+/// Hand-rolled instead of pulling in chrono: only pi's one shape
+/// (`YYYY-MM-DDThh:mm:ss[.sss]Z`) is supported, and a few lines of arithmetic beat an
+/// extra dependency.
 fn iso_ms(text: &str) -> Option<i64> {
     let bytes = text.as_bytes();
     if bytes.len() < 20 || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T' {
@@ -219,7 +226,8 @@ fn iso_ms(text: &str) -> Option<i64> {
     Some(secs * 1_000 + millis)
 }
 
-/// 公历日期 → 1970-01-01 起的天数（Howard Hinnant 的算法，避开时区与闰年表）。
+/// Civil date → days since 1970-01-01 (Howard Hinnant's algorithm, avoiding time
+/// zones and leap-year tables).
 fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let y = if month <= 2 { year - 1 } else { year };
     let era = if y >= 0 { y } else { y - 399 } / 400;
@@ -260,7 +268,7 @@ fn title_from_prefix(prefix: &str) -> Option<String> {
     first_user
 }
 
-/// 一行 `session_info` 记录里的名字（空名字不算）。
+/// The name in one `session_info` record (an empty name does not count).
 fn session_info_name(value: &Value) -> Option<String> {
     if value.get("type").and_then(Value::as_str) != Some("session_info") {
         return None;
@@ -272,10 +280,12 @@ fn session_info_name(value: &Value) -> Option<String> {
         .filter(|name| !name.is_empty())
 }
 
-/// 会话名是**改名那一刻**才写进文件的，长会话里那个位置可能在几十 MB 之后，只读头部
-/// 就会漏掉（漏掉就退回第一条用户消息，列表里看到的就不是你起的名字）。所以这里从文件
-/// 末尾往回翻块，取**最后一个** `session_info` 的 `name` —— 也就是最后一次改的名字 ——
-/// 找到就停，不必读完整份文件。
+/// A session name is written to the file **at the moment of renaming**, which in a long
+/// session may be tens of MB in; reading only the head would miss it (and then fall
+/// back to the first user message, so the list would not show the name you gave). So
+/// this walks backwards in chunks from the end of the file and takes the `name` of the
+/// **last** `session_info` — the most recent rename — stopping as soon as it is found
+/// rather than reading the whole file.
 fn latest_session_name(file: &Path) -> Option<String> {
     latest_session_name_with(file, NAME_SCAN_STEP, NAME_SCAN_LIMIT)
 }
@@ -289,10 +299,11 @@ fn latest_session_name_with(file: &Path, step: u64, limit: u64) -> Option<String
     let mut end = size;
     while end > floor {
         let start = end.saturating_sub(step).max(floor);
-        // 先把窗口两端挪到行边界上：否则标记词正好压在块边界上会被切成两半，搜不到。
+        // First align both ends of the window to line boundaries: otherwise a needle
+        // straddling a chunk boundary is split in two and never found.
         let (from, to) = align_to_lines(file, start, end, size);
         let bytes = read_bytes(file, from, to)?;
-        // 这一块里从后往前找；命中处再把那一整行读出来解。
+        // Search this chunk from the end; for each hit, read that whole line and parse it.
         let mut searched = bytes.len();
         while let Some(hit) = rfind(&bytes[..searched], NAME_NEEDLE) {
             if let Some(line) = full_line_at(file, from + hit as u64, size) {
@@ -310,7 +321,8 @@ fn latest_session_name_with(file: &Path, step: u64, limit: u64) -> Option<String
     None
 }
 
-/// 把 `[start, end)` 两端各挪到最近的换行之后（最多挪 [`MAX_NAME_LINE_BYTES`]）。
+/// Move both ends of `[start, end)` to the nearest newline after them (by at most
+/// [`MAX_NAME_LINE_BYTES`]).
 fn align_to_lines(file: &Path, start: u64, end: u64, size: u64) -> (u64, u64) {
     let reach = MAX_NAME_LINE_BYTES as u64;
     let from = if start == 0 {
@@ -344,7 +356,7 @@ fn align_to_lines(file: &Path, start: u64, end: u64, size: u64) -> (u64, u64) {
     (from, to)
 }
 
-/// 读 `file` 的 `[start, end)` 这一段（丢掉编码不致命，行本身还是能解）。
+/// Read `[start, end)` from `file` (encoding is not fatal: the line still parses).
 fn read_bytes(file: &Path, start: u64, end: u64) -> Option<Vec<u8>> {
     use std::io::{Seek, SeekFrom};
     let mut handle = std::fs::File::open(file).ok()?;
@@ -354,7 +366,8 @@ fn read_bytes(file: &Path, start: u64, end: u64) -> Option<Vec<u8>> {
     Some(buf)
 }
 
-/// `needle` 在 `haystack` 里最后出现的位置（字节级，不碰字符边界）。
+/// Position of the last occurrence of `needle` in `haystack` (byte level, ignoring
+/// character boundaries).
 fn rfind(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
@@ -362,10 +375,13 @@ fn rfind(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).rposition(|w| w == needle)
 }
 
-/// 把 `absolute` 那一处所在的整行读出来（行首行尾各最多扩 [`MAX_NAME_LINE_BYTES`]）。
+/// Read the whole line containing byte `absolute` (extending at most
+/// [`MAX_NAME_LINE_BYTES`] in each direction).
 ///
-/// 这样跟"往回翻的块边界"无关：块把行切开了也没关系，这里会照着文件把整行读全。行太长
-/// （说明命中的是正文里引用到这个字段的文字）就返回 None，让调用方接着往前找。
+/// This is independent of the backward-scan chunk boundaries: a line cut in half by a
+/// chunk is still read whole from the file. A line that is too long (meaning the hit was
+/// a message body mentioning the field) returns None so the caller keeps searching
+/// further back.
 fn full_line_at(file: &Path, absolute: u64, size: u64) -> Option<String> {
     let reach = MAX_NAME_LINE_BYTES as u64;
     let from = absolute.saturating_sub(reach);
@@ -515,10 +531,12 @@ pub(crate) fn exists_at(root: &Path, id: &str) -> Result<bool, String> {
     Ok(locate(root, id).is_ok())
 }
 
-/// 给会话改个名字：往文件末尾追加一行 `session_info`，跟 pi 自己 `/name` 的做法一致。
+/// Rename a session: append a `session_info` line at the end of the file, exactly
+/// what pi's own `/name` does.
 ///
-/// 追加的是新的一行而不是改旧的，因为 pi 读的时候取**最后一个** `session_info`；
-/// 这也意味着历史不会被改写（万一名字写坏了，旧名字还在文件里）。
+/// A new line is appended rather than an old one edited, because pi takes the **last**
+/// `session_info` when reading; that also means history is never rewritten (if a name
+/// goes wrong, the old one is still in the file).
 pub(crate) fn rename_at(root: &Path, id: &str, name: &str) -> Result<(), String> {
     let name = name.trim();
     if let Some(problem) = name_problem(name) {
@@ -542,7 +560,8 @@ pub(crate) fn rename_at(root: &Path, id: &str, name: &str) -> Result<(), String>
     Ok(())
 }
 
-/// 名字不合法时的说明。名字会进 JSON 的一行，过长或空都不该写进去。
+/// Message for an invalid name. The name becomes one line of JSON, so neither empty
+/// nor over-long values may be written.
 pub(crate) fn name_problem(name: &str) -> Option<String> {
     if name.is_empty() {
         return Some("会话名不能为空".to_string());
@@ -553,7 +572,7 @@ pub(crate) fn name_problem(name: &str) -> Option<String> {
     None
 }
 
-/// `2026-10-22T03:04:05.678Z` —— pi 自己写的时间戳就是这个形状。
+/// `2026-10-22T03:04:05.678Z` — the shape pi writes its own timestamps in.
 fn now_iso() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let now = SystemTime::now()
@@ -563,7 +582,7 @@ fn now_iso() -> String {
     format_iso(now as i64)
 }
 
-/// 毫秒 → `YYYY-MM-DDThh:mm:ss.sssZ`（UTC，够用且不必引依赖）。
+/// Milliseconds → `YYYY-MM-DDThh:mm:ss.sssZ` (UTC; good enough without a dependency).
 fn format_iso(ms: i64) -> String {
     let secs = ms.div_euclid(1000);
     let millis = ms.rem_euclid(1000);
@@ -578,7 +597,7 @@ fn format_iso(ms: i64) -> String {
     )
 }
 
-/// 1970-01-01 起的天数 → 公历（`days_from_civil` 的逆运算）。
+/// Days since 1970-01-01 → civil date (the inverse of `days_from_civil`).
 fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
@@ -661,7 +680,8 @@ mod tests {
         let project = dir.path().join("--F--x--");
         let path = write_session(&project, "2026-09-09T05-47-23-952Z_s1", "s1");
         rename_at(dir.path(), "s1", "  新名字  ").expect("应能改名");
-        // 读回来的名字就是新名字，而且旧内容没有被改写（追加，不是替换）。
+        // The name read back is the new one, and the old content was not rewritten
+        // (appended, not replaced).
         let session = read_session(&path).expect("read").expect("a session");
         assert_eq!(session.title, "新名字");
         let body = std::fs::read_to_string(&path).expect("read file");
@@ -887,7 +907,8 @@ mod tests {
 
     #[test]
     fn a_name_line_split_across_chunk_boundaries_is_still_found() {
-        // 小步长让名字行正好压在块边界上：整行是照着文件读全的，跟边界无关。
+        // A tiny step makes the name line straddle a chunk boundary: the full line is
+        // read from the file, so boundaries do not matter.
         let dir = tempfile::tempdir().expect("temp dir");
         let name_line = r#"{"type":"session_info","name":"跨界线的名字"}"#;
         for filler in 0..24usize {
@@ -908,7 +929,8 @@ mod tests {
 
     #[test]
     fn a_line_too_long_to_be_a_name_is_skipped() {
-        // 正文里引用到这段文字时命中的是一行超长消息：不当名字，接着往前找。
+        // When a message body quotes this text the hit is an over-long line: it is not a
+        // name, so keep searching backwards.
         let dir = tempfile::tempdir().expect("temp dir");
         let long_message = format!(
             r#"{{"type":"message","message":{{"role":"user","content":"{}"}}}}"#,
@@ -978,7 +1000,8 @@ mod tests {
 
     #[test]
     fn a_session_with_no_messages_has_zero_turns_but_no_tokens() {
-        // 轮数是确定的 0；tokens 没数据就得是「不知道」，不能用 0 冒充。
+        // The turn count is definitely 0; with no token data it must be "unknown", not a
+        // fake 0.
         let dir = tempfile::tempdir().expect("temp dir");
         let path = write_file(
             dir.path(),
@@ -1014,7 +1037,8 @@ mod tests {
     fn complete_lines_drops_the_seams_unless_they_are_the_file_edges() {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = write_file(dir.path(), "s.jsonl", "aaa\nbbb\nccc\n");
-        // 从中间切开时那一行照样读得全（行首行尾是照着文件找的）。
+        // A line cut in the middle is still read whole (line boundaries come from the
+        // file).
         assert_eq!(full_line_at(&path, 5, 12).as_deref(), Some("bbb"));
         assert_eq!(full_line_at(&path, 0, 12).as_deref(), Some("aaa"));
         assert_eq!(full_line_at(&path, 10, 12).as_deref(), Some("ccc"));

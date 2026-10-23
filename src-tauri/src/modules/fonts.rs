@@ -1,16 +1,20 @@
-//! 列本机已安装的字体族，给设置里的字体下拉用。
+//! List the installed font families for the font dropdown in settings.
 //!
-//! 平台各走各的路：Windows 用 GDI 枚举（与 Word / VS Code 看到的是同一份家族名），
-//! Linux 用 `fc-list`，macOS 用 `system_profiler` 的 JSON。三者都只做「家族名」：
-//! 样式（Bold / Italic / Light）不该出现在下拉里。
+//! Each platform takes its own route: GDI enumeration on Windows (the same family names
+//! Word / VS Code see), `fc-list` on Linux, `system_profiler` JSON on macOS. All three
+//! yield **family names only**: styles (Bold / Italic / Light) must not appear in the
+//! dropdown.
 //!
-//! 纯逻辑（解析各平台的输出、整理家族名）都在这里，能单测；起进程放在 `commands.rs`。
+//! The pure logic (parsing each platform's output, tidying the family names) lives here
+//! so it can be unit-tested; process spawning lives in `commands.rs`.
 
 use serde_json::Value;
 
-/// 整理成下拉要的样子：去空格、去引号、去重（不分大小写）、按不分大小写的字典序排。
+/// Shape the list for the dropdown: trim, drop quotes, dedupe (case-insensitively) and
+/// sort case-insensitively.
 ///
-/// 保留第一次出现的写法：`"Cascadia Code"` 与 `"cascadia code"` 只留前者。
+/// The first spelling wins: of `"Cascadia Code"` and `"cascadia code"`, only the former
+/// survives.
 pub fn normalize(raw: Vec<String>) -> Vec<String> {
     let mut seen: Vec<String> = Vec::new();
     for item in raw {
@@ -27,7 +31,8 @@ pub fn normalize(raw: Vec<String>) -> Vec<String> {
     seen
 }
 
-/// 去掉引号与首尾空白；顺带把连续空白压成一个空格（有些字体名里带多余空格）。
+/// Strip quotes and surrounding whitespace, and collapse runs of whitespace into one
+/// space (some font names carry extra spaces).
 fn clean(raw: &str) -> String {
     let trimmed = raw.trim().trim_matches(|c| c == '"' || c == '\'');
     trimmed
@@ -38,9 +43,10 @@ fn clean(raw: &str) -> String {
         .to_string()
 }
 
-/// 解析 `fc-list --format "%{family}\n"` 的输出。
+/// Parse the output of `fc-list --format "%{family}\n"`.
 ///
-/// 一行可能给多个家族（逗号分隔，本地化名会排在一起），逐个拆出来交给 [`normalize`]。
+/// A line may list several families (comma separated, localized names grouped together);
+/// each is split out and handed to [`normalize`].
 pub fn parse_fc_list(stdout: &str) -> Vec<String> {
     let mut families = Vec::new();
     for line in stdout.lines() {
@@ -51,11 +57,12 @@ pub fn parse_fc_list(stdout: &str) -> Vec<String> {
     normalize(families)
 }
 
-/// 解析 `system_profiler -json SPFontsDataType` 的输出。
+/// Parse the output of `system_profiler -json SPFontsDataType`.
 ///
-/// 这份 JSON 的形状在各版本 macOS 上不完全一样，所以不写死结构：递归找 `family` / `fullname`
-/// 这类键的字符串值（`_name` 是字体文件名，不是家族名，不收）。找不到任何家族名就是错误
-/// （界面会退回手输框）。
+/// Its shape differs between macOS versions, so no structure is hard-coded: the tree is
+/// walked recursively for string values under keys like `family` / `fullname` (`_name`
+/// is the font file name, not a family, so it is skipped). Finding no family at all is an
+/// error (the UI then falls back to a free-text field).
 pub fn parse_system_profiler_json(stdout: &str) -> Result<Vec<String>, String> {
     let value: Value = serde_json::from_str(stdout)
         .map_err(|e| format!("system_profiler 的输出无法解析：{e}"))?;
@@ -97,7 +104,8 @@ pub fn enumerate_installed() -> Result<Vec<String>, String> {
         CreateCompatibleDC, DEFAULT_CHARSET, DeleteDC, EnumFontFamiliesExW, LOGFONTW,
     };
 
-    /// GDI 每个家族回调一次；把家族名塞进 `lparam` 指的 Vec 里，返回 1 让它继续。
+    /// GDI calls this once per family; push the name into the Vec behind `lparam` and
+    /// return 1 to keep going.
     unsafe extern "system" fn collect(
         logfont: *const LOGFONTW,
         _metric: *const windows_sys::Win32::Graphics::Gdi::TEXTMETRICW,
@@ -112,13 +120,15 @@ pub fn enumerate_installed() -> Result<Vec<String>, String> {
             .copied()
             .collect();
         if let Ok(name) = String::from_utf16(&raw) {
-            // 以 `@` 开头的是同一家族的竖排版本，下拉里不要。
+            // A leading `@` marks the vertical variant of the same family; leave it out of
+            // the dropdown.
             out.push(name.trim_start_matches('@').to_string());
         }
         1
     }
 
-    // 用 DISPLAY 兼容 DC 枚举：与 Office / VS Code 看到的是同一份家族名。
+    // Enumerate through a DISPLAY-compatible DC: the same family names Office / VS Code
+    // see.
     let dc = unsafe { CreateCompatibleDC(std::ptr::null_mut()) };
     if dc.is_null() {
         return Err("取不到 GDI 设备上下文".to_string());
@@ -176,9 +186,10 @@ pub fn enumerate_installed() -> Result<Vec<String>, String> {
     parse_system_profiler_json(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// 列本机已安装的字体族，给设置里的字体下拉用。
+/// List the installed font families for the font dropdown in settings.
 ///
-/// 走 blocking pool：Windows 那次 GDI 枚举是同步的，别占 async worker。
+/// Runs on the blocking pool: the GDI enumeration on Windows is synchronous, so it must
+/// not hold an async worker.
 #[tauri::command]
 pub async fn fonts_list() -> Result<Vec<String>, String> {
     crate::modules::fs::blocking(enumerate_installed).await

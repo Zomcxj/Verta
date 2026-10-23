@@ -1,23 +1,26 @@
-//! 仓库管理（改描述、切可见性、删仓库）里能单测的那部分。
+//! The unit-testable part of repository administration (edit description, toggle
+//! visibility, delete).
 //!
-//! 起 `gh` 进程在 `commands.rs`，这里只放解析与判定：
-//! - `parse_settings` 读 `gh repo view --json description,visibility,viewerPermission`；
-//! - `description_problem` 在本地拦掉 GitHub 一定会拒的输入（超长）；
-//! - `needs_delete_scope` 认出「gh 缺 delete_repo 授权」这种能自己补救的失败。
+//! Spawning `gh` lives in `commands.rs`; only parsing and checks are here:
+//! - `parse_settings` reads `gh repo view --json description,visibility,viewerPermission`;
+//! - `description_problem` rejects what GitHub would certainly refuse (over-long);
+//! - `needs_delete_scope` recognises the self-fixable "gh lacks delete_repo scope"
+//!   failure.
 
 use serde_json::Value;
 
-/// GitHub 对仓库描述的长度上限（超出会直接报错，不如在本地就说清楚）。
+/// GitHub's maximum repository description length (exceeding it is an outright error,
+/// so better to say so locally).
 const DESCRIPTION_MAX_CHARS: usize = 350;
 
-/// `gh repo view --json description,visibility,viewerPermission` 的三样结果。
+/// The three values of `gh repo view --json description,visibility,viewerPermission`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RepoSettings {
-    /// 没有描述时是 None（GitHub 给的是空串）。
+    /// None when there is no description (GitHub sends an empty string).
     pub description: Option<String>,
-    /// `PUBLIC` / `PRIVATE` / `INTERNAL`；GitHub 没给时是 None。
+    /// `PUBLIC` / `PRIVATE` / `INTERNAL`; None when GitHub omits it.
     pub visibility: Option<String>,
-    /// `ADMIN` / `MAINTAIN` / ... ；查不到时是 None。
+    /// `ADMIN` / `MAINTAIN` / ...; None when unknown.
     pub permission: Option<String>,
 }
 
@@ -44,9 +47,10 @@ pub fn parse_settings(stdout: &str) -> Result<RepoSettings, String> {
     })
 }
 
-/// 描述在本地能不能过；不能过就给一句给用户看的话。
+/// Whether the description passes locally; if not, a message for the user.
 ///
-/// 只拦 GitHub 必然拒绝的（超长）。空串是合法的：那表示清空描述。
+/// Only what GitHub would certainly reject (over-long). An empty string is valid: it
+/// clears the description.
 pub fn description_problem(description: &str) -> Option<String> {
     let length = description.trim().chars().count();
     if length > DESCRIPTION_MAX_CHARS {
@@ -57,7 +61,8 @@ pub fn description_problem(description: &str) -> Option<String> {
     None
 }
 
-/// 失败文本是不是「gh 缺 delete_repo 授权」——这种用户自己一条命令就能补救。
+/// Whether the failure text is "gh lacks the delete_repo scope" — something the user can
+/// fix with a single command.
 pub fn needs_delete_scope(text: &str) -> bool {
     const HINTS: [&str; 3] = ["delete_repo", "oauth scope", "reauthenticate"];
     let lower = text.to_ascii_lowercase();

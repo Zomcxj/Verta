@@ -1,9 +1,11 @@
-//! `gh` CLI 的薄封装：起进程、收输出，以及把一次 `gh api user` 的结论翻成登录态。
+//! A thin wrapper around the `gh` CLI: spawn processes, collect output, and turn a
+//! `gh api user` result into a login state.
 //!
-//! gh 是**账号级**的，一律在主机环境跑，不跟当前空间 / 发行版走（所以这里没有
-//! WorkspaceEnv，也不走 wsl.exe）。跑进程的姿势照 `modules/git/process.rs`：
-//! `hide_console` + `proc::capture::run`，spawn 的 `NotFound` / `PermissionDenied`
-//! 单独归成「没装 gh」。
+//! gh is **account-scoped** and always runs in the host environment, never following
+//! the current space / distro (hence no WorkspaceEnv here, and no wsl.exe). Processes
+//! are run the same way as in `modules/git/process.rs`: `hide_console` +
+//! `proc::capture::run`, with `NotFound` / `PermissionDenied` on spawn classified
+//! separately as "gh not installed".
 
 use std::io::Read;
 use std::io::Write;
@@ -17,35 +19,43 @@ use crate::modules::proc::hide_console;
 
 use super::repos::{classify_failure, error_excerpt, parse_login, Failure};
 
-/// 一次小查询（`gh api user`）的等待上限。
+/// Timeout for a small query (`gh api user`).
 pub const USER_TIMEOUT_SECS: u64 = 20;
-/// 粘贴 PAT 登录的等待上限：gh 要拿 token 去问一次 GitHub。
+/// Timeout for pasted-PAT login: gh has to present the token to GitHub once.
 pub const AUTH_TOKEN_TIMEOUT_SECS: u64 = 60;
-/// 浏览器授权 / 登出的等待上限：浏览器那一步由人操作，给宽一点。
+/// Timeout for browser auth / logout: a human drives the browser step, so be
+/// generous.
 pub const AUTH_WEB_TIMEOUT_SECS: u64 = 600;
-/// 一页仓库（最多 100 条 JSON）的等待上限：慢网络也别让它一直挂着。
+/// Timeout for one page of repos (up to 100 JSON entries): a slow network should
+/// not leave it hanging forever.
 pub const REPOS_TIMEOUT_SECS: u64 = 45;
-/// 一次「最近一次 CI 运行」的等待上限：一条记录，比整页仓库轻。
+/// Timeout for "latest CI run": a single record, lighter than a full page of repos.
 pub const CI_TIMEOUT_SECS: u64 = 30;
-/// 查一次仓库权限的等待上限：一条 `gh repo view`。
+/// Timeout for a permission lookup: one `gh repo view`.
 pub const PERMISSION_TIMEOUT_SECS: u64 = 30;
-/// 改仓库设置 / 删仓库的等待上限：一次 API 调用，但 GitHub 那侧偶尔慢。
+/// Timeout for editing settings / deleting a repo: one API call, but GitHub is
+/// occasionally slow.
 pub const REPO_ADMIN_TIMEOUT_SECS: u64 = 60;
-/// 重跑 / 取消的等待上限：一次 API 调用，比取列表轻。
+/// Timeout for rerun / cancel: one API call, lighter than fetching a list.
 pub const RUN_ACTION_TIMEOUT_SECS: u64 = 30;
-/// 拉一次日志的等待上限：日志要一路下完，比一次 API 调用慢。
+/// Timeout for fetching a log: the whole log is downloaded, slower than one API
+/// call.
 pub const LOG_TIMEOUT_SECS: u64 = 90;
-/// 一页 issue / PR 的等待上限：一次要回上百条正文，比一般查询重。
+/// Timeout for a page of issues / PRs: up to a hundred bodies come back, heavier
+/// than an ordinary query.
 pub const ISSUES_TIMEOUT_SECS: u64 = 45;
-/// 一条 issue / PR 的详情（正文 / 评论 / PR 信息）的等待上限。
+/// Timeout for one issue / PR detail (body / comments / PR info).
 pub const ISSUE_DETAIL_TIMEOUT_SECS: u64 = 30;
-/// 写操作（评论 / 开 / 关 / 合并 / 新建）的等待上限：一次 API 调用，但 GitHub 那侧偶尔慢。
+/// Timeout for write actions (comment / open / close / merge / create): one API call,
+/// but GitHub is occasionally slow.
 pub const ISSUE_ACTION_TIMEOUT_SECS: u64 = 60;
-/// 日志的输出上限：比一般查询宽得多，同时仍然有边界（撞上了就当「撑满上限」报出去）。
+/// Output cap for logs: far more generous than ordinary queries yet still bounded
+/// (hitting it is reported as "cap reached").
 pub const LOG_STDOUT_CAP: usize = 8 * 1024 * 1024;
 const MAX_TIMEOUT_SECS: u64 = 120;
-/// 一页 100 条仓库的 JSON 大概几百 KiB，留足余量。真被截断的话 JSON 会解析失败，
-/// 那种情况按解析失败如实报出来，不会静悄悄少几条。
+/// A page of 100 repos is a few hundred KiB of JSON, so this leaves ample headroom.
+/// A truncated body fails to parse, and that is reported as a parse failure rather
+/// than silently dropping a few entries.
 const STDOUT_CAP: usize = 4 * 1024 * 1024;
 const STDERR_CAP: usize = 64 * 1024;
 
@@ -54,7 +64,8 @@ pub struct GhOutput {
     pub stderr: String,
     pub exit_code: Option<i32>,
     pub timed_out: bool,
-    /// 输出撞上上限被截过：拉日志时用得上（拿到的是开头，后面还有）。
+    /// The output hit the cap and was cut: matters for logs (we got the beginning,
+    /// more follows).
     pub stdout_truncated: bool,
 }
 
@@ -63,7 +74,8 @@ impl GhOutput {
         !self.timed_out && self.exit_code == Some(0)
     }
 
-    /// 失败时的原文：gh 有些错误只写 stdout，两边都带上省得漏。
+    /// Raw text on failure: some gh errors only go to stdout, so include both to
+    /// avoid missing anything.
     pub fn failure_text(&self) -> String {
         let mut parts: Vec<String> = Vec::new();
         if self.timed_out {
@@ -84,8 +96,9 @@ impl GhOutput {
     }
 }
 
-/// 起 gh 本机进程时能遇到的两种失败。`NotFound` / `PermissionDenied` 是「没装 gh」，
-/// 其余（管道、权限外的 io）归到如实报错的 Io。
+/// The two failures that can come out of spawning gh. `NotFound` /
+/// `PermissionDenied` mean "gh not installed"; everything else (pipes, other I/O) is
+/// reported honestly as Io.
 pub enum GhRunError {
     NotInstalled,
     Io(String),
@@ -95,15 +108,17 @@ pub fn run(args: &[&str], timeout_secs: u64) -> Result<GhOutput, GhRunError> {
     run_with_cap(args, timeout_secs, STDOUT_CAP)
 }
 
-/// 与 `run` 相同，只是输出上限可以调（日志给得宽一些）。
-/// 备好一条 gh 命令：参数一条一条传、不弹交互提示、不带颜色、套上代理、隐藏控制台。
+/// Build a gh command: arguments passed one by one, no interactive prompts, no
+/// colour, proxy applied, console hidden.
 ///
-/// 调用方自己决定 stdio（普通查询是 stdin=null 收完输出；粘 PAT / 浏览器授权要另起管道）。
+/// The caller chooses stdio (ordinary queries leave stdin=null and just collect
+/// output; pasted PAT / browser auth need extra pipes).
 pub fn command(args: &[&str]) -> Command {
-    // 参数一条一条传，不拼 shell 字符串。
+    // Arguments go one by one; no shell string is ever assembled.
     let mut cmd = Command::new("gh");
     cmd.args(args)
-        // 别弹任何交互提示 / 更新通知，也别加颜色转义（要能直接贴进 error 里）。
+        // No interactive prompts / update notices, and no colour escapes (the text
+        // must be pasteable into an error message).
         .env("GH_PROMPT_DISABLED", "1")
         .env("GH_NO_UPDATE_NOTIFIER", "1")
         .env("NO_COLOR", "1")
@@ -111,16 +126,19 @@ pub fn command(args: &[&str]) -> Command {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     hide_console(&mut cmd);
-    // gh 不读 Windows 的 Internet 设置，继承来的代理变量还可能是空串，
-    // 不显式给一份就会直连超时（见 modules::proxy）。
+    // gh ignores Windows' Internet settings, and an inherited proxy variable may be an
+    // empty string; without an explicit value it connects directly and times out (see
+    // modules::proxy).
     let proxy = crate::modules::proxy::resolve(None);
     crate::modules::proxy::apply(&mut cmd, proxy.as_deref());
     cmd
 }
 
-/// 起一个 gh 子进程，把它的输出管道带出来（stdout / stderr 一定 piped）。
+/// Spawn a gh child process and hand back its output pipes (stdout / stderr are
+/// always piped).
 ///
-/// 给需要边跑边读的场景用（浏览器授权要把一次性码实时打给界面）；一次性查询用 [`run`]。
+/// For cases that read while running (browser auth streams the one-time code to the
+/// UI); use [`run`] for one-shot queries.
 pub fn spawn(args: &[&str], pipe_stdin: bool) -> std::io::Result<SharedChild> {
     let mut cmd = command(args);
     if pipe_stdin {
@@ -129,14 +147,16 @@ pub fn spawn(args: &[&str], pipe_stdin: bool) -> std::io::Result<SharedChild> {
     SharedChild::spawn(&mut cmd)
 }
 
-/// 起一个 gh 子进程并把它自己拆出来的两条管道边读边回调（读在独立线程里）。
+/// Spawn a gh child and invoke the callback as each of its two pipes is read (reads
+/// happen on a dedicated thread).
 pub fn pump<R: Read + Send + 'static>(reader: R, on_text: impl Fn(&str) + Send + 'static) {
     std::thread::spawn(move || {
         let mut reader = reader;
         let mut buf = [0u8; 1024];
         loop {
             match reader.read(&mut buf) {
-                // 进程没了管道就到 EOF；出错也当读完了，别把界面卡在那儿。
+                // The pipe hits EOF when the process exits; an error also counts as
+                // done — never leave the UI hanging on it.
                 Ok(0) | Err(_) => return,
                 Ok(count) => on_text(&String::from_utf8_lossy(&buf[..count])),
             }
@@ -144,10 +164,11 @@ pub fn pump<R: Read + Send + 'static>(reader: R, on_text: impl Fn(&str) + Send +
     });
 }
 
-/// 把一串东西写进 gh 的 stdin，等它结束。
+/// Write text to gh's stdin and wait for it to exit.
 ///
-/// 粘 PAT 只能走这条路（`gh auth login --with-token` 从标准输入读 token）：**那串只在内存里过一趟**，
-/// 写进管道就被丢掉，不落任何文件或应用存储。
+/// Pasted PATs can only go this way (`gh auth login --with-token` reads the token from
+/// stdin): **the text only passes through memory** — it is gone once written to the
+/// pipe, never reaching a file or app storage.
 pub fn run_with_stdin(
     args: &[&str],
     stdin_text: &str,
@@ -156,7 +177,7 @@ pub fn run_with_stdin(
     let child = std::sync::Arc::new(spawn(args, true).map_err(classify_spawn_error)?);
 
     if let Some(mut stdin) = child.take_stdin() {
-        // 写完就关掉：gh 读到 EOF 才认这串 token。
+        // Close after writing: gh only accepts the token once it sees EOF.
         let _ = stdin.write_all(stdin_text.as_bytes());
         let _ = stdin.write_all(b"\n");
     }
@@ -187,7 +208,8 @@ pub fn run_with_stdin(
         let _ = child.kill();
         let _ = child.wait();
     }
-    // 进程没了管道很快就到 EOF；这一点点等待只是让读线程把尾巴收完。
+    // The pipes reach EOF soon after the process exits; this short wait only lets the
+    // reader threads drain the tail.
     std::thread::sleep(Duration::from_millis(200));
 
     let take = |sink: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>| {
@@ -246,16 +268,17 @@ pub fn run_with_cap(
     })
 }
 
-/// 一次 `gh api user --jq .login` 的结论。
+/// Verdict of one `gh api user --jq .login`.
 pub enum LoginProbe {
     Login(String),
-    /// 失败类别 + 已经截断好的原文。
+    /// Failure kind plus the already-truncated raw text.
     Failed(Failure, String),
 }
 
-/// 把探测登录态的那次调用翻成「登录名 / 失败」。
+/// Turn the login probe into "login name / failure".
 ///
-/// exit 0 却没吐登录名时按未登录算：拿不到身份就别硬说成功。
+/// Exit 0 without a login name counts as not logged in: without an identity, do not
+/// claim success.
 pub fn probe_login(output: &GhOutput) -> LoginProbe {
     if output.is_ok() {
         return match parse_login(&output.stdout) {
@@ -319,7 +342,7 @@ mod tests {
 
     #[test]
     fn a_transport_failure_is_an_error_not_a_login_problem() {
-        // 401 之外的网络失败不能引导用户去重新登录。
+        // Network failures other than 401 must not steer the user into logging in again.
         match probe_login(&output("", "dial tcp: connection refused", Some(1))) {
             LoginProbe::Failed(Failure::Error, message) => {
                 assert_eq!(message, "dial tcp: connection refused");

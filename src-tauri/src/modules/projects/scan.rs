@@ -1,18 +1,21 @@
-//! 项目目录扫描：给一个根目录，找出它下面若干层以内的 git 仓库。
+//! Project directory scan: given a root, find the git repositories a few levels below it.
 //!
-//! 只做纯文件系统判定（看到 `.git` 就算，是目录还是文件都行，后者是 worktree 或子模块），
-//! 不启动 git 进程，所以又快又能在单测里用临时目录直接验。
+//! Purely filesystem-based (a `.git` is enough, directory or file — the latter means a
+//! worktree or submodule) and never spawns git, so it is fast and directly testable
+//! against temp directories.
 
 use std::path::Path;
 
-/// 这些目录名下面不会是用户想管的仓库根，跳过能让扫描快一个数量级。
+/// No repository root the user cares about lives under these names; skipping them speeds
+/// the scan up by an order of magnitude.
 const SKIP_DIRS: [&str; 6] = ["node_modules", "target", ".venv", "venv", "dist", "build"];
 
-/// 找出 `root` 之下的仓库根，按路径排序返回。
+/// Find the repository roots under `root`, sorted by path.
 ///
-/// `max_depth` 是「允许成为仓库根的目录相对 root 的层数」：0 表示只有 root 自己，
-/// 1 表示 root 的直接子目录，依此类推。命中仓库后不再往下走：嵌套在仓库里的另一个仓库
-/// （子模块之类）由用户显式添加，免得一屏里塞满同一个项目的内部目录。
+/// `max_depth` is how many levels below `root` may still be a repository root: 0 means
+/// only `root` itself, 1 its direct children, and so on. Descent stops at a hit: a
+/// repository nested inside one (a submodule, say) is added explicitly by the user, so the
+/// list does not fill up with a single project's internal directories.
 pub fn discover_git_repos(root: &Path, max_depth: usize) -> Vec<String> {
     let mut found = Vec::new();
     if has_git(root) {
@@ -30,18 +33,19 @@ fn walk(dir: &Path, depth: usize, max_depth: usize, found: &mut Vec<String>) {
         return;
     }
     let Ok(entries) = std::fs::read_dir(dir) else {
-        // 读不动的目录（权限、盘符失效）不中断整次扫描，如实跳过。
+        // An unreadable directory (permissions, dead drive letter) does not abort the scan;
+        // just skip it.
         return;
     };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        // 隐藏目录一律跳过：既有 .git 自身，也有 .cache / .venv 这类。
+        // All hidden directories are skipped: .git itself, and things like .cache / .venv.
         if name.starts_with('.') || SKIP_DIRS.contains(&name.as_ref()) {
             continue;
         }
         let path = entry.path();
-        // 不跟随符号链接：目录里可能有指回上层的链接，跟随就会绕圈。
+        // Do not follow symlinks: a directory may link back to a parent and loop forever.
         let Ok(meta) = std::fs::symlink_metadata(&path) else {
             continue;
         };
@@ -57,7 +61,7 @@ fn walk(dir: &Path, depth: usize, max_depth: usize, found: &mut Vec<String>) {
 }
 
 fn has_git(dir: &Path) -> bool {
-    // worktree 与子模块的 `.git` 是文件，所以只看存在性。
+    // In worktrees and submodules `.git` is a file, so only existence matters.
     dir.join(".git").exists()
 }
 
@@ -71,7 +75,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    /// 临时目录，Drop 时删掉。
+    /// A temporary directory, removed on Drop.
     struct TempDir(PathBuf);
 
     impl TempDir {
@@ -115,8 +119,9 @@ mod tests {
     #[test]
     fn respects_the_depth_limit() {
         let temp = TempDir::new("depth");
-        // 三条互不嵌套的链，各自验一层深度；中间层故意不是仓库，
-        // 免得被「命中仓库就不再下潜」的规则挡住。
+        // Three non-nested chains, each exercising one depth; the middle levels are
+        // deliberately not repositories, so the "stop descending at a hit" rule does not
+        // kick in.
         make_repo(&temp.path().join("one"));
         make_repo(&temp.path().join("a").join("two"));
         make_repo(&temp.path().join("x").join("y").join("three"));

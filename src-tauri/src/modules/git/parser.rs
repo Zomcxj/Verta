@@ -145,11 +145,12 @@ fn status_label(index_status: char, worktree_status: char) -> String {
     }
 }
 
-/// 解析 `git stash list --format=%gd%x00%gs` 的输出。
+/// Parse the output of `git stash list --format=%gd%x00%gs`.
 ///
-/// 每条一行，两个字段用 NUL 隔开：`stash@{0}` 和 `WIP on main: 1a2b3c4 subject`。
-/// 说明里的分支名从 `WIP on <分支>: ` 或 `On <分支>: ` 前缀里取（带路径的储藏
-/// 是后者）。解析不出就留 None，不编造。
+/// One line per entry, two NUL-separated fields: `stash@{0}` and
+/// `WIP on main: 1a2b3c4 subject`. The branch name is taken from the
+/// `WIP on <branch>: ` or `On <branch>: ` prefix (stashes recorded with paths use the
+/// latter). When it cannot be parsed, leave None rather than inventing one.
 pub fn parse_stash_list(stdout: &str) -> Vec<GitStashEntry> {
     let mut entries = Vec::new();
     for (index, line) in stdout.lines().enumerate() {
@@ -173,7 +174,8 @@ pub fn parse_stash_list(stdout: &str) -> Vec<GitStashEntry> {
     entries
 }
 
-/// 从储藏说明里取分支名；手工写的说明里可能没有分支前缀。
+/// Take the branch name out of a stash message; hand-written messages may lack the
+/// branch prefix.
 fn stash_branch(message: &str) -> Option<String> {
     let rest = message
         .strip_prefix("WIP on ")
@@ -348,7 +350,8 @@ mod tests {
 
     #[test]
     fn stash_list_keeps_entries_without_a_recognisable_branch() {
-        // 手工写的说明里没有分支前缀：条目要保留，分支留空。
+        // A hand-written message has no branch prefix: keep the entry, leave the branch
+        // empty.
         let entries = parse_stash_list("stash@{0}\0my own message\n");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].message, "my own message");
@@ -362,7 +365,7 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].reference, "stash@{2}");
         assert_eq!(entries[0].branch.as_deref(), Some("dev"));
-        // 行尾的 CR 被吃掉，说明里不带它。
+        // The trailing CR is stripped, so the message does not carry it.
         assert!(!entries[0].message.ends_with('\r'));
     }
 }
