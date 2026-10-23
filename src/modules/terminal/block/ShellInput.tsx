@@ -1,5 +1,4 @@
 import { resolveFontStack } from "@/lib/fonts";
-import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { useT } from "@/modules/i18n";
 import { useTheme } from "@/modules/theme";
@@ -56,9 +55,7 @@ export default function ShellInput({
   focusableRef.current = focused && atPrompt;
   // The editor is built once and never rebuilt, so the placeholder reaches it
   // through a ref: a language switch must not tear down a live input line.
-  const placeholder = t("term.inputPlaceholder", {
-    shortcut: fmtShortcut(MOD_KEY, "U"),
-  });
+  const placeholder = t("term.inputPlaceholder");
   const placeholderRef = useRef(placeholder);
   placeholderRef.current = placeholder;
 

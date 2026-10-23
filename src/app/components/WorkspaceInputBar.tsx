@@ -92,7 +92,7 @@ export function WorkspaceInputBar({
                       className="text-sm text-muted-foreground hover:text-foreground"
                       onClick={() => focusLeafInput(activeLeafId)}
                     >
-                      Type directly in the terminal
+                      {t("term.typeDirectly")}
                     </button>
                   ) : (
                     <Suspense fallback={null}>

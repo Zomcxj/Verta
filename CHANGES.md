@@ -20,6 +20,15 @@
 - `src/modules/shortcuts/shortcuts.ts`：`tab.close` 多一条默认绑定 `Ctrl/⌘+Shift+W`。焦点在终端里时那条 plain 的 `Ctrl+W` 根本到不了应用 —— shell 把它当 `^W`（删前一个词）用掉了，所以关终端标签得有一条 shell 不认的组合键；它同时也是 Windows Terminal 关标签用的那条。只绑了 plain 那条的旧配置照旧不变。
 - `src/settings/sections/ShortcutsSection.tsx`：快捷键列表每行原来只画**第一条**绑定，多出来的那条等于用户看不见（`sidebar.toggle` / `view.zenMode` 本来就是两条），于是「这条快捷键不存在」的印象就来了。现在每条绑定都画，中间用 `/` 分开。
 
+**玻璃主题：编辑区与 Markdown 预览原来自己铺了一层不透明底色，把面板的色调整个盖住**
+
+- `src/modules/editor/EditorStack.tsx`、`src/modules/markdown/MarkdownPreviewPane.tsx`：两处 `bg-background` 去掉 —— 它们的外层就是面板（`.verta-pane`），不透明主题下面板本来就画 `--background`（观感不变），玻璃主题下面板画的是自己那份色调，而这两层一铺就把它盖没了（实拍：整窗 66% 的面积是 `--background` 的实色）。
+
+**命令块底部那两句提示：一句是假的，一句漏了翻译**
+
+- `src/modules/i18n/messages.ts`、`src/modules/terminal/block/ShellInput.tsx`：输入块占位文案里「`{shortcut} 切换到 AI`」删掉 —— 全仓库**没有任何**绑定给这个组合键（`Ctrl+U` 在快捷键表与终端 keymap 里都不存在），是一条广告不存在的快捷键的提示；连带去掉那处 `fmtShortcut` 插值。
+- `src/app/components/WorkspaceInputBar.tsx`、`src/modules/i18n/messages.ts`：plain 模式下那句提示语原来写死英文（`Type directly in the terminal`，i18n 那一轮漏掉的一处），改成键 `term.typeDirectly`（中英两份）。
+
 </details>
 
 <details>

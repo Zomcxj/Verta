@@ -55,7 +55,9 @@ export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
   return (
     <div
       className={cn(
-        "relative flex h-full w-full flex-col overflow-hidden bg-background",
+        // Same as the editor: the pane behind this already paints the theme's
+        // colour, and `bg-background` here would cover its glass tint.
+        "relative flex h-full w-full flex-col overflow-hidden",
         // Hidden, not just inert: a pane left visible keeps painting its view
         // toggle over whatever is actually on screen.
         !visible && "invisible pointer-events-none",

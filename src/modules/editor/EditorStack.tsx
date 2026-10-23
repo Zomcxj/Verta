@@ -104,7 +104,11 @@ export function EditorStack({
             )}
             aria-hidden={!visible}
           >
-            <div className="h-full overflow-hidden bg-background">
+            {/* No `bg-background` here: it painted an opaque sheet over the pane's
+                own tint, which is what kept the editor solid in a glass theme —
+                the pane already supplies the colour (`--background` when the
+                theme is opaque, its tint when it asks for glass). */}
+            <div className="h-full overflow-hidden">
               <EditorPane
                 ref={getRefCallback(t.id)}
                 path={t.path}
