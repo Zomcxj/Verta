@@ -130,6 +130,7 @@ import {
   useState,
 } from "react";
 import { CloseDialogs } from "./components/CloseDialogs";
+import { SessionOpeningOverlay } from "./components/SessionOpeningOverlay";
 import { WorkspaceInputBar } from "./components/WorkspaceInputBar";
 import { WorkspaceSurface } from "./components/WorkspaceSurface";
 import { hasOpenPathTab, renamedPath } from "./hooks/tabCloseGuards";
@@ -142,6 +143,11 @@ import { useWorkspaceSwitcher } from "./hooks/useWorkspaceSwitcher";
 const BenchBridge = __VERTA_BENCH__
   ? lazy(() => import("@/bench/BenchBridge"))
   : null;
+
+/** 会话打开过渡至少留这么久：写进终端的命令刚画出来就撤，那一眼还是露出来了。 */
+const SESSION_OPENING_HOLD_MS = 1500;
+/** 兜底：会话迟迟没准备好，也不能一直盖着不让人用。 */
+const SESSION_OPENING_FALLBACK_MS = 5000;
 
 export default function App() {
   const {
@@ -557,6 +563,50 @@ export default function App() {
     newBlockTab(inheritedCwdForNewTab());
   }, [newBlockTab, inheritedCwdForNewTab]);
 
+  /**
+   * 点开会话时盖的那层过渡（见 `SessionOpeningOverlay`）。恢复会话要往终端里写一条
+   * 命令，写进去的瞬间那行命令就画在终端上；这层盖住那一幕，命令照写。
+   * 定时器是兜底 —— 会话一时准备不好，也不能一直挡着不让用。
+   */
+  const [sessionOpening, setSessionOpening] = useState(false);
+  const sessionOpeningTimer = useRef<number | null>(null);
+  const scheduleHideSessionOpening = useCallback((ms: number) => {
+    if (sessionOpeningTimer.current !== null) {
+      window.clearTimeout(sessionOpeningTimer.current);
+    }
+    sessionOpeningTimer.current = window.setTimeout(() => {
+      sessionOpeningTimer.current = null;
+      setSessionOpening(false);
+    }, ms);
+  }, []);
+  const showSessionOpening = useCallback(() => {
+    setSessionOpening(true);
+    scheduleHideSessionOpening(SESSION_OPENING_FALLBACK_MS);
+  }, [scheduleHideSessionOpening]);
+  /** 不给 holdMs 就是立刻撤；给了就再留一会儿（命令刚写完那段空窗）。 */
+  const hideSessionOpening = useCallback(
+    (holdMs = 0) => {
+      if (holdMs > 0) {
+        scheduleHideSessionOpening(holdMs);
+        return;
+      }
+      if (sessionOpeningTimer.current !== null) {
+        window.clearTimeout(sessionOpeningTimer.current);
+        sessionOpeningTimer.current = null;
+      }
+      setSessionOpening(false);
+    },
+    [scheduleHideSessionOpening],
+  );
+  useEffect(
+    () => () => {
+      if (sessionOpeningTimer.current !== null) {
+        window.clearTimeout(sessionOpeningTimer.current);
+      }
+    },
+    [],
+  );
+
   const handleOpenSession = useCallback(
     (session: AgentSession) => {
       // 环境与命令一起由会话自己定：本机会话就得开在本机终端里，别让终端去猜
@@ -573,14 +623,20 @@ export default function App() {
         session.tool,
       );
       setActiveSessionId(session.id);
+      // 盖住「命令被写进终端」那一幕（见 SessionOpeningOverlay）。
+      showSessionOpening();
       void (async () => {
         await whenSessionReady(leafId);
         if (!writeToSession(leafId, `${plan.command}\r`)) {
           console.error(`[verta] terminal ${leafId} closed before resume`);
+          hideSessionOpening();
+          return;
         }
+        // 命令写完了再留一会儿：agent 的界面起来之前那段空窗不该露出来。
+        hideSessionOpening(SESSION_OPENING_HOLD_MS);
       })();
     },
-    [newAgentTab],
+    [newAgentTab, showSessionOpening, hideSessionOpening],
   );
 
   const handleNewProjectSession = useCallback(
@@ -594,16 +650,20 @@ export default function App() {
         entry.workspace,
         tool,
       );
+      showSessionOpening();
       void (async () => {
         await whenSessionReady(leafId);
         if (!writeToSession(leafId, `${command}\r`)) {
           console.error(
             `[verta] terminal ${leafId} closed before starting ${tool}`,
           );
+          hideSessionOpening();
+          return;
         }
+        hideSessionOpening(SESSION_OPENING_HOLD_MS);
       })();
     },
-    [newAgentTab],
+    [newAgentTab, showSessionOpening, hideSessionOpening],
   );
 
   /** 项目行里的「在终端中打开」：只是在该目录开一个普通终端标签。 */
@@ -1480,6 +1540,8 @@ export default function App() {
           />
 
           <Toaster position="bottom-right" />
+
+          <SessionOpeningOverlay open={sessionOpening} />
 
           {switcherState && (
             <TabSwitcherHud tabs={tabs} state={switcherState} />
