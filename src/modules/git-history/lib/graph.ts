@@ -19,15 +19,20 @@ import type { GitLogEntry } from "@/lib/native";
 
 export type LaneColor = string;
 
+// The rail's colours come from the theme, not from a fixed palette: a theme
+// switch recolours the graph with everything else. The terminal palette is the
+// one source every theme fills in with colours meant to be told apart, and these
+// are painted as `var()` (the rail already does that for `--background`), so the
+// browser re-resolves them without React having to re-render.
 export const LANE_COLORS: LaneColor[] = [
-  "#60a5fa", // blue-400
-  "#c084fc", // purple-400
-  "#34d399", // emerald-400
-  "#fbbf24", // amber-400
-  "#f472b6", // pink-400
-  "#22d3ee", // cyan-400
-  "#fb923c", // orange-400
-  "#a3e635", // lime-400
+  "var(--terminal-ansi-blue)",
+  "var(--terminal-ansi-magenta)",
+  "var(--terminal-ansi-green)",
+  "var(--terminal-ansi-yellow)",
+  "var(--terminal-ansi-red)",
+  "var(--terminal-ansi-cyan)",
+  "var(--terminal-ansi-bright-red)",
+  "var(--terminal-ansi-bright-green)",
 ];
 
 export function laneColor(index: number): LaneColor {

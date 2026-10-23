@@ -12,6 +12,15 @@ describe("laneColor", () => {
     expect(laneColor(1)).toBe(LANE_COLORS[1]);
     expect(laneColor(LANE_COLORS.length)).toBe(LANE_COLORS[0]);
   });
+
+  it("takes every lane colour from the theme, so a theme switch recolours the rail", () => {
+    // A literal here is what made the commit graph keep its own colours while
+    // the rest of the window followed the theme.
+    for (const color of LANE_COLORS) {
+      expect(color).toMatch(/^var\(--/);
+    }
+    expect(new Set(LANE_COLORS).size).toBe(LANE_COLORS.length);
+  });
 });
 
 describe("layoutGraph", () => {

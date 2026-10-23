@@ -29,6 +29,11 @@
 - `src/modules/i18n/messages.ts`、`src/modules/terminal/block/ShellInput.tsx`：输入块占位文案里「`{shortcut} 切换到 AI`」删掉 —— 全仓库**没有任何**绑定给这个组合键（`Ctrl+U` 在快捷键表与终端 keymap 里都不存在），是一条广告不存在的快捷键的提示；连带去掉那处 `fmtShortcut` 插值。
 - `src/app/components/WorkspaceInputBar.tsx`、`src/modules/i18n/messages.ts`：plain 模式下那句提示语原来写死英文（`Type directly in the terminal`，i18n 那一轮漏掉的一处），改成键 `term.typeDirectly`（中英两份）。
 
+**预览页面与提交图：不再各带一套自己的颜色**
+
+- `src/modules/preview/PreviewPane.tsx`：预览页面的底原来是写死的 `bg-white`（地址栏里一有 URL 就铺），暗色主题下就是一张白纸；改成跟主题走（`bg-background`）。被预览的网页自己的颜色照旧。
+- `src/modules/git-history/lib/graph.ts`：提交图的泳道色原来是写死的调色板（blue-400 / purple-400 / amber-400 …），换主题它一点不变；改成取主题自己的终端调色板（`var(--terminal-ansi-*)`）—— 每个主题都填了这 16 色，本来就是为「要能分辨」准备的一组色，图谱从此跟着主题换色。rail 照旧以 `var()` 画（`--background` 那处一直是这么用的），浏览器自己重解，不需要 React 重渲染。
+
 </details>
 
 <details>

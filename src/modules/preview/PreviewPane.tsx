@@ -146,11 +146,9 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
           </div>
         ) : null}
         <div
-          className={
-            url
-              ? "relative min-h-0 flex-1 bg-white"
-              : "relative min-h-0 flex-1 bg-background"
-          }
+          // Themed, not white: a previewed page keeps its own colours, but the
+          // sheet behind it must not flash a light rectangle into a dark theme.
+          className="relative min-h-0 flex-1 bg-background"
         >
           {url ? (
             loaded ? (
