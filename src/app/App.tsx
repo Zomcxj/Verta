@@ -85,6 +85,7 @@ import {
   findLeafCwd,
   hasLeaf,
   isTerminalSurfaceTarget,
+  leafHasForegroundProcess,
   leafIds,
   navigateFocusedBlocks,
   type PaneBounds,
@@ -143,10 +144,34 @@ const BenchBridge = __VERTA_BENCH__
   ? lazy(() => import("@/bench/BenchBridge"))
   : null;
 
-/** 会话打开过渡至少留这么久：写进终端的命令刚画出来就撤，那一眼还是露出来了。 */
-const SESSION_OPENING_HOLD_MS = 1500;
-/** 兜底：会话迟迟没准备好，也不能一直盖着不让人用。 */
-const SESSION_OPENING_FALLBACK_MS = 5000;
+/** 会话打开过渡：写进命令之后轮询「agent 起来了没」，起来了再留一格给它画第一帧。 */
+const AGENT_UI_POLL_MS = 120;
+const AGENT_UI_SETTLE_MS = 400;
+const AGENT_UI_TIMEOUT_MS = 6000;
+/** 兜底：轮询没结论也不能一直盖着（比上面的上限略长，通常轮询先结束）。 */
+const SESSION_OPENING_FALLBACK_MS = 6500;
+
+/** @returns 等 `ms` 毫秒。 */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * agent 的界面起来了没：写进命令后 shell 会把 agent 当前台子进程跑，
+ * `leafHasForegroundProcess` 就是问 shell 有没有子进程。轮询而不是问一次 ——
+ * shell 要先读完命令再 exec。拿到了再留一格：进程起来到第一帧画出来还有一小段，
+ * 少了这一格，撤掉过渡时露出来的会是还没画完的终端。
+ */
+async function waitForAgentUi(leafId: number): Promise<void> {
+  const deadline = Date.now() + AGENT_UI_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (await leafHasForegroundProcess(leafId)) {
+      await delay(AGENT_UI_SETTLE_MS);
+      return;
+    }
+    await delay(AGENT_UI_POLL_MS);
+  }
+}
 
 export default function App() {
   const {
@@ -582,21 +607,14 @@ export default function App() {
     setSessionOpening(true);
     scheduleHideSessionOpening(SESSION_OPENING_FALLBACK_MS);
   }, [scheduleHideSessionOpening]);
-  /** 不给 holdMs 就是立刻撤；给了就再留一会儿（命令刚写完那段空窗）。 */
-  const hideSessionOpening = useCallback(
-    (holdMs = 0) => {
-      if (holdMs > 0) {
-        scheduleHideSessionOpening(holdMs);
-        return;
-      }
-      if (sessionOpeningTimer.current !== null) {
-        window.clearTimeout(sessionOpeningTimer.current);
-        sessionOpeningTimer.current = null;
-      }
-      setSessionOpening(false);
-    },
-    [scheduleHideSessionOpening],
-  );
+  /** 撤过渡。 */
+  const hideSessionOpening = useCallback(() => {
+    if (sessionOpeningTimer.current !== null) {
+      window.clearTimeout(sessionOpeningTimer.current);
+      sessionOpeningTimer.current = null;
+    }
+    setSessionOpening(false);
+  }, []);
   useEffect(
     () => () => {
       if (sessionOpeningTimer.current !== null) {
@@ -631,8 +649,9 @@ export default function App() {
           hideSessionOpening();
           return;
         }
-        // 命令写完了再留一会儿：agent 的界面起来之前那段空窗不该露出来。
-        hideSessionOpening(SESSION_OPENING_HOLD_MS);
+        // 等 agent 的界面起来再撤过渡：撤早了露出来的就是「命令刚被敲进去」的终端。
+        await waitForAgentUi(leafId);
+        hideSessionOpening();
       })();
     },
     [newAgentTab, showSessionOpening, hideSessionOpening],
@@ -659,7 +678,8 @@ export default function App() {
           hideSessionOpening();
           return;
         }
-        hideSessionOpening(SESSION_OPENING_HOLD_MS);
+        await waitForAgentUi(leafId);
+        hideSessionOpening();
       })();
     },
     [newAgentTab, showSessionOpening, hideSessionOpening],
