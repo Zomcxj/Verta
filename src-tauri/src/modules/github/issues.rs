@@ -632,6 +632,32 @@ pub fn head_sha_problem(sha: &str) -> Option<String> {
     }
 }
 
+/// Map the UI's review verb to GitHub's review event.
+///
+/// The UI sends `approve` / `request_changes`; GitHub wants `APPROVE` /
+/// `REQUEST_CHANGES`. Anything else only earns an incomprehensible error from
+/// GitHub, so fail locally instead.
+pub fn review_event(event: &str) -> Result<&'static str, String> {
+    match event {
+        "approve" => Ok("APPROVE"),
+        "request_changes" => Ok("REQUEST_CHANGES"),
+        other => Err(format!("未知的审阅动作：{other}")),
+    }
+}
+
+/// Build the review request body.
+///
+/// A blank body omits the field entirely: the comment is optional, and an empty
+/// string is a different thing to GitHub than "no body at all".
+pub fn review_payload(event: &str, body: &str) -> serde_json::Value {
+    let mut payload = serde_json::json!({ "event": event });
+    let body = body.trim();
+    if !body.is_empty() {
+        payload["body"] = serde_json::Value::String(body.to_string());
+    }
+    payload
+}
+
 /// Split a comma / space separated label string, dropping empties and leading `#`.
 pub fn parse_labels(raw: &str) -> Vec<String> {
     raw.split([',', ' ', '\t', '\n'])
@@ -1051,6 +1077,25 @@ mod tests {
         assert!(head_sha_problem(&format!(" {sha} ")).is_none());
         assert!(head_sha_problem(&sha.replace('a', "g")).is_some());
         assert!(head_sha_problem(&format!("{sha}00")).is_some());
+    }
+
+    #[test]
+    fn a_review_verb_maps_to_a_github_event_or_a_local_error() {
+        assert_eq!(review_event("approve"), Ok("APPROVE"));
+        assert_eq!(review_event("request_changes"), Ok("REQUEST_CHANGES"));
+        let problem = review_event("lgtm").expect_err("没见过的动作该在本地报错");
+        assert!(problem.contains("未知的审阅动作"), "{problem}");
+    }
+
+    #[test]
+    fn a_blank_review_comment_is_left_off_the_payload() {
+        // An empty comment box must not send `body: ""`: omit the field instead.
+        let blank = review_payload("APPROVE", "   ");
+        assert_eq!(blank["event"], "APPROVE");
+        assert!(blank.get("body").is_none(), "空留言不该带上 body 字段");
+        let commented = review_payload("REQUEST_CHANGES", " 请补个测试 ");
+        assert_eq!(commented["event"], "REQUEST_CHANGES");
+        assert_eq!(commented["body"], "请补个测试", "留言该被 trim 后带上");
     }
 
     #[test]

@@ -899,6 +899,19 @@ export const native = {
       method: method ?? null,
       headSha: headSha ?? null,
     }),
+  /** Review a PR. `event` is `approve` / `request_changes`; `body` is optional. */
+  githubPrReview: (
+    repo: string,
+    number: number,
+    event: string,
+    body?: string,
+  ) =>
+    invoke<WireIssueActionResult>("github_pr_review", {
+      repo,
+      number,
+      event,
+      body: body ?? null,
+    }),
   gitPanelSnapshot: (cwd: string) =>
     invoke<GitPanelSnapshot>("git_panel_snapshot", {
       cwd,

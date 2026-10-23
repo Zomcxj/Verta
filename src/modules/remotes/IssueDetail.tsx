@@ -41,6 +41,8 @@ type Props = {
   onSendComment: () => void;
   onToggleState: () => void;
   onMerge: (method: string) => void;
+  /** Review verb: `approve` / `request_changes`. */
+  onReview: (event: string) => void;
   onBack: () => void;
 };
 
@@ -67,6 +69,7 @@ export function IssueDetail({
   onSendComment,
   onToggleState,
   onMerge,
+  onReview,
   onBack,
 }: Props) {
   const t = useT();
@@ -407,6 +410,32 @@ export function IssueDetail({
                 {blocked ? (
                   <span className="text-[11px] text-muted-foreground">
                     {t(`remotes.issues.mergeBlocked.${blocked}` as MessageKey)}
+                  </span>
+                ) : null}
+                {/* Reviewing is only meaningful while the PR is still open. */}
+                {isOpen && !detail.merged ? (
+                  <span className="flex items-center gap-1">
+                    <span className="text-[11px] text-muted-foreground">
+                      {t("remotes.issues.review.title")}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-[11px]"
+                      disabled={busy}
+                      onClick={() => onReview("approve")}
+                    >
+                      {t("remotes.issues.review.approve")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-[11px]"
+                      disabled={busy}
+                      onClick={() => onReview("request_changes")}
+                    >
+                      {t("remotes.issues.review.requestChanges")}
+                    </Button>
                   </span>
                 ) : null}
               </>

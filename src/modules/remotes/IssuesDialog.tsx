@@ -56,7 +56,7 @@ type Props = {
 };
 
 type Pending = {
-  what: "close" | "reopen" | "merge";
+  what: "close" | "reopen" | "merge" | "review-approve" | "review-request-changes";
   method?: string;
   /** Head sha at the moment the confirm dialog opened: passed along on merge so a
    * commit pushed in between cannot be merged unnoticed. */
@@ -95,6 +95,8 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
+  /** Optional comment for the review currently being confirmed; used once, then cleared. */
+  const [reviewBody, setReviewBody] = useState("");
   /** gh's own words when an action failed; kept in the confirm dialog. */
   const [actionError, setActionError] = useState<string | null>(null);
   /** New-issue form; null when not creating one. */
@@ -286,6 +288,13 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
     setBusy(true);
     setActionError(null);
     try {
+      // A review verb maps to the wire `event`; null means this is not a review.
+      const reviewEvent =
+        pending.what === "review-approve"
+          ? "approve"
+          : pending.what === "review-request-changes"
+            ? "request_changes"
+            : null;
       const result =
         pending.what === "merge"
           ? await native.githubPrMerge(
@@ -294,22 +303,29 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
               pending.method,
               pending.headSha,
             )
-          : await native.githubIssueSetState(
-              repo,
-              number,
-              pending.what === "close" ? "closed" : "open",
-            );
+          : reviewEvent !== null
+            ? await native.githubPrReview(repo, number, reviewEvent, reviewBody)
+            : await native.githubIssueSetState(
+                repo,
+                number,
+                pending.what === "close" ? "closed" : "open",
+              );
       if (result.kind !== "ready") {
         setActionError(result.error ?? t("remotes.issues.actionFailed"));
         return;
       }
       setPending(null);
+      setReviewBody("");
       toast.success(
         pending.what === "merge"
           ? t("remotes.issues.merged")
-          : pending.what === "close"
-            ? t("remotes.issues.closed")
-            : t("remotes.issues.reopened"),
+          : pending.what === "review-approve"
+            ? t("remotes.issues.review.approved")
+            : pending.what === "review-request-changes"
+              ? t("remotes.issues.review.requestedChanges")
+              : pending.what === "close"
+                ? t("remotes.issues.closed")
+                : t("remotes.issues.reopened"),
       );
       await openDetail(number);
       await load();
@@ -378,6 +394,14 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
                   what: "merge",
                   method,
                   headSha: detail?.detail?.pullRequest?.headSha,
+                })
+              }
+              onReview={(event) =>
+                setPending({
+                  what:
+                    event === "approve"
+                      ? "review-approve"
+                      : "review-request-changes",
                 })
               }
               onBack={() => {
@@ -663,6 +687,7 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
           if (!open) {
             setPending(null);
             setActionError(null);
+            setReviewBody("");
           }
         }}
       >
@@ -671,18 +696,36 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
             <AlertDialogTitle>
               {pending?.what === "merge"
                 ? t("remotes.issues.merge.confirmTitle")
-                : pending?.what === "close"
-                  ? t("remotes.issues.close.confirmTitle")
-                  : t("remotes.issues.reopen.confirmTitle")}
+                : pending?.what === "review-approve"
+                  ? t("remotes.issues.review.approve.confirmTitle")
+                  : pending?.what === "review-request-changes"
+                    ? t("remotes.issues.review.requestChanges.confirmTitle")
+                    : pending?.what === "close"
+                      ? t("remotes.issues.close.confirmTitle")
+                      : t("remotes.issues.reopen.confirmTitle")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pending?.what === "merge"
                 ? t("remotes.issues.merge.confirmHint")
-                : pending?.what === "close"
-                  ? t("remotes.issues.close.confirmHint")
-                  : t("remotes.issues.reopen.confirmHint")}
+                : pending?.what === "review-approve"
+                  ? t("remotes.issues.review.approve.confirmHint")
+                  : pending?.what === "review-request-changes"
+                    ? t("remotes.issues.review.requestChanges.confirmHint")
+                    : pending?.what === "close"
+                      ? t("remotes.issues.close.confirmHint")
+                      : t("remotes.issues.reopen.confirmHint")}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {pending?.what === "review-approve" ||
+          pending?.what === "review-request-changes" ? (
+            <Textarea
+              value={reviewBody}
+              placeholder={t("remotes.issues.review.bodyPlaceholder")}
+              className="min-h-16 text-xs"
+              disabled={busy}
+              onChange={(event) => setReviewBody(event.target.value)}
+            />
+          ) : null}
           {actionError ? (
             <p className="whitespace-pre-wrap text-xs text-destructive">
               {actionError}
@@ -697,6 +740,7 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
               onClick={() => {
                 setPending(null);
                 setActionError(null);
+                setReviewBody("");
               }}
             >
               {t("remotes.issues.create.cancel")}

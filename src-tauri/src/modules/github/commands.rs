@@ -1437,6 +1437,62 @@ fn pr_merge(repo: &str, number: u64, method: &str, head_sha: &str) -> IssueActio
     }
 }
 
+/// Review a PR. `event` is `approve` / `request_changes`, mapped to GitHub's
+/// `APPROVE` / `REQUEST_CHANGES`; `body` is an optional comment on the review.
+#[tauri::command]
+pub async fn github_pr_review(
+    repo: String,
+    number: u64,
+    event: String,
+    body: Option<String>,
+) -> Result<IssueActionResult, String> {
+    let body = body.unwrap_or_default();
+    blocking(move || Ok(pr_review(&repo, number, &event, &body))).await
+}
+
+fn pr_review(repo: &str, number: u64, event: &str, body: &str) -> IssueActionResult {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => {
+            return IssueActionResult::failed(KIND_ERROR, repo.trim(), number, message)
+        }
+    };
+    if let Some(problem) = issues::number_problem(number) {
+        return IssueActionResult::failed(KIND_ERROR, &slug, number, problem);
+    }
+    let event = match issues::review_event(event) {
+        Ok(event) => event,
+        Err(problem) => return IssueActionResult::failed(KIND_ERROR, &slug, number, problem),
+    };
+
+    let path = format!("repos/{slug}/pulls/{number}/reviews");
+    let payload = issues::review_payload(event, body).to_string();
+    let args = ["api", "--method", "POST", &path, "--input", "-"];
+    let output = match gh::run_with_stdin(&args, &payload, gh::ISSUE_ACTION_TIMEOUT_SECS) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return IssueActionResult::not_installed(&slug, number),
+        Err(GhRunError::Io(error)) => {
+            return IssueActionResult::failed(
+                KIND_ERROR,
+                &slug,
+                number,
+                format!("运行 gh 失败：{error}"),
+            )
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return IssueActionResult::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            number,
+            error_excerpt(&text),
+        );
+    }
+    IssueActionResult::ok(&slug, number)
+}
+
 /// Create an issue. `labels` is a comma / space separated list of label names.
 #[tauri::command]
 pub async fn github_issue_create(

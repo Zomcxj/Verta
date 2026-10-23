@@ -421,6 +421,18 @@ const zh = {
   "remotes.issues.mergeBlocked.computing":
     "GitHub 还在判断能不能合，过一会儿再试",
   "remotes.issues.mergeBlocked.unknown": "GitHub 还没给出能不能合的结论",
+  "remotes.issues.review.title": "审阅",
+  "remotes.issues.review.approve": "批准",
+  "remotes.issues.review.requestChanges": "请求修改",
+  "remotes.issues.review.bodyPlaceholder": "留言（可选）",
+  "remotes.issues.review.approve.confirmTitle": "批准这个 PR？",
+  "remotes.issues.review.approve.confirmHint":
+    "批准会写进这个 PR 的审阅记录，作者能看到。确认批准吗？",
+  "remotes.issues.review.requestChanges.confirmTitle": "请求修改这个 PR？",
+  "remotes.issues.review.requestChanges.confirmHint":
+    "这会写进审阅记录；目标分支若开了保护，在再次批准前它会挡住合并。确认请求修改吗？",
+  "remotes.issues.review.approved": "已批准",
+  "remotes.issues.review.requestedChanges": "已请求修改",
   "remotes.permission.readOnly":
     "你没有这个仓库的写权限，写操作按钮就不显示了。",
   "remotes.admin.open": "仓库设置…",
@@ -1712,6 +1724,19 @@ const en: Record<MessageKey, string> = {
     "GitHub is still deciding whether it can merge",
   "remotes.issues.mergeBlocked.unknown":
     "GitHub has not concluded whether it can merge",
+  "remotes.issues.review.title": "Review",
+  "remotes.issues.review.approve": "Approve",
+  "remotes.issues.review.requestChanges": "Request changes",
+  "remotes.issues.review.bodyPlaceholder": "Comment (optional)",
+  "remotes.issues.review.approve.confirmTitle": "Approve this PR?",
+  "remotes.issues.review.approve.confirmHint":
+    "Approving is written to this pull request's review history and the author sees it. Approve it?",
+  "remotes.issues.review.requestChanges.confirmTitle":
+    "Request changes on this PR?",
+  "remotes.issues.review.requestChanges.confirmHint":
+    "This is written to the review history; on a protected branch it blocks merging until another approval comes in. Request changes?",
+  "remotes.issues.review.approved": "Approved",
+  "remotes.issues.review.requestedChanges": "Changes requested",
   "remotes.permission.readOnly":
     "You only have read access to this repo, so write buttons are hidden.",
   "remotes.admin.open": "Repo settings…",

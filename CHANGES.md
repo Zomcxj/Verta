@@ -17,6 +17,13 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**PR review: approve and request changes**
+
+- `src-tauri/src/modules/github/commands.rs`, `issues.rs`, `lib.rs`: a new `github_pr_review` command posts a review through `gh api --method POST repos/{slug}/pulls/{n}/reviews`, with `approve` / `request_changes` mapped to GitHub's `APPROVE` / `REQUEST_CHANGES` and an optional comment. The verb is validated locally the way the merge path validates its method, and any failure carries what `gh` said. Two unit tests cover the mapping and the payload (a blank comment is left off the payload rather than sent as an empty string).
+- `src/lib/native.ts`, `src/modules/remotes/IssueDetail.tsx`, `IssuesDialog.tsx`: the PR block gets a Review group with Approve and Request changes beside the merge controls, shown only while the pull request is open. Both go through the same confirmation dialog the merge uses, plus an optional comment box.
+- `src/modules/i18n/messages.ts`: ten strings, Chinese and English.
+- Verified on the running app against a throwaway pull request in this repository: both actions were driven from the real UI and both landed on GitHub (one approved review and one changes-requested review, each carrying the typed comment). The app could only do that while signed in as a second account, because GitHub does not let an author review their own pull request; that account's collaborator access was removed right after, and the repository was never made public.
+
 **PR detail lists the checks one by one**
 
 - `src-tauri/src/modules/github/types.rs`, `issues.rs`: `CheckSummary` now carries the rows it was already counting (`CheckItem`: an id, a name, the state, a link), and the per-row verdict moved into a single `CheckRow` value that both the rows and the counts go through, so the list and the summary cannot disagree. No new request: the pages that were already fetched supply them. The `partial` rule is untouched (a page short of `total` still reports `partial`, never a pass), and three tests cover the list, the fallback name and that rule.
