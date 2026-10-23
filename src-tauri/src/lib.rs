@@ -375,6 +375,7 @@ pub fn run() {
             github::commands::github_issue_comment,
             github::commands::github_issue_set_state,
             github::commands::github_issue_create,
+            github::commands::github_issue_delete,
             github::commands::github_pr_merge,
             github::commands::github_pr_review,
             git::commands::git_panel_snapshot,

@@ -391,6 +391,11 @@ const zh = {
     "关掉之后它就不再出现在「打开」那一栏了，之后还能重新打开。",
   "remotes.issues.reopen.confirmTitle": "重新打开这个条目？",
   "remotes.issues.reopen.confirmHint": "重新打开后它又回到「打开」那一栏。",
+  "remotes.issues.delete": "删除",
+  "remotes.issues.delete.confirmTitle": "删除这个 issue？",
+  "remotes.issues.delete.confirmHint":
+    "删除是永久的：这个 issue 连同它下面的评论都会从 GitHub 上消失，恢复不了。确认删除吗？",
+  "remotes.issues.deleted": "已删除",
   "remotes.issues.merge.label": "合并方式",
   "remotes.issues.merge.action": "合并 PR",
   "remotes.issues.merge.merge": "合并",
@@ -1703,6 +1708,11 @@ const en: Record<MessageKey, string> = {
   "remotes.issues.reopen.confirmTitle": "Reopen this thread?",
   "remotes.issues.reopen.confirmHint":
     "Reopening puts it back into the open list.",
+  "remotes.issues.delete": "Delete",
+  "remotes.issues.delete.confirmTitle": "Delete this issue?",
+  "remotes.issues.delete.confirmHint":
+    "Deleting is permanent: the issue and every comment under it disappear from GitHub and cannot be brought back. Delete it?",
+  "remotes.issues.deleted": "Deleted",
   "remotes.issues.merge.label": "Merge method",
   "remotes.issues.merge.action": "Merge PR",
   "remotes.issues.merge.merge": "Merge",

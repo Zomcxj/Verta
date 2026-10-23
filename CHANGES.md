@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**Issues can be deleted**
+
+- `src-tauri/src/modules/github/commands.rs`, `src-tauri/src/lib.rs`: a new `github_issue_delete` command removes an issue through `gh api --method DELETE repos/{slug}/issues/{number}`, with the same local validation and error classification the other write commands use.
+- `src/lib/native.ts`, `src/modules/remotes/IssueDetail.tsx`, `IssuesDialog.tsx`: the action bar gets a Delete button, only on a plain issue. GitHub offers no way to delete a pull request, so those still only close. It goes through the confirmation dialog the other writes use, and once it lands the detail closes and the list reloads, because the item is gone.
+- `src/modules/i18n/messages.ts`: four strings, Chinese and English.
+
 **A keyboard shortcut for the screenshot**
 
 - `src/modules/shortcuts/shortcuts.ts`, `src/app/App.tsx`: `Alt+A` grabs a region, next to the header button. It sits in the General group, so it appears in Settings, Shortcuts, General with the others, and Alt is a chord the shell never claims, so it also works from a focused terminal.

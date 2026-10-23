@@ -1552,6 +1552,63 @@ fn issue_create(repo: &str, title: &str, body: &str, labels: &str) -> IssueActio
     IssueActionResult::ok(&slug, number)
 }
 
+/// Delete an issue.
+///
+/// GitHub has no delete for pull requests, so the button that reaches this is only
+/// rendered for plain issues; the backend still just fires the call it was asked for.
+#[tauri::command]
+pub async fn github_issue_delete(repo: String, number: u64) -> Result<IssueActionResult, String> {
+    blocking(move || Ok(issue_delete(&repo, number))).await
+}
+
+fn issue_delete(repo: &str, number: u64) -> IssueActionResult {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => {
+            return IssueActionResult::failed(KIND_ERROR, repo.trim(), number, message)
+        }
+    };
+    if let Some(problem) = issues::number_problem(number) {
+        return IssueActionResult::failed(KIND_ERROR, &slug, number, problem);
+    }
+
+    // `gh issue delete` rather than a raw `DELETE /issues/{number}`: on this
+    // repository the REST endpoint answers 404 while the CLI's own call really
+    // removes the issue, so the CLI is the working route. `--yes` skips its prompt.
+    let number_arg = number.to_string();
+    let args = [
+        "issue",
+        "delete",
+        number_arg.as_str(),
+        "--yes",
+        "-R",
+        slug.as_str(),
+    ];
+    let output = match gh::run(&args, gh::ISSUE_ACTION_TIMEOUT_SECS) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return IssueActionResult::not_installed(&slug, number),
+        Err(GhRunError::Io(error)) => {
+            return IssueActionResult::failed(
+                KIND_ERROR,
+                &slug,
+                number,
+                format!("运行 gh 失败：{error}"),
+            )
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return IssueActionResult::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            number,
+            error_excerpt(&text),
+        );
+    }
+    IssueActionResult::ok(&slug, number)
+}
+
 /// Default number of releases per query; the cap matches the run list's.
 const RELEASES_DEFAULT_LIMIT: usize = 30;
 const RELEASES_MAX_LIMIT: usize = 50;

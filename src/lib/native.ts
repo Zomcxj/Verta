@@ -891,6 +891,12 @@ export const native = {
       body: body ?? null,
       labels: labels ?? null,
     }),
+  /**
+   * Delete an issue. GitHub has no delete for PRs, so the UI only offers this on a
+   * plain issue.
+   */
+  githubIssueDelete: (repo: string, number: number) =>
+    invoke<WireIssueActionResult>("github_issue_delete", { repo, number }),
   /** Merge a PR. `method` is `merge` / `squash` / `rebase`. */
   githubPrMerge: (repo: string, number: number, method?: string, headSha?: string) =>
     invoke<WireIssueActionResult>("github_pr_merge", {

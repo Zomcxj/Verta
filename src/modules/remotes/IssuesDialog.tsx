@@ -56,7 +56,13 @@ type Props = {
 };
 
 type Pending = {
-  what: "close" | "reopen" | "merge" | "review-approve" | "review-request-changes";
+  what:
+    | "close"
+    | "reopen"
+    | "merge"
+    | "review-approve"
+    | "review-request-changes"
+    | "delete";
   method?: string;
   /** Head sha at the moment the confirm dialog opened: passed along on merge so a
    * commit pushed in between cannot be merged unnoticed. */
@@ -74,9 +80,9 @@ type Pending = {
  * the frontend, since the `issues` endpoint returns both kinds in one call and
  * filtering locally has zero latency.
  *
- * Writes really happen on your account (comment, close, merge), so closing and
- * merging confirm first; on a read-only repo the comment box is not rendered at
- * all.
+ * Writes really happen on your account (comment, close, merge, delete), so closing,
+ * merging and deleting confirm first; on a read-only repo the comment box is not
+ * rendered at all.
  */
 export function IssuesDialog({ repo, onOpenChange }: Props) {
   const t = useT();
@@ -298,26 +304,38 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
             ? "request_changes"
             : null;
       const result =
-        pending.what === "merge"
-          ? await native.githubPrMerge(
-              repo,
-              number,
-              pending.method,
-              pending.headSha,
-            )
-          : reviewEvent !== null
-            ? await native.githubPrReview(repo, number, reviewEvent, reviewBody)
-            : await native.githubIssueSetState(
+        pending.what === "delete"
+          ? await native.githubIssueDelete(repo, number)
+          : pending.what === "merge"
+            ? await native.githubPrMerge(
                 repo,
                 number,
-                pending.what === "close" ? "closed" : "open",
-              );
+                pending.method,
+                pending.headSha,
+              )
+            : reviewEvent !== null
+              ? await native.githubPrReview(repo, number, reviewEvent, reviewBody)
+              : await native.githubIssueSetState(
+                  repo,
+                  number,
+                  pending.what === "close" ? "closed" : "open",
+                );
       if (result.kind !== "ready") {
         setActionError(result.error ?? t("remotes.issues.actionFailed"));
         return;
       }
       setPending(null);
       setReviewBody("");
+      // The item no longer exists, so refetching its detail would fail: fall back to
+      // the list instead (the same clearing `onBack` does).
+      if (pending.what === "delete") {
+        toast.success(t("remotes.issues.deleted"));
+        setDetail(null);
+        setDetailNumber(null);
+        setActionError(null);
+        await load();
+        return;
+      }
       toast.success(
         pending.what === "merge"
           ? t("remotes.issues.merged")
@@ -406,6 +424,7 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
                       : "review-request-changes",
                 })
               }
+              onDelete={() => setPending({ what: "delete" })}
               onBack={() => {
                 setDetail(null);
                 setDetailNumber(null);
@@ -698,24 +717,28 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
             <AlertDialogTitle>
               {pending?.what === "merge"
                 ? t("remotes.issues.merge.confirmTitle")
-                : pending?.what === "review-approve"
-                  ? t("remotes.issues.review.approve.confirmTitle")
-                  : pending?.what === "review-request-changes"
-                    ? t("remotes.issues.review.requestChanges.confirmTitle")
-                    : pending?.what === "close"
-                      ? t("remotes.issues.close.confirmTitle")
-                      : t("remotes.issues.reopen.confirmTitle")}
+                : pending?.what === "delete"
+                  ? t("remotes.issues.delete.confirmTitle")
+                  : pending?.what === "review-approve"
+                    ? t("remotes.issues.review.approve.confirmTitle")
+                    : pending?.what === "review-request-changes"
+                      ? t("remotes.issues.review.requestChanges.confirmTitle")
+                      : pending?.what === "close"
+                        ? t("remotes.issues.close.confirmTitle")
+                        : t("remotes.issues.reopen.confirmTitle")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pending?.what === "merge"
                 ? t("remotes.issues.merge.confirmHint")
-                : pending?.what === "review-approve"
-                  ? t("remotes.issues.review.approve.confirmHint")
-                  : pending?.what === "review-request-changes"
-                    ? t("remotes.issues.review.requestChanges.confirmHint")
-                    : pending?.what === "close"
-                      ? t("remotes.issues.close.confirmHint")
-                      : t("remotes.issues.reopen.confirmHint")}
+                : pending?.what === "delete"
+                  ? t("remotes.issues.delete.confirmHint")
+                  : pending?.what === "review-approve"
+                    ? t("remotes.issues.review.approve.confirmHint")
+                    : pending?.what === "review-request-changes"
+                      ? t("remotes.issues.review.requestChanges.confirmHint")
+                      : pending?.what === "close"
+                        ? t("remotes.issues.close.confirmHint")
+                        : t("remotes.issues.reopen.confirmHint")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {pending?.what === "review-approve" ||

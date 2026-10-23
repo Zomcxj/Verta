@@ -43,6 +43,8 @@ type Props = {
   onMerge: (method: string) => void;
   /** Review verb: `approve` / `request_changes`. */
   onReview: (event: string) => void;
+  /** Delete the issue. Only issues reach this: GitHub cannot delete a PR. */
+  onDelete: () => void;
   onBack: () => void;
 };
 
@@ -70,6 +72,7 @@ export function IssueDetail({
   onToggleState,
   onMerge,
   onReview,
+  onDelete,
   onBack,
 }: Props) {
   const t = useT();
@@ -374,6 +377,18 @@ export function IssueDetail({
             >
               {isOpen ? t("remotes.issues.close") : t("remotes.issues.reopen")}
             </Button>
+            {/* GitHub cannot delete a PR, so this is offered on issues only. */}
+            {pull ? null : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[11px]"
+                disabled={busy}
+                onClick={onDelete}
+              >
+                {t("remotes.issues.delete")}
+              </Button>
+            )}
             {pull ? (
               <>
                 <Select
