@@ -12,7 +12,11 @@ import { cn } from "@/lib/utils";
 import { useT, type MessageKey } from "@/modules/i18n";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { lazy, Suspense, useState } from "react";
-import { changeLabel, mergeBlocked } from "./lib/issues";
+import {
+  changeLabel,
+  ISSUE_COMMITS_PAGE_SIZE,
+  mergeBlocked,
+} from "./lib/issues";
 
 /**
  * The Markdown renderer (including Streamdown) loads on demand: a static import
@@ -50,9 +54,9 @@ const MERGE_METHODS = [
  * Detail of one issue / PR.
  *
  * The body renders as Markdown; a PR gets an extra block (head → base branch, check
- * status, diff size). Whether the merge button is clickable is **the backend's
- * call** (`mergeBlocked`, which yields a reason code); the UI only follows it rather
- * than judging again, so the two cannot disagree.
+ * status, diff size, its commit list). Whether the merge button is clickable is **the
+ * backend's call** (`mergeBlocked`, which yields a reason code); the UI only follows
+ * it rather than judging again, so the two cannot disagree.
  */
 export function IssueDetail({
   detail,
@@ -195,6 +199,45 @@ export function IssueDetail({
         <p className="whitespace-pre-wrap text-[11px] text-destructive">
           {detail.pullRequestError}
         </p>
+      ) : null}
+
+      {/* PR-only, read-only: one row per commit. An empty list renders nothing
+          (a PR has at least one commit, and there is no copy for an empty list);
+          `null` is already "not fetched". */}
+      {detail.commits && detail.commits.length > 0 ? (
+        <div className="space-y-1">
+          <div className="flex items-baseline gap-2">
+            <span className="text-[11px] font-medium">
+              {t("remotes.issues.commits.title")}
+            </span>
+            {/* Only one page is fetched: a full page back means there may be more. */}
+            {detail.commits.length >= ISSUE_COMMITS_PAGE_SIZE ? (
+              <span className="text-[11px] text-muted-foreground">
+                {t("remotes.issues.commits.truncated", {
+                  count: detail.commits.length,
+                })}
+              </span>
+            ) : null}
+          </div>
+          <ul className="max-h-[20vh] space-y-1 overflow-auto">
+            {detail.commits.map((commit) => (
+              <li
+                key={commit.sha}
+                className="flex items-baseline gap-2 rounded border border-border/60 px-2 py-1 text-[11px]"
+              >
+                <span className="font-mono text-muted-foreground">
+                  {commit.sha.slice(0, 7)}
+                </span>
+                <span className="min-w-0 flex-1 truncate">
+                  {commit.summary}
+                </span>
+                <span className="shrink-0 text-muted-foreground">
+                  {commit.author || t("remotes.issues.unknown")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       {/* Body */}

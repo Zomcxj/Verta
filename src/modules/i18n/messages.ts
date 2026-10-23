@@ -383,6 +383,8 @@ const zh = {
   "remotes.issues.close": "关闭",
   "remotes.issues.reopen": "重新打开",
   "remotes.issues.closed": "已关闭",
+  "remotes.issues.commits.title": "提交",
+  "remotes.issues.commits.truncated": "只显示前 {count} 条提交",
   "remotes.issues.reopened": "已重新打开",
   "remotes.issues.close.confirmTitle": "关闭这个条目？",
   "remotes.issues.close.confirmHint":
@@ -1663,6 +1665,8 @@ const en: Record<MessageKey, string> = {
   "remotes.issues.close": "Close",
   "remotes.issues.reopen": "Reopen",
   "remotes.issues.closed": "Closed",
+  "remotes.issues.commits.title": "Commits",
+  "remotes.issues.commits.truncated": "Showing the first {count} commits",
   "remotes.issues.reopened": "Reopened",
   "remotes.issues.close.confirmTitle": "Close this thread?",
   "remotes.issues.close.confirmHint":

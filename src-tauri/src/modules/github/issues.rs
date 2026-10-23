@@ -10,7 +10,9 @@
 
 use serde::Deserialize;
 
-use super::types::{CheckSummary, IssueComment, IssueDetail, IssueSummary, PullRequestInfo};
+use super::types::{
+    CheckSummary, IssueComment, IssueDetail, IssueSummary, PullRequestCommit, PullRequestInfo,
+};
 
 /// Rows per list request. The cap matches the run list's.
 pub const ISSUES_MAX_LIMIT: usize = 100;
@@ -109,6 +111,30 @@ struct RawCheckRuns {
     check_runs: Option<Vec<RawCheck>>,
 }
 
+/// The `commit` object of a commit list row: the message and the git author.
+///
+/// Both are needed: `author` on the row itself is null when the committer has no
+/// GitHub account, while the git author name is always there.
+#[derive(Deserialize)]
+struct RawCommitBody {
+    message: Option<String>,
+    author: Option<RawGitAuthor>,
+}
+
+#[derive(Deserialize)]
+struct RawGitAuthor {
+    name: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawCommit {
+    sha: Option<String>,
+    commit: Option<RawCommitBody>,
+    /// The linked GitHub account; null for commits from an unlinked address.
+    author: Option<RawUser>,
+    html_url: Option<String>,
+}
+
 // ------------------------------------------------------------ parsing
 
 /// Parse the body of `repos/{slug}/issues`.
@@ -160,6 +186,7 @@ fn convert_detail(raw: RawIssue) -> IssueDetail {
         pull_request: None,
         pull_request_error: None,
         checks: None,
+        commits: None,
     }
 }
 
@@ -258,6 +285,63 @@ pub fn parse_pull_request(json: &str) -> Result<PullRequestInfo, serde_json::Err
     };
     pr.merge_blocked = merge_block_code(&pr).map(str::to_string);
     Ok(pr)
+}
+
+/// Parse `repos/{slug}/pulls/{n}/commits`.
+///
+/// Tolerant per entry, like the comment list: an entry without a sha is dropped (the
+/// UI keys rows by sha) without affecting the rest of the list.
+pub fn parse_pull_commits(json: &str) -> Result<Vec<PullRequestCommit>, serde_json::Error> {
+    let raw: Vec<RawCommit> = serde_json::from_str(json)?;
+    Ok(raw.into_iter().filter_map(convert_commit).collect())
+}
+
+fn convert_commit(raw: RawCommit) -> Option<PullRequestCommit> {
+    let RawCommit {
+        sha,
+        commit,
+        author,
+        html_url,
+    } = raw;
+    let sha = sha.filter(|sha| !sha.is_empty())?;
+    let (message, git_author) = match commit {
+        Some(body) => (
+            body.message.unwrap_or_default(),
+            body.author.and_then(|author| author.name),
+        ),
+        None => (String::new(), None),
+    };
+    // Prefer the GitHub account, fall back to the git author name: a commit whose
+    // address is not linked to an account has no `author.login`, but the row should
+    // still say who wrote it.
+    let author = author
+        .and_then(|author| author.login)
+        .filter(|login| !login.is_empty())
+        .or_else(|| git_author.filter(|name| !name.is_empty()))
+        .unwrap_or_default();
+    Some(PullRequestCommit {
+        sha,
+        summary: first_line(&message),
+        author,
+        html_url: html_url.unwrap_or_default(),
+    })
+}
+
+/// First line of a commit message, trimmed: a commit row holds one line.
+fn first_line(message: &str) -> String {
+    message.lines().next().unwrap_or_default().trim().to_string()
+}
+
+/// Rows per commit page (GitHub's maximum).
+pub const COMMITS_PER_PAGE: u32 = 100;
+
+/// Path of a PR's commit list (the caller substitutes `{slug}`).
+///
+/// One page only: 100 commits is beyond any readable list, and paging would cost a
+/// round trip per page for rows nobody scrolls to. A full page back is the UI's cue
+/// that GitHub may hold more.
+pub fn pull_commits_path(number: u64) -> String {
+    format!("repos/{{slug}}/pulls/{number}/commits?per_page={COMMITS_PER_PAGE}")
 }
 
 /// Rows per `check-runs` page (GitHub's maximum).
@@ -645,6 +729,50 @@ mod tests {
         )
         .expect("应能解析");
         assert_eq!(merge_block_code(&merged).unwrap(), "merged");
+    }
+
+    #[test]
+    fn a_commit_list_keeps_sha_summary_and_author() {
+        let json = r#"[
+            {"sha": "abc123", "html_url": "https://github.com/o/r/commit/abc123",
+             "author": {"login": "ann"},
+             "commit": {"message": "修复登录页白屏\n\n更多细节在正文里"}},
+            {"sha": "def456", "author": {"login": "bo"},
+             "commit": {"message": "补测试"}}
+        ]"#;
+        let commits = parse_pull_commits(json).expect("应能解析");
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].sha, "abc123");
+        // One row per commit: only the first line of the message survives.
+        assert_eq!(commits[0].summary, "修复登录页白屏");
+        assert_eq!(commits[0].author, "ann");
+        assert_eq!(commits[0].html_url, "https://github.com/o/r/commit/abc123");
+        // A missing html_url keeps the row, just without a link.
+        assert_eq!(commits[1].html_url, "");
+        // A full page is asked for; a full page back is how the UI learns there may
+        // be more (the list is not paged).
+        assert!(pull_commits_path(12).contains("/pulls/12/commits"));
+        assert!(pull_commits_path(12).contains("per_page=100"));
+    }
+
+    #[test]
+    fn a_commit_without_a_sha_is_dropped_and_the_author_falls_back_to_git() {
+        // GitHub leaves `author` null when the commit address has no linked account;
+        // the git author name is always there.
+        let json = r#"[
+            {"author": {"login": "ghost"}, "commit": {"message": "没有 sha 的条目"}},
+            {"sha": "abc123", "author": null,
+             "commit": {"message": "匿名提交", "author": {"name": "Ann Local"}}},
+            {"sha": "fedcba"}
+        ]"#;
+        let commits = parse_pull_commits(json).expect("应能解析");
+        assert_eq!(commits.len(), 2, "没有 sha 的条目该被丢掉");
+        assert_eq!(commits[0].sha, "abc123");
+        assert_eq!(commits[0].author, "Ann Local");
+        // Nothing but a sha: still a row, with empty text.
+        assert_eq!(commits[1].sha, "fedcba");
+        assert_eq!(commits[1].summary, "");
+        assert_eq!(commits[1].author, "");
     }
 
     #[test]

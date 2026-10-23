@@ -17,6 +17,14 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**PR detail lists the commits**
+
+- `src-tauri/src/modules/github/commands.rs`: `read_issue_detail` already asks the pulls endpoint speculatively (a plain issue 404s, and that is ignored). When it comes back, one more `gh api "repos/{slug}/pulls/{n}/commits"` runs and the result is attached. Any failure there leaves the list empty instead of failing the page, the way the comment fetch already behaves.
+- `src-tauri/src/modules/github/types.rs`, `issues.rs`: `PullRequestCommit` (sha, first line of the message, author, html url) and `IssueDetail.commits: Option<Vec<...>>`, following the convention `checks` set (None means unavailable, Some of an empty list means this PR has none). The author falls back to the git name when a commit is not linked to an account, and an entry without a sha is dropped. Two unit tests cover both.
+- `src/lib/native.ts`, `src/modules/remotes/lib/issues.ts`, `src/modules/remotes/IssueDetail.tsx`: the PR block lists the commits under the check summary, one per line with the short sha, the first line of the message and the author. One page of a hundred is read; when the cap is reached the heading says so and carries the count.
+- `src/modules/i18n/messages.ts`: two strings, Chinese and English.
+- Gates are green: cargo test --lib 715 passed with the two new cases, clippy with -D warnings, tsc, biome and the build. The list itself has not been seen on a real PR yet, because this repository has none, so that check is still pending.
+
 **Opening a folder from Explorer does something now**
 
 - `src/lib/launchDir.ts`: `get_launch_dir` drains its state, so that one call is the only place that can tell a folder passed as an argument apart from the remembered workspace; it keeps that flag now.

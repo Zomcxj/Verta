@@ -40,6 +40,13 @@ export type IssueFilters = {
 export type IssueListKind = WireIssueListPayload["kind"];
 
 /**
+ * Commits asked for in one request, mirroring the backend's `COMMITS_PER_PAGE`.
+ * The commit list is fetched as a single page, so a full page back means GitHub
+ * probably holds more: that is what the "first N commits" line is about.
+ */
+export const ISSUE_COMMITS_PAGE_SIZE = 100;
+
+/**
  * What to tell the user when the list is empty or unreadable; null when there is
  * content to render. The copy is an i18n key, and the tone picks the styling of
  * the notice block.

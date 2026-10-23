@@ -416,6 +416,15 @@ export type WirePullRequestInfo = {
   locked: boolean;
 };
 
+/** One commit of a PR's commit list (a single row). */
+export type WirePullRequestCommit = {
+  sha: string;
+  /** First line of the commit message only. */
+  summary: string;
+  author: string;
+  htmlUrl: string;
+};
+
 /** Rolled-up check status. */
 export type WireCheckSummary = {
   total: number;
@@ -451,6 +460,12 @@ export type WireIssueDetail = {
   pullRequestError: string | null;
   /** `null` = unavailable (a PR without checks is different: that is state === "none"). */
   checks: WireCheckSummary | null;
+  /**
+   * PRs only. `null` = unavailable (a PR with no commits is different: that is an
+   * empty list). At most one page is fetched, so `ISSUE_COMMITS_PAGE_SIZE` rows back
+   * means there are probably more.
+   */
+  commits: WirePullRequestCommit[] | null;
 };
 
 /** Result of an issue / PR detail query. */

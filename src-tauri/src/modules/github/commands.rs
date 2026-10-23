@@ -37,7 +37,7 @@ use super::repos::{
 };
 use super::types::{
     AuthActionPayload, AuthLoginProgress, AuthStatusPayload, IssueActionResult, IssueDetailPayload,
-    IssueListPayload, ReleaseDownloadProgress, ReleaseDownloadResult, RemoteRepo,
+    IssueListPayload, PullRequestCommit, ReleaseDownloadProgress, ReleaseDownloadResult, RemoteRepo,
     RemoteReposPayload, RepoActionRunsPayload, RepoActionResult, RepoCiPayload,
     RepoPermissionPayload, RepoReleasesPayload, RepoRunActionResult, RepoRunJobsPayload,
     RepoRunLogPayload, RepoSettingsPayload, KIND_ERROR,
@@ -1091,11 +1091,12 @@ fn read_issues(repo: &str, state: &str, limit: Option<usize>) -> IssueListPayloa
     }
 }
 
-/// Details of one issue / PR: body, comments, PR-specific info, check status.
+/// Details of one issue / PR: body, comments, PR-specific info, commits, check status.
 ///
-/// Body / comments / PR info are independent and fetched **in parallel**; the check
-/// status needs the PR's head sha, so it can only be fetched after the PR info
-/// arrives. A PR detail therefore takes two round trips, a plain issue one.
+/// Body / comments / PR info are independent and fetched **in parallel**; the commit
+/// list (PR only) waits for the PR info to confirm this is one, and the check status
+/// needs the PR's head sha, so both come afterwards. A PR detail therefore takes
+/// three round trips, a plain issue one.
 #[tauri::command]
 pub async fn github_issue_detail(
     repo: String,
@@ -1180,6 +1181,7 @@ fn read_issue_detail(repo: &str, number: u64) -> IssueDetailPayload {
     // expected.
     detail.pull_request = None;
     detail.pull_request_error = None;
+    detail.commits = None;
     if detail.is_pull_request {
         match pull_out {
             Ok(Ok(output)) if output.is_ok() => match issues::parse_pull_request(&output.stdout) {
@@ -1187,6 +1189,10 @@ fn read_issue_detail(repo: &str, number: u64) -> IssueDetailPayload {
                     detail.is_draft = pr.draft;
                     detail.merged = pr.merged;
                     detail.pull_request = Some(pr);
+                    // PR-only, and asked for only after the PR endpoint answered:
+                    // that answer is the proof this really is a PR. A failure here is
+                    // not fatal, the block simply is not rendered.
+                    detail.commits = read_pull_commits(&slug, number);
                 }
                 Err(error) => {
                     detail.pull_request_error = Some(format!("PR 信息无法解析：{error}"));
@@ -1243,6 +1249,20 @@ fn read_issue_detail(repo: &str, number: u64) -> IssueDetailPayload {
     }
 
     IssueDetailPayload::found(&slug, detail)
+}
+
+/// Commit list of a PR.
+///
+/// `None` on any failure (gh missing, 404, unparsable): the commit block is an extra
+/// next to the PR basics, so it reports nothing rather than sinking the detail view,
+/// exactly like the comment block does.
+fn read_pull_commits(slug: &str, number: u64) -> Option<Vec<PullRequestCommit>> {
+    // A single page: see `issues::pull_commits_path`.
+    let path = issues::pull_commits_path(number).replace("{slug}", slug);
+    match gh::run(&["api", &path], gh::ISSUE_DETAIL_TIMEOUT_SECS) {
+        Ok(output) if output.is_ok() => issues::parse_pull_commits(&output.stdout).ok(),
+        _ => None,
+    }
 }
 
 /// Add a comment to an issue / PR.

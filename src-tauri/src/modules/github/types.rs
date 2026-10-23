@@ -936,6 +936,20 @@ pub struct IssueComment {
     pub created_at: Option<String>,
 }
 
+/// One commit of a PR's commit list.
+///
+/// Only what a single row needs: the full message would not fit one line anyway, and
+/// the diff / files of a commit are not fetched.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestCommit {
+    pub sha: String,
+    /// First line of the commit message only.
+    pub summary: String,
+    pub author: String,
+    pub html_url: String,
+}
+
 /// PR-only information (plain issues have none of this).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1017,6 +1031,9 @@ pub struct IssueDetail {
     /// PRs only. `None` = unavailable (different from "this PR has no checks",
     /// which is `Some` with `state == "none"`).
     pub checks: Option<CheckSummary>,
+    /// PRs only. `None` = unavailable (different from "this PR has no commits",
+    /// which is `Some` with an empty list).
+    pub commits: Option<Vec<PullRequestCommit>>,
 }
 
 /// Result of a single issue / PR detail query.
