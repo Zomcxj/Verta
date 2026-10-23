@@ -120,10 +120,15 @@ export function EditorStack({
                 // or it lands on top of the side preview.
                 renderToggle={
                   isMarkdownPath(t.path)
-                    ? () => (
+                    ? (side) => (
                         <MarkdownViewToggle
-                          mode="raw"
-                          onChange={(mode) => onSetMarkdownView(t.id, mode)}
+                          mode={side.open ? "preview" : "raw"}
+                          preview={{ onSelect: () => side.setOpen(true) }}
+                          onChange={(mode) => {
+                            // 渲染 / 源码这两档都先收起并排预览：三档才是单选。
+                            side.setOpen(false);
+                            onSetMarkdownView(t.id, mode);
+                          }}
                           renderedDisabled={t.dirty}
                           renderedHint={tr("markdown.saveToPreview")}
                         />

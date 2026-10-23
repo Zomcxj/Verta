@@ -83,7 +83,11 @@ export function SidePreview({
       data-side-preview
       data-state={visible ? "open" : "closed"}
       className={cn(
-        "relative flex h-full min-h-0 flex-col overflow-hidden border-l border-border/60 bg-background/60",
+        // 不带自己的底色：这一栏就在标签页那块面板里，底色该由面板给 —— 原来这里有
+        // 一层写死的 `bg-background/60`，不透明的主题下看不出来，玻璃主题下就比旁边
+        // 的编辑器厚一截（面板只给 0.28 的色调，它又压上 0.6），并排预览看着像另一套界面。
+        // 与编辑器的分界交给左边那条边框。
+        "relative flex h-full min-h-0 flex-col overflow-hidden border-l border-border/60",
         // Width, not display: the transition still has something to animate.
         visible ? "w-[min(42%,520px)]" : "w-0",
         !visible && "pointer-events-none border-l-0",

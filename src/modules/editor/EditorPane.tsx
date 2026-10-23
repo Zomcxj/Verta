@@ -90,8 +90,17 @@ type Props = {
   /**
    * Drawn inside the editor column, so a corner control stays off the side
    * preview. Rendered only while this pane is the editor for the file.
+   *
+   * Handed the side-preview state: the caller puts its own "preview" stop in
+   * the same group, and this pane then drops the corner button it used to draw
+   * (two groups in one corner would overlap).
    */
-  renderToggle?: () => React.ReactNode;
+  renderToggle?: (side: SidePreviewToggle) => React.ReactNode;
+};
+
+type SidePreviewToggle = {
+  open: boolean;
+  setOpen: (open: boolean) => void;
 };
 
 // Above this, syntax highlighting and LSP are disabled: a multi-MB lezer
@@ -602,7 +611,7 @@ export const EditorPane = memo(
     return (
       <div className="flex h-full min-h-0 zoom-exempt">
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          {renderToggle?.()}
+          {renderToggle?.({ open: sideOpen, setOpen: setSideOpen })}
           {pendingDraft ? (
             // 中断前的草稿：一条窄提示条，不挡编辑，也不自动改文件。
             <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11px]">
@@ -630,7 +639,12 @@ export const EditorPane = memo(
               </button>
             </div>
           ) : null}
-          {previewKind !== "none" && (
+          {/* Markdown moved this into the view switch at the top right (three
+              stops: rendered / raw / preview). What is left here is the files
+              that have a side preview but no view switch — images. No backdrop
+              blur: it would add a compositing layer, which the startup budget
+              forbids. */}
+          {previewKind !== "none" && !renderToggle && (
             <button
               type="button"
               onClick={toggleSide}
@@ -641,9 +655,6 @@ export const EditorPane = memo(
                 sideOpen ? tr("editor.preview.hide") : tr("editor.preview.show")
               }
               aria-pressed={sideOpen}
-              // Bottom right: the view switch owns the top right corner, and two
-              // groups there overlap. No backdrop blur: it would add a
-              // compositing layer, which the startup budget forbids.
               className={cn(
                 "absolute right-2 bottom-2 z-10 rounded border border-border/60 bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground",
                 sideOpen && "text-foreground",
