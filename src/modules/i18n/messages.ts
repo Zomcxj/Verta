@@ -723,8 +723,8 @@ const zh = {
   "launcher.delete": "删除",
   "launcher.deleting": "删除中",
   "launcher.deleteConfirm": "删除会话",
-  "launcher.deleteWarnOpencode": "删除 opencode 的父会话会连带删除它的子会话。",
-  "launcher.deleteWarnPi": "删除 pi 会话时会连同该会话的产物目录一起删除。",
+  "launcher.deleteWarnChildren": "删除父会话会连带删除它的子会话。",
+  "launcher.deleteWarnArtifacts": "删除会话时会连同它的产物目录一起删除。",
   "launcher.deleteWarnActive": "其中包含当前已在终端打开的会话。",
   "launcher.deleteIrreversible": "此操作不可撤销。",
   "launcher.cancel": "取消",
@@ -739,7 +739,7 @@ const zh = {
   "launcher.deleteRequestFailed": "删除请求失败：{message}",
   "launcher.deleteTitle": "删除会话？",
   "launcher.deleteBody":
-    "将从本机永久删除 {total} 条会话记录（opencode {opencode} 条、pi {pi} 条），无法撤销。",
+    "将从本机永久删除 {total} 条会话记录，无法撤销。",
   "launcher.deleteSubagents": "其中 {count} 条是子代理或分叉会话。",
   "launcher.failureLine": "{tool} {id}：{reason}",
 
@@ -873,6 +873,14 @@ const zh = {
   "settings.themes.editorTheme.description":
     "代码编辑器的语法配色。自动则跟随应用主题。",
   "settings.themes.editorTheme.auto": "自动（跟随应用主题）",
+  "settings.themes.transition.title": "会话打开过渡",
+  "settings.themes.transition.description":
+    "点开会话时盖住终端的那段动画。选「不要」就照旧：命令写进终端的瞬间看得见。",
+  "settings.themes.transition.ripples": "波纹扩散",
+  "settings.themes.transition.pulse": "同心脉冲",
+  "settings.themes.transition.orbit": "光环绕行",
+  "settings.themes.transition.bars": "音条起伏",
+  "settings.themes.transition.none": "不要过渡",
   "settings.themes.remove": "移除",
   "settings.themes.opacity": "不透明度",
   "settings.themes.blur": "模糊",
@@ -1961,10 +1969,10 @@ const en: Record<MessageKey, string> = {
   "launcher.delete": "Delete",
   "launcher.deleting": "Deleting",
   "launcher.deleteConfirm": "Delete session",
-  "launcher.deleteWarnOpencode":
-    "Deleting an opencode parent session also deletes its child sessions.",
-  "launcher.deleteWarnPi":
-    "Deleting a pi session also deletes the artifacts folder that belongs to it.",
+  "launcher.deleteWarnChildren":
+    "Deleting a parent session also deletes its child sessions.",
+  "launcher.deleteWarnArtifacts":
+    "Deleting a session also deletes the artifacts folder that belongs to it.",
   "launcher.deleteWarnActive": "One of these is currently open in a terminal.",
   "launcher.deleteIrreversible": "This cannot be undone.",
   "launcher.cancel": "Cancel",
@@ -1979,7 +1987,7 @@ const en: Record<MessageKey, string> = {
   "launcher.deleteRequestFailed": "Delete failed: {message}",
   "launcher.deleteTitle": "Delete session?",
   "launcher.deleteBody":
-    "This permanently deletes {total} session records from this machine (opencode {opencode}, pi {pi}). It cannot be undone.",
+    "This permanently deletes {total} session records from this machine. It cannot be undone.",
   "launcher.deleteSubagents": "{count} of them are subagent or fork sessions.",
   "launcher.failureLine": "{tool} {id}: {reason}",
 
@@ -2119,6 +2127,14 @@ const en: Record<MessageKey, string> = {
   "settings.themes.editorTheme.description":
     "Syntax colors for the code editor. Auto follows the app theme.",
   "settings.themes.editorTheme.auto": "Auto (match app theme)",
+  "settings.themes.transition.title": "Session transition",
+  "settings.themes.transition.description":
+    "The animation that covers the terminal while a session opens. “None” keeps the old behaviour: the command shows as it is typed.",
+  "settings.themes.transition.ripples": "Ripples",
+  "settings.themes.transition.pulse": "Pulse",
+  "settings.themes.transition.orbit": "Orbit",
+  "settings.themes.transition.bars": "Bars",
+  "settings.themes.transition.none": "None",
   "settings.themes.remove": "Remove",
   "settings.themes.opacity": "Opacity",
   "settings.themes.dropImage":

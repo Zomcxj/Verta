@@ -486,15 +486,11 @@ function deleteWarning(
   t: (key: MessageKey, values?: Record<string, string | number>) => string,
 ): string {
   const { total, byTool, subagents, hasSubagents } = pending.summary;
-  const parts = [
-    t("launcher.deleteBody", {
-      total,
-      opencode: byTool.opencode,
-      pi: byTool.pi,
-    }),
-    t("launcher.deleteWarnOpencode"),
-    t("launcher.deleteWarnPi"),
-  ];
+  const parts = [t("launcher.deleteBody", { total })];
+  // 每种工具自己的附带影响只在那类会话真被选中时才提，也不点名工具 ——
+  // 名字将来多一个 agent 就长一截（用户点名的毛病）。
+  if (byTool.opencode > 0) parts.push(t("launcher.deleteWarnChildren"));
+  if (byTool.pi > 0) parts.push(t("launcher.deleteWarnArtifacts"));
   if (hasSubagents) parts.push(t("launcher.deleteSubagents", { count: subagents }));
   if (pending.includesActive) parts.push(t("launcher.deleteWarnActive"));
   return parts.join("");

@@ -98,6 +98,31 @@ export const EDITOR_THEME_LABELS: Record<EditorThemeId, string> = {
   "xcode-light": "Xcode Light",
 };
 
+/** 会话打开时那层过渡用哪种动画（设置 → 主题页里可选）。 */
+export type SessionTransitionId =
+  | "ripples"
+  | "pulse"
+  | "orbit"
+  | "bars"
+  | "none";
+
+/** 顺序就是设置里的顺序：默认那一种在最前。 */
+export const SESSION_TRANSITIONS: readonly SessionTransitionId[] = [
+  "ripples",
+  "pulse",
+  "orbit",
+  "bars",
+  "none",
+];
+
+/** 存过的值可能是别的版本写的：不认得就退回默认。 */
+export function coerceSessionTransition(value: unknown): SessionTransitionId {
+  return typeof value === "string" &&
+    (SESSION_TRANSITIONS as readonly string[]).includes(value)
+    ? (value as SessionTransitionId)
+    : DEFAULT_PREFERENCES.sessionTransition;
+}
+
 export type Preferences = {
   theme: ThemePref;
   themeId: string;
@@ -154,6 +179,8 @@ export type Preferences = {
   editorCustomFormatCommand: string;
   lspActivation: Record<string, LspActivation>;
   lspCustomServers: LspCustomServer[];
+  /** 打开会话时那层过渡用哪种动画；`none` 就是不要过渡。 */
+  sessionTransition: SessionTransitionId;
 };
 
 export type EditorFormatter =
@@ -189,6 +216,7 @@ const KEY_BG_OPACITY = "backgroundOpacity";
 const KEY_BG_BLUR = "backgroundBlur";
 const KEY_WINDOW_VIBRANCY = "windowVibrancy";
 const KEY_EDITOR_THEME = "editorTheme";
+const KEY_SESSION_TRANSITION = "sessionTransition";
 const KEY_EDITOR_FONT_SIZE = "editorFontSize";
 const KEY_RESTORE_WINDOW = "restoreWindowState";
 const KEY_VIM_MODE = "vimMode";
@@ -258,6 +286,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   backgroundOpacity: 0.5,
   backgroundBlur: 0,
   editorTheme: EDITOR_THEME_AUTO,
+  // 其余主题自己带过渡动画；只有「新增的几种」在这里挑，默认是波纹。
+  sessionTransition: "ripples",
   editorFontSize: EDITOR_FONT_SIZE_DEFAULT,
   // Off by default: a translucent window keeps the compositor blending the
   // whole frame every present. An explicitly stored choice (either value)
@@ -337,6 +367,9 @@ export async function loadPreferences(): Promise<Preferences> {
         return stored;
       return DEFAULT_PREFERENCES.editorTheme;
     })(),
+    sessionTransition: coerceSessionTransition(
+      get<string>(KEY_SESSION_TRANSITION),
+    ),
     editorFontSize: clampEditorFontSize(
       get<number>(KEY_EDITOR_FONT_SIZE) ?? DEFAULT_PREFERENCES.editorFontSize,
     ),
@@ -493,6 +526,13 @@ export async function setBackgroundBlur(value: number): Promise<void> {
 
 export async function setEditorTheme(value: EditorThemePref): Promise<void> {
   await writePref(KEY_EDITOR_THEME, value);
+}
+
+/** 会话打开过渡用哪种动画。 */
+export async function setSessionTransition(
+  value: SessionTransitionId,
+): Promise<void> {
+  await writePref(KEY_SESSION_TRANSITION, value);
 }
 
 export function clampEditorFontSize(value: number): number {
@@ -711,6 +751,7 @@ export async function onPreferencesChange(
     [KEY_BG_BLUR]: "backgroundBlur",
     [KEY_WINDOW_VIBRANCY]: "windowVibrancy",
     [KEY_EDITOR_THEME]: "editorTheme",
+    [KEY_SESSION_TRANSITION]: "sessionTransition",
     [KEY_EDITOR_FONT_SIZE]: "editorFontSize",
     [KEY_RESTORE_WINDOW]: "restoreWindowState",
     [KEY_VIM_MODE]: "vimMode",

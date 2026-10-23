@@ -18,11 +18,14 @@ import {
   EDITOR_THEME_MODE,
   EDITOR_THEMES,
   type EditorThemePref,
+  SESSION_TRANSITIONS,
+  type SessionTransitionId,
   setBackgroundBlur,
   setBackgroundImageId,
   setBackgroundKind,
   setBackgroundOpacity,
   setEditorTheme,
+  setSessionTransition,
   setWindowVibrancy,
 } from "@/modules/settings/store";
 import { useTheme } from "@/modules/theme";
@@ -57,6 +60,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 
+/** 过渡动画的名字。加一种动画就在这儿多一行，文案两侧各一份。 */
+const SESSION_TRANSITION_LABELS = {
+  ripples: "settings.themes.transition.ripples",
+  pulse: "settings.themes.transition.pulse",
+  orbit: "settings.themes.transition.orbit",
+  bars: "settings.themes.transition.bars",
+  none: "settings.themes.transition.none",
+} as const;
+
 export function ThemesSection() {
   const t = useT();
   const language = useLanguage();
@@ -84,6 +96,7 @@ export function ThemesSection() {
   const onEditTheme = (id: string) => startThemeEdit({ action: "edit", id });
 
   const editorThemePref = usePreferencesStore((s) => s.editorTheme);
+  const sessionTransition = usePreferencesStore((s) => s.sessionTransition);
   const backgroundKind = usePreferencesStore((s) => s.backgroundKind);
   const backgroundImageId = usePreferencesStore((s) => s.backgroundImageId);
   const backgroundOpacity = usePreferencesStore((s) => s.backgroundOpacity);
@@ -380,6 +393,34 @@ export function ThemesSection() {
                     {EDITOR_THEME_LABELS[id]}
                   </SelectItem>
                 ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-col">
+            <Label>{t("settings.themes.transition.title")}</Label>
+            <span className="text-[11px] text-muted-foreground">
+              {t("settings.themes.transition.description")}
+            </span>
+          </div>
+          <Select
+            value={sessionTransition}
+            onValueChange={(v) =>
+              void setSessionTransition(v as SessionTransitionId)
+            }
+          >
+            <SelectTrigger size="sm" className="h-8 w-44 text-[12px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SESSION_TRANSITIONS.map((id) => (
+                <SelectItem key={id} value={id} className="text-[12px]">
+                  {t(SESSION_TRANSITION_LABELS[id])}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

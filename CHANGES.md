@@ -15,6 +15,19 @@
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**会话打开过渡：动画加到四种，在设置的主题页里选**
+
+- `src/modules/settings/store.ts`：新增偏好 `sessionTransition`（`ripples` / `pulse` / `orbit` / `bars` / `none`，默认 `ripples`），另加一个不认得的旧值退回默认的 `coerceSessionTransition`。
+- `src/app/components/SessionOpeningOverlay.tsx`：按这项偏好画不同动画 —— 波纹扩散 / 同心脉冲 / 光环绕行 / 音条起伏，选 `none` 就整层不画（照旧看得见命令写进终端）。
+- `src/styles/globals.css`：三种新动画的样式，与波纹同一套约束（只动 transform / opacity、次数写死、`prefers-reduced-motion` 下不播）。
+- `src/settings/sections/ThemesSection.tsx`：主题页加一行「会话打开过渡」的下拉选择。
+- `src/modules/i18n/messages.ts`：中英各一份键。
+
+**删除会话的对话框不再点名 opencode / pi**
+
+- `src/modules/i18n/messages.ts`：`launcher.deleteBody` 去掉「（opencode N 条、pi N 条）」那截，两条提示也不再写工具名，只留后果（连带子会话 / 连带产物目录）—— 文案里点一个工具名，将来多一个 agent 就长一截。
+- `src/modules/launcher/components/LauncherPanel.tsx`：那两条提示改成**只在该类会话真被选进这批删除时**才拼上（原来不管选了什么，两条都拼在一起），顺带去掉了不再用的两个计数占位。
+
 **点开会话不再露出「命令被敲进终端」那一幕，改成一个居中的过渡**
 
 - `src/app/components/SessionOpeningOverlay.tsx`（新增）：居中的过渡层 —— 三圈波纹依次往外扩，中间是应用图标，出现时图标震一下（先缩、冲过一点、回正）。原来的做法是直接往终端里写恢复命令，那行命令画出来的瞬间就是「有人替你敲命令」。
