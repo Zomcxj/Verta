@@ -9,7 +9,7 @@ import { DEFAULT_THEME_ID, type ThemeMode } from "@/modules/theme/types";
 import ReactDOM from "react-dom/client";
 
 /**
- * Put the current theme's CSS variables on this window too — the selection border,
+ * Put the current theme's CSS variables on this window too: the selection border,
  * handles, and buttons all use theme colors (`--primary` and friends).
  *
  * No ThemeProvider here: it renders the theme's background layer, which would cover
@@ -55,7 +55,7 @@ document.documentElement.style.background = "transparent";
 document.body.style.background = "transparent";
 
 // Fallback: this window covers the whole screen, so if its own script dies the window
-// has to fold itself up — otherwise an unclickable gray layer sits in front of the
+// has to fold itself up, otherwise an unclickable gray layer sits in front of the
 // user and only the task manager can clear it. Only script errors count (resource
 // load failures do not).
 const bailOut = (error: unknown) => {

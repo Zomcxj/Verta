@@ -661,7 +661,7 @@ fn emit_auth_text(
     );
 }
 
-/// The last few lines gh printed, for failure messages — don't dump the whole
+/// The last few lines gh printed, for failure messages; don't dump the whole
 /// thing on the user.
 fn last_lines(text: &str, count: usize) -> String {
     let lines: Vec<&str> = text
@@ -851,7 +851,7 @@ fn run_action(repo: &str, run_id: u64, action: RunAction) -> RepoRunActionResult
 /// Check back once after deleting: only a confirmed disappearance justifies saying
 /// "deleted".
 ///
-/// The exit code of `gh run delete` alone is not enough — if any link in that chain
+/// The exit code of `gh run delete` alone is not enough: if any link in that chain
 /// lies to us once, the UI would permanently hide a record that **is still on
 /// GitHub** (row removed, and filtered out again on refresh), which is far worse
 /// than reporting an error. So after deleting we ask "is it still there": an
@@ -1214,7 +1214,7 @@ fn read_issue_detail(repo: &str, number: u64) -> IssueDetailPayload {
         .unwrap_or_default();
     if !head_sha.is_empty() {
         // A page holds at most 100; ask for 100 explicitly, because the default is
-        // 30 and with 40 checks we would only see the first 30 — and the UI would
+        // 30 and with 40 checks we would only see the first 30, and the UI would
         // read "not all seen" as "all green". Beyond 100 we keep paging and count at
         // the end (summarize_check_pages remembers total_count and flags truncated
         // when items are missing).
@@ -1290,7 +1290,7 @@ fn issue_comment(repo: &str, number: u64, body: &str) -> IssueActionResult {
     }
 }
 
-/// Open or close an issue (PRs too — on GitHub they are the same object).
+/// Open or close an issue (PRs too: on GitHub they are the same object).
 #[tauri::command]
 pub async fn github_issue_set_state(
     repo: String,

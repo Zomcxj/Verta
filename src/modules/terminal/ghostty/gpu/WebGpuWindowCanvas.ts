@@ -60,9 +60,9 @@ export interface WindowCanvasPane {
   /** Theme background; the first drawable pane's colour clears the canvas. */
   background(): Rgb;
   /**
-   * The theme background's opacity (0–1). Below 1 the canvas is configured with
-   * a translucent alpha mode so whatever sits behind the terminal — the pane's
-   * tint, the user's background image, the desktop through a native material —
+   * The theme background's opacity (0-1). Below 1 the canvas is configured with
+   * a translucent alpha mode so whatever sits behind the terminal (the pane's
+   * tint, the user's background image, the desktop through a native material)
    * shows through it.
    */
   backgroundAlpha(): number;
@@ -420,7 +420,7 @@ export class WebGpuWindowCanvas {
     }
     if (!clear) return { drawn: 0, revealed: [] };
     // The alpha mode is a property of the canvas, not of a frame, so it can only
-    // change while no pass is open — here, before the pass below begins.
+    // change while no pass is open: here, before the pass below begins.
     if (translucent !== this.translucent) {
       this.translucent = translucent;
       this.context.configure({

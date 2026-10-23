@@ -250,7 +250,7 @@ describe("shader uniform layout", () => {
   it("premultiplies both passes and only lets the terminal's own background through", () => {
     // A translucent canvas makes the browser read rgb as already scaled by alpha, so both
     // the background and the glyph pass must write premultiplied values. Anything an
-    // application painted itself — a cell colour, selection, search, a decoration — stays
+    // application painted itself (a cell colour, selection, search, a decoration) stays
     // opaque, or the theme's alpha would erase it.
     expect(BACKGROUND_SHADER).toMatch(
       /return vec4f\(screen\.theme_background\.rgb \* alpha, alpha\);/,

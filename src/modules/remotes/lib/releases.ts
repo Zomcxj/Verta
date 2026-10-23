@@ -101,7 +101,7 @@ const SMOOTHING = 0.3;
  *
  * Speed is exponentially smoothed: a single IPC hiccup should not drop it from
  * 12 MB/s to 3 MB/s. When the interval is too short, the previous value is kept
- * but bytes and total still update — the progress bar must not stall.
+ * but bytes and total still update: the progress bar must not stall.
  */
 export function nextDownloadProgress(
   previous: DownloadProgress | undefined,

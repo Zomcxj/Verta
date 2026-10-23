@@ -48,7 +48,7 @@ for table in ("session_v2", "session"):
         )
         # Two generations of message table: new versions write `session_message` (the
         # `type` column is the role), old ones write `message` (the role sits in the JSON
-        # under data). Prefer the new table — the old one stops being updated once both exist.
+        # under data). Prefer the new table: the old one stops being updated once both exist.
         msg_tables = {r[0] for r in con.execute("select name from sqlite_master where type='table'")}
         if "session_message" in msg_tables:
             msg_table, is_user = "session_message", "m.type = 'user'"

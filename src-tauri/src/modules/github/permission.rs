@@ -32,7 +32,7 @@ pub fn write_allowed(permission: Option<&str>) -> bool {
 /// / delete).
 ///
 /// GitHub only allows admins to do these, so this is stricter than [`write_allowed`]:
-/// only `ADMIN` counts. **Unknown or unrecognised levels also return true** — for the same
+/// only `ADMIN` counts. **Unknown or unrecognised levels also return true**: for the same
 /// reason as write access, better to let GitHub reject it.
 pub fn admin_allowed(permission: Option<&str>) -> bool {
     let Some(level) = permission else {

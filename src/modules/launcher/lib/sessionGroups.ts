@@ -10,7 +10,7 @@ import type { AgentSession, AgentTool } from "./types";
  */
 export type SessionGroupBy = "all" | "tool";
 
-/** Newest first — both groupings honor it, so switching between them never reorders. */
+/** Newest first: both groupings honor it, so switching between them never reorders. */
 export function sortByRecent(sessions: readonly AgentSession[]): AgentSession[] {
   return [...sessions].sort((left, right) => right.updatedAtMs - left.updatedAtMs);
 }
@@ -25,7 +25,7 @@ export type SessionGroup = {
  * Split into per-agent sections.
  *
  * Section order follows `tools` (the tool order fixed in settings), not session
- * counts or timestamps — otherwise one new message would reshuffle the whole list.
+ * counts or timestamps, otherwise one new message would reshuffle the whole list.
  * Tools with no sessions **do not appear**, and an empty list yields one empty
  * section so the list's own empty-state copy still shows.
  */

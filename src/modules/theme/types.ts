@@ -63,7 +63,7 @@ export type ThemeSurface = {
   repeat?: "no-repeat" | "repeat";
   /** Image size (`background-size`). */
   size?: string;
-  /** Opacity, 0–1. */
+  /** Opacity, 0-1. */
   opacity?: number;
   /**
    * Blends with the theme's base color: a `mix-blend-mode` such as `soft-light`
@@ -78,23 +78,23 @@ export type ThemeSurface = {
  * surface layer shows through.
  *
  * By default both the `frame` and `pane` layers are opaque (the backgrounds of
- * `--frame` and `.verta-pane`), so a texture on `surface` alone is invisible —
+ * `--frame` and `.verta-pane`), so a texture on `surface` alone is invisible;
  * they cover all of it. Glass means letting those two layers show through,
  * brightening the border a little (the glass edge), and adding some backdrop
  * blur to panes.
  *
  * Blur is **not controlled here**: the real blur is a native material painted
  * behind the window (DWM acrylic on Windows, NSVisualEffectView on macOS), which
- * CSS cannot reach. Only tint and highlights are adjustable — see below.
+ * CSS cannot reach. Only tint and highlights are adjustable: see below.
  */
 export type ThemeGlass = {
-  /** Pane **opacity**, 0–1; lower is more transparent. 0.15 is essentially pure glass. */
+  /** Pane **opacity**, 0-1; lower is more transparent. 0.15 is essentially pure glass. */
   pane?: number;
-  /** Opacity of the frame layer (title bar, status bar, the gaps between panes), 0–1. */
+  /** Opacity of the frame layer (title bar, status bar, the gaps between panes), 0-1. */
   frame?: number;
-  /** Glass edge brightness: strength of the top highlight and border, 0–1. */
+  /** Glass edge brightness: strength of the top highlight and border, 0-1. */
   edge?: number;
-  /** Opacity of the highlight gradient at the top of a pane, 0–1. It carries the
+  /** Opacity of the highlight gradient at the top of a pane, 0-1. It carries the
    * light-on-top, dark-below look of Apple glass. */
   sheen?: number;
   /**

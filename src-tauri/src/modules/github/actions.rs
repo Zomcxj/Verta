@@ -57,7 +57,7 @@ fn clean(value: Option<String>) -> Option<String> {
 /// Whether a raw record is usable.
 ///
 /// Without an id it cannot be rerun/cancelled, without a url it cannot be opened,
-/// without a status it cannot be drawn — miss any of the three and the row is
+/// without a status it cannot be drawn; miss any of the three and the row is
 /// useless, so drop it. Other fields default to empty (`name` gets a neutral
 /// fallback rather than "").
 fn convert(raw: RawRun) -> Option<RepoActionRun> {
@@ -79,7 +79,7 @@ fn convert(raw: RawRun) -> Option<RepoActionRun> {
 ///
 /// Tolerant per entry (same rule as the repository list): an entry missing required
 /// fields is dropped without affecting the page; but if **entries came back and none
-/// survived**, parsing is broken and that is reported as an error — never as "no
+/// survived**, parsing is broken and that is reported as an error, never as "no
 /// runs", which is exactly what "fail loudly" is meant to prevent.
 pub fn parse_runs(json: &str, limit: usize) -> Result<Vec<RepoActionRun>, String> {
     let body: Body = serde_json::from_str(json).map_err(|e| format!("JSON 解析失败：{e}"))?;
@@ -174,7 +174,7 @@ pub fn parse_jobs(json: &str) -> Result<Vec<RepoRunJob>, String> {
 /// Parse the output of `gh run view --log`.
 ///
 /// Each line is `job\tstep\t2026-10-20T14:24:56.87Z body` (tab separated, the third
-/// field being "time + space + body"). Unrecognised lines are kept as they are — a
+/// field being "time + space + body"). Unrecognised lines are kept as they are: a
 /// missing log line is worse than an extra one, so show them verbatim.
 pub fn parse_log(text: &str) -> Vec<RepoRunLogLine> {
     text.lines()
@@ -252,7 +252,7 @@ pub enum RunProbe {
 ///
 /// The probe is `gh api repos/{o}/{r}/actions/runs/{id}`: **success** means it is still
 /// there; on failure only an explicit 404 / Not Found counts as "gone", and
-/// everything else (rate limit, flaky proxy, permissions) is "unclear" — "could not
+/// everything else (rate limit, flaky proxy, permissions) is "unclear": "could not
 /// check" and "not deleted" are two different things and must not be conflated.
 pub fn classify_run_probe(exited_ok: bool, failure_text: &str) -> RunProbe {
     if exited_ok {

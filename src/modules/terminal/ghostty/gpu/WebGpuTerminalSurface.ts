@@ -1537,8 +1537,8 @@ export class WebGpuTerminalSurface
    * The window canvas draws the terminal background. Until it has shown this pane's first
    * frame the pane's own DOM covers whatever the canvas still holds from another tab.
    *
-   * A translucent theme's terminal has no colour of its own to cover with — the pane behind
-   * it already shows the desktop — so that placeholder is transparent from the start.
+   * A translucent theme's terminal has no colour of its own to cover with (the pane behind
+   * it already shows the desktop), so that placeholder is transparent from the start.
    */
   private updateRootBackground(): void {
     this.root.style.backgroundColor =

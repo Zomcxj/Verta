@@ -124,8 +124,8 @@ export const SHORTCUTS: Shortcut[] = [
     id: "tab.close",
     label: "shortcut.closeTabOrPane",
     group: "Tabs",
-    // Two bindings on purpose. Focused in a terminal, ⌘/Ctrl+W never reaches us —
-    // the shell reads it as ^W, "delete the previous word" — so the shifted chord
+    // Two bindings on purpose. Focused in a terminal, ⌘/Ctrl+W never reaches us (
+    // the shell reads it as ^W, "delete the previous word"), so the shifted chord
     // is the one that always closes the tab (and it is the chord Windows Terminal
     // uses for the same job). Imported configs that only bind the plain chord keep
     // working exactly as before.
@@ -193,7 +193,7 @@ export const SHORTCUTS: Shortcut[] = [
     label: "shortcut.clearTerminal",
     group: "Terminal",
     // macOS Terminal's ⌘K (clear scrollback, keep the prompt). Default only on
-    // macOS — on other platforms Ctrl+K is readline's kill-line, so we leave it
+    // macOS: on other platforms Ctrl+K is readline's kill-line, so we leave it
     // unbound and let users assign their own in settings.
     defaultBindings: IS_MAC ? [{ meta: true, key: "k" }] : [],
   },
@@ -351,7 +351,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
  * Both searches only ever look at what is drawn: the settings list matches the
  * message ("Close tab or pane", in the UI language) and the command palette matches
  * the command title, and those words are all a caller can type. Someone who thinks of
- * that row as "the terminal tab" — and types that — therefore found nothing at all.
+ * that row as "the terminal tab" (and types that) therefore found nothing at all.
  * Nothing here is drawn; the aliases only widen what the two searches match.
  */
 export const SHORTCUT_ALIASES: Partial<Record<ShortcutId, string[]>> = {

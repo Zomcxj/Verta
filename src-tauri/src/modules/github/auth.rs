@@ -84,7 +84,7 @@ pub fn parse_status(stdout: &str) -> Result<Option<AuthAccount>, String> {
 /// Whether a pasted token passes the local check; if not, a one-line reason.
 ///
 /// Only the obviously wrong ones are rejected (empty, containing whitespace, impossibly
-/// short). The real verdict belongs to gh — it asks GitHub, and we must not pretend to
+/// short). The real verdict belongs to gh; it asks GitHub, and we must not pretend to
 /// verify authenticity here.
 pub fn token_problem(token: &str) -> Option<String> {
     // Surrounding whitespace is normal when pasting, so trim it; whitespace in the middle

@@ -3,7 +3,7 @@ import type { Theme } from "../types";
 /**
  * Acrylic (the Windows 11 "Desktop Acrylic" material).
  *
- * This is not "paint a translucent layer ourselves" — that only ever puts the
+ * This is not "paint a translucent layer ourselves": that only ever puts the
  * app's own colors underneath and ends up looking like a gray slab. Real acrylic
  * is drawn behind the window by DWM:
  * `DWMWA_SYSTEMBACKDROP_TYPE = DWMSBT_TRANSIENTWINDOW` (Microsoft's words: "For
@@ -73,7 +73,7 @@ export const acrylic: Theme = {
       terminal: {
         // alpha 0 = the terminal paints no base color of its own, so its area is as
         // see-through as the surrounding panes and the desktop blur shows inside it
-        // too (color blocks a TUI sets stay opaque — see the shader).
+        // too (color blocks a TUI sets stay opaque: see the shader).
         background: "rgba(21, 27, 32, 0)",
         foreground: "#eef2f5",
         cursor: "#8bb8d8",

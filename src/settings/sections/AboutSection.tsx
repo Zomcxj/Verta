@@ -11,7 +11,7 @@ import { SectionHeader } from "../components/SectionHeader";
 
 /**
  * Your repo URL and website. When empty, the "source / website" row and the "report an
- * issue" button on the About page are hidden — just fill the URLs in here on release.
+ * issue" button on the About page are hidden; just fill the URLs in here on release.
  */
 const REPO_URL = "";
 const WEBSITE = "";

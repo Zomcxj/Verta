@@ -20,7 +20,7 @@ pub struct ProjectTarget {
 /// - `notRepo`: the path exists but neither it nor any parent is inside a repository;
 /// - `missing`: the path does not exist (drive unplugged, directory renamed, distro not
 ///   running);
-/// - `error`: any other failure, with the cause carried in `error` — never disguised as
+/// - `error`: any other failure, with the cause carried in `error`, never disguised as
 ///   a clean tree.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

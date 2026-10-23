@@ -10,7 +10,7 @@ pub(crate) const TOOL: &str = "pi";
 
 const MAX_TITLE_CHARS: usize = 80;
 /// The head window is only used for the session header (id / cwd) and the **first**
-/// user message (measured at under 77 KiB). The name does not rely on it — see
+/// user message (measured at under 77 KiB). The name does not rely on it: see
 /// `latest_session_name`, which scans backwards from the end of the file.
 const MAX_PREFIX_LINES: usize = 100_000;
 const MAX_PREFIX_BYTES: u64 = 1024 * 1024;
@@ -138,11 +138,11 @@ fn read_session(file: &Path) -> Result<Option<AgentSession>, String> {
 ///
 /// pi keeps no index, so the whole file has to be read: for each `message` line a user
 /// message counts as one turn, and the `usage.totalTokens` of assistant messages is
-/// summed. Files can be tens of MB, so this is the heaviest part of a list scan — but
+/// summed. Files can be tens of MB, so this is the heaviest part of a list scan, but
 /// it only runs **while listing sessions** (in the same pass that reads names), not
 /// every time a session is opened.
 ///
-/// If it cannot be read, everything is `None`: the UI shows "—" instead of passing 0
+/// If it cannot be read, everything is `None`: the UI shows an em-dash instead of passing 0
 /// off as a real value.
 fn session_stats(file: &Path) -> SessionStats {
     let Ok(handle) = std::fs::File::open(file) else {
@@ -284,7 +284,7 @@ fn session_info_name(value: &Value) -> Option<String> {
 /// session may be tens of MB in; reading only the head would miss it (and then fall
 /// back to the first user message, so the list would not show the name you gave). So
 /// this walks backwards in chunks from the end of the file and takes the `name` of the
-/// **last** `session_info` — the most recent rename — stopping as soon as it is found
+/// **last** `session_info` (the most recent rename) stopping as soon as it is found
 /// rather than reading the whole file.
 fn latest_session_name(file: &Path) -> Option<String> {
     latest_session_name_with(file, NAME_SCAN_STEP, NAME_SCAN_LIMIT)
@@ -572,7 +572,7 @@ pub(crate) fn name_problem(name: &str) -> Option<String> {
     None
 }
 
-/// `2026-10-22T03:04:05.678Z` — the shape pi writes its own timestamps in.
+/// `2026-10-22T03:04:05.678Z`: the shape pi writes its own timestamps in.
 fn now_iso() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let now = SystemTime::now()

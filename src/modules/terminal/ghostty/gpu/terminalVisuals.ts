@@ -35,7 +35,7 @@ export type RawFontMeasurement = {
 export type TerminalGpuTheme = {
   readonly background: Rgb;
   /**
-   * Opacity of the terminal background, 0–1.
+   * Opacity of the terminal background, 0-1.
    *
    * When a theme writes `terminal.background` as a color with alpha (such as
    * `rgba(21,27,32,0)`), the terminal canvas clears with that alpha, letting the desktop

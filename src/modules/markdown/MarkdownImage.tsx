@@ -214,7 +214,7 @@ export function MarkdownImage({
       loading="lazy"
       // Size lives in CSS: an HTML height attribute beats any CSS that keeps the
       // ratio, which is what squashed the wide screenshots.
-      // `inline-block` (not `block`) keeps several images on one line side by side — a
+      // `inline-block` (not `block`) keeps several images on one line side by side; a
       // two-badge row split into two lines by `block` is wrong; `mr-2 last:mr-0` spaces
       // the middle without a trailing gap.
       className="inline-block align-middle mr-2 last:mr-0 rounded-sm"

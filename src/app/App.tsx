@@ -170,14 +170,14 @@ function delay(ms: number): Promise<void> {
 /**
  * Has the agent's UI come up? What we wait for is the **UI**, not the process.
  *
- * Two conditions: `leafHasForegroundProcess` (does the shell have a child — true
+ * Two conditions: `leafHasForegroundProcess` (does the shell have a child: true
  * as soon as the agent starts) and "this leaf took in another 900+ bytes". The
  * process alone is not enough: opencode / pi take another second or two before
  * painting the first frame, and until then the screen still shows the pre-launch
  * state, so lifting early means the animation ends on a bare terminal. `base` is
  * the cumulative byte count **before** writing the command, so the echo cannot
  * account for 900 bytes but a full-screen TUI can. On timeout (8s) we lift
- * anyway — the overlay must not block the user forever.
+ * anyway: the overlay must not block the user forever.
  */
 async function waitForAgentUi(leafId: number, base: number): Promise<void> {
   const deadline = Date.now() + AGENT_UI_TIMEOUT_MS;
@@ -260,7 +260,7 @@ export default function App() {
   const terminalPathDropTarget = useTerminalFileDrop();
   const explorerRef = useRef<FileExplorerHandle>(null);
 
-  // Drives session disposal off the pane tree, not React lifecycles —
+  // Drives session disposal off the pane tree, not React lifecycles;
   // split/unsplit re-mount components but the leaf is still live.
   const liveLeavesRef = useRef<Set<number>>(new Set());
 
@@ -626,7 +626,7 @@ export default function App() {
    * The transition layer shown while a session opens (see
    * `SessionOpeningOverlay`). Resuming a session writes a command into the
    * terminal and the line shows up the instant it lands; this layer covers that
-   * moment while the write goes through. The timer is a fallback — a slow session
+   * moment while the write goes through. The timer is a fallback: a slow session
    * must not block the UI indefinitely.
    */
   const [sessionOpening, setSessionOpening] = useState(false);
@@ -805,7 +805,7 @@ export default function App() {
   );
 
   // Warm start: the backend emits once the window already exists. Attach on
-  // mount so an "Open With" that lands mid-restore isn't dropped — the backend
+  // mount so an "Open With" that lands mid-restore isn't dropped: the backend
   // also seeds the drain-once state, so the boot drain below is the safety net.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -824,7 +824,7 @@ export default function App() {
   }, [openLaunchFiles]);
 
   // Cold start: files arrive as CLI args (Linux/Windows) or the macOS open-files
-  // event, and get_launch_files drains them once. Wait for `booted` — the spaces
+  // event, and get_launch_files drains them once. Wait for `booted`: the spaces
   // restore ends in replaceTabs(), which overwrites the whole tab list and would
   // discard a launch tab opened before it, making the file flash open and vanish.
   // Booting first also lands the tab in the restored active space, and lets
@@ -1337,7 +1337,7 @@ export default function App() {
    *
    * "Insert path" only shows on a terminal tab: anywhere else the button has
    * nowhere to insert, so it is better to omit it than to offer a dead click.
-   * It inserts raw text without a trailing newline — the user usually wants to
+   * It inserts raw text without a trailing newline: the user usually wants to
    * keep typing arguments.
    */
   useEffect(() => {

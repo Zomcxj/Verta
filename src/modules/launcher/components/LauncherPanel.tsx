@@ -498,7 +498,7 @@ function deleteWarning(
   const { total, byTool, subagents, hasSubagents } = pending.summary;
   const parts = [t("launcher.deleteBody", { total })];
   // Mention each tool's side effects only when that kind of session is actually
-  // selected, and without naming the tool — a name list grows with every new agent
+  // selected, and without naming the tool: a name list grows with every new agent
   // and reads like calling users out.
   if (byTool.opencode > 0) parts.push(t("launcher.deleteWarnChildren"));
   if (byTool.pi > 0) parts.push(t("launcher.deleteWarnArtifacts"));

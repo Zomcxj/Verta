@@ -27,7 +27,7 @@ function dirname(path: string | null): string | null {
  * path): project A and project B locally each pin their own, and each project inside a
  * distro pins its own. It used to be per workspace, and a workspace is a single root;
  * after workspaces were removed it was per env only, so switching projects within one
- * env (root changed) left the pin on the old repo — the right panel kept showing the
+ * env (root changed) left the pin on the old repo; the right panel kept showing the
  * previous project's changes and history, looking like "switched projects but it did
  * not follow". The explorer has long bucketed by "env + root" (see `scopeKey` in
  * `explorer/lib/useFileTree`); this aligns with it.

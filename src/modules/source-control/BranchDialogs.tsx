@@ -269,7 +269,7 @@ function RenameBranchDialog({
 
 /**
  * Delete a branch. When git refuses to delete an unmerged one it reports that
- * verbatim, and only then do we offer an explicit "force delete" button — exactly the
+ * verbatim, and only then do we offer an explicit "force delete" button, exactly the
  * moment the user needs to see that unmerged commits go with it.
  */
 function DeleteBranchDialog({
@@ -447,7 +447,7 @@ function AddWorktreeDialog({
 
 /**
  * Remove a worktree. git refuses while the directory has uncommitted changes, and
- * only then does "force remove" appear — exactly when the user must be told the
+ * only then does "force remove" appear, exactly when the user must be told the
  * changes go with it.
  */
 function RemoveWorktreeDialog({

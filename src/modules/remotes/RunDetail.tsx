@@ -28,7 +28,7 @@ const LOG_TONE_CLASS: Record<ReturnType<typeof logLineTone>, string> = {
 /**
  * Detail of one run: the job / step tree plus the log.
  *
- * Everything is viewed in-app rather than in a browser — with one exception, the full
+ * Everything is viewed in-app rather than in a browser: with one exception, the full
  * log (a single fetch has a size limit, so when it is truncated "open on GitHub" is
  * placed prominently so the user knows there is more).
  */

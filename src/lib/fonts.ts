@@ -20,7 +20,7 @@ const NERD_FONT_CANDIDATES = [
  * The CJK tail of every stack.
  *
  * The fonts people pick for code (Cascadia Mono, JetBrains Mono, Fira Code) carry
- * Latin, Greek and Cyrillic only — not one Han glyph. Without an explicit CJK
+ * Latin, Greek and Cyrillic only, not one Han glyph. Without an explicit CJK
  * entry the browser falls through to whatever the system offers for those
  * characters, which is usually a proportional UI face: the Latin text changes
  * when the font changes and the Chinese does not, and mixed lines stop lining

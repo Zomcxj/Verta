@@ -156,7 +156,7 @@ function SessionButton({
           ) : null}
         </span>
         {/* The path is gone: show how much this session talked about, how big it is,
-            and when instead — these identify a session better than a path. */}
+            and when instead: these identify a session better than a path. */}
         <span className="flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
           <span className="shrink-0">{turnsLabel(stats.turns, language)}</span>
           <span aria-hidden>·</span>

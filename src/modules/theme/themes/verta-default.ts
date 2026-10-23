@@ -5,7 +5,7 @@ import type { Theme } from "../types";
  *
  * The `id` has to stay `verta-default`: stored preferences, the screenshot window, and
  * `DEFAULT_THEME_ID` all identify it by that id, so changing it would invalidate
- * everyone's choice (display name and id are separate things — only the display name
+ * everyone's choice (display name and id are separate things: only the display name
  * should follow the product).
  *
  * Note that the `verta` in this id is legacy baggage (this project is a fork of

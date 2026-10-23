@@ -35,7 +35,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 /// Label of the overlay window. Window creation, hiding and event routing all use
 /// this one name.
 const OVERLAY: &str = "screenshot";
-/// "Time to work" — the channel sent to the overlay window. The window is kept
+/// "Time to work": the channel sent to the overlay window. The window is kept
 /// alive, so every screenshot starts with this message.
 pub const ARMED_EVENT: &str = "screenshot:armed";
 /// Channel used to tell the main window "saved".
@@ -48,12 +48,12 @@ pub const FAILED_EVENT: &str = "screenshot:failed";
 /// `hide()` only hands the request to the system and that frame is still on screen;
 /// grabbing now would capture the veil, selection box, handles and action bar. A bit
 /// over one frame is enough (16 ms at 60 Hz); the cost is a brief moment without the
-/// veil — the built-in snipping tool has the same flicker.
+/// veil; the built-in snipping tool has the same flicker.
 const HIDE_SETTLE: Duration = Duration::from_millis(80);
 
 /// The state is one bit: whether a screenshot is currently in progress.
 ///
-/// Much simpler than holding pending pixels — pixels are not kept around (see the
+/// Much simpler than holding pending pixels: pixels are not kept around (see the
 /// module docs); this only stops a stray call (the overlay is long gone but a
 /// `finish` arrives anyway) from writing out an image out of nowhere.
 #[derive(Default)]
@@ -100,8 +100,8 @@ pub async fn screenshot_begin(
         }
     };
     state.0.store(true, Ordering::SeqCst);
-    // Signal first, then show: leftovers from the previous run — selection, corner
-    // radius, error — must be cleared (the window may date from hours ago).
+    // Signal first, then show: leftovers from the previous run (selection, corner
+    // radius, error) must be cleared (the window may date from hours ago).
     let _ = app.emit_to(OVERLAY, ARMED_EVENT, ());
     window
         .show()
@@ -200,7 +200,7 @@ fn finish_shot(
     let pixels = geom::crop_rgba(&shot.rgba, shot.width, shot.height, region)
         .ok_or_else(|| "选区超出画面范围".to_string())?;
     // Rounding makes the four corners transparent, so it has to happen before encoding
-    // and before the clipboard — the file and the pasted image must be the same image.
+    // and before the clipboard: the file and the pasted image must be the same image.
     let mut pixels = pixels;
     geom::apply_corner_radius(&mut pixels, region.width, region.height, corner_radius);
     let png = encode::encode_png(&pixels, region.width, region.height)?;
@@ -249,7 +249,7 @@ fn ensure_overlay(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
             .shadow(false)
             // Transparent: the screen must show through the window. The veil is a
             // semi-transparent black drawn by the window itself, unpainted pixels are
-            // fully transparent, and the user sees the live screen — that is what keeps
+            // fully transparent, and the user sees the live screen: that is what keeps
             // the screen unfrozen.
             .transparent(true)
             .visible(false)
@@ -282,7 +282,7 @@ pub fn screenshot_cancel(app: AppHandle, state: tauri::State<'_, ScreenshotState
 /// Hand back the raw message when the overlay itself fails.
 ///
 /// Vanishing silently is the worst outcome: the user clicks, the screen flashes, and
-/// nothing happens — leaving them to guess.
+/// nothing happens, leaving them to guess.
 #[tauri::command]
 pub fn screenshot_failed(
     app: AppHandle,

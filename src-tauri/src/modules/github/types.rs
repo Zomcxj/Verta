@@ -26,7 +26,7 @@ const NO_DETAIL: &str = "gh 没有给出错误输出";
 /// `kind` says what was found:
 /// - `ready`: the query succeeded (`repos` may be empty, meaning there really are no repos);
 /// - `notInstalled` / `notLoggedIn` / `error`: a failure, with the cause carried in
-///   `error` verbatim — never disguised as an empty list.
+///   `error` verbatim, never disguised as an empty list.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteReposPayload {
@@ -219,7 +219,7 @@ pub struct RepoActionRunsPayload {
 
 impl RepoActionRunsPayload {
     /// Query succeeded. An empty list maps to `none` (genuinely no runs), not
-    /// `ready` — consistent with the CI payload.
+    /// `ready`, consistent with the CI payload.
     pub fn found(repo: impl Into<String>, runs: Vec<RepoActionRun>) -> Self {
         if runs.is_empty() {
             return Self::empty(repo);
@@ -258,7 +258,7 @@ impl RepoActionRunsPayload {
 /// Outcome of a rerun / cancel.
 ///
 /// Success carries no data (gh has nothing useful to say when it works); failure
-/// returns gh's own words — cancelling an already-finished run, for instance, is
+/// returns gh's own words: cancelling an already-finished run, for instance, is
 /// rejected by GitHub and that message is exactly what the user needs to see.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

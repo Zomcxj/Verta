@@ -871,8 +871,8 @@ export class WebGlCellRenderer {
     const backgroundAlpha = profile.theme.backgroundAlpha;
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.STENCIL_TEST);
-    // The default background is never drawn as a rectangle — `buildBackgroundRow` only
-    // fills cells that differ from it — so "the terminal background" *is* this clear
+    // The default background is never drawn as a rectangle (`buildBackgroundRow` only
+    // fills cells that differ from it), so "the terminal background" *is* this clear
     // colour. A translucent theme (acrylic) therefore has to be cleared with an alpha, or
     // the whole canvas stays opaque and the desktop can never show through. The canvas is
     // premultiplied, so the colour is premultiplied as well.

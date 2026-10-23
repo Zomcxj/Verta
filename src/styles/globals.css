@@ -244,7 +244,7 @@ html[data-vibrancy="on"] {
 }
 
 /* The window's own corner radius. On Windows `vibrancy.rs` asks DWM for
- * `DWMWCP_ROUND`, which rounds the window itself to 8px — and DWM paints the
+ * `DWMWCP_ROUND`, which rounds the window itself to 8px, and DWM paints the
  * material over the whole window rectangle, so a larger CSS radius would leave a
  * crescent of material in each corner. Keep these in step. */
 html[data-chrome="borderless"] {
@@ -273,7 +273,7 @@ html[data-theme-glass] {
  *
  * The blur in acrylic is *DWM's*: it is drawn behind the window, where CSS can
  * never reach (an in-document filter only samples the element's own subtree, and
- * a `filter` on #root would smear the interface itself instead of the desktop —
+ * a `filter` on #root would smear the interface itself instead of the desktop:
  * that mistake is what made the first attempt look like a blurry mess rather
  * than glass over a blurred desktop). So the app's job is only the tint and the
  * light; the material supplies everything else.
@@ -311,8 +311,8 @@ html[data-theme-glass] .verta-pane > * {
   position: relative;
   z-index: 1;
 }
-/* The frame (gaps between panes, header, status bar) lets the texture — or the
- * desktop, for a native material — through, but never all the way: the webview's
+/* The frame (gaps between panes, header, status bar) lets the texture (or the
+ * desktop, for a native material) through, but never all the way: the webview's
  * own default is white and would flood the interface. Its opacity comes from the
  * theme (`--theme-frame-opacity`, written by applyTheme); no value is hard-coded
  * here, or a theme's own setting would be silently overruled. */
@@ -414,11 +414,11 @@ html[data-chrome="borderless"] #root {
 }
 
 /* The settings window has no panes: its root is the frame and `.settings-shell`
- * is the one big panel. Whenever the window may show what is behind it — native
- * vibrancy, or a theme asking for glass — both layers follow the main window's
+ * is the one big panel. Whenever the window may show what is behind it (native
+ * vibrancy, or a theme asking for glass), both layers follow the main window's
  * (`#root` takes the frame's colour, the shell takes the pane's tint). Until this
  * existed the root painted an opaque `--background`, so the main window was
- * see-through while the settings window stayed a solid slab — acrylic included. */
+ * see-through while the settings window stayed a solid slab, acrylic included. */
 html[data-vibrancy="on"]:not([data-theme-surface]) #settings-root,
 html[data-theme-glass]:not([data-theme-surface]) #settings-root {
   background: var(--frame);
@@ -505,7 +505,7 @@ textarea,
   display: none !important;
 }
 
-/* Kill native scrollbars everywhere by default — Linux/Windows ship chunky
+/* Kill native scrollbars everywhere by default: Linux/Windows ship chunky
  * Chromium bars that break the chrome, and macOS WKWebView flashes its overlay
  * scrollbar briefly during layout transitions (AI panel open, pane split,
  * window resize) which looks like a glitch. Visible scroll affordances are
@@ -786,7 +786,7 @@ html[data-window-inactive] *::after {
  * only lets infinite animations use stepped timing. */
 .verta-session-opening {
   /* This only hides the moment the command lands in the terminal: that line has to
-   * be truly invisible, hence the near-opaque layer — but using the theme's own base
+   * be truly invisible, hence the near-opaque layer, but using the theme's own base
    * color rather than a hard-coded gray. */
   background: color-mix(in oklab, var(--background) 97%, transparent);
 }

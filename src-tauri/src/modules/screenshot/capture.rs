@@ -1,7 +1,7 @@
 //! The screen grab itself.
 //!
 //! Windows goes through GDI and grabs the whole virtual desktop (all monitors stitched
-//! together) in one go. Other platforms are turned away here — the overlay window,
+//! together) in one go. Other platforms are turned away here: the overlay window,
 //! cropping and the Screenshots directory were built for Windows and never designed
 //! elsewhere, so they must not pretend to work.
 
@@ -26,7 +26,7 @@ pub struct ScreenBounds {
     pub height: u32,
 }
 
-/// GDI hands back BGRA, and the alpha grabbed from the screen is junk — fill it in as
+/// GDI hands back BGRA, and the alpha grabbed from the screen is junk; fill it in as
 /// opaque.
 ///
 /// Otherwise the PNG ends up semi-transparent, and so does the clipboard image.
@@ -87,7 +87,7 @@ mod win {
         }
     }
 
-    /// A local timestamp. File names sort by local time — which is the time the user
+    /// A local timestamp. File names sort by local time, which is the time the user
     /// sees when looking for an image.
     pub fn now_stamp() -> String {
         let mut now: SYSTEMTIME = unsafe { std::mem::zeroed() };

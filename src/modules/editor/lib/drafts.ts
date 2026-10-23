@@ -33,7 +33,7 @@ export type DraftMap = Record<string, Draft>;
  *
  * In WSL `/home/x/File` and `/home/x/file` are two different files, and folding case
  * would offer a draft for the wrong one; on the local side, differing case only
- * leaves one extra stale draft behind — at worst one glance too many.
+ * leaves one extra stale draft behind, at worst one glance too many.
  */
 export function draftKey(path: string): string {
   return path.trim().replace(/\\/g, "/");

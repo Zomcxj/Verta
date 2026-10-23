@@ -7,7 +7,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
  * sidebar, tab bar, and status bar stay visible.
  *
  * Resuming a session writes a command into the terminal, and the instant it lands the
- * line is painted there — what you see is "someone is typing on your behalf".
+ * line is painted there: what you see is "someone is typing on your behalf".
  * Covering that moment before the tab opens replaces it with a centered transition:
  * the app icon in the middle, punched once on appearance, surrounded by the animation
  * chosen in settings (Settings → Themes).

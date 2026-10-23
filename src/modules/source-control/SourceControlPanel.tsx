@@ -1451,7 +1451,7 @@ const EntryRow = memo(function EntryRow({
           </ContextMenuItem>
         ) : null}
 
-        {/* Reveal in Finder — only for existing files */}
+        {/* Reveal in Finder: only for existing files */}
         {!isDeleted && absolutePath ? (
           <>
             <ContextMenuSeparator />

@@ -853,8 +853,8 @@ export class WebGlTerminalSurface
   }
 
   private updateRootBackground(): void {
-    // A translucent theme's terminal has no colour of its own to cover with — the pane
-    // behind it already shows the desktop — so this placeholder has to be transparent
+    // A translucent theme's terminal has no colour of its own to cover with (the pane
+    // behind it already shows the desktop), so this placeholder has to be transparent
     // too. The WebGPU surface does the same; this one used to paint the theme colour
     // unconditionally, which is why a machine without WebGPU showed a black block.
     this.root.style.backgroundColor =

@@ -1,7 +1,7 @@
 //! PNG encoding.
 //!
 //! Uses `image` (already in the dependency tree) with only the `png` feature: a screenshot
-//! produces a PNG file and nothing else, so no other format is needed — and not worth
+//! produces a PNG file and nothing else, so no other format is needed, and not worth
 //! pulling in a pile of decoders for.
 
 /// Encode RGBA pixels into PNG bytes. This is exactly what gets written to disk (the

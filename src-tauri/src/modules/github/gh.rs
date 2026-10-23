@@ -156,7 +156,7 @@ pub fn pump<R: Read + Send + 'static>(reader: R, on_text: impl Fn(&str) + Send +
         loop {
             match reader.read(&mut buf) {
                 // The pipe hits EOF when the process exits; an error also counts as
-                // done — never leave the UI hanging on it.
+                // done; never leave the UI hanging on it.
                 Ok(0) | Err(_) => return,
                 Ok(count) => on_text(&String::from_utf8_lossy(&buf[..count])),
             }
@@ -167,7 +167,7 @@ pub fn pump<R: Read + Send + 'static>(reader: R, on_text: impl Fn(&str) + Send +
 /// Write text to gh's stdin and wait for it to exit.
 ///
 /// Pasted PATs can only go this way (`gh auth login --with-token` reads the token from
-/// stdin): **the text only passes through memory** — it is gone once written to the
+/// stdin): **the text only passes through memory**; it is gone once written to the
 /// pipe, never reaching a file or app storage.
 pub fn run_with_stdin(
     args: &[&str],

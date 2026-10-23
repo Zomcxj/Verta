@@ -78,7 +78,7 @@ const ACTION_TEXT: Record<
  *
  * The list is read on demand (once on open, latest 20). Rerun and cancel really
  * do something on your account, so both confirm first; on failure gh's own words
- * stay in the confirm dialog instead of a bare "failed" — cancelling an
+ * stay in the confirm dialog instead of a bare "failed": cancelling an
  * already-finished run, for instance, earns a specific message from GitHub, and
  * that is exactly what the user needs to see.
  */

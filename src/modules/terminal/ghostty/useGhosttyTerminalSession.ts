@@ -119,7 +119,7 @@ const textEncoder = new TextEncoder();
  * screen still looks like it did before launch. Waiting for the UI keys off how
  * much more output arrived (see `waitForAgentUi` in App): a full-screen TUI is
  * several KB while a command echo is tens of bytes. Cumulative bytes, not quiet
- * time — a live TUI keeps repainting and is never quiet.
+ * time: a live TUI keeps repainting and is never quiet.
  */
 const outputBytes = new Map<number, number>();
 // Size queries are ASCII, so a byte-per-character view is enough to scan them

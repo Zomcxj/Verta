@@ -40,11 +40,11 @@ pub(crate) fn list_at(path: &Path) -> Result<AgentSessionsPayload, String> {
     let table = session_table(path)?;
     let conn = open_read_only(path)?;
     // The two numbers each list row needs are computed right here: tokens come from that
-    // row's own columns (old stores lack them, so they stay NULL and the UI shows "—"
+    // row's own columns (old stores lack them, so they stay NULL and the UI shows an em-dash
     // instead of 0), while turns and the last conversation time are counted from the
     // message table.
     // NULL and 0 mean two different things here: NULL = this store does not track tokens
-    // at all (old stores), shown as "—"; 0 = tracked, but this session really has not
+    // at all (old stores), shown as an em-dash; 0 = tracked, but this session really has not
     // spent any yet (newly opened, no messages sent).
     //
     // Turns count **user messages**, not all messages: the assistant posts several per
@@ -52,12 +52,12 @@ pub(crate) fn list_at(path: &Path) -> Result<AgentSessionsPayload, String> {
     // whereas user messages match the user's own "how many times did I ask".
     // When the message table is empty but tokens were still spent (opencode prunes old
     // messages), fall back to the store's own estimate: one turn uses at least a whole
-    // context window, so divide total tokens by it, round up, floor at 1 turn — more
+    // context window, so divide total tokens by it, round up, floor at 1 turn, more
     // honest than claiming "0 turns", and it keeps a 300M-token session from reading as
     // a single turn.
     // Note the COALESCE is **per term**, then summed, rather than wrapping the whole sum:
     // in SQLite `COALESCE((a + b + c + d + e), 0)` evaluates to 0 (not NULL) when all five
-    // are NULL, turning "this store does not track tokens" into "tracked 0" — which bit
+    // are NULL, turning "this store does not track tokens" into "tracked 0", which bit
     // both old stores and sessions with pruned messages.
     let tokens_sum = if has_tokens_columns(&conn, &table) {
         "COALESCE(tokens_input, 0) + COALESCE(tokens_output, 0) + COALESCE(tokens_reasoning, 0) + COALESCE(tokens_cache_read, 0) + COALESCE(tokens_cache_write, 0)"
@@ -65,8 +65,8 @@ pub(crate) fn list_at(path: &Path) -> Result<AgentSessionsPayload, String> {
         "NULL"
     };
     // There are two generations of message table:
-    //   `message`         — written by old opencode, with `role` inside `data`;
-    //   `session_message` — written by new opencode, with the role right in `type`.
+    //   `message`         : written by old opencode, with `role` inside `data`;
+    //   `session_message` : written by new opencode, with the role right in `type`.
     // A new install keeps both tables, but **only the new one is updated**. Reading just
     // the old table hides the last few days of conversations entirely (that is how "I
     // chatted all day and the list is still on last week" happens).
@@ -139,7 +139,7 @@ const TOKENS_PER_TURN: u64 = 200_000;
 /// New opencode uses `session_message` (the role is the `type` column), old opencode uses
 /// `message` (the role is buried in the JSON of `data`). **Prefer the new table**: when
 /// both exist, the old one is no longer updated. With neither (a very old store) this
-/// returns None and the two numbers in the UI show "—".
+/// returns None and the two numbers in the UI show an em-dash.
 fn message_table(conn: &Connection) -> Option<(&'static str, &'static str)> {
     let has = |name: &str| -> bool {
         conn.query_row(
@@ -263,7 +263,7 @@ fn capture_ready(mut command: Command, directory: &Path) -> Command {
 /// sessions and the rows it owns; the 5.6 GB WAL database is never written here.
 ///
 /// The command has to run inside the session's directory (that is how it resolves
-/// the session), but that directory may be gone — the project was deleted, the
+/// the session), but that directory may be gone: the project was deleted, the
 /// session row stayed. Launching there fails at spawn time with the system's
 /// "The directory name is invalid" (Windows error 267), and the session could
 /// then never be deleted at all. So: use the recorded directory when it still
@@ -634,7 +634,7 @@ mod tests {
     }
 
     /// A session stays listed after its project directory was deleted (the reported "The
-    /// directory name is invalid"): deletion must not get stuck because of it — if the
+    /// directory name is invalid"): deletion must not get stuck because of it: if the
     /// directory is unusable, run the command from the temp directory instead. This uses
     /// a directory that certainly does not exist as the recorded one.
     #[test]

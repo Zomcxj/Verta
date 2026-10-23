@@ -88,7 +88,7 @@ fn validate_url(url: &str, allow_private: bool) -> Result<reqwest::Url, String> 
     if is_blocked_host_name(host) {
         return Err(format!("host not allowed: {host}"));
     }
-    // The actual IP classification has to be async — caller does it.
+    // The actual IP classification has to be async: caller does it.
     let _ = allow_private;
     Ok(parsed)
 }
@@ -166,7 +166,7 @@ pub async fn lm_ping(base_url: String) -> Result<u16, String> {
         .map_err(|e| e.to_string())
 }
 
-// AI HTTP proxy — bypasses webview CORS / Mixed-Content / PNA so local-network
+// AI HTTP proxy: bypasses webview CORS / Mixed-Content / PNA so local-network
 // model servers (LM Studio, Ollama, vLLM) work in the production bundle.
 
 fn build_request(
@@ -410,7 +410,7 @@ mod tests {
             ip_kind("fd00:ec2::254".parse().unwrap()),
             IpKind::BlockedMetadata
         );
-        // Any link-local IPv4 (169.254/16) — same network range, still blocked.
+        // Any link-local IPv4 (169.254/16): same network range, still blocked.
         assert_eq!(
             ip_kind(IpAddr::V4(Ipv4Addr::new(169, 254, 1, 1))),
             IpKind::BlockedMetadata

@@ -40,7 +40,7 @@ function hexGrid(stroke: string, opacity: number): string {
 /**
  * **The cell has to stay small**: 26px hexagons tile into a faint texture at a
  * glance, while a large cell turns into a pattern that fights the text. That was
- * the mistake in the first attempt — a 40px fretwork under a 520px grid turned
+ * the mistake in the first attempt: a 40px fretwork under a 520px grid turned
  * the whole UI to mush.
  */
 
@@ -52,7 +52,7 @@ function hexGrid(stroke: string, opacity: number): string {
  * 1. the weave itself is small (13×22.75), so at a glance it is only "there is a
  *    fine texture";
  * 2. the panels are opaque and the weave is drawn on the surface layer under
- *    them, so it shows in the frame between the panels — a weave showing *under*
+ *    them, so it shows in the frame between the panels; a weave showing *under*
  *    the text would just look dirty.
  *
  * The weave's visibility comes from `soft-light` at a low opacity: on a dark
@@ -169,7 +169,7 @@ export const carbonWeave: Theme = {
       surface: {
         background: "#f4f5f5",
         // Light mode flips it: dark ink lines with `multiply`. It used to be white
-        // lines with `multiply` — white is multiply's identity, so the texture never
+        // lines with `multiply`: white is multiply's identity, so the texture never
         // showed no matter how it was tuned.
         //
         // Opacities are matched against the dark side: there white lines at

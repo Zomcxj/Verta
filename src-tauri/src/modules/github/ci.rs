@@ -1,6 +1,6 @@
 //! CI status for a single repository: read its latest workflow run.
 //!
-//! One repository per query — querying every repo in the list would burn through the API
+//! One repository per query: querying every repo in the list would burn through the API
 //! quota, so the UI triggers this on demand. Process spawning lives in `commands.rs`; only
 //! the unit-testable logic is here: validating the repo name and parsing gh's output.
 //!

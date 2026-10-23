@@ -155,7 +155,7 @@ export const EditorPane = memo(
     const languageRef = useRef<string | null>(null);
     const [langId, setLangId] = useState<string | null>(null);
     // Stabilize save + onSaved via refs so the extensions array never changes
-    // identity — a new identity makes @uiw/react-codemirror reconfigure the
+    // identity: a new identity makes @uiw/react-codemirror reconfigure the
     // whole state, wiping the language compartment.
     const saveRef = useRef(save);
     saveRef.current = save;
@@ -643,7 +643,7 @@ export const EditorPane = memo(
           ) : null}
           {/* Markdown moved this into the view switch at the top right (three
               stops: rendered / raw / preview). What is left here is the files
-              that have a side preview but no view switch — images. No backdrop
+              that have a side preview but no view switch: images. No backdrop
               blur: it would add a compositing layer, which the startup budget
               forbids. */}
           {previewKind !== "none" && !renderToggle && (

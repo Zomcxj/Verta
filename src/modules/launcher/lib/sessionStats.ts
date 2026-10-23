@@ -6,7 +6,7 @@ import { translate } from "@/modules/i18n/messages";
  * time (down to the day).
  *
  * The backend reports `null` (not 0) when a value is unavailable, and the UI must
- * show "—": passing 0 off as real would suggest the session never said a word.
+ * show an em-dash: passing 0 off as real would suggest the session never said a word.
  */
 
 export type SessionStats = {
@@ -20,7 +20,7 @@ const MINUTE = 60_000;
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
 
-/** Turn count, e.g. `12 turns`; `—` when unknown. */
+/** Turn count, e.g. `12 turns`; an em-dash when unknown. */
 export function turnsLabel(
   turns: number | null | undefined,
   language: Language = "zh",
@@ -62,7 +62,7 @@ export function tokensLabel(
  *
  * The closer it is, the more precisely "how long ago" matters: minutes within the
  * hour, hours within the day (nearest step), and only beyond that does the date
- * become worth reading — the day of the month is easier to grasp than a day count.
+ * become worth reading: the day of the month is easier to grasp than a day count.
  *
  * Both `nowMs` and `ms` use local time for day boundaries. Future timestamps (a
  * skewed clock) read as "just now" rather than a negative age.
@@ -107,7 +107,7 @@ export function lastTalkedDayLabel(
  * nobody cares about.
  *
  * Snap to the **nearest** step (round), not upward: 2.9 hours as "3 hours ago" is
- * fine, but rounding 5 up to 6 would overstate it — 5 is already closest to 6.
+ * fine, but rounding 5 up to 6 would overstate it: 5 is already closest to 6.
  */
 function nearestHourStep(hours: number): number {
   // Boundaries sit at the midpoints, so each range rounds to whichever step it is

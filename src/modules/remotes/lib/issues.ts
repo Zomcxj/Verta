@@ -83,7 +83,7 @@ export function toRows(
 /**
  * Three-way filter: kind, state, keyword.
  *
- * With the "closed" state **merged PRs count too** — on GitHub a merge makes the
+ * With the "closed" state **merged PRs count too**: on GitHub a merge makes the
  * PR closed, so filtering them out would make the user think the PR vanished.
  */
 export function filterRows(

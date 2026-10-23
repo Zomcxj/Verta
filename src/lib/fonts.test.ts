@@ -97,7 +97,7 @@ describe("resolveFontFamily", () => {
 describe("the CJK tail", () => {
   // The fonts people pick for code carry no Han glyphs. Without a CJK entry the
   // browser's own fallback takes over, and then changing the font moves the
-  // Latin text while the Chinese stays where it was — the complaint this chain
+  // Latin text while the Chinese stays where it was: the complaint this chain
   // exists to answer.
   it("names Han faces after the Latin ones, for every stack we build", () => {
     for (const stack of [

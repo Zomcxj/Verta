@@ -12,7 +12,7 @@ pub enum Backdrop {
     /// Windows 11 Mica.
     Mica,
     /// Windows acrylic: the desktop really shows through, blurred, tinted with the
-    /// theme's tone. This is the one the glass themes are built for — Mica only
+    /// theme's tone. This is the one the glass themes are built for: Mica only
     /// samples the wallpaper and stays mostly opaque, and DWM's own "Desktop
     /// Acrylic" material is its *brightest* variant, which washes the desktop out.
     Acrylic,
@@ -252,7 +252,7 @@ fn set_window_see_through(
 /// Windows-side DWM tweak the material crate does not do for us: the window's
 /// corner preference. DWM paints a backdrop over the whole window rectangle, so
 /// with square corners the four rounded corners of our own chrome keep a
-/// right-angle ghost of the material behind them. Best-effort — the attribute does
+/// right-angle ghost of the material behind them. Best-effort: the attribute does
 /// not exist before Windows 11 22H2, and the system rejects what it does not know.
 #[cfg(target_os = "windows")]
 fn tune_dwm(hwnd: *mut core::ffi::c_void) {
@@ -283,7 +283,7 @@ const ACRYLIC_TINT_ALPHA: u32 = 0x4d;
 ///
 /// The DWM system backdrop cannot do this. `DWMSBT_TRANSIENTWINDOW` is documented
 /// as Desktop Acrylic "in its brightest variant" and measures a flat ~84/255 over a
-/// dark desktop whatever the window's dark-mode attribute says — the desktop's own
+/// dark desktop whatever the window's dark-mode attribute says; the desktop's own
 /// colours are gone, so a dark theme reads it as "not transparent". Mica and Tabbed
 /// only sample the wallpaper. This policy is undocumented, so it is looked up at
 /// run time (linking to it would break startup where the export is missing).
@@ -341,7 +341,7 @@ mod accent {
     }
 
     /// `tint` is `0xAABBGGRR`. Zero alpha would make acrylic paint nothing, so it
-    /// is floored at one — same guard the material crate uses.
+    /// is floored at one: same guard the material crate uses.
     pub fn apply(hwnd: HWND, tint: u32) -> bool {
         let alpha = (tint >> 24).max(1);
         set(

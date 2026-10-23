@@ -59,7 +59,7 @@ export function envForRoot(
  *
  * Env and path land in two steps (switching tabs or opening a terminal resolves the
  * home directory and authorizes before applying), so for an instant the two
- * disagree — and the file tree and editor read absolute paths. Taking the env from
+ * disagree, and the file tree and editor read absolute paths. Taking the env from
  * the path keeps a Linux path from being looked up on the local filesystem (which
  * users see as a flash of "system cannot find the path specified").
  */

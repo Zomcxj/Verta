@@ -23,10 +23,10 @@ import { useInstalledFonts } from "../lib/useInstalledFonts";
  *
  * A searchable dropdown (Popover + Command) rather than a plain Select: GDI lists
  * nearly two hundred family names on a typical machine, so scrolling for one is not
- * realistic — you have to be able to type and filter.
+ * realistic; you have to be able to type and filter.
  *
  * Two fallbacks: while the list is still loading the button is disabled (showing the
- * current value), and if the list cannot be read we drop to a text field — a setting
+ * current value), and if the list cannot be read we drop to a text field: a setting
  * must not become uneditable just because the fonts cannot be enumerated.
  */
 export function FontPicker({

@@ -11,8 +11,8 @@
  * - how many bytes the leaf has received in total, which stops moving exactly
  *   when the CLI stops repainting.
  *
- * So: the child went away after having been there — finished. The child is there
- * but nothing new was painted for a while — waiting for input. Both only count
+ * So: the child went away after having been there, finished. The child is there
+ * but nothing new was painted for a while, waiting for input. Both only count
  * once the CLI has painted something, which is why a freshly opened tab that has
  * not started yet stays quiet.
  */

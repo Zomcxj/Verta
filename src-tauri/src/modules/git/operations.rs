@@ -1261,7 +1261,7 @@ fn push_worktree(
     let name = if let Some(ref b) = branch {
         b.clone()
     } else if let Some(ref sha) = head_sha {
-        // if detached HEAD with no branch — show shortened SHA as name
+        // if detached HEAD with no branch; show shortened SHA as name
         let short = if sha.len() >= 7 {
             &sha[..7]
         } else {
@@ -1301,7 +1301,7 @@ pub fn checkout_branch(
 /// Pre-check for branch names and revisions.
 ///
 /// git rejects invalid names on its own; this only catches the two things git does not
-/// reject early enough: empty values, and values starting with `-` — the latter get
+/// reject early enough: empty values, and values starting with `-`; the latter get
 /// parsed as options, which is argument injection in practice. Everything else is left
 /// to git, whose error is passed through to the user verbatim.
 fn check_ref(value: &str) -> Result<String> {
@@ -1469,7 +1469,7 @@ pub fn rename_branch(
 /// Create a worktree.
 ///
 /// With `create_new_branch` a new branch is created there (`-b`), otherwise an existing
-/// branch is checked out into it — git refuses a branch already checked out elsewhere
+/// branch is checked out into it; git refuses a branch already checked out elsewhere
 /// and that error is passed through. Returns the new worktree's path.
 pub fn worktree_add(
     registry: &WorkspaceRegistry,

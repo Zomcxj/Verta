@@ -100,7 +100,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         let _ = window.show();
         let _ = window.set_focus();
         if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
-            // emit() serializes via JSON — no string-escape footgun, unlike
+            // emit() serializes via JSON: no string-escape footgun, unlike
             // eval() with format!(). Frontend listens via Tauri event API.
             let _ = window.emit("verta:settings-tab", t);
         }
@@ -141,7 +141,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     //
     // The default "close = destroy" was used before: the next `open_settings_window` had to
     // rebuild the whole webview (fetch JS, boot React, connect IPC), so clicking "Settings"
-    // meant waiting several seconds for content — which was reported as a bug. Hidden, the
+    // meant waiting several seconds for content, which was reported as a bug. Hidden, the
     // second open is near-instant; the cost is an idle settings window lingering (its
     // WebContent process stays), so real teardown happens when the main window is hidden
     // or exits (see the window events in run()).
@@ -156,7 +156,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     });
 
     // Some Linux compositors (GNOME/Mutter with CSD-by-default) ignore the
-    // builder-time decorations flag — re-assert it after realize.
+    // builder-time decorations flag; re-assert it after realize.
     #[cfg(target_os = "linux")]
     {
         let _ = window.set_decorations(false);
@@ -213,7 +213,7 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        // Skip restoring VISIBLE — frontend calls window.show() after first
+        // Skip restoring VISIBLE: frontend calls window.show() after first
         // paint so the user never sees a transparent window-shadow flash on
         // Windows/Linux.
         .plugin(

@@ -153,7 +153,7 @@ export function RemoteReposView({ active }: Props) {
    * plus the repo name".
    *
    * When the project list cannot be read the field stays empty for the user to
-   * fill in — guessing a directory that does not exist only wastes a clone.
+   * fill in: guessing a directory that does not exist only wastes a clone.
    */
   const startClone = useCallback(async (row: RemoteRepoRow) => {
     let dest = "";
@@ -524,7 +524,7 @@ function RepoRow({
             </button>
           </DropdownMenuTrigger>
           {/* Radix portals the menu content to body, but React events still bubble
-              up the component tree to the row — without stopping them, clicking
+              up the component tree to the row; without stopping them, clicking
               "Repo settings…" also opens the runs dialog on top of it. */}
           <DropdownMenuContent
             align="end"

@@ -20,7 +20,7 @@ export type RunRowView = {
   detail: string;
   /** Relative time; null when GitHub omits it or it cannot be parsed. */
   when: string | null;
-  /** Only finished runs can be rerun — GitHub rejects it while one is in flight. */
+  /** Only finished runs can be rerun: GitHub rejects it while one is in flight. */
   canRerun: boolean;
   /** Cancelling only applies while a run is queued or in progress. */
   canCancel: boolean;
@@ -62,7 +62,7 @@ export function timeLabel(iso: string | null, nowMs: number): string | null {
  *
  * GitHub logs express errors and warnings through inline markers (`##[error]`)
  * or prefixes (`error:`), with no other structure; anything unrecognised stays a
- * plain line — never guess.
+ * plain line; never guess.
  */
 export function logLineTone(text: string): "error" | "warn" | "group" | "plain" {
   const trimmed = text.trim();
@@ -97,7 +97,7 @@ export function withoutRun(
 }
 
 /**
- * Derive the row's CI badge from the run list — the newest run is the badge.
+ * Derive the row's CI badge from the run list: the newest run is the badge.
  *
  * Badge and runs panel describe the same thing, so they should have one source:
  * once the panel has loaded (including the reconcile after a delete) it updates

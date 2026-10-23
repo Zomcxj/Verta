@@ -9,7 +9,7 @@ export type AgentSession = {
   parentId: string | null;
   /** Which distro the session came from; `null` means local. */
   distro: string | null;
-  /** Conversation turns; `null` when the tool does not record them (shown as "—"). */
+  /** Conversation turns; `null` when the tool does not record them (shown as an em-dash). */
   turns?: number | null;
   /** Cumulative tokens; `null` when unavailable. */
   tokens?: number | null;

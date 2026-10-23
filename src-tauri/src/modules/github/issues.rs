@@ -275,7 +275,7 @@ pub fn checks_page_path(sha: &str, page: u32) -> String {
 /// Repos with more than 100 checks are fetched page by page, but **counting and the
 /// overall state must happen once, over the union**: per-page tallies added up would
 /// lose the fact that some checks were never fetched. `total` is the largest
-/// `total_count` across pages, and fewer rows than that means `truncated` — the
+/// `total_count` across pages, and fewer rows than that means `truncated`: the
 /// same rule as for a single page.
 pub fn summarize_check_pages(pages: &[String]) -> Result<CheckSummary, serde_json::Error> {
     let mut total = 0u32;
@@ -349,7 +349,7 @@ fn check_outcome(run: &RawCheck) -> Outcome {
 /// still-running checks do not make it "pending".
 ///
 /// When `truncated` (only part of the checks were seen) it must **never** report
-/// `pass` — the unseen ones may be red, and claiming "all green" would be a lie.
+/// `pass`; the unseen ones may be red, and claiming "all green" would be a lie.
 /// If everything seen is green, report `partial` so the UI can say "only the first
 /// N counted".
 pub fn check_state(
@@ -375,7 +375,7 @@ pub fn check_state(
 /// for it.
 ///
 /// `None` means it can merge. GitHub computes mergeable asynchronously, so a fresh PR
-/// returns `mergeable: null` / `mergeable_state: "unknown"` — that is **not** "cannot
+/// returns `mergeable: null` / `mergeable_state: "unknown"`; that is **not** "cannot
 /// merge" (it is "not known yet"), but it must not be allowed through either; wait
 /// for the computation.
 ///
@@ -468,7 +468,7 @@ pub fn merge_method_problem(method: &str) -> Option<String> {
 ///
 /// An empty string is allowed (detail fetch failed / older callers): the merge then
 /// proceeds without that safeguard. But once a value is given it must be 40 hex
-/// characters — anything else only earns an incomprehensible error from GitHub, so
+/// characters: anything else only earns an incomprehensible error from GitHub, so
 /// say it locally instead.
 pub fn head_sha_problem(sha: &str) -> Option<String> {
     let sha = sha.trim();
@@ -680,7 +680,7 @@ mod tests {
     #[test]
     fn a_truncated_check_page_never_reports_a_pass() {
         // A GitHub page holds at most 100: with 2 rows out of 140 the overall state can
-        // only be partial — claiming "all 140 checks passed" would treat the 138
+        // only be partial; claiming "all 140 checks passed" would treat the 138
         // unseen ones as green.
         let json = r#"{"total_count": 140, "check_runs": [
             {"status": "completed", "conclusion": "success"},

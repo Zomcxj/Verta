@@ -36,7 +36,7 @@ const ARMED_EVENT = "screenshot:armed";
  * How dark the backdrop is.
  *
  * Keep it light: this layer only signals "capture mode", and the screen below is
- * still live. Dimming too much looks frozen — that is a different approach
+ * still live. Dimming too much looks frozen; that is a different approach
  * (frozen snapshot) that users explicitly did not want.
  */
 const DIM = "rgba(0, 0, 0, 0.25)";
@@ -94,7 +94,7 @@ export function ScreenshotOverlay() {
   /**
    * The window's own CSS size is the "image" size: it spans the whole virtual
    * desktop, so the selection is measured within whatever size it has, and the
-   * backend grabs the same area. Read it live every time — monitors being plugged
+   * backend grabs the same area. Read it live every time: monitors being plugged
    * or unplugged and resolution changes resize the window.
    */
   const viewBounds = useCallback(

@@ -1,7 +1,7 @@
 //! The pure arithmetic of screenshots: clamping the selection, cropping pixels, file
 //! names, timestamps.
 //!
-//! Kept separate so it can be unit-tested — moving pixels around and converting
+//! Kept separate so it can be unit-tested: moving pixels around and converting
 //! coordinates is exactly where mistakes are easiest to make and hardest to see.
 
 /// A rectangle in physical pixels, relative to the top-left of the full screenshot.
@@ -21,7 +21,7 @@ pub const MIN_SIDE: u32 = 8;
 /// The frontend sends "anchor point + drag delta", so dragging backwards yields negative
 /// width/height; this normalizes everything to a top-left corner plus positive extents.
 /// Anything smaller than [`MIN_SIDE`] or entirely off-screen counts as no selection
-/// (None) — the caller decides how to tell the user.
+/// (None); the caller decides how to tell the user.
 pub fn clamp_selection(
     x: i32,
     y: i32,
@@ -80,7 +80,7 @@ pub fn stamp(year: u16, month: u16, day: u16, hour: u16, minute: u16, second: u1
 /// already converted). A radius beyond half the short side means nothing (it is still
 /// just a rounded corner), so it is clamped; a radius of 0 changes nothing.
 ///
-/// Only alpha is touched: PNG supports transparency, so rounding loses no pixel content —
+/// Only alpha is touched: PNG supports transparency, so rounding loses no pixel content;
 /// it just clears the corner blocks.
 pub fn apply_corner_radius(rgba: &mut [u8], width: u32, height: u32, radius: u32) {
     if radius == 0 || width == 0 || height == 0 {
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn a_second_shot_in_the_same_second_does_not_overwrite_the_first() {
-        // Absent first, then "already taken", then absent again — the result is -2.
+        // Absent first, then "already taken", then absent again; the result is -2.
         let taken = |name: &str| name == "Screenshot-2026-10-21-183012.png";
         assert_eq!(
             screenshot_file_name("2026-10-21-183012", taken),

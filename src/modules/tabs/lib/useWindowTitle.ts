@@ -10,7 +10,7 @@ function basename(path: string): string {
   return parts.length ? parts[parts.length - 1] : "/";
 }
 
-/** Label of the focused tab — for terminals, the active pane's folder. */
+/** Label of the focused tab: for terminals, the active pane's folder. */
 function tabLabel(tab: Tab | undefined): string {
   if (!tab) return "";
   if (tab.kind === "terminal") {

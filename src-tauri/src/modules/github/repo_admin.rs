@@ -61,7 +61,7 @@ pub fn description_problem(description: &str) -> Option<String> {
     None
 }
 
-/// Whether the failure text is "gh lacks the delete_repo scope" — something the user can
+/// Whether the failure text is "gh lacks the delete_repo scope": something the user can
 /// fix with a single command.
 pub fn needs_delete_scope(text: &str) -> bool {
     const HINTS: [&str; 3] = ["delete_repo", "oauth scope", "reauthenticate"];

@@ -167,7 +167,7 @@ function writeGlass(root: HTMLElement, glass: ThemeGlass | undefined): void {
   set("--theme-pane-opacity", glass.pane);
   // Deliberately no `filter` here: the blur is a native material (DWM acrylic on
   // Windows, NSVisualEffectView on macOS) painted **behind** the window, out of
-  // CSS's reach, and a blur on #root only smears the UI itself — the first version
+  // CSS's reach, and a blur on #root only smears the UI itself; the first version
   // did exactly that and looked like a smear rather than glass. Saturation is the
   // same story: the material brings its own, and stacking more would recolor the UI.
   if (glass.sheen !== undefined) {

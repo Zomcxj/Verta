@@ -1,6 +1,6 @@
 //! Project directory scan: given a root, find the git repositories a few levels below it.
 //!
-//! Purely filesystem-based (a `.git` is enough, directory or file — the latter means a
+//! Purely filesystem-based (a `.git` is enough, directory or file: the latter means a
 //! worktree or submodule) and never spawns git, so it is fast and directly testable
 //! against temp directories.
 

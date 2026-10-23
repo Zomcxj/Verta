@@ -235,7 +235,7 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
   const notice = issueNotice(payload, reading);
   // Nothing left after filtering means "no match", not "this repo has no issues".
   const emptyByFilter = notice === null && visible.length === 0;
-  // When showing "nothing here", spell out the active filter — otherwise the user
+  // When showing "nothing here", spell out the active filter, otherwise the user
   // assumes the repo is genuinely empty.
   const emptyReason = !emptyByFilter
     ? null

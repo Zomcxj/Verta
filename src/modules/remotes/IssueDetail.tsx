@@ -51,7 +51,7 @@ const MERGE_METHODS = [
  *
  * The body renders as Markdown; a PR gets an extra block (head → base branch, check
  * status, diff size). Whether the merge button is clickable is **the backend's
- * call** (`mergeBlocked`, which yields a reason code) — the UI only follows it rather
+ * call** (`mergeBlocked`, which yields a reason code); the UI only follows it rather
  * than judging again, so the two cannot disagree.
  */
 export function IssueDetail({

@@ -138,7 +138,7 @@ pub fn user_spawn_cwd_or_default(
 /// Where a fresh terminal lands when it has no usable cwd of its own.
 ///
 /// Windows: the user's **Desktop**. Without this the shell inherits Verta's own
-/// launch directory, which is the most confusing place it could pick — the
+/// launch directory, which is the most confusing place it could pick: the
 /// terminal looks like it belongs to the app's install folder.
 /// WSL: that distro's `$HOME`, asked from `wsl.exe` so it matches the login
 /// shell rather than a guess about the mount layout.

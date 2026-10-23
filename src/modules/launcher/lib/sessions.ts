@@ -80,7 +80,7 @@ export async function loadAllAgentSessions(): Promise<AgentSessionsLoad> {
   const distros = wslEnabled ? env.distros.map((d) => d.name) : [];
   if (wslEnabled && distros.length === 0) {
     // Right after the toggle turns on, distros have not been enumerated yet, so refresh
-    // once — otherwise sessions inside distros are missed.
+    // once, otherwise sessions inside distros are missed.
     await env.refreshDistros().catch(() => []);
   }
   const sources: (string | null)[] = [

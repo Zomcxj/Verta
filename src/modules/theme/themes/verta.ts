@@ -1,17 +1,17 @@
 import type { TerminalPalette, Theme, ThemeColors } from "../types";
 
 /**
- * Verta — the app icon is a white V on black, so this theme's palette follows it
+ * Verta: the app icon is a white V on black, so this theme's palette follows it
  * directly: a near-black base, pure white as the accent, and edges layered by
  * brightness rather than color.
  *
  * The difference from `Terax` (the default neutral gray) is contrast: Terax is a
  * comfortable grayscale, while Verta presses the base down to almost pure black and
- * pushes the accent up to pure white, closer to the icon itself — clean and sharp.
+ * pushes the accent up to pure white, closer to the icon itself: clean and sharp.
  * Both stay in the list on purpose, so people can pick whichever they like.
  *
  * **Dark and light share one palette**: the icon is black, and the light appearance
- * does not flip it to black-on-white either — choosing this theme means a black UI.
+ * does not flip it to black-on-white either; choosing this theme means a black UI.
  * (An earlier version inverted the icon for light mode, which did not match
  * expectations and was dropped.)
  *

@@ -2,7 +2,7 @@
 //! at (to the day)**.
 //!
 //! Only pure logic lives here: each tool has its own raw format, and this is how it folds
-//! into numbers — and how it honestly says "unknown" when it cannot. Fetching (reading
+//! into numbers, and how it honestly says "unknown" when it cannot. Fetching (reading
 //! files / sqlite) lives in the per-tool modules, whose tests only cover SQL and traversal.
 
 use serde::Serialize;
@@ -10,7 +10,7 @@ use serde::Serialize;
 /// A session's three numbers, which the frontend renders as-is.
 ///
 /// `None` always means **the tool's storage does not track this**, not zero. The UI must
-/// show "—", never 0 — which would suggest nothing was ever discussed.
+/// show an em-dash, never 0, which would suggest nothing was ever discussed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStats {

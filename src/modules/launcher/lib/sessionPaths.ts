@@ -3,7 +3,7 @@
  * root, for the context menu.
  *
  * String handling only: the session cwd and the workspace root come from the same
- * machine (compared only when `distro` matches), and the filesystem is never touched —
+ * machine (compared only when `distro` matches), and the filesystem is never touched;
  * even if the directory has been deleted, the copied relative path is still the one
  * the user wants.
  */
