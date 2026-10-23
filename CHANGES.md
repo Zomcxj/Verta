@@ -17,6 +17,13 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**Window titles and one tooltip follow the language**
+
+- `settings.html`, `screenshot.html`: the static titles joined `Verta` to `Settings` / `Screenshot` with an em-dash, which `VERTA.md` forbids, and were English either way. They carry the neutral app name now, and the settings window sets its own title from the message table at runtime so it follows the language (`capabilities/default.json` covers that window with `allow-set-title`). The screenshot overlay cannot do the same (`capabilities/screenshot.json` gives it events only, and the window is frameless, out of the taskbar and invisible in practice), so it keeps the title Rust gives it in `src-tauri/src/modules/screenshot/mod.rs`.
+- `src/modules/tabs/lib/useWindowTitle.ts`: the main window title joined the project and the tab with an em-dash; it is a middle dot now.
+- `src/modules/statusbar/CwdBreadcrumb.tsx`: the more button in the collapsed path took the show-hidden-folders string for its tooltip; it has its own string now.
+- `src/modules/i18n/messages.ts`: three new strings (the two window titles and the more-paths tooltip), one in Chinese and one in English each.
+
 **Closing the main window quits the app on Windows too**
 
 - `src-tauri/src/lib.rs`: the settings window and the screenshot overlay hide instead of destroying, so they can be reopened without rebuilding the webview. The handler that destroyed the settings window when the main window went was macOS-only, so on Windows closing the main window left `verta.exe` running with nothing on screen. That handler now destroys both windows and exits, on every platform but macOS, which keeps an app alive with no window open by convention. It acts on `Destroyed`, so the frontend's close guard has already agreed to the close by then.

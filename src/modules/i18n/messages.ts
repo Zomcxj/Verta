@@ -601,6 +601,7 @@ const zh = {
   "header.toggleGitPanel": "显示/隐藏 Git 面板",
   "header.remotes": "远程仓库",
   "header.screenshot": "截图",
+  "screenshot.windowTitle": "截图",
   "screenshot.hint": "拖动以框选截图区域，按 Esc 取消",
   "screenshot.hintAdjust":
     "拖动选区可移动，拖动控制点可调整大小；按 Enter 保存，按 Esc 取消",
@@ -626,6 +627,7 @@ const zh = {
   "lsp.copyCommand": "复制命令",
 
   "statusbar.showHidden": "显示隐藏文件夹",
+  "statusbar.morePaths": "更多路径",
 
   "shortcut.openPalette": "打开命令面板",
   "shortcut.findInFiles": "在工作区文件中搜索",
@@ -766,6 +768,7 @@ const zh = {
     "将从本机永久删除 {total} 条会话记录，无法撤销。",
   "launcher.failureLine": "{tool} {id}：{reason}",
 
+  "settings.windowTitle": "设置",
   "settings.general.title": "通用",
   "settings.general.description": "外观模式、终端与启动行为。",
   "settings.appearance": "外观",
@@ -1891,6 +1894,7 @@ const en: Record<MessageKey, string> = {
   "screenshot.notCopied":
     "Saved to {path}; copying to the clipboard failed: {error}",
   "screenshot.insertPath": "Insert path",
+  "screenshot.windowTitle": "Screenshot",
   "screenshot.failed": "Screenshot failed: {error}",
   "header.commandPalette": "Command palette",
   "header.clearSearch": "Clear search",
@@ -1903,6 +1907,7 @@ const en: Record<MessageKey, string> = {
   "lsp.copyCommand": "Copy command",
 
   "statusbar.showHidden": "Show hidden folders",
+  "statusbar.morePaths": "More paths",
 
   "shortcut.openPalette": "Open command palette",
   "shortcut.findInFiles": "Find in files",
@@ -2047,6 +2052,7 @@ const en: Record<MessageKey, string> = {
     "This permanently deletes {total} session records from this machine. It cannot be undone.",
   "launcher.failureLine": "{tool} {id}: {reason}",
 
+  "settings.windowTitle": "Settings",
   "settings.general.title": "General",
   "settings.general.description": "Mode, terminal, and startup.",
   "settings.appearance": "Appearance",

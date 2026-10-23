@@ -92,6 +92,18 @@ export function SettingsApp() {
     void init();
   }, [init]);
 
+  // The window title is interface text, so it comes from the message table: it follows the
+  // language, and it is the name alt-tab shows. settings.html carries a neutral title for
+  // the moment before this runs. The settings window is allowed to set its own title
+  // (capabilities/default.json), unlike the screenshot overlay.
+  useEffect(() => {
+    const title = tr("settings.windowTitle");
+    document.title = title;
+    void getCurrentWebviewWindow()
+      .setTitle(title)
+      .catch(() => {});
+  }, [tr]);
+
   useEffect(() => {
     const apply = (detail: string) => {
       if (detail === "ai" || detail === "connections") {

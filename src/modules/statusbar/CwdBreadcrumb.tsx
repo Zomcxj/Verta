@@ -271,7 +271,7 @@ function CollapsedSegments({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              title={t("statusbar.showHidden")}
+              title={t("statusbar.morePaths")}
               className="flex items-center rounded-sm px-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <HugeiconsIcon
