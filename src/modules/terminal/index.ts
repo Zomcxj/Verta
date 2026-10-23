@@ -15,6 +15,7 @@ export {
   disposeSession,
   leafHasForegroundProcess,
   leafIdForPty,
+  leafOutputBytes,
   navigateFocusedBlocks,
   ptyIdForLeaf,
   whenSessionReady,

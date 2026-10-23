@@ -18,9 +18,10 @@
 **点开会话不再露出「命令被敲进终端」那一幕，改成一个居中的过渡**
 
 - `src/app/components/SessionOpeningOverlay.tsx`（新增）：居中的过渡层 —— 三圈波纹依次往外扩，中间是应用图标，出现时图标震一下（先缩、冲过一点、回正）。原来的做法是直接往终端里写恢复命令，那行命令画出来的瞬间就是「有人替你敲命令」。
-- `src/app/App.tsx`：打开会话（会话列表里点开）与项目行「用某个智能体打开」两处，开标签的同时盖上这层；撤的时机是 **agent 的界面起来之后** —— 写进命令后轮询这个叶子里有没有前台进程（`leafHasForegroundProcess`，就是 shell 有没有子进程），拿到了再留 0.4 秒给它画第一帧，6 秒没结论就撤，另有 6.5 秒兜底。原来「写完后固定留 1.5 秒」撤早了会把「命令刚被敲进去」的终端露出来。
+- `src/app/App.tsx`：打开会话（会话列表里点开）与项目行「用某个智能体打开」两处，开标签的同时盖上这层；撤的时机是 **agent 的界面画出来之后** —— 写命令前先取一次这个叶子的累计输出字节，之后同时满足「shell 有子进程（`leafHasForegroundProcess`）」与「又多画了 900 字节」才撤，上限 8 秒、兜底 8.5 秒。只看进程不够：agent 起来后还要一两秒才画第一帧，撤早了露出来的就是「命令刚被敲进去」的终端；而「输出安静下来」也不行 —— 活着的 TUI 会不停重绘（实测从不断 420ms），所以按**累计**输出量而不是安静时长判断。
 - `src/app/components/WorkspaceSurface.tsx`：这层画在**终端那一层**里，只盖终端那一块，不铺满全屏 —— 要挡的只有终端里那行命令，侧栏、标签栏、状态栏照常看得见。
-- `src/styles/globals.css`：过渡层的样式。只动 transform / opacity（多带合成层会被合成层预算拦下），柔边用径向渐变；波纹的重复次数写死，不做无限循环 —— 全局动效预算只允许无限循环的动画走阶梯计时。`prefers-reduced-motion` 下不播动画。
+- `src/modules/terminal/ghostty/useGhosttyTerminalSession.ts` + `src/modules/terminal/lib/terminalSessionApi.ts`：终端侧多记一个按叶子的累计输出字节（`leafOutputBytes`），给上面那条判据用；会话销毁时一起清掉。
+- `src/styles/globals.css`：过渡层的样式。只动 transform / opacity（多带合成层会被合成层预算拦下），柔边用径向渐变；波纹的重复次数写死，不做无限循环 —— 全局动效预算只允许无限循环的动画走阶梯计时。波纹一圈 1.9 秒、图标那一震 0.85 秒，`prefers-reduced-motion` 下不播动画。
 
 **并排预览那一栏不再自己铺一层 60% 的底色**
 

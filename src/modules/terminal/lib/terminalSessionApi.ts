@@ -5,6 +5,7 @@ import {
   focusGhosttySession,
   ghosttyFocusedLeaf,
   ghosttyLeafHasForegroundProcess,
+  ghosttyLeafOutputBytes,
   ghosttyLeafIdForPty,
   ghosttyCwdForLeaf,
   ghosttyPtyIdForLeaf,
@@ -155,6 +156,15 @@ export async function leafHasForegroundProcess(
   leafId: number,
 ): Promise<boolean> {
   return ghosttyLeafHasForegroundProcess(leafId);
+}
+
+/**
+ * 这个叶子从 pty 收到的累计字节数。
+ *
+ * 调用方在写命令之前取一次基线，之后用差量判断「界面上画了多少」。
+ */
+export function leafOutputBytes(leafId: number): number {
+  return ghosttyLeafOutputBytes(leafId);
 }
 
 export function disposeSession(leafId: number): void {

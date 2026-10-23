@@ -110,6 +110,15 @@ type GhosttyStartupTimings = {
 
 const sessions = new Map<number, GhosttySession>();
 const textEncoder = new TextEncoder();
+/**
+ * 每个叶子从 pty 收到的累计字节数。
+ *
+ * 「进程起来了」与「界面画出来了」不是一回事：agent 起来之后还要一两秒才画出第一帧，
+ * 这一两秒里屏幕上是它启动前的样子。等界面用「又收到了多少输出」判断（见 App 的
+ * waitForAgentUi）：一整屏 TUI 是几 KB，而命令回显只有几十字节。按累计量而不是
+ * 「安静了多久」—— 活着的 TUI 会不停重绘，从来没有安静的时候。
+ */
+const outputBytes = new Map<number, number>();
 // Size queries are ASCII, so a byte-per-character view is enough to scan them
 // out of chunks that carry arbitrary terminal output. Unlike a UTF-8 decoder it
 // keeps no state across reads, which is what lets a query be caught when it is
@@ -441,6 +450,15 @@ export function ghosttyLeafIdForPty(ptyId: number): number | null {
   return null;
 }
 
+/**
+ * 这个叶子从 pty 收到的累计字节数（没有就返回 0）。
+ *
+ * 给「等 agent 的界面画出来」用：调用方在自己写下命令之前取一次基线，之后看它涨了多少。
+ */
+export function ghosttyLeafOutputBytes(leafId: number): number {
+  return outputBytes.get(leafId) ?? 0;
+}
+
 export async function ghosttyLeafHasForegroundProcess(
   leafId: number,
 ): Promise<boolean> {
@@ -474,6 +492,7 @@ export function disposeGhosttySession(leafId: number): boolean {
   void session.pty?.close();
   session.pty = null;
   sessions.delete(leafId);
+  outputBytes.delete(leafId);
   return true;
 }
 
@@ -896,6 +915,10 @@ async function initializeSessionGeneration(
     {
       onData: (bytes) => {
         if (!session.disposed && generation === session.generation) {
+          outputBytes.set(
+            session.leafId,
+            (outputBytes.get(session.leafId) ?? 0) + bytes.length,
+          );
           mark("firstOutputMs");
           reportTerminalSize(bytes);
           model.write(bytes);

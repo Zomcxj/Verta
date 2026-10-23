@@ -87,6 +87,7 @@ import {
   isTerminalSurfaceTarget,
   leafHasForegroundProcess,
   leafIds,
+  leafOutputBytes,
   navigateFocusedBlocks,
   type PaneBounds,
   ptyIdForLeaf,
@@ -144,12 +145,17 @@ const BenchBridge = __VERTA_BENCH__
   ? lazy(() => import("@/bench/BenchBridge"))
   : null;
 
-/** 会话打开过渡：写进命令之后轮询「agent 起来了没」，起来了再留一格给它画第一帧。 */
+/** 会话打开过渡：等「agent 的界面画出来了」再撤，判据是进程起来 + 又画了几 KB 输出。 */
 const AGENT_UI_POLL_MS = 120;
-const AGENT_UI_SETTLE_MS = 400;
-const AGENT_UI_TIMEOUT_MS = 6000;
-/** 兜底：轮询没结论也不能一直盖着（比上面的上限略长，通常轮询先结束）。 */
-const SESSION_OPENING_FALLBACK_MS = 6500;
+/**
+ * 界面画出来的门槛：一整屏 TUI 是几 KB，而被 shell 回显的那行命令只有几十字节。
+ * 按**累计**输出量看，不看「安静了多久」—— 活着的 TUI 会不停重绘，从来没有安静的时候
+ * （实测：opencode 起来后输出从不断 420ms）。
+ */
+const AGENT_UI_PAINT_BYTES = 900;
+const AGENT_UI_TIMEOUT_MS = 8000;
+/** 兜底：等不出结论也不能一直盖着（比上面的上限略长，通常轮询先结束）。 */
+const SESSION_OPENING_FALLBACK_MS = 8500;
 
 /** @returns 等 `ms` 毫秒。 */
 function delay(ms: number): Promise<void> {
@@ -157,16 +163,20 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
- * agent 的界面起来了没：写进命令后 shell 会把 agent 当前台子进程跑，
- * `leafHasForegroundProcess` 就是问 shell 有没有子进程。轮询而不是问一次 ——
- * shell 要先读完命令再 exec。拿到了再留一格：进程起来到第一帧画出来还有一小段，
- * 少了这一格，撤掉过渡时露出来的会是还没画完的终端。
+ * agent 的界面起来了没 —— 撤过渡要等到的是**界面**，不是进程。
+ *
+ * 两个条件：`leafHasForegroundProcess`（shell 有没有子进程：agent 一起来就为真）与
+ * 「这个叶子又收下了 900 字节以上的输出」。只看进程不够：opencode / pi 起来之后还要
+ * 一两秒才画出第一帧，那段时间屏幕上还是它启动前的样子，撤早了就是「动画结束了还看到
+ * 终端」。`base` 是写命令**之前**的累计字节，命令回显撑不起这 900 字节，一整屏 TUI 可以。
+ * 超时（8 秒）照撤，不能一直挡着。
  */
-async function waitForAgentUi(leafId: number): Promise<void> {
+async function waitForAgentUi(leafId: number, base: number): Promise<void> {
   const deadline = Date.now() + AGENT_UI_TIMEOUT_MS;
+  let processUp = false;
   while (Date.now() < deadline) {
-    if (await leafHasForegroundProcess(leafId)) {
-      await delay(AGENT_UI_SETTLE_MS);
+    if (!processUp) processUp = await leafHasForegroundProcess(leafId);
+    if (processUp && leafOutputBytes(leafId) - base >= AGENT_UI_PAINT_BYTES) {
       return;
     }
     await delay(AGENT_UI_POLL_MS);
@@ -644,13 +654,15 @@ export default function App() {
       showSessionOpening();
       void (async () => {
         await whenSessionReady(leafId);
+        // 写之前先取一次输出基线：之后涨了多少，就是屏幕上多画了多少。
+        const baseBytes = leafOutputBytes(leafId);
         if (!writeToSession(leafId, `${plan.command}\r`)) {
           console.error(`[verta] terminal ${leafId} closed before resume`);
           hideSessionOpening();
           return;
         }
         // 等 agent 的界面起来再撤过渡：撤早了露出来的就是「命令刚被敲进去」的终端。
-        await waitForAgentUi(leafId);
+        await waitForAgentUi(leafId, baseBytes);
         hideSessionOpening();
       })();
     },
@@ -671,6 +683,7 @@ export default function App() {
       showSessionOpening();
       void (async () => {
         await whenSessionReady(leafId);
+        const baseBytes = leafOutputBytes(leafId);
         if (!writeToSession(leafId, `${command}\r`)) {
           console.error(
             `[verta] terminal ${leafId} closed before starting ${tool}`,
@@ -678,7 +691,7 @@ export default function App() {
           hideSessionOpening();
           return;
         }
-        await waitForAgentUi(leafId);
+        await waitForAgentUi(leafId, baseBytes);
         hideSessionOpening();
       })();
     },
