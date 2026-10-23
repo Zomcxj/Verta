@@ -19,6 +19,8 @@ type Options = {
   rootPath: string;
   isDir: (path: string) => boolean | undefined;
   onMove: (from: string[], toDir: string) => void;
+  /** Ctrl (or Cmd) held at drop time: copy instead of move. */
+  onCopy: (from: string[], toDir: string) => void;
   getSelectedPaths: () => Set<string>;
   collapseSelectionTo: (path: string) => void;
   pathDropTarget?: ExplorerPathDropTarget;
@@ -62,11 +64,15 @@ export function finishExplorerDrag(
   moveTarget: string | null,
   pathDropTarget: ExplorerPathDropTarget | undefined,
   onMove: (from: string[], toDir: string) => void,
+  onCopy?: (from: string[], toDir: string) => void,
+  copy = false,
 ): void {
   const handledByPathTarget =
     commit && (pathDropTarget?.dropPath(sources, clientX, clientY) ?? false);
   if (commit && !handledByPathTarget && moveTarget) {
-    onMove(sources, moveTarget);
+    // Ctrl at drop time copies; the default stays a move, as in Explorer.
+    if (copy && onCopy) onCopy(sources, moveTarget);
+    else onMove(sources, moveTarget);
   }
   pathDropTarget?.clearTarget();
 }
@@ -79,6 +85,7 @@ export function useExplorerDnd({
   rootPath,
   isDir,
   onMove,
+  onCopy,
   getSelectedPaths,
   collapseSelectionTo,
   pathDropTarget,
@@ -91,16 +98,21 @@ export function useExplorerDnd({
   tRef.current = t;
   const [dragLabel, setDragLabel] = useState<string | null>(null);
   const [dropTargetDir, setDropTargetDir] = useState<string | null>(null);
+  /** Ctrl is held: the ghost says "copy" so the mode is visible before the drop. */
+  const [copyMode, setCopyMode] = useState(false);
 
   const ghostElRef = useRef<HTMLDivElement | null>(null);
   const lastPosRef = useRef({ x: 0, y: 0 });
   const dropTargetRef = useRef<string | null>(null);
   const suppressClickRef = useRef(false);
   const cleanupRef = useRef<(() => void) | null>(null);
+  /** The modifier state at drop time; the listeners read it, so it lives in a ref. */
+  const copyingRef = useRef(false);
   const optsRef = useRef({
     rootPath,
     isDir,
     onMove,
+    onCopy,
     getSelectedPaths,
     collapseSelectionTo,
     pathDropTarget,
@@ -113,6 +125,7 @@ export function useExplorerDnd({
       rootPath,
       isDir,
       onMove,
+      onCopy,
       getSelectedPaths,
       collapseSelectionTo,
       pathDropTarget,
@@ -121,6 +134,7 @@ export function useExplorerDnd({
     rootPath,
     isDir,
     onMove,
+    onCopy,
     getSelectedPaths,
     collapseSelectionTo,
     pathDropTarget,
@@ -171,6 +185,9 @@ export function useExplorerDnd({
         );
       }
       placeGhost(ev.clientX, ev.clientY);
+      const copying = ev.ctrlKey || ev.metaKey;
+      copyingRef.current = copying;
+      setCopyMode((was) => (was === copying ? was : copying));
       const { rootPath, isDir, pathDropTarget } = optsRef.current;
       const element = document.elementFromPoint(ev.clientX, ev.clientY);
       const terminalTargeted =
@@ -201,6 +218,7 @@ export function useExplorerDnd({
       detach();
       if (!active) return;
       const { x, y } = lastPosRef.current;
+      const copy = copyingRef.current;
       finishExplorerDrag(
         commit,
         sources,
@@ -209,14 +227,18 @@ export function useExplorerDnd({
         dropTargetRef.current,
         optsRef.current.pathDropTarget,
         optsRef.current.onMove,
+        optsRef.current.onCopy,
+        copy,
       );
       suppressClickRef.current = true;
       setTimeout(() => {
         suppressClickRef.current = false;
       }, 0);
       dropTargetRef.current = null;
+      copyingRef.current = false;
       setDragLabel(null);
       setDropTargetDir(null);
+      setCopyMode(false);
     };
     const up = () => end(true);
     const cancel = () => end(false);
@@ -242,5 +264,12 @@ export function useExplorerDnd({
     [],
   );
 
-  return { ghostRef, dragLabel, dropTargetDir, onPointerDown, onClickCapture };
+  return {
+    ghostRef,
+    dragLabel,
+    copyMode,
+    dropTargetDir,
+    onPointerDown,
+    onClickCapture,
+  };
 }

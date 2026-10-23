@@ -45,11 +45,15 @@ import {
   revealInFinder,
 } from "./lib/contextActions";
 import { FileIcon, FolderIcon } from "./FileIcon";
+import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 import {
+  type CopyResult,
   isPasteShortcut,
   pasteClipboardFiles,
   pasteTargetDir,
   parentDir as parentOf,
+  reportCopyFailures,
 } from "./lib/clipboardPaste";
 import { useWorkspaceEnvStore } from "@/modules/workspace";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
@@ -383,10 +387,31 @@ export const FileExplorer = memo(
       },
       [entryIndexByPath, rows],
     );
+    const copyPaths = useCallback(
+      async (sources: string[], toDir: string) => {
+        if (!rootPath || sources.length === 0) return;
+        try {
+          const result = await invoke<CopyResult>("fs_copy", {
+            sources,
+            destDir: toDir,
+            root: rootPath,
+            workspace,
+            renameOnConflict: true,
+          });
+          reportCopyFailures(result, t);
+          if (result.created.length > 0) await tree.refresh(toDir, true);
+        } catch (error) {
+          toast.error(String(error));
+        }
+      },
+      [rootPath, workspace, tree.refresh, t],
+    );
+
     const dnd = useExplorerDnd({
       rootPath: rootPath ?? "",
       isDir: isDirAt,
       onMove: tree.movePaths,
+      onCopy: copyPaths,
       getSelectedPaths,
       collapseSelectionTo,
       pathDropTarget,
@@ -687,7 +712,16 @@ export const FileExplorer = memo(
         tabIndex={0}
         onKeyDown={handleKeyDown}
       >
-        <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/60 px-2">
+        <div
+          // The header sits outside the scroll area but is still part of the
+          // root: dropping on it moves to the root when the folder rows are
+          // scrolled away or the wanted parent is the root itself.
+          data-explorer-drop=""
+          className={cn(
+            "flex h-8 shrink-0 items-center gap-1 border-b border-border/60 px-2",
+            rootIsDropTarget && "bg-primary/10",
+          )}
+        >
           <span
             className="flex flex-1 items-center truncate text-xs font-medium text-foreground/80"
             title={rootPath}
@@ -1094,7 +1128,14 @@ export const FileExplorer = memo(
             ref={dnd.ghostRef}
             className="pointer-events-none fixed left-0 top-0 z-50 flex items-center gap-1.5 rounded-sm border border-border/70 bg-card/95 px-2 py-1 text-[12px] text-foreground shadow-md"
           >
-            {dnd.dragLabel}
+            {/* The mode is decided by the modifier at drop time, so it has to be
+                visible before the drop or the user finds out too late. */}
+            {dnd.copyMode ? (
+              <span className="text-muted-foreground">+</span>
+            ) : null}
+            {dnd.copyMode
+              ? t("explorer.dragCopy", { label: dnd.dragLabel })
+              : dnd.dragLabel}
           </div>
         ) : null}
       </div>

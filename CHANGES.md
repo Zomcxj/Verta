@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**Explorer drag: Ctrl copies, and the pane header accepts drops**
+
+- `src/modules/explorer/lib/useExplorerDnd.ts`: the modifier is read while the pointer moves (so the ghost can say which mode is armed) and read again at drop time; `Ctrl` / `Cmd` copies through a new `onCopy` callback, a plain drag still moves.
+- `src/modules/explorer/FileExplorer.tsx`: `onCopy` goes through the same `fs_copy` path and conflict handling as paste and refreshes the destination; the header row of the pane is now a drop target that resolves to the root, so items can be dragged back up when the root's rows are scrolled away. The drag ghost shows the copy mode.
+- `src/modules/i18n/messages.ts`: one key for the copy label on the drag ghost.
+
 **Comments across the code base are in English**
 
 - The whole source tree — `src/`, `src-tauri/src/` and `scripts/` — had its comments translated to English. Code, string literals, identifiers and data (benchmark payloads, language names, the string tables) are untouched; only the prose in comments changed.

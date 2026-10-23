@@ -167,4 +167,58 @@ describe("finishExplorerDrag", () => {
     );
     expect(onMove).toHaveBeenCalledWith(["/repo/a.ts", "/repo/b.ts"], "/repo/dest");
   });
+
+  it("copies instead of moving when the modifier is down", () => {
+    const onMove = vi.fn();
+    const onCopy = vi.fn();
+    finishExplorerDrag(
+      true,
+      ["/repo/a.ts"],
+      100,
+      200,
+      "/repo/dest",
+      undefined,
+      onMove,
+      onCopy,
+      true,
+    );
+    expect(onCopy).toHaveBeenCalledWith(["/repo/a.ts"], "/repo/dest");
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it("still moves when the modifier went up before the drop", () => {
+    const onMove = vi.fn();
+    const onCopy = vi.fn();
+    finishExplorerDrag(
+      true,
+      ["/repo/a.ts"],
+      100,
+      200,
+      "/repo/dest",
+      undefined,
+      onMove,
+      onCopy,
+      false,
+    );
+    expect(onMove).toHaveBeenCalledWith(["/repo/a.ts"], "/repo/dest");
+    expect(onCopy).not.toHaveBeenCalled();
+  });
+
+  it("commits nothing when the drag is cancelled, whichever mode was held", () => {
+    const onMove = vi.fn();
+    const onCopy = vi.fn();
+    finishExplorerDrag(
+      false,
+      ["/repo/a.ts"],
+      100,
+      200,
+      "/repo/dest",
+      undefined,
+      onMove,
+      onCopy,
+      true,
+    );
+    expect(onMove).not.toHaveBeenCalled();
+    expect(onCopy).not.toHaveBeenCalled();
+  });
 });
