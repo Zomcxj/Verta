@@ -55,7 +55,7 @@ describe("selectionRect", () => {
   });
 
   it("取整宁可多含一列，不少给一列", () => {
-    // 10.6 → 110.2：向下取到 10、向上取到 111，宽 101。
+    // 10.6 → 110.2: floor to 10, ceil to 111, so the width is 101.
     expect(
       selectionRect({ x: 10.6, y: 20.9 }, { x: 110.2, y: 70.1 }, 1, SHOT),
     ).toEqual({
@@ -189,7 +189,7 @@ describe("resizeRect", () => {
     const tiny = resizeRect(base, "se", -9999, -9999, SHOT_CSS);
     expect(tiny.width).toBe(MIN_SIDE);
     expect(tiny.height).toBe(MIN_SIDE);
-    // 往回拉过头也不会翻面（宽高始终为正，最小的那一边贴住把手）。
+    // Pulling back too far does not flip the rect (width and height stay positive, with the smallest side pinned to the handle).
     expect(tiny.x).toBe(100);
     expect(tiny.y).toBe(100);
   });
@@ -240,7 +240,7 @@ describe("toPhysical", () => {
 
 describe("isUsableSelection 按物理像素算", () => {
   it("CSS 上看着小、物理上够大也算数", () => {
-    // 125% 缩放下，CSS 8 像素其实有 10 个物理像素。
+    // At 125% scaling, 8 CSS pixels are really 10 physical pixels.
     expect(isUsableSelection({ x: 0, y: 0, width: 8, height: 8 }, 1.25)).toBe(
       true,
     );

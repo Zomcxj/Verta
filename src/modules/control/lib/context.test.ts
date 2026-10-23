@@ -53,8 +53,8 @@ describe("resolveControlContext", () => {
     expect(resolveControlContext(tabs, 20, 999).source).toBe("active");
   });
 
-  // 空间功能已经删掉，但 `space_id` 是给外部消费者（`verta-cli identify`）看的协议字段，
-  // 所以它必须始终在，而不是随空间一起消失。
+  // Spaces are gone, but `space_id` is a protocol field external consumers
+  // (`verta-cli identify`) read, so it has to stay rather than go away with them.
   it("keeps the space_id field the CLI prints, at a fixed value", () => {
     expect(resolveControlContext([], 0).space_id).toBe("default");
   });

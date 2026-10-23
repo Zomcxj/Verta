@@ -17,14 +17,14 @@ function session(over: Partial<AgentSession> = {}): AgentSession {
 
 describe("planSessionOpen", () => {
   it("keeps a host session on the host, whatever environment the app is in", () => {
-    // 这条以前是漏的：本机会话不带环境（undefined），终端就去用「当前环境」，
-    // 于是在 WSL 终端里点一个本机会话，命令是本机的、shell 是发行版的，
-    // `chdir F:/...` 在 Linux 侧必然 ENOENT。
+    // This one used to slip through: a host session carries no environment (undefined), so the
+    // terminal fell back to the "current environment", and clicking a host session in a WSL
+    // terminal gave a host command in a distro shell, where `chdir F:/...` is an ENOENT.
     const plan = planSessionOpen(session());
     expect(plan?.workspace).toEqual({ kind: "local" });
     expect(plan?.cwd).toBe("F:/VibeCoding_workspace/PasteLabel");
     expect(plan?.command).toContain("--session ses_1");
-    // 本机形式：没有发行版那串 env PATH= 前缀。
+    // The host form: no distro `env PATH=` prefix in front.
     expect(plan?.command.startsWith("opencode ")).toBe(true);
   });
 

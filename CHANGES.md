@@ -47,6 +47,7 @@ swap in the new date, and drop the `open` from the day before.
 
 - The whole source tree — `src/`, `src-tauri/src/` and `scripts/` — had its comments translated to English. Code, string literals, identifiers and data (benchmark payloads, language names, the string tables) are untouched; only the prose in comments changed.
 - `CHANGES.md`: this file is in English now.
+- A second pass finished the leftovers: 26 files still carried a Chinese comment the first pass missed. `src/modules/theme/themes/themeNames.ts` had a whole block (the names-versus-descriptions rule), the rest were one or two explanatory lines in twenty test files, and there were the four in `.gitignore`, the block in `screenshot.html`, one in `src-tauri/Cargo.toml` and two trailing comments in the Rust crate (`screenshot/encode.rs`, `workspace.rs`). Same rule as before: only the prose in comments changed, no string, identifier or fixture data.
 
 **Chinese strings still hardcoded in the session list moved into the message tables**
 

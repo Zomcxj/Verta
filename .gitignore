@@ -23,7 +23,7 @@ stats.html
 *.sln
 *.sw?
 
-# Superpowers 工作目录（本机 agent 的交接笔记，不进版本库）
+# Superpowers workspace (handoff notes between local agents, not committed)
 .superpowers/
 
 *.tsbuildinfo
@@ -36,11 +36,11 @@ src-tauri/binaries/
 # Python bytecode from the benchmark scripts
 __pycache__/
 
-# 终端原始字节抓包（dev 用，见 src-tauri/src/modules/pty/dump.rs）
+# Raw terminal byte captures (dev only, see src-tauri/src/modules/pty/dump.rs)
 scripts/dev/ptydump/
 
-# 本机的 agent 工作约定（见 AGENTS.md，不进版本库）
+# Local agent conventions (see AGENTS.md, not committed)
 /CLAUDE.md
 /AGENTS.md
-# 本地图标草稿不入库；正式图标走 src-tauri/icons 与 public/logo.png
+# Local icon drafts stay out of git; shipped icons live in src-tauri/icons and public/logo.png
 /*-icon.png

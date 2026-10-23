@@ -24,7 +24,7 @@ describe("envForRoot", () => {
 
   it("keeps the distro it already had for a bare Linux path", () => {
     expect(envForRoot("/home/cxj", WSL)).toEqual(WSL);
-    // /mnt/wsl 是 WSL 内部的挂载点，不是 Windows 盘，所以不算本机。
+    // /mnt/wsl is a mount point inside WSL, not a Windows drive, so it is not this machine.
     expect(envForRoot("/mnt/wsl", WSL)).toEqual(WSL);
   });
 
@@ -46,8 +46,9 @@ describe("envForRoot", () => {
 
 describe("envForPath", () => {
   it("answers from the path, not from whatever the store still says", () => {
-    // 环境与文件树的根分两步落地，中间那一瞬间 store 还是旧环境；
-    // 盘符路径必须仍然按本机处理，否则文件树会拿它去发行版里找。
+    // The environment and the file tree's root land in two steps, so the store still holds the
+    // old one for a moment: a drive-letter path must still count as this machine, or the file
+    // tree would go looking for it inside the distro.
     expect(envForPath("C:/Users/x", WSL)).toEqual(LOCAL_WORKSPACE);
     expect(envForPath("\\\\wsl.localhost\\Ubuntu-22.04\\home\\cxj", LOCAL_WORKSPACE)).toEqual(
       { kind: "wsl", distro: "Ubuntu-22.04" },

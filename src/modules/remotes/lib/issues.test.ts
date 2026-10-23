@@ -236,7 +236,7 @@ describe("merge gate", () => {
   });
 
   it("passes the reason code through when it cannot", () => {
-    // 后端只给码，句子由界面按码取 —— 否则英文界面上会出现中文。
+    // The backend sends only a code and the UI looks the sentence up, otherwise Chinese would appear in the English UI.
     expect(mergeBlocked(pull({ mergeBlocked: "conflict" }))).toBe("conflict");
   });
 
@@ -248,7 +248,7 @@ describe("merge gate", () => {
 describe("small helpers", () => {
   it("maps the check state to a tone", () => {
     expect(checkTone("pass")).toBe("ok");
-    // 只看到一部分时不能给「通过」的绿：没看到的那几条可能正红着。
+    // A partial view must not earn the "pass" green: the checks not seen may well be red.
     expect(checkTone("partial")).toBe("none");
     expect(checkTone("fail")).toBe("bad");
     expect(checkTone("pending")).toBe("busy");

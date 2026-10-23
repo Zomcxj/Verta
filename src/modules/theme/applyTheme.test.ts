@@ -16,7 +16,7 @@ function stubDocument() {
         written.set(k, v);
       }),
     },
-    // 表面层开关就是一个属性：`on` 表示这层要画。
+    // The surface toggle is a single attribute: `on` means the layer is painted.
     setAttribute: (name: string, value: string) => attributes.set(name, value),
     removeAttribute: (name: string) => attributes.delete(name),
     getAttribute: (name: string) => attributes.get(name) ?? null,

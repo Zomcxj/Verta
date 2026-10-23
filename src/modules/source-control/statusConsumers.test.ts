@@ -20,7 +20,7 @@ describe("statusConsumers", () => {
   });
 
   it("goes live for the Git panel while it is expanded", () => {
-    // Git 面板搬到右侧后，它是不是活的只看自己展开没有，与左栏无关。
+    // Since the Git panel moved to the right, whether it is live depends only on its own open state, not on the sidebar.
     expect(live({ gitPanelOpen: true })).toBe(true);
     expect(
       statusConsumers({ ...base, gitPanelOpen: true, sidebarCollapsed: true })
@@ -41,7 +41,7 @@ describe("statusConsumers", () => {
     expect(live({ explorerGitDecorations: true, sidebarCollapsed: true })).toBe(
       false,
     );
-    // 会话列表在屏幕上时文件树不在，也就没有装饰要画。
+    // With the session list on screen the file tree is not, so there are no decorations to draw.
     expect(
       statusConsumers({
         ...base,

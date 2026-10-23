@@ -30,7 +30,7 @@ describe("runRowView", () => {
     const view = runRowView(run(), Date.now());
     expect(view.canRerun).toBe(true);
     expect(view.canCancel).toBe(false);
-    // 删除同理：GitHub 不允许删正在跑的那条，所以跑完了才给。
+    // Same reason as delete: GitHub refuses to remove a running one, so it only appears once finished.
     expect(view.canDelete).toBe(true);
   });
 
@@ -72,7 +72,7 @@ describe("withoutRun", () => {
       run({ id: 1, runNumber: 1 }),
     ];
     expect(withoutRun(runs, 2).map((r) => r.id)).toEqual([3, 1]);
-    // 没有这条时原样返回，不抛错。
+    // An id that is not there returns the list unchanged instead of throwing.
     expect(withoutRun(runs, 99).map((r) => r.id)).toEqual([3, 2, 1]);
   });
 });
@@ -97,7 +97,7 @@ describe("logLineTone", () => {
   it("认不出来就按普通行，不猜", () => {
     expect(logLineTone("   Compiling verta v0.0.1")).toBe("plain");
     expect(logLineTone("")).toBe("plain");
-    // 「error」出现在句中不算错误行，否则几乎所有构建输出都会被涂红。
+    // "error" mid-sentence is not an error line, or nearly every build log would come back red.
     expect(logLineTone("no error found in the log")).toBe("plain");
   });
 });
@@ -142,7 +142,7 @@ describe("ciFromRuns", () => {
   });
 
   it("列表空了就是「没有运行记录」，不是失败", () => {
-    // 把最后一条运行删掉之后正好走这里：徽标该说没有运行记录，而不是继续挂着那条已删的。
+    // Deleting the last run lands here: the badge should say there is no run, not keep showing the removed one.
     const out = ciFromRuns(payload({ runs: [] }));
     expect(out.kind).toBe("none");
     expect(out.run).toBeNull();

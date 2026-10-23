@@ -7,7 +7,7 @@ import {
   turnsLabel,
 } from "./sessionStats";
 
-const NOW = new Date(2026, 9, 22, 15, 30).getTime(); // 2026-10-22 15:30 本地时间
+const NOW = new Date(2026, 9, 22, 15, 30).getTime(); // 2026-10-22 15:30 local time
 
 describe("turnsLabel", () => {
   it("shows the count, or a dash when the tool keeps none", () => {
@@ -39,7 +39,7 @@ describe("lastTalkedDayLabel", () => {
     expect(lastTalkedDayLabel(NOW, NOW - 40_000)).toBe("刚刚");
     expect(lastTalkedDayLabel(NOW, NOW - 12 * 60_000)).toBe("12 分钟前");
     expect(lastTalkedDayLabel(NOW, NOW - 59 * 60_000)).toBe("59 分钟前");
-    // 小时归到 1 / 3 / 6 / 12 这几档，同一屏里的数字才好比。
+    // Hours snap to 1 / 3 / 6 / 12 so the numbers on one screen stay comparable.
     expect(lastTalkedDayLabel(NOW, NOW - 70 * 60_000)).toBe("1 小时前");
     expect(lastTalkedDayLabel(NOW, NOW - 3 * 3_600_000)).toBe("3 小时前");
     expect(lastTalkedDayLabel(NOW, NOW - 4_600_000)).toBe("1 小时前");
@@ -48,7 +48,7 @@ describe("lastTalkedDayLabel", () => {
   });
 
   it("crosses into 昨天 / 前天 by calendar day, not by elapsed hours", () => {
-    // NOW 是 15:30；20 小时前是昨天 19:30。
+    // NOW is 15:30; twenty hours earlier is 19:30 the previous day.
     expect(lastTalkedDayLabel(NOW, NOW - 20 * 3_600_000)).toBe("昨天");
     expect(
       lastTalkedDayLabel(NOW, new Date(2026, 9, 20, 23, 0).getTime()),

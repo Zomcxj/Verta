@@ -62,7 +62,7 @@ describe("isPrivateVisibility", () => {
   });
 
   it("组织内可见与拿不到值时都说不出「私有/公开」", () => {
-    // INTERNAL 两种说法都不对，界面上就别替它下结论。
+    // INTERNAL fits neither label, so the UI does not decide for it.
     expect(isPrivateVisibility("INTERNAL")).toBeNull();
     expect(isPrivateVisibility(null)).toBeNull();
     expect(isPrivateVisibility("")).toBeNull();
@@ -77,7 +77,7 @@ describe("deleteConfirmMatches", () => {
     expect(deleteConfirmMatches("  Zomcxj/ModelHarbor  ", "Zomcxj/ModelHarbor")).toBe(
       true,
     );
-    // GitHub 的仓库名本来就不分大小写，这里跟着不分。
+    // GitHub repository names are not case-sensitive, so this check follows suit.
     expect(deleteConfirmMatches("zomcxj/modelharbor", "Zomcxj/ModelHarbor")).toBe(
       true,
     );

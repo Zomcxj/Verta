@@ -80,8 +80,8 @@ describe("repository targets", () => {
     ).toEqual({ mode: "fixed", repoRoot: "/repos/a" });
   });
 
-  // 切换项目（同一个环境、根变了）不该继续显示上一个项目的仓库：
-  // 回到 follow-context，右栏才会显示新项目自己的改动与历史。
+  // Switching project (same environment, new root) must not keep showing the previous
+  // project's repository: back to follow-context, and the right panel shows the new project's own changes and history.
   it("does not carry a pin into another project of the same environment", () => {
     const pinned = setRepositoryTargetForWorkspace({}, rootA, "/repos/a");
 

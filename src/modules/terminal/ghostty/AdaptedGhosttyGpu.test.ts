@@ -977,7 +977,8 @@ describe.each([
       } finally {
         harness.terminal.dispose();
       }
-      // 十万次更新的压力用例，机器忙起来就是会比默认 5 秒久；这里量的是行为不是速度。
+      // A hundred thousand updates: on a busy machine this outlasts the 5s default, and it is the
+      // behaviour being measured here rather than the speed.
     }, 60_000);
   });
 

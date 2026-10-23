@@ -30,7 +30,7 @@ mod tests {
     #[test]
     fn the_encoded_bytes_are_a_png_that_reads_back() {
         let rgba = vec![
-            255, 0, 0, 255, 0, 255, 0, 255, // 两个像素：红、绿
+            255, 0, 0, 255, 0, 255, 0, 255, // Two pixels: red, green
         ];
         let png = encode_png(&rgba, 2, 1).expect("该编出来");
         // The PNG magic number: 89 50 4E 47 0D 0A 1A 0A.

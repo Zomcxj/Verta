@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// 存档用内存里的 Map 顶替，能顺带验证并发写入不互相盖掉。
+// The store is backed by an in-memory Map, which also lets the two racing writes below be checked.
 vi.mock("@tauri-apps/plugin-store", () => {
   const files = new Map<string, Map<string, unknown>>();
   class LazyStore {

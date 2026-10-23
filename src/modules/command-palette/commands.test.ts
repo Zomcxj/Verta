@@ -77,7 +77,7 @@ describe("createCommandItems", () => {
   });
 
   it("disables splitting at the pane limit with a translatable reason", () => {
-    // 理由必须是 i18n 的键：早期这里写死过英文，中文界面里会蹦出 "Pane limit"。
+    // The reason has to be an i18n key: it once held hardcoded English, which put "Pane limit" in the Chinese UI.
     expect(reasonById({}, "pane.splitRight")).toBeUndefined();
     const many = {
       ...terminalTab(1),

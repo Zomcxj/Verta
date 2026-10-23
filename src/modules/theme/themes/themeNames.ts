@@ -1,19 +1,22 @@
 import type { MessageKey } from "@/modules/i18n";
 
 /**
- * 主题名与说明的中文。
+ * Chinese theme names and descriptions.
  *
- * 主题自带的 `name` / `description` 是英文/专名，界面按 id 到这里取译文；
- * 没有条目的（用户自己导入的主题）就照原样显示。
+ * A theme's own `name` / `description` are English or proper names, and the UI looks
+ * the translation up here by id; a theme with no entry (one the user imported
+ * themselves) keeps whatever it ships.
  *
- * **专有名不翻**：Dracula、Nord、Kanagawa、Catppuccin、Solarized、Gruvbox、
- * Everforest、Tokyo Night、Rosé Pine 都是配色方案自己的名字，翻成中文反而认不出；
- * Acrylic / Carbon Fiber 也一样（说的是材质，不是描述），名字照英文写，
- * 只把说明译过来。只有描述性的那几个（Sage / Tide / Caffeine / Xcode / Claude）
- * 才有中文说法。
+ * **Proper names stay untranslated**: Dracula, Nord, Kanagawa, Catppuccin, Solarized,
+ * Gruvbox, Everforest, Tokyo Night and Rosé Pine are the color schemes' own names, and
+ * a Chinese rendering only makes them harder to recognize; Acrylic / Carbon Fiber are
+ * the same (they name a material, not describe one), so the name stays in English and
+ * only the description gets translated. Just the descriptive ones (Sage / Tide /
+ * Caffeine / Xcode / Claude) have a Chinese form.
  *
- * **说明统一写一句短话**：只说看起来是什么样，别写成旁白；来历、怎么实现
- * （模糊多少、面板是不是实心的）留给主题文件自己的注释。
+ * **A description is one short sentence**: say what it looks like, don't write a
+ * narration; where it came from and how it is built (how much blur, whether the panels
+ * are opaque) belong in the theme file's own comments.
  */
 type Entry = { name?: string; description?: string };
 
@@ -57,7 +60,7 @@ const ZH: Record<string, Entry> = {
   caffeine: { description: "咖啡的暖色 —— 奶油与浓缩。" },
 };
 
-/** 主题的中文名；没有译文就用它自己的名字。 */
+/** A theme's Chinese name; falls back to the theme's own name. */
 export function themeName(
   id: string,
   fallback: string,
@@ -67,7 +70,7 @@ export function themeName(
   return ZH[id]?.name ?? fallback;
 }
 
-/** 主题的中文说明；没有译文就用它自己的说明。 */
+/** A theme's Chinese description; falls back to the theme's own description. */
 export function themeDescription(
   id: string,
   fallback: string | undefined,
@@ -78,9 +81,10 @@ export function themeDescription(
 }
 
 /**
- * 界面上「改主题 / 删主题」按钮的无障碍名，跟着界面语言走。
+ * Accessible names for the UI's "edit theme / remove theme" buttons; they follow the
+ * interface language.
  *
- * `MessageKey` 在这里只用来收窄键名，取文本仍交给调用方的 `t`。
+ * `MessageKey` only narrows the key type here; the text still comes from the caller's `t`.
  */
 export const THEME_A11Y = {
   edit: "settings.themes.editTheme",

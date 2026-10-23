@@ -38,7 +38,7 @@ describe("ciView", () => {
     const failed = ciView(payload({ run: run({ conclusion: "failure" }) }));
     expect(failed.tone).toBe("fail");
     expect(failed.key).toBe("remotes.ci.failure");
-    // 超时是失败那一档，不是「其它」。
+    // A timeout belongs in the failure bucket, not in "other".
     expect(ciView(payload({ run: run({ conclusion: "timed_out" }) })).tone).toBe(
       "fail",
     );
@@ -76,14 +76,14 @@ describe("ciView", () => {
       payload({ kind: "error", run: null, error: "rate limited" }),
     );
     expect(broken.key).toBe("remotes.ci.error");
-    // 失败的原话要留着，别只给一个「出错了」。
+    // The failure's own wording is kept rather than a generic "something broke".
     expect(broken.detail).toBe("rate limited");
   });
 
   it("builds a detail line from name, branch and run number", () => {
     const view = ciView(payload());
     expect(view.detail).toBe("CI · main · #7 · success");
-    // 缺字段时不留下多余的分隔符。
+    // Missing fields leave no stray separator behind.
     const sparse = ciView(
       payload({ run: run({ name: "build", headBranch: null, runNumber: 0 }) }),
     );

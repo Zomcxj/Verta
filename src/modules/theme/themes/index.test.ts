@@ -34,7 +34,7 @@ describe("builtin theme registry", () => {
     const ids = listBuiltinThemes().map((t) => t.id);
     expect(ids).not.toContain("__fallback__");
     expect(getBuiltinTheme("__fallback__")).toBeUndefined();
-    // 默认主题自己的颜色在 globals.css 里，它不一定是列表第一位（自加的主题排在前面）。
+    // The default theme keeps its colours in globals.css and is not necessarily first in the list (our own themes sort ahead).
     expect(getDefaultTheme()).toBe(getBuiltinTheme(DEFAULT_THEME_ID));
   });
 
@@ -65,9 +65,10 @@ describe("builtin theme palettes", () => {
     "sidebarForeground",
   ] as const;
 
-  // 上游带来的主题里有只做深色的（kanagawa-dragon），那是有意的；这里只管我们自己新加的。
+  // Some themes that came with the upstream are dark-only (kanagawa-dragon), deliberately; this
+  // only covers the ones we add ourselves.
   const OURS = ["verta", "acrylic", "carbon-weave"];
-  // 这几个的名字是有意留在英文的：一个是品牌名，另两个说的是材质本身。
+  // These names are kept in English on purpose: one is a brand name, the other two name the material.
   const ENGLISH_NAMES = new Set(["Verta", "Acrylic", "Carbon Fiber"]);
 
   it("gives each of our themes both a dark and a light palette", () => {
@@ -76,13 +77,13 @@ describe("builtin theme palettes", () => {
       expect(theme, `${id} 没注册`).toBeDefined();
       expect(theme?.variants.dark, `${id} 缺深色`).toBeDefined();
       expect(theme?.variants.light, `${id} 缺浅色`).toBeDefined();
-      // 名字是给用户看的界面文案：中文名，或者明确留下的英文名（见上）。
+      // The name is user-facing copy: a Chinese name, or one of the English names kept on purpose (above).
       expect(
         /[一-龥]/.test(theme?.name ?? "") ||
           ENGLISH_NAMES.has(theme?.name ?? ""),
         `${id} 的名字要么是中文，要么是有意留的英文名`,
       ).toBe(true);
-      // 这几个主题都自带完整配色（不像默认主题那样把颜色留在 globals.css 里）。
+      // These themes carry a full palette of their own, unlike the default one, whose colours live in globals.css.
       expect(theme?.variants.dark?.colors).toBeTruthy();
     }
   });

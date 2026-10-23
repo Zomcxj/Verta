@@ -316,7 +316,7 @@ establish production readiness, platform parity, or multi-day resource stability
 
 ## Conventions
 
-- **Comments**: default to none, the code should explain itself. If genuinely needed, 1-2 lines on *why*, never *what*. No AI-generic filler.
+- **Comments**: default to none, the code should explain itself. If genuinely needed, 1-2 lines on *why*, never *what*, and always in English: the code is read by the upstream and by outside readers, while only interface text is Chinese. No AI-generic filler.
 - **No em-dash** anywhere: code, comments, commits, docs.
 - **No emojis** anywhere.
 - **Imports**: always `@/...` on the frontend, never relative across modules.
@@ -388,7 +388,7 @@ Each module is self-contained, exports a thin barrel via `index.ts`, and owns it
 - **launcher/** - the session list. Reads every source (this machine plus each distro while the WSL switch is on), hides subagent sessions unless managing, groups by source, and opens a session through `planSessionOpen`, which derives the environment and the resume command together so a local session cannot open in a distro shell.
 - **projects/** - the projects tab: an ordered path list in `verta-projects.json`, scan, batch status, filter and three-state sort, a hover card with that project's sessions, and per-row actions (open workspace, terminal, new agent session, copy path, remove).
 - **remotes/** - the GitHub tab: account repositories, a lazily fetched CI column, the run list, run detail with jobs and logs, rerun, cancel and delete, and the release list with its assets. Write buttons are hidden when the repo's permission is confirmed read-only; an unknown permission keeps them. A repo's own settings dialog edits the description, flips visibility (each direction spells out its consequences first) and deletes it behind a typed-out full name. Cloning from a row reuses the projects dialog, prefilled with the clone URL and a destination beside an existing project. The account chip opens a sign-in panel: current account, browser sign-in with gh's one-time code streamed in, a pasted PAT (never stored), and sign-out behind a confirmation. Everything calls `gh` through Rust; only the explicit secondary action opens a browser. An asset download streams through `gh api` into `<name>.verta-part` next to the target, reports real byte progress over `verta://github-download`, and only renames on success, so a failed or cancelled download never touches a file that is already there. A row's `⋯` menu also opens that repository's issues and pull requests: a two-stage dialog (list → detail with body, comments, PR section and check state) carrying comment, open/close, new-issue and merge actions. Whether merge is blocked is decided in the backend, which sends a reason **code** the UI resolves to a message like everything else, and the check summary reports `partial` — never a pass — when `check-runs` paging left checks unread.
-- **i18n/** - the zh and en tables (`messages.ts`), `LanguagePref` resolution and `useT`. Only interface text is translated; logs, comments, agent names and commands are not.
+- **i18n/** - the zh and en tables (`messages.ts`), `LanguagePref` resolution and `useT`. Only interface text is translated; comments are written in English, while logs, agent names and commands are left as they come.
 - **command-palette/** - modal command palette (`CommandPalette.tsx`, `commands.ts`) for actions and navigation.
 
 ### No built-in agent

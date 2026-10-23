@@ -83,7 +83,7 @@ describe("resumeCommand (WSL)", () => {
   });
 
   it("puts the distro's own installs ahead of PATH", () => {
-    // 发行版里 PATH 上的 opencode 可能是 Windows 那个 exe，读的是另一个库。
+    // On PATH inside a distro, `opencode` may be the Windows exe, which reads another store.
     const command = resumeCommand({
       tool: "opencode",
       id: "ses_1",

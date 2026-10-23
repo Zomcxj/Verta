@@ -121,7 +121,7 @@ describe("the CJK tail", () => {
 });
 
 describe("resolveFontStack", () => {
-  /** 让自动检测认准 Hack Nerd Font（与上面那组用例同一套桩）。 */
+  /** Makes detection settle on Hack Nerd Font, using the same stub as the block above. */
   const stubDetection = async () => {
     const context = {
       font: "",
@@ -168,7 +168,7 @@ describe("resolveFontStack", () => {
   });
 
   it("本机没有任何候选 Nerd Font 时只有选中项 + 兜底链", async () => {
-    // 没装的字体跟两个兜底字体量出来一样宽，所以检测该是空。
+    // An absent font measures the same as both fallbacks, so detection should come up empty.
     const context = {
       font: "",
       measureText: vi.fn(() => ({

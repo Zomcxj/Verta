@@ -991,7 +991,7 @@ mod auth_tests {
     #[test]
     fn a_fresh_terminal_on_windows_lands_on_the_desktop() {
         let Some(desktop) = dirs::desktop_dir().filter(|d| d.is_dir()) else {
-            return; // 没有桌面目录的环境（CI）不验这条
+            return; // Environments without a desktop dir (CI) have nothing to check here
         };
         assert_eq!(
             default_spawn_cwd(&WorkspaceEnv::Local),

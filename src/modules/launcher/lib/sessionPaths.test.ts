@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { relativeToRoot } from "./sessionPaths";
 
-// 分隔符用 String.fromCharCode(92) 拼，免得反斜杠在模板/正则里被转义规则搅进来。
+// The separator is built from String.fromCharCode(92), so the escaping rules of templates
+// and regexes cannot mangle it.
 const B = String.fromCharCode(92);
 const abs = (...parts: string[]) => parts.join(B);
 const ROOT = abs("F:", "VibeCoding_workspace");
