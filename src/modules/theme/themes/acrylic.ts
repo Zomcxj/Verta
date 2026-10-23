@@ -23,8 +23,7 @@ import type { Theme } from "../types";
 export const acrylic: Theme = {
   id: "acrylic",
   name: "Acrylic",
-  description:
-    "Desktop Acrylic: the desktop really shows through the window — blurred, noisy, slightly lifted.",
+  description: "Frosted glass with the desktop showing through.",
   editorTheme: { dark: "github-dark", light: "github-light" },
   variants: {
     dark: {

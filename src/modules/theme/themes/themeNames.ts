@@ -11,21 +11,24 @@ import type { MessageKey } from "@/modules/i18n";
  * Acrylic / Carbon Fiber 也一样（说的是材质，不是描述），名字照英文写，
  * 只把说明译过来。只有描述性的那几个（Sage / Tide / Caffeine / Xcode / Claude）
  * 才有中文说法。
+ *
+ * **说明统一写一句短话**：只说看起来是什么样，别写成旁白；来历、怎么实现
+ * （模糊多少、面板是不是实心的）留给主题文件自己的注释。
  */
 type Entry = { name?: string; description?: string };
 
 const ZH: Record<string, Entry> = {
   verta: {
     name: "Verta",
-    description: "照应用图标来的黑白：近黑的底，纯白的强调色。",
+    description: "近黑底配纯白强调色。",
   },
   acrylic: {
     name: "Acrylic",
-    description: "窗口像一块磨砂玻璃，桌面真的透过来：模糊、带噪声、微微提亮。",
+    description: "磨砂玻璃，桌面透过来。",
   },
   "carbon-weave": {
     name: "Carbon Fiber",
-    description: "石墨底上的细蜂窝网格，面板是实心的碳板。",
+    description: "石墨底上的碳纤维网格。",
   },
   "verta-default": {
     name: "Terax",

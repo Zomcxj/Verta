@@ -57,7 +57,7 @@ function hexGrid(stroke: string, opacity: number): string {
 export const carbonWeave: Theme = {
   id: "carbon-weave",
   name: "Carbon Fiber",
-  description: "Fine honeycomb weave over graphite; the panels stay solid.",
+  description: "Honeycomb weave over graphite.",
   editorTheme: { dark: "github-dark", light: "github-light" },
   variants: {
     dark: {

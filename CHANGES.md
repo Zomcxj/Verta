@@ -15,6 +15,11 @@
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**新加的三个主题的说明：原来各有旁白，改成与其他主题一样的一句话**
+
+- `src/modules/theme/themes/verta.ts`、`src/modules/theme/themes/acrylic.ts`、`src/modules/theme/themes/pattern-base.ts`：三段说明原来都是长句（带冒号或分号，还写了材质怎么实现 —— 模糊、噪声、面板是不是实心）。主题列表里其他每一条都是一句交代观感的短话，这三条夹在中间格外显眼，现在照它们写。
+- `src/modules/theme/themes/themeNames.ts`：对应的三条中文一并改短，并在文件头把这条风格写成规矩（说明只写观感，来历与实现留给主题文件自己的注释），省得下次又写成旁白。
+
 **关闭标签页（终端也在内）的快捷键：补一条终端吃不掉的绑定，设置页把每条绑定都画出来**
 
 - `src/modules/shortcuts/shortcuts.ts`：`tab.close` 多一条默认绑定 `Ctrl/⌘+Shift+W`。焦点在终端里时那条 plain 的 `Ctrl+W` 根本到不了应用 —— shell 把它当 `^W`（删前一个词）用掉了，所以关终端标签得有一条 shell 不认的组合键；它同时也是 Windows Terminal 关标签用的那条。只绑了 plain 那条的旧配置照旧不变。
