@@ -13,6 +13,16 @@
 ---
 
 <details open>
+<summary><strong>2026-10-23</strong></summary>
+
+**关闭标签页（终端也在内）的快捷键：补一条终端吃不掉的绑定，设置页把每条绑定都画出来**
+
+- `src/modules/shortcuts/shortcuts.ts`：`tab.close` 多一条默认绑定 `Ctrl/⌘+Shift+W`。焦点在终端里时那条 plain 的 `Ctrl+W` 根本到不了应用 —— shell 把它当 `^W`（删前一个词）用掉了，所以关终端标签得有一条 shell 不认的组合键；它同时也是 Windows Terminal 关标签用的那条。只绑了 plain 那条的旧配置照旧不变。
+- `src/settings/sections/ShortcutsSection.tsx`：快捷键列表每行原来只画**第一条**绑定，多出来的那条等于用户看不见（`sidebar.toggle` / `view.zenMode` 本来就是两条），于是「这条快捷键不存在」的印象就来了。现在每条绑定都画，中间用 `/` 分开。
+
+</details>
+
+<details>
 <summary><strong>2026-10-22</strong></summary>
 
 **主题：默认主题改名 Terax，新增「Verta」「亚克力」与「碳纤维」**

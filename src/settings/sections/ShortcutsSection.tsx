@@ -218,16 +218,32 @@ function ShortcutRow({
               className="flex min-w-[100px] cursor-pointer items-center justify-end gap-1"
             >
               {hasBindings ? (
-                <KbdGroup>
-                  {getBindingTokens(bindings[0]).map((t, i) => (
-                    <Kbd
-                      key={i}
-                      className="group-hover:bg-accent group-hover:text-accent-foreground transition-colors"
+                // Every binding, not just the first: a few shortcuts have a second
+                // chord on purpose (Ctrl+Shift+W closes a tab from inside a
+                // terminal, where the shell owns the plain Ctrl+W), and a row that
+                // hides it reads as "this shortcut does not exist".
+                <div className="flex items-center gap-1.5">
+                  {bindings.map((binding, index) => (
+                    <div
+                      key={getBindingTokens(binding).join("+")}
+                      className="flex items-center gap-1.5"
                     >
-                      {t}
-                    </Kbd>
+                      {index > 0 ? (
+                        <span className="text-[10px] text-muted-foreground">/</span>
+                      ) : null}
+                      <KbdGroup>
+                        {getBindingTokens(binding).map((token, i) => (
+                          <Kbd
+                            key={i}
+                            className="group-hover:bg-accent group-hover:text-accent-foreground transition-colors"
+                          >
+                            {token}
+                          </Kbd>
+                        ))}
+                      </KbdGroup>
+                    </div>
                   ))}
-                </KbdGroup>
+                </div>
               ) : (
                 <span className="text-[11px] text-muted-foreground italic">
                   {t("settings.shortcuts.unassigned")}

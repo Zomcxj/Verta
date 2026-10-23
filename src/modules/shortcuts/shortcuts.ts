@@ -124,7 +124,15 @@ export const SHORTCUTS: Shortcut[] = [
     id: "tab.close",
     label: "shortcut.closeTabOrPane",
     group: "Tabs",
-    defaultBindings: [{ [MOD_PROP]: true, key: "w" }],
+    // Two bindings on purpose. Focused in a terminal, ⌘/Ctrl+W never reaches us —
+    // the shell reads it as ^W, "delete the previous word" — so the shifted chord
+    // is the one that always closes the tab (and it is the chord Windows Terminal
+    // uses for the same job). Imported configs that only bind the plain chord keep
+    // working exactly as before.
+    defaultBindings: [
+      { [MOD_PROP]: true, key: "w" },
+      { [MOD_PROP]: true, shift: true, key: "w" },
+    ],
   },
   {
     id: "pane.splitRight",

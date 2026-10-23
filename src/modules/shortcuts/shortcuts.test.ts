@@ -23,6 +23,13 @@ function event(over: Partial<KeyboardEvent>): KeyboardEvent {
   } as KeyboardEvent;
 }
 
+/** The registry is a plain table; a missing id is a test bug, not a case to assert on. */
+function defaultBindingsOf(id: string): KeyBinding[] {
+  const entry = SHORTCUTS.find((s) => s.id === id);
+  if (!entry) throw new Error(`no shortcut in the registry: ${id}`);
+  return entry.defaultBindings;
+}
+
 describe("getBindingTokens", () => {
   it("returns nothing for an undefined binding", () => {
     expect(getBindingTokens(undefined)).toEqual([]);
@@ -142,6 +149,26 @@ describe("SHORTCUTS registry", () => {
       expect.arrayContaining([
         expect.objectContaining({ key: "s", [MOD_PROP]: true }),
       ]),
+    );
+  });
+
+  it("closes a tab with a shifted chord too, which the terminal cannot eat", () => {
+    // A focused terminal turns the plain chord into ^W ("delete the previous
+    // word") before the app ever sees it, so closing a terminal tab needs a
+    // binding the shell does not claim.
+    const bindings = defaultBindingsOf("tab.close");
+    expect(bindings).toHaveLength(2);
+    const [plain, shifted] = bindings;
+    const mod = MOD_PROP === "meta" ? { metaKey: true } : { ctrlKey: true };
+
+    expect(matchBinding(event({ key: "w", ...mod }), plain)).toBe(true);
+    // Exact modifiers: the shifted chord must not be swallowed by the plain one,
+    // so a config that keeps only one of the two gets exactly that one.
+    expect(matchBinding(event({ key: "w", shiftKey: true, ...mod }), plain)).toBe(
+      false,
+    );
+    expect(matchBinding(event({ key: "w", shiftKey: true, ...mod }), shifted)).toBe(
+      true,
     );
   });
 });
