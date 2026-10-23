@@ -6,7 +6,7 @@ import {
 } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { consumeLaunchFiles, getLaunchDir } from "@/lib/launchDir";
+import { consumeLaunchFiles, didLaunchWithDir, getLaunchDir } from "@/lib/launchDir";
 import { native, type WireScreenshotSaved } from "@/lib/native";
 import { IS_MAC } from "@/lib/platform";
 import { quoteShellArg } from "@/lib/shellQuote";
@@ -835,6 +835,21 @@ export default function App() {
       openLaunchFiles(await consumeLaunchFiles());
     })();
   }, [booted, openLaunchFiles]);
+
+  // A folder passed as an argument (`verta.exe <dir>`, which is what the Explorer verb
+  // runs) is a request to work there, not just a preference for where the next session
+  // starts: the restored tabs would otherwise win and the click would look like it did
+  // nothing. Open a terminal on it once the restore is done, the way a launch file is
+  // opened. A terminal on that folder also becomes the workspace root.
+  useEffect(() => {
+    if (!booted || !didLaunchWithDir()) return;
+    const dir = getLaunchDir();
+    if (!dir) return;
+    const alreadyOpen = tabsRef.current.some(
+      (tab) => tab.kind === "terminal" && tab.cwd === dir,
+    );
+    if (!alreadyOpen) newTab(dir);
+  }, [booted, newTab]);
 
   const handleExplorerPathRenamed = useCallback(
     (from: string, to: string) => {

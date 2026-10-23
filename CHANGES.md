@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**Opening a folder from Explorer does something now**
+
+- `src/lib/launchDir.ts`: `get_launch_dir` drains its state, so that one call is the only place that can tell a folder passed as an argument apart from the remembered workspace; it keeps that flag now.
+- `src/app/App.tsx`: a folder argument opens a terminal on it once the spaces restore is done, unless a terminal is already open there, the same way a launch file is opened. The Explorer verb in `installer-hooks.nsh` runs `verta.exe "%V"`, so right-clicking a folder lands in that folder instead of only setting where the next session would start; the restored tabs used to win, which is why the click looked like it did nothing.
+
 **Lint: the baseline warnings are gone**
 
 - Twenty-five files under `src/` carried the 67 warnings that came in with the upstream baseline import (`1cd3921`). They are all cleared, so `pnpm lint` reports nothing at all now. Twenty-two were real fixes: optional chains, template strings, `indexOf`, two `while ((m = re.exec(t)))` loops written as `for` loops, three `reduce` blocks that accumulated into an object written as `Object.fromEntries`, a dependency in `GitDiffPane` that could not change on its own, and a `{}` in `settings/store.ts` narrowed to `Record<string, never>`.
