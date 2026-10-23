@@ -35,11 +35,12 @@ export type RawFontMeasurement = {
 export type TerminalGpuTheme = {
   readonly background: Rgb;
   /**
-   * 终端底色的不透明度，0–1。
+   * Opacity of the terminal background, 0–1.
    *
-   * 主题把 `terminal.background` 写成带 alpha 的颜色（如 `rgba(21,27,32,0)`）时，
-   * 终端画布就按这个 alpha 清屏 —— 桌面（或用户自己的背景图）能透上来，玻璃主题
-   * 因此能覆盖到终端这一块。1 就是原来的实心行为。
+   * When a theme writes `terminal.background` as a color with alpha (such as
+   * `rgba(21,27,32,0)`), the terminal canvas clears with that alpha, letting the desktop
+   * (or the user's own background image) show through, so glass themes reach the
+   * terminal too. 1 is the original solid behavior.
    */
   readonly backgroundAlpha: number;
   readonly foreground: Rgb;

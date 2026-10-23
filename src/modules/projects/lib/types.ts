@@ -1,18 +1,20 @@
 import type { WorkspaceEnv } from "@/modules/workspace";
 
-/** 清单里的一个项目。 */
+/** One project in the list. */
 export type ProjectEntry = {
   path: string;
-  /** 项目在哪个环境：决定状态去哪一侧查，也决定点进去之后空间的环境。 */
+  /** Which env the project is in: it decides where status is queried and which env the
+   * workspace gets when opened. */
   workspace: WorkspaceEnv;
   /**
-   * 是不是用户清单里的项目。false 表示它是从发行版会话里发现的（WSL 打开时才出现），
-   * 界面不给「移除」，免得用户以为删了会连带删掉什么。
+   * Whether this project is in the user's list. false means it was discovered from
+   * distro sessions (only visible with WSL on); the UI offers no "remove" there so the
+   * user does not think deleting it would delete something.
    */
   managed: boolean;
 };
 
-/** 后端查出来的 `kind`，含义见 Rust 侧同名类型。 */
+/** The `kind` reported by the backend; see the same-named Rust type for the meanings. */
 export type ProjectStatusKind = "repo" | "notRepo" | "missing" | "error";
 
 export type ProjectStatus = {
@@ -30,7 +32,8 @@ export type ProjectStatus = {
   error: string | null;
 };
 
-/** 一行在界面上的样子：清单项 + 这次查到的状态（可能还没查、可能正在查）。 */
+/** How a row looks in the UI: the list entry plus the status from this check (which may
+ * be absent or still running). */
 export type ProjectRow = ProjectEntry & {
   status: ProjectStatus | null;
   checking: boolean;

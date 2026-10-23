@@ -349,10 +349,10 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
  * Extra words a shortcut can be found by, in either language.
  *
  * Both searches only ever look at what is drawn: the settings list matches the
- * message ("关闭标签页或面板") and the command palette matches the command title, and
- * those words are all a caller can type. Someone who thinks of that row as "the
- * terminal tab" — and types that — therefore found nothing at all. Nothing here
- * is drawn; the aliases only widen what the two searches match.
+ * message ("Close tab or pane", in the UI language) and the command palette matches
+ * the command title, and those words are all a caller can type. Someone who thinks of
+ * that row as "the terminal tab" — and types that — therefore found nothing at all.
+ * Nothing here is drawn; the aliases only widen what the two searches match.
  */
 export const SHORTCUT_ALIASES: Partial<Record<ShortcutId, string[]>> = {
   "tab.close": [

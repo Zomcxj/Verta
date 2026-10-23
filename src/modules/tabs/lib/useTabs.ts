@@ -102,14 +102,15 @@ export type GitHistoryTab = TabBase & {
   repoRoot: string;
 };
 
-/** 项目列表标签页。只开一个，没有 repoRoot 之外的状态。 */
+/** Projects tab. Only one is ever open, and it carries no state beyond the title. */
 export type ProjectsTab = TabBase & {
   id: number;
   kind: "projects";
   title: string;
 };
 
-/** 远程仓库列表标签页。只开一个，内容来自一次账号级查询。 */
+/** Remote repos tab. Only one is ever open, and its content comes from one
+ * account-level query. */
 export type RemoteReposTab = TabBase & {
   id: number;
   kind: "remotes";
@@ -472,7 +473,7 @@ export function planCommitHistoryOpen(
 }
 
 /**
- * 项目列表标签页：只开一个。清单是全应用共享的，一个标签页就够。
+ * Projects tab: only one. The list is shared app-wide, so a single tab is enough.
  */
 export function planProjectsOpen(
   tabs: Tab[],
@@ -498,8 +499,8 @@ export function planProjectsOpen(
 }
 
 /**
- * 远程仓库列表标签页：只开一个。与项目列表同一套规则，因为两者都只有
- * 「打开它」这一件事，标题跟着界面语言走。
+ * Remote repos tab: only one. Same rules as the projects tab, since both are only ever
+ * "open it", and the title follows the UI language.
  */
 export function planRemoteReposOpen(
   tabs: Tab[],
@@ -867,7 +868,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [t],
   );
 
-  /** 打开项目列表标签页；只开一个。 */
+  /** Open the projects tab; only one. */
   const openProjectsTab = useCallback((title: string) => {
     const curr = tabsRef.current;
     const plan = planProjectsOpen(curr, title, () => nextIdRef.current++);
@@ -879,7 +880,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     return plan.targetId;
   }, []);
 
-  /** 打开远程仓库列表标签页；只开一个。 */
+  /** Open the remote repos tab; only one. */
   const openRemoteReposTab = useCallback((title: string) => {
     const curr = tabsRef.current;
     const plan = planRemoteReposOpen(curr, title, () => nextIdRef.current++);

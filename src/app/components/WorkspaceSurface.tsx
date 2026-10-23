@@ -38,7 +38,8 @@ type Props = {
   onOpenProjectSession: (session: AgentSession) => void;
   onOpenProjectTerminal: (entry: ProjectEntry) => void;
   onNewProjectSession: (entry: ProjectEntry, tool: AgentTool) => void;
-  /** 会话开启时的过渡：只画在终端那块（见 `SessionOpeningOverlay`）。 */
+  /** The session-start transition, drawn over the terminal layer only (see
+   * `SessionOpeningOverlay`). */
   sessionOpening: boolean;
 };
 
@@ -104,7 +105,8 @@ export function WorkspaceSurface({
           onExit={onExit}
           onFocusLeaf={onFocusLeaf}
         />
-        {/* 只盖终端这一块，不铺满全屏：要挡住的只是「命令被写进终端」那一幕。 */}
+        {/* Covers the terminal area only, not the full screen: the only moment to hide
+            is the command landing in the terminal. */}
         <SessionOpeningOverlay open={sessionOpening} />
       </div>
       <div

@@ -1,8 +1,9 @@
 /**
- * 让用户选下载目录，默认落在系统的下载文件夹。
+ * Let the user pick a download directory, defaulting to the system Downloads folder.
  *
- * 对话框插件按需加载：只在下一次真的点「下载」时才进启动图之外的那一块。
- * 拿不到下载目录时退回主目录，两者都拿不到就让系统自己决定。
+ * The dialog plugin loads on demand, only when "download" is actually clicked, keeping
+ * it out of the startup graph. When the Downloads folder is unavailable it falls back
+ * to the home directory, and if neither resolves the system decides.
  */
 export async function pickDownloadDir(title: string): Promise<string | null> {
   const [{ open }, path] = await Promise.all([

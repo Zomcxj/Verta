@@ -125,7 +125,8 @@ export function EditorStack({
                           mode={side.open ? "preview" : "raw"}
                           preview={{ onSelect: () => side.setOpen(true) }}
                           onChange={(mode) => {
-                            // 渲染 / 源码这两档都先收起并排预览：三档才是单选。
+                            // Rendered and raw both collapse the side preview first:
+                            // that is what makes the three stops behave as one choice.
                             side.setOpen(false);
                             onSetMarkdownView(t.id, mode);
                           }}

@@ -113,8 +113,9 @@ export function SettingsApp() {
 
   return (
     <div className="settings-shell flex h-screen flex-col overflow-hidden bg-background text-foreground select-none">
-      {/* 设置窗口是独立的一个窗口，也得自己把主题的窗口背景材质切好：
-          亚克力（或 Mica）是按「调用它的那个窗口」生效的，主窗口切了不等于这里也切了。 */}
+      {/* The settings window is a separate window and has to set up the theme's window
+          backdrop material itself: acrylic (or Mica) applies per window that requests
+          it, so switching it on in the main window does not affect this one. */}
       <WindowVibrancyBridge />
       <header
         data-tauri-drag-region

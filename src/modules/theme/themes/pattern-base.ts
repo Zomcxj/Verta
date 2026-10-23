@@ -1,18 +1,21 @@
 import type { Theme } from "../types";
 
 /**
- * 六边形网格：**自己按几何算出来的**，不拷任何现成图案文件的路径。
+ * Hexagonal grid, **computed from the geometry** rather than copied from a
+ * ready-made pattern file.
  *
- * 一个正六边形（尖顶站立）宽 `w`、高 `h = w * 2 / sqrt(3)`，相邻两列错开半个；
- * 要无缝平铺，单元的宽正好是 `w`、高是 `1.5 * h / 2` —— 这样上下左右接上时
- * 边与边天然对齐。这里只画「描边」的那一圈，不填色，所以看起来是网不是块。
+ * A regular hexagon standing on a point is `w` wide and `h = w * 2 / sqrt(3)`
+ * tall, with adjacent columns offset by half. For a seamless tile the cell is
+ * exactly `w` wide and `1.5 * h / 2` tall, so edges line up naturally when tiles
+ * meet on all sides. Only the outline ring is drawn here, never a fill, so it
+ * reads as a mesh rather than blocks.
  */
 function hexGrid(stroke: string, opacity: number): string {
   const w = 14;
   const h = Math.round((w * 2) / Math.sqrt(3) * 100) / 100; // ≈30.02
-  const tileH = Math.round(h * 1.5 * 100) / 100; // 相邻两行错开 1.5h
+  const tileH = Math.round(h * 1.5 * 100) / 100; // rows offset by 1.5h
   const r = w / 2;
-  // 尖顶六边形的六个顶点（中心在 (0,0)）。
+  // The six vertices of a pointy-top hexagon, centered on (0,0).
   const pts: string[] = [];
   for (let i = 0; i < 6; i++) {
     const a = (Math.PI / 3) * i - Math.PI / 2;
@@ -35,8 +38,10 @@ function hexGrid(stroke: string, opacity: number): string {
 
 
 /**
- * **格子必须够小**：26px 的六边形、平铺后远看只是一层细纹；格子一大就变成「图案」，
- * 会把字盖住。这是第一版犯过的错 —— 用 40px 的回纹再叠一张 520px 的网，整个界面糊成一片。
+ * **The cell has to stay small**: 26px hexagons tile into a faint texture at a
+ * glance, while a large cell turns into a pattern that fights the text. That was
+ * the mistake in the first attempt — a 40px fretwork under a 520px grid turned
+ * the whole UI to mush.
  */
 
 /**
@@ -68,7 +73,8 @@ export const carbonWeave: Theme = {
         cardForeground: "#e3e6e8",
         popover: "#1e2225",
         popoverForeground: "#e3e6e8",
-        // 碳纤维的「一抹亮」：偏青的银色，不用彩色主色。
+        // The carbon-fiber sheen: a cyan-leaning silver rather than a saturated
+        // accent.
         primary: "#a8bcc6",
         primaryForeground: "#16181a",
         secondary: "#23272b",
@@ -95,13 +101,15 @@ export const carbonWeave: Theme = {
         background: "#16181a",
         image: hexGrid("#ffffff", 0.32),
         repeat: "repeat",
-        // 13×22.75 是 28×49 等比缩下来的：比例一动蜂窝就会有缝。
+        // 13×22.75 is 28×49 scaled proportionally; change the ratio and the honeycomb
+        // gets gaps.
         size: "14px 24.25px",
         opacity: 0.3,
         blend: "soft-light",
       },
-      // 碳纤维不是玻璃：面板保持实心，纹理只铺在面板之间的留白与框架上。
-      // 透出来的蜂窝压在字底下反而显得脏。
+      // Carbon fiber is not glass: panes stay solid and the texture only covers
+      // the gaps between panes and the frame. A honeycomb showing under text just
+      // looks dirty.
       terminal: {
         background: "#16181a",
         foreground: "#e3e6e8",
@@ -160,19 +168,22 @@ export const carbonWeave: Theme = {
       },
       surface: {
         background: "#f4f5f5",
-        // 浅色这边反过来：深色墨线配 `multiply`。原来是白线配 `multiply` ——
-        // 白是 multiply 的单位元，那层纹理不管怎么调都不会显出来。
+        // Light mode flips it: dark ink lines with `multiply`. It used to be white
+        // lines with `multiply` — white is multiply's identity, so the texture never
+        // showed no matter how it was tuned.
         //
-        // 两层不透明度跟深色那侧对齐过：深色是白线 0.32 × 0.3（soft-light 提亮），
-        // 每通道抬约 22；这边是墨线 0.5 × 0.14（multiply 压暗），每通道压约 15 ——
-        // 深色底本来就比浅色底"吃"得住对比，浅色这边得再收一点才不抢眼。
+        // Opacities are matched against the dark side: there white lines at
+        // 0.32 × 0.3 (soft-light, lifting ~22 per channel); here ink lines at
+        // 0.5 × 0.14 (multiply, darkening ~15 per channel). A dark base carries
+        // contrast better than a light one, so the light side has to hold back
+        // further to stay unobtrusive.
         image: hexGrid("#22262a", 0.5),
         repeat: "repeat",
         size: "14px 24.25px",
         opacity: 0.14,
         blend: "multiply",
       },
-      // 同上：实心面板，不透明。
+      // As above: solid, opaque panes.
       terminal: {
         background: "#fbfcfc",
         foreground: "#22262a",

@@ -23,10 +23,12 @@ import {
 } from "./tabStorage";
 
 /**
- * 恢复出来的标签现在在哪个环境：叶子自己记了就用它，只记了 cwd 就从路径反推。
+ * Which env a restored tab lives in: trust the env stored on the leaf, and infer it
+ * from the path when only a cwd was saved.
  *
- * 存下来的 cwd 可能属于另一个环境（之前在 WSL 里，现在偏好是本机）。不推的话，终端会带着
- * Linux 路径去本机启动，Rust 只能按「不可用」回退到家目录。
+ * A saved cwd may belong to another env (it was WSL before, while the preference is
+ * local now). Without inferring, the terminal starts locally with a Linux path and
+ * Rust can only fall back to the home directory as "unusable".
  */
 export function tabEnvironment(
   tab: Tab,
@@ -61,9 +63,11 @@ type BootParams = {
 };
 
 /**
- * 启动时把上次的标签列表接回来；返回「是否已经恢复过」，写盘的那一端用它当闸门。
+ * Reattach last session's tab list on startup; returns whether a restore has run,
+ * which the persistence side uses as a gate.
  *
- * 没有 save 过任何东西就是全新安装：`useTabs` 起的那个冷标签就是全部内容。
+ * Nothing ever saved means a fresh install: the cold tab created by `useTabs` is the
+ * whole content.
  */
 export function useTabRestore({
   ready,
@@ -86,8 +90,9 @@ export function useTabRestore({
 
     void (async () => {
       try {
-        // 偏好每次启动都要载：界面语言、窗口行为对一个已有标签列表同样重要。
-        // 这里是全应用唯一的 `init()` 调用点，别挪到别处，否则返回的用户会停在默认偏好上。
+        // Preferences must load on every start: UI language and window behavior
+        // matter just as much when a tab list is restored. This is the app's only
+        // `init()` call site; do not move it, or returning users stay on defaults.
         await usePreferencesStore
           .getState()
           .init()
@@ -96,7 +101,7 @@ export function useTabRestore({
           usePreferencesStore.getState().defaultWorkspaceEnv,
         );
 
-        // 新格式优先；没有就看老文件里有没有可迁移的那一份。
+        // Prefer the current format; otherwise look for a migratable legacy file.
         const current = await loadTabState();
         const saved = current
           ? { ...current, env: null }
@@ -115,19 +120,21 @@ export function useTabRestore({
         );
         const idx = Math.max(0, Math.trunc(saved.activeTabIndex) || 0);
         const restoredActive = restored[idx] ?? restored[0] ?? null;
-        // 环境跟着标签走：存下来的标签可能停在另一个环境里。
+        // The env follows the tabs: stored tabs may sit in a different env.
         const env =
           (restoredActive && tabEnvironment(restoredActive, envFallback)) ||
           envFallback;
         const restoredHome = await adoptWorkspaceEnv(env);
 
-        // 标签列表不能空着：空列表的界面是一片虚无。cwd 用这个环境的家目录，
-        // 环境解析不出来时留空，交给后端定（本机落桌面，WSL 落 `$HOME`）。
+        // The tab list must not be empty; an empty list renders nothing at all. The
+        // cwd is this env's home, or empty when the env cannot be resolved, letting
+        // the backend decide (desktop locally, `$HOME` in WSL).
         if (restored.length === 0) {
           restored.push(freshTerminalTab(restoredHome, allocId));
         }
 
-        // 恢复出来的终端各自在自己的环境里，cwd 先授权好，免得一开就报未授权。
+        // Restored terminals each live in their own env, so authorize the cwds up
+        // front to avoid an unauthorized error the moment one opens.
         await Promise.allSettled(
           uniqueCwds(restored).map((cwd) =>
             native.workspaceAuthorize(cwd, envForPath(cwd, env)),
@@ -153,15 +160,17 @@ const DEBOUNCE_MS = 3000;
 type PersistParams = {
   tabs: Tab[];
   activeId: number;
-  /** 恢复完成之前不写盘，否则会把还没读回来的旧内容覆盖掉。 */
+  /** Persistence is off until the restore finishes, otherwise it overwrites the old
+   * content before it has been read back. */
   enabled: boolean;
 };
 
 type Snapshot = { tabs: Tab[]; activeId: number };
 
 /**
- * 把标签列表写回磁盘。三秒防抖，另外在窗口失焦 / 隐藏 / 关闭时立刻补一次，
- * 进程被系统收走也不会丢。
+ * Write the tab list back to disk. Debounced by three seconds, with an immediate
+ * flush on window blur / hide / close so nothing is lost when the process is
+ * reaped.
  */
 export function useTabPersistence({ tabs, activeId, enabled }: PersistParams) {
   const last = useRef<{ json: string; activeTabIndex: number } | null>(null);
@@ -174,7 +183,8 @@ export function useTabPersistence({ tabs, activeId, enabled }: PersistParams) {
     const idx = snap.tabs
       .filter(isSerializableTab)
       .findIndex((t) => t.id === snap.activeId);
-    // 活动标签自己不落盘时（私有终端之类），保留上一次记下的位置，别把它归零。
+    // When the active tab itself is not persisted (a private terminal, say), keep the
+    // previously recorded index instead of resetting it to zero.
     const activeTabIndex = idx >= 0 ? idx : (last.current?.activeTabIndex ?? 0);
     const json = JSON.stringify(serialized);
     if (

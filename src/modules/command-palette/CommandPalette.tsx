@@ -402,7 +402,7 @@ function rankCommands(
   const scored: { item: PaletteItem; s: number }[] = [];
   for (const item of items) {
     // Match what is on screen: titles and group headings are keys now, so
-    // searching the raw key would never find "设置" or "Settings".
+    // searching the raw key would never find the translated "Settings" title.
     const visibleTitle = lookup(item.title);
     const visibleGroup = lookup(item.group);
     const s = fuzzyBest(term, [

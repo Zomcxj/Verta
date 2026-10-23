@@ -6,7 +6,8 @@ import { IS_LINUX } from "@/lib/platform";
 
 const LAST_CHECK_KEY = "verta:updater:last-check";
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
-/** 你的 GitHub 仓库（`owner/name`）。留空时更新检查直接给出「还没配置」。 */
+/** Your GitHub repository (`owner/name`). Empty makes the update check report "not
+ * configured yet". */
 const UPDATE_REPO = "";
 const GITHUB_LATEST_RELEASE = UPDATE_REPO
   ? `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`
@@ -89,10 +90,11 @@ export function useUpdater({ autoCheck = true }: HookOptions = {}) {
 
   const runCheck = useCallback(async ({ manual }: Options = {}) => {
     if (!GITHUB_LATEST_RELEASE) {
-      // 发布前这里没有地址：如实说明，而不是去问一个不属于本项目的更新源。
+      // No URL before release: say so plainly rather than querying an update source
+      // that does not belong to this project.
       setStatus({
         kind: "error",
-        message: "更新源还没配置：发布时在 useUpdater.ts 里填上自己的仓库",
+        message: "update source not configured yet",
       });
       return;
     }

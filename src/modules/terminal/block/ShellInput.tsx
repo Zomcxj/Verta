@@ -75,7 +75,8 @@ export default function ShellInput({
     fontWeight,
   } = useTerminalFont();
   const { activeTheme, resolvedMode } = useTheme();
-  // 与终端本体同一套字体栈，输入行才跟正文对得上。
+  // Same font stack as the terminal itself, so the input row lines up with the
+  // text above it.
   const fontFamily = resolveFontStack(fontFamilyPref);
   const fontRef = useRef({ fontFamily, fontSize, fontWeight });
   fontRef.current = { fontFamily, fontSize, fontWeight };

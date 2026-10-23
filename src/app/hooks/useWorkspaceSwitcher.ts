@@ -39,8 +39,9 @@ export function useWorkspaceSwitcher({
   const [home, setHome] = useState<string | null>(null);
   const [launchCwd, setLaunchCwd] = useState<string | null>(null);
   const [launchCwdResolved, setLaunchCwdResolved] = useState(false);
-  // 换工作区时给的提示要跟着语言走，但 switchWorkspace 的身份被上层当依赖用，
-  // 所以文案走 ref 读，不把 `t` 塞进它的依赖数组。
+  // Workspace-switch messages follow the language, but `switchWorkspace`'s identity is
+  // used as a dependency upstream, so the copy is read through a ref instead of putting
+  // `t` in its dependency array.
   const t = useT();
   const tRef = useRef(t);
   tRef.current = t;
@@ -78,10 +79,12 @@ export function useWorkspaceSwitcher({
   }, []);
 
   /**
-   * 解析并授权某个环境的家目录，但不改任何状态。
+   * Resolve and authorize an env's home directory without changing any state.
    *
-   * 需要「准备好再一次落地」的调用方（比如开终端）用它：环境与文件树的根分两次落地时，中间那
-   * 一瞬间文件树会拿旧的根去新的环境里找（用户看到的就是一闪而过的「系统找不到指定路径」）。
+   * For callers that need to prepare before committing (opening a terminal, say): when
+   * env and file-tree root land in two steps, for an instant the tree searches the new
+   * env with the old root (which users see as a flash of "system cannot find the path
+   * specified").
    */
   const prepareEnv = useCallback(
     async (env: WorkspaceEnv): Promise<string | null> => {
@@ -101,7 +104,8 @@ export function useWorkspaceSwitcher({
     [],
   );
 
-  /** 同步落地环境与家目录；解析与授权交给 prepareEnv。 */
+  /** Commit the env and home directory at once; resolution and authorization are
+   * prepareEnv's job. */
   const applyEnv = useCallback(
     (env: WorkspaceEnv, nextHome: string | null) => {
       setWorkspaceEnv(env.kind === "local" ? LOCAL_WORKSPACE : env);

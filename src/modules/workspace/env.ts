@@ -25,11 +25,13 @@ type State = {
 export const LOCAL_WORKSPACE: WorkspaceEnv = { kind: "local" };
 
 /**
- * 这个根路径属于哪个环境。项目落在 WSL 里就用 WSL，落在盘上就用本机。
+ * Which env this root path belongs to. A project in WSL uses WSL, one on a drive uses
+ * local.
  *
- * 判断不出来时**保持原来的环境**，绝不猜：猜错会让文件树、git、LSP 一起走去翻另一个文件系统。
- * 裸的 Linux 绝对路径（`/home/...`）没有携带发行版名，所以只在原环境已经是 WSL、
- * 或偏好里有上次用过的发行版时才切过去。
+ * When it cannot be told, **keep the previous env** and never guess: a wrong guess
+ * sends the file tree, git, and LSP off to search another filesystem together. A bare
+ * Linux absolute path (`/home/...`) carries no distro name, so we only switch when the
+ * previous env is already WSL or preferences remember the last distro used.
  */
 export function envForRoot(
   root: string | null | undefined,
@@ -38,10 +40,11 @@ export function envForRoot(
 ): WorkspaceEnv {
   const path = (root ?? "").trim();
   if (!path) return previous;
-  // \\wsl.localhost\<distro>\... 或 \\wsl$\<distro>\...
+  // \\wsl.localhost\<distro>\... or \\wsl$\<distro>\...
   const unc = /^[\\/]{2}wsl(?:\.localhost|\$)[\\/]([^\\/]+)/i.exec(path);
   if (unc) return { kind: "wsl", distro: unc[1] };
-  // 盘符路径与 /mnt/<盘> 都是 Windows 存储，无论从哪一侧看。
+  // Drive paths and /mnt/<drive> both live on Windows storage, whichever side you
+  // look from.
   if (/^[A-Za-z]:[\\/]/.test(path)) return LOCAL_WORKSPACE;
   if (/^\/mnt\/[a-z](?:\/|$)/i.test(path)) return LOCAL_WORKSPACE;
   if (path.startsWith("/")) {
@@ -52,11 +55,13 @@ export function envForRoot(
 }
 
 /**
- * 这一次调用该用哪个环境：以**路径本身**为准。
+ * Which env this call should use: **the path itself decides**.
  *
- * 环境与路径是分两步落地的（切标签、开终端都要先解析家目录、先授权），中间那一瞬间两边会对不上，
- * 而文件树、编辑器读的都是绝对路径：按路径取环境，就不会拿 Linux 路径去本机文件系统里找
- * （用户看到的就是一闪而过的「系统找不到指定路径」）。
+ * Env and path land in two steps (switching tabs or opening a terminal resolves the
+ * home directory and authorizes before applying), so for an instant the two
+ * disagree — and the file tree and editor read absolute paths. Taking the env from
+ * the path keeps a Linux path from being looked up on the local filesystem (which
+ * users see as a flash of "system cannot find the path specified").
  */
 export function envForPath(
   path: string | null | undefined,

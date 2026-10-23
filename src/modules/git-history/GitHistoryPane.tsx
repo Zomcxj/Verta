@@ -839,7 +839,7 @@ const CommitRow = memo(function CommitRow({
 
 type CommitDetailProps = {
   commit: GitLogEntry;
-  /** 提交所在仓库；拣选/还原/软撤回都在它上面跑。 */
+  /** Repo the commit lives in; cherry-pick/revert/soft-reset all run against it. */
   repoRoot: string;
   filesEntry: FilesEntry | null;
   remoteWeb: RemoteWebInfo | null;
@@ -849,7 +849,7 @@ type CommitDetailProps = {
     file: GitCommitFileChange,
   ) => Promise<void> | void;
   onRetryFiles: () => void;
-  /** 历史被改写后重新拉一遍提交列表。 */
+  /** Re-fetch the commit list after history is rewritten. */
   onChanged: () => void;
 };
 

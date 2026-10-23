@@ -25,7 +25,7 @@ type Props = {
   activeId: number;
   onSelect: (id: number) => void;
   onNew: () => void;
-  /** 明确选一个终端（本机某个 shell，或某个发行版的终端）。 */
+  /** Open a specific terminal (a local shell, or a terminal in a given distro). */
   onNewTerminal: (choice: TerminalChoice) => void;
   onNewBlock: () => void;
   onNewPrivate: () => void;
@@ -46,13 +46,14 @@ type Props = {
   onReorder: (fromId: number, toGapIndex: number) => void;
   onOverrideLanguage?: (id: number, lang: string | null) => void;
   onToggleSidebar: () => void;
-  /** 右侧 Git 面板：与左上角那个按钮同款，位置上对称。 */
+  /** Right-side Git panel: the same button as the top-left one, mirrored in position. */
   onToggleGitPanel: () => void;
-  /** 打开远程仓库列表标签页（本机 gh 读到的账号级仓库）。 */
+  /** Open the remote repos tab (the account-level repos read by the local gh). */
   onOpenRemotes: () => void;
-  /** 区域截图：抓整屏，在覆盖窗口上拖一块出来。 */
+  /** Region capture: grab the whole screen and drag out a region on the overlay. */
   onScreenshot: () => void;
-  /** 未提交改动数，显示在右上角按钮上（原先在左栏的 Git 项上）。 */
+  /** Uncommitted change count, shown on the top-right button (it used to sit on the Git
+   * item in the left rail). */
   changedCount: number;
   onOpenCommandPalette: () => void;
   onOpenSettings: () => void;

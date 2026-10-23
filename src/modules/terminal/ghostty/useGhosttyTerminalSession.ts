@@ -71,7 +71,8 @@ type GhosttySession = {
   initialCwd: string | undefined;
   workspace: WorkspaceEnv | undefined;
   shell: string | undefined;
-  /** 输出暂停/失败提示的文案；由 hook 按当前界面语言填。 */
+  /** Copy for the output paused/failed notices, filled by the hook in the current UI
+   * language. */
   notices: PtyNotices | null;
   lastCwd: string | null;
   model: GhosttyTerminalModelApi | null;
@@ -111,12 +112,14 @@ type GhosttyStartupTimings = {
 const sessions = new Map<number, GhosttySession>();
 const textEncoder = new TextEncoder();
 /**
- * 每个叶子从 pty 收到的累计字节数。
+ * Cumulative bytes each leaf has received from its pty.
  *
- * 「进程起来了」与「界面画出来了」不是一回事：agent 起来之后还要一两秒才画出第一帧，
- * 这一两秒里屏幕上是它启动前的样子。等界面用「又收到了多少输出」判断（见 App 的
- * waitForAgentUi）：一整屏 TUI 是几 KB，而命令回显只有几十字节。按累计量而不是
- * 「安静了多久」—— 活着的 TUI 会不停重绘，从来没有安静的时候。
+ * "The process is up" and "the UI has painted" are not the same thing: an agent
+ * needs another second or two before it draws its first frame, and until then the
+ * screen still looks like it did before launch. Waiting for the UI keys off how
+ * much more output arrived (see `waitForAgentUi` in App): a full-screen TUI is
+ * several KB while a command echo is tens of bytes. Cumulative bytes, not quiet
+ * time — a live TUI keeps repainting and is never quiet.
  */
 const outputBytes = new Map<number, number>();
 // Size queries are ASCII, so a byte-per-character view is enough to scan them
@@ -154,9 +157,10 @@ type Options = {
   visible: boolean;
   focused: boolean;
   initialCwd?: string;
-  /** 该叶子在哪个环境里跑：缺省是本机，WSL 会话恢复时是那个发行版。 */
+  /** Which env this leaf runs in: local by default, or the distro when a WSL session
+   * is restored. */
   workspace?: WorkspaceEnv;
-  /** 该叶子跑哪个 shell；缺省用设置里的默认终端。 */
+  /** Which shell this leaf runs; defaults to the terminal set in preferences. */
   shell?: string;
   blocks?: boolean;
   onExit?: (code: number) => void;
@@ -179,7 +183,8 @@ export function useGhosttyTerminalSession({
   onCwd,
 }: Options) {
   const t = useT();
-  // 提示文案按当前语言算好；会话是长驻的，换语言后新发生的提示也要跟上。
+  // Notices are resolved in the current language; sessions are long-lived, so notices
+  // raised after a language switch must follow along.
   const notices = useMemo<PtyNotices>(
     () => ({
       title: t("term.outputPaused"),
@@ -198,7 +203,7 @@ export function useGhosttyTerminalSession({
   const zoomLevel = usePreferencesStore((state) => state.zoomLevel);
   const font = useMemo<TerminalFontSpec>(
     () => ({
-      // 选中的字体 → 自动检测到的 Nerd Font（图标）→ 兜底链。
+      // Selected font → auto-detected Nerd Font (for icons) → fallback chain.
       family: resolveFontStack(fontFamily),
       size: Math.max(4, Math.round(fontSize * zoomLevel)),
       lineHeight: 1.2,
@@ -212,7 +217,8 @@ export function useGhosttyTerminalSession({
   const callbackRef = useRef({ onSearchReady, onExit, onCwd });
   callbackRef.current = { onSearchReady, onExit, onCwd };
   const initialCwdRef = useRef(initialCwd);
-  // 环境在标签创建时就定了，恢复 WSL 会话后不会变，所以跟 cwd 一样只取首次的值。
+  // The env is fixed when the tab is created and does not change when a WSL session
+  // is restored, so like the cwd only the first value is kept.
   const workspaceRef = useRef(workspace);
   const shellRef = useRef(shell);
 
@@ -251,8 +257,9 @@ export function useGhosttyTerminalSession({
     };
   }, [leafId, backend, container, blocks]);
 
-  // 会话对象活在 hook 之外，所以文案要显式挂上去；挂在这个 effect 里而不是
-  // 初始化那段里，是为了换语言后新弹出的提示用新语言。
+  // The session object lives outside the hook, so the copy has to be attached
+  // explicitly. It is attached in this effect rather than during initialization so
+  // notices raised after a language switch use the new language.
   useEffect(() => {
     const session = sessions.get(leafId);
     if (session) session.notices = notices;
@@ -451,9 +458,10 @@ export function ghosttyLeafIdForPty(ptyId: number): number | null {
 }
 
 /**
- * 这个叶子从 pty 收到的累计字节数（没有就返回 0）。
+ * Cumulative bytes this leaf has received from its pty (0 when unknown).
  *
- * 给「等 agent 的界面画出来」用：调用方在自己写下命令之前取一次基线，之后看它涨了多少。
+ * Feeds "wait for the agent's UI to paint": the caller takes a baseline before
+ * writing its command and then watches how much it grows.
  */
 export function ghosttyLeafOutputBytes(leafId: number): number {
   return outputBytes.get(leafId) ?? 0;
@@ -935,7 +943,7 @@ async function initializeSessionGeneration(
     },
     session.initialCwd,
     !!ghosttyBlocks(session.leafId),
-    // 叶子指定的 shell 优先，其次才是设置里的默认终端。
+    // A shell named by the leaf wins over the default terminal from preferences.
     session.shell ?? (preferences.terminalShell || undefined),
     session.leafId,
     session.workspace,

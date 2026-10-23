@@ -18,13 +18,14 @@ type Props = {
   repoRoot: string;
   sha: string;
   shortSha: string;
-  /** 改动历史之后的刷新（重读提交列表）。 */
+  /** Refresh after history changes (re-reads the commit list). */
   onChanged: () => void;
 };
 
 /**
- * 提交上的三个动作。都会动仓库状态，所以先弹确认，跑失败就把 git 的原话留在
- * 弹窗里；冲突时 git 会停在中间状态，那一步用「中止」退出。
+ * Three actions on a commit. All of them change repo state, so each confirms first and
+ * a failure keeps git's own words in the dialog; a conflict leaves git paused
+ * mid-operation, which is exited with "abort".
  */
 export function CommitActions({ repoRoot, sha, shortSha, onChanged }: Props) {
   const t = useT();
@@ -56,12 +57,14 @@ export function CommitActions({ repoRoot, sha, shortSha, onChanged }: Props) {
         await native.gitResetSoft(repoRoot, sha);
       }
     } catch (e) {
-      // 冲突、脏工作区这些都要原样看见，弹窗留着让用户决定下一步。
+      // Conflicts and a dirty worktree have to be visible as-is; the dialog stays open
+      // so the user decides the next step.
       setError(String(e));
       setBusy(false);
       return;
     }
-    // git 成功了：先收弹窗，刷新只是善后，它出问题不该让弹窗装成失败的样子。
+    // git succeeded: close the dialog first. The refresh is only cleanup, and a problem
+    // there must not make the dialog look like a failure.
     setKind(null);
     setBusy(false);
     toast.message(
@@ -81,7 +84,8 @@ export function CommitActions({ repoRoot, sha, shortSha, onChanged }: Props) {
   const abort = async () => {
     if (!kind || busy) return;
     const action = kind;
-    // 中止是「从这一步退出来」：先把弹窗收掉，失败才用浮层提示。
+    // Abort means "back out of this step": close the dialog first and only report a
+    // failure via a toast.
     setBusy(true);
     setKind(null);
     setError(null);
@@ -113,7 +117,8 @@ export function CommitActions({ repoRoot, sha, shortSha, onChanged }: Props) {
         ? t("scm.commit.confirmRevertBody")
         : t("scm.commit.confirmResetSoftBody");
 
-  // 还原与拣选都会停在冲突中间态；软撤回不会，所以不给它中止按钮。
+  // Revert and cherry-pick can stop mid-conflict; a soft reset cannot, so it gets no
+  // abort button.
   const canAbort = kind === "cherry-pick" || kind === "revert";
 
   return (
@@ -176,7 +181,8 @@ export function CommitActions({ repoRoot, sha, shortSha, onChanged }: Props) {
                   : t("scm.commit.abortCherryPick")}
               </Button>
             ) : null}
-            {/* 失败不总是「中途停下」：脏工作区这种修好就能再来一次，所以确定留着。 */}
+            {/* A failure is not always "paused midway": a dirty worktree only needs
+                fixing before another try, so keep the confirm button. */}
             <Button onClick={() => void run()} disabled={busy}>
               {error ? t("scm.commit.retry") : t("scm.common.confirm")}
             </Button>

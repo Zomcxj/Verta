@@ -145,31 +145,37 @@ const BenchBridge = __VERTA_BENCH__
   ? lazy(() => import("@/bench/BenchBridge"))
   : null;
 
-/** 会话开启过渡：等「agent 的界面画出来了」再撤，判据是进程起来 + 又画了几 KB 输出。 */
+/** Session-opening overlay: lift it once the agent's UI has painted, judged by the
+ * process being up plus a few KB of fresh output. */
 const AGENT_UI_POLL_MS = 120;
 /**
- * 界面画出来的门槛：一整屏 TUI 是几 KB，而被 shell 回显的那行命令只有几十字节。
- * 按**累计**输出量看，不看「安静了多久」—— 活着的 TUI 会不停重绘，从来没有安静的时候
- * （实测：opencode 起来后输出从不断 420ms）。
+ * Paint threshold: a full-screen TUI is several KB, while the command echoed by
+ * the shell is only tens of bytes. Measured by **cumulative** output, not by
+ * quiet time: a live TUI keeps repainting and is never quiet (measured:
+ * opencode never stops emitting for more than 420ms once up).
  */
 const AGENT_UI_PAINT_BYTES = 900;
 const AGENT_UI_TIMEOUT_MS = 8000;
-/** 兜底：等不出结论也不能一直盖着（比上面的上限略长，通常轮询先结束）。 */
+/** Fallback: never cover the terminal forever when the wait is inconclusive (a
+ * bit longer than the timeout above; the poll usually finishes first). */
 const SESSION_OPENING_FALLBACK_MS = 8500;
 
-/** @returns 等 `ms` 毫秒。 */
+/** @returns a promise that resolves after `ms` milliseconds. */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * agent 的界面起来了没 —— 撤过渡要等到的是**界面**，不是进程。
+ * Has the agent's UI come up? What we wait for is the **UI**, not the process.
  *
- * 两个条件：`leafHasForegroundProcess`（shell 有没有子进程：agent 一起来就为真）与
- * 「这个叶子又收下了 900 字节以上的输出」。只看进程不够：opencode / pi 起来之后还要
- * 一两秒才画出第一帧，那段时间屏幕上还是它启动前的样子，撤早了就是「动画结束了还看到
- * 终端」。`base` 是写命令**之前**的累计字节，命令回显撑不起这 900 字节，一整屏 TUI 可以。
- * 超时（8 秒）照撤，不能一直挡着。
+ * Two conditions: `leafHasForegroundProcess` (does the shell have a child — true
+ * as soon as the agent starts) and "this leaf took in another 900+ bytes". The
+ * process alone is not enough: opencode / pi take another second or two before
+ * painting the first frame, and until then the screen still shows the pre-launch
+ * state, so lifting early means the animation ends on a bare terminal. `base` is
+ * the cumulative byte count **before** writing the command, so the echo cannot
+ * account for 900 bytes but a full-screen TUI can. On timeout (8s) we lift
+ * anyway — the overlay must not block the user forever.
  */
 async function waitForAgentUi(leafId: number, base: number): Promise<void> {
   const deadline = Date.now() + AGENT_UI_TIMEOUT_MS;
@@ -344,8 +350,10 @@ export default function App() {
   const isGitHistoryTab = activeTab?.kind === "git-history";
 
   /**
-   * 终端在哪个环境，工作区就跟到哪个环境。文件树的根就是当前终端的 cwd，两边对不上时它会拿
-   * Linux 路径去本机的文件系统里找（报「指定的路径无效」），所以两个方向都要跟。
+   * The workspace env follows whichever env the terminal is in. The file tree's
+   * root is the active terminal's cwd, and when the two disagree it goes looking
+   * for a Linux path on the local filesystem (and reports an invalid path), so
+   * both directions have to be kept in sync.
    */
   const followTerminalEnv = useCallback(
     async (env: WorkspaceEnv) => {
@@ -364,7 +372,8 @@ export default function App() {
     if (activeTab?.kind !== "terminal") return null;
     const leaf = findLeaf(activeTab.paneTree, activeTab.activeLeafId);
     if (!leaf) return null;
-    // 叶子自己记了环境就用它；旧标签只记了 cwd，就从路径反推（盘符是 Windows 存储，/home 是发行版）。
+    // Trust the env stored on the leaf; older tabs only kept a cwd, so infer from
+    // the path (a drive letter means Windows, /home means the distro).
     return (
       leaf.workspace ?? (leaf.cwd ? envForRoot(leaf.cwd, workspaceEnv) : null)
     );
@@ -428,7 +437,8 @@ export default function App() {
   const disposeDeletedTabs = useCallback(
     (ids: number[]) => {
       if (ids.length === 0) return;
-      // 磁盘上的文件被删、标签跟着关，可能把标签关光；补一个，窗口不留空壳。
+      // Deleting files on disk closes their tabs and may close them all; open a
+      // fresh one so the window never ends up empty.
       const doomed = new Set(ids);
       if (!tabsRef.current.some((t) => !doomed.has(t.id))) newTab();
       for (const id of ids) disposeTab(id);
@@ -535,7 +545,8 @@ export default function App() {
   }, [tabs, activeId]);
 
   /**
-   * 本机新终端的 cwd。别继承 WSL 的路径：那是发行版里的目录，交给 PowerShell 是无效路径。
+   * cwd for a new local terminal. Never inherit a WSL path: that is a directory
+   * inside the distro and would be invalid for PowerShell.
    */
   const localCwdForNewTab = useCallback(async () => {
     const inherited = inheritedCwdForNewTab();
@@ -548,8 +559,10 @@ export default function App() {
   }, [inheritedCwdForNewTab]);
 
   /**
-   * 从加号的悬浮窗里挑一个具体终端。选 WSL 时用发行版自己的家目录当 cwd：本机路径对它没有
-   * 意义，而留空会让文件树退回上一次终端的路径，去 WSL 环境里找 Windows 目录。
+   * Open a specific terminal picked from the plus-button popover. For WSL the cwd
+   * is the distro's own home: a local path means nothing there, and leaving it
+   * empty makes the file tree fall back to the previous terminal's path and look
+   * for a Windows directory inside WSL.
    */
   const openTerminalChoice = useCallback(
     async ({ shell, env }: TerminalChoice) => {
@@ -557,8 +570,9 @@ export default function App() {
         env.kind === "wsl"
           ? await getWslHome(env.distro).catch(() => undefined)
           : await localCwdForNewTab();
-      // 家目录先解析好、授权好，再在同一个提交里换环境 + 开标签：分两次落地的话，中间那一瞬
-      // 文件树会拿旧的根去新的环境里找，用户看到的就是一闪而过的「系统找不到指定路径」。
+      // Resolve and authorize the home dir first, then switch env and open the tab
+      // in one commit. Landing them separately leaves a frame where the file tree
+      // searches the new env with the old root, flashing a "path not found".
       const nextHome = await prepareEnv(env);
       applyEnv(env, nextHome ?? cwd ?? null);
       newTab(cwd, { shell, workspace: env });
@@ -567,9 +581,11 @@ export default function App() {
   );
 
   /**
-   * 普通新建终端（Ctrl+T、命令面板、加号里的「默认终端」）。环境按设置里的默认环境来：
-   * 工作区环境会跟着已打开的终端漂到 WSL，但「默认终端」是设置说了算的那一个，不该跟着漂，
-   * 否则在一个 WSL 项目里点本机终端也会开出发行版里的 shell。
+   * Plain new terminal (Ctrl+T, command palette, "default terminal" in the plus
+   * menu). The env comes from the default-env preference: the workspace env
+   * drifts to WSL along with open terminals, but "default terminal" is whatever
+   * settings say and should not drift, otherwise clicking the local terminal
+   * inside a WSL project would still open a shell in the distro.
    */
   const openNewTab = useCallback(() => {
     void openTerminalChoice({
@@ -579,12 +595,13 @@ export default function App() {
     });
   }, [openTerminalChoice]);
 
-  /** 项目列表标签页（中间区域，一个空间一个）。 */
+  /** Projects tab (center area, one per workspace). */
   const openProjects = useCallback(() => {
     openProjectsTab(t("tabs.new.projects"));
   }, [openProjectsTab, t]);
 
-  /** 远程仓库标签页（中间区域，一个空间一个，内容是本机 gh 读到的账号级列表）。 */
+  /** Remote repos tab (center area, one per workspace, showing the account-level
+   * list read by the local gh). */
   const openRemotes = useCallback(() => {
     openRemoteReposTab(t("remotes.tabTitle"));
   }, [openRemoteReposTab, t]);
@@ -598,9 +615,11 @@ export default function App() {
   }, [newBlockTab, inheritedCwdForNewTab]);
 
   /**
-   * 开启会话时盖的那层过渡（见 `SessionOpeningOverlay`）。恢复会话要往终端里写一条
-   * 命令，写进去的瞬间那行命令就画在终端上；这层盖住那一幕，命令照写。
-   * 定时器是兜底 —— 会话一时准备不好，也不能一直挡着不让用。
+   * The transition layer shown while a session opens (see
+   * `SessionOpeningOverlay`). Resuming a session writes a command into the
+   * terminal and the line shows up the instant it lands; this layer covers that
+   * moment while the write goes through. The timer is a fallback — a slow session
+   * must not block the UI indefinitely.
    */
   const [sessionOpening, setSessionOpening] = useState(false);
   const sessionOpeningTimer = useRef<number | null>(null);
@@ -617,7 +636,7 @@ export default function App() {
     setSessionOpening(true);
     scheduleHideSessionOpening(SESSION_OPENING_FALLBACK_MS);
   }, [scheduleHideSessionOpening]);
-  /** 撤过渡。 */
+  /** Lift the transition layer. */
   const hideSessionOpening = useCallback(() => {
     if (sessionOpeningTimer.current !== null) {
       window.clearTimeout(sessionOpeningTimer.current);
@@ -636,8 +655,9 @@ export default function App() {
 
   const handleOpenSession = useCallback(
     (session: AgentSession) => {
-      // 环境与命令一起由会话自己定：本机会话就得开在本机终端里，别让终端去猜
-      // 当前环境（在 WSL 终端上点本机会话，命令是本机的、shell 是发行版的）。
+      // The session decides both env and command: a local session has to run in a
+      // local terminal. Do not let the terminal guess the current env, or a local
+      // session started from a WSL terminal gets a local command in a distro shell.
       const plan = planSessionOpen(session);
       if (!plan) {
         console.error("[verta] refusing to build a resume command", session.id);
@@ -650,18 +670,21 @@ export default function App() {
         session.tool,
       );
       setActiveSessionId(session.id);
-      // 盖住「命令被写进终端」那一幕（见 SessionOpeningOverlay）。
+      // Cover the moment the command lands in the terminal (see
+      // SessionOpeningOverlay).
       showSessionOpening();
       void (async () => {
         await whenSessionReady(leafId);
-        // 写之前先取一次输出基线：之后涨了多少，就是屏幕上多画了多少。
+        // Snapshot the output counter before writing: later growth is what got
+        // painted on screen.
         const baseBytes = leafOutputBytes(leafId);
         if (!writeToSession(leafId, `${plan.command}\r`)) {
           console.error(`[verta] terminal ${leafId} closed before resume`);
           hideSessionOpening();
           return;
         }
-        // 等 agent 的界面起来再撤过渡：撤早了露出来的就是「命令刚被敲进去」的终端。
+        // Wait for the agent's UI before lifting: lifting early exposes a terminal
+        // with the command just typed into it.
         await waitForAgentUi(leafId, baseBytes);
         hideSessionOpening();
       })();
@@ -698,7 +721,7 @@ export default function App() {
     [newAgentTab, showSessionOpening, hideSessionOpening],
   );
 
-  /** 项目行里的「在终端中打开」：只是在该目录开一个普通终端标签。 */
+  /** "Open in terminal" on a project row: just opens a plain terminal tab there. */
   const handleOpenProjectTerminal = useCallback(
     (entry: ProjectEntry) => {
       newTab(entry.path, { workspace: entry.workspace });
@@ -707,9 +730,11 @@ export default function App() {
   );
 
   /**
-   * 单击项目行：切到该项目的环境（本机 / WSL），并在项目根目录开一个终端。
+   * Clicking a project row: switch to that project's env (local / WSL) and open a
+   * terminal at the project root.
    *
-   * 项目列表就是唯一的项目入口——以前这里是「一个项目一个空间」，界面上还挂着空间切换器。
+   * The project list is the only way in to a project. This used to be "one
+   * project, one workspace", with a workspace switcher in the UI.
    */
   const handleOpenProject = useCallback(
     (entry: ProjectEntry) => {
@@ -1291,7 +1316,8 @@ export default function App() {
     [isTerminalTab, activeLeafId],
   );
 
-  /** 区域截图：后端抓屏并开覆盖窗口，选完由后端裁剪、存图、进剪贴板。 */
+  /** Region capture: the backend grabs the screen and opens the overlay; on
+   * selection it crops, saves, and copies to the clipboard. */
   const startScreenshot = useCallback(() => {
     void native.screenshotBegin().catch((e) => {
       toast.error(t("screenshot.failed", { error: String(e) }));
@@ -1299,10 +1325,12 @@ export default function App() {
   }, [t]);
 
   /**
-   * 截图存好之后的收尾提示。
+   * Follow-up toast once the screenshot is saved.
    *
-   * 「插入路径」只在当前是终端页时才给：不在终端页时给了按钮也没处插，不如干脆不给，
-   * 免得点了没反应。插的是原始文本（不自动回车）——用户多半还要接着敲参数。
+   * "Insert path" only shows on a terminal tab: anywhere else the button has
+   * nowhere to insert, so it is better to omit it than to offer a dead click.
+   * It inserts raw text without a trailing newline — the user usually wants to
+   * keep typing arguments.
    */
   useEffect(() => {
     let disposed = false;
@@ -1310,7 +1338,7 @@ export default function App() {
     const canInsert = isTerminalTab && activeLeafId !== null;
     const insertPath = (path: string) => {
       if (activeLeafId === null) return;
-      // 走括起的粘贴：路径里有空格、有中文时，终端不会把它当命令去解析。
+      // Use bracketed paste so a path with spaces or CJK is not parsed as a command.
       pasteIntoSession(activeLeafId, path);
       terminalRefs.current.get(activeLeafId)?.focus();
     };
@@ -1476,8 +1504,9 @@ export default function App() {
               </ResizablePanel>
               <ResizableHandle className="w-1 rounded-full bg-transparent transition-colors duration-[var(--dur-fast)] after:w-4 hover:bg-border" />
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
-                {/* 左右两条缝用同一组内边距（各 0.5）：侧栏↔终端与终端↔Git 看上去要一样宽，
-                    窗口两侧的外边距仍由侧栏的 pl-2 与右栏的 pr-2 给。 */}
+                {/* Both seams share the same padding (0.5 each) so sidebar↔terminal
+                    and terminal↔Git look equally wide; the outer window margins
+                    still come from the sidebar's pl-2 and the right panel's pr-2. */}
                 <div className="h-full min-h-0 pl-0.5 pr-0.5">
                   <div className="verta-pane flex h-full min-h-0 flex-col">
                     <div className="relative min-h-0 flex-1">

@@ -35,7 +35,7 @@ export function isGitTabKind(kind: string | undefined): boolean {
 }
 
 export function statusConsumers(input: {
-  /** 右侧 Git 面板是否展开。 */
+  /** Whether the right-hand Git panel is expanded. */
   gitPanelOpen: boolean;
   sidebarCollapsed: boolean;
   sidebarView: SidebarViewId;

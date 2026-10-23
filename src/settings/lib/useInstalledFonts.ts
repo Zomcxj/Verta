@@ -2,13 +2,15 @@ import { native } from "@/lib/native";
 import { useEffect, useState } from "react";
 
 /**
- * 本机已安装的字体族，给设置里的字体下拉用。
+ * Locally installed font families, for the font dropdown in settings.
  *
- * 整个进程只问后端一次（字体列表不会在一分钟内变来变去），读不到就记成 `null`：
- * 调用方看到 `null` 该退回手输框，而不是画一个空下拉。
+ * The backend is asked once per process (the font list does not change from minute to
+ * minute), and an unreadable result is recorded as `null`: callers should fall back to
+ * a text field on `null` rather than drawing an empty dropdown.
  */
 export type InstalledFonts = {
-  /** `null` = 读不到（没装 gh 之外的依赖、后端报错、或跑在浏览器里）。 */
+  /** `null` = unreadable (a dependency beyond gh is missing, the backend errored, or we
+   * are running in a browser). */
   families: string[] | null;
   loading: boolean;
 };

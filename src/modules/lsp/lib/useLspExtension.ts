@@ -17,8 +17,9 @@ export function useLspExtension(
 ): Extension | null {
   const [ext, setExt] = useState<Extension | null>(null);
   const t = useT();
-  // 会话建立和崩溃 toast 都在 React 之外发生，所以文案在这里翻好带下去。用 ref 递
-  // 而不是进依赖：换语言不该把已经连上的服务器拆掉重建一次。
+  // Session startup and crash toasts happen outside React, so the copy is translated
+  // here and handed down. It is passed via a ref instead of a dependency: switching
+  // language should not tear down and rebuild an already-connected server.
   const labels: LspSessionLabels = {
     panels: {
       definitions: t("lsp.definitions"),

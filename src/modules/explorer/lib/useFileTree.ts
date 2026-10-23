@@ -204,7 +204,9 @@ export function useFileTree(rootPath: string | null, options?: Options) {
           path,
           showHidden: showHiddenRef.current,
           gitDecorations: gitDecorationsRef.current,
-          // 环境按路径取：切标签/开终端时环境与根分两步落地，用订阅来的环境会拿 Linux 路径去本机找。
+          // The environment is derived from the path: when a tab is switched or a
+          // terminal opens, the environment and the root land in two steps, and the
+          // subscribed environment would send a Linux path looking on this machine.
           workspace: envForPath(path, workspace),
         });
         if (!isCurrent()) return false;

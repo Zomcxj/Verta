@@ -23,7 +23,8 @@ type Props = {
 
 export function SidebarRail({ activeView, onSelectView }: Props) {
   const t = useT();
-  // Git 不在这里：它在右侧面板，入口是右上角那个按钮（改动数徽标也跟过去了）。
+  // Git is not here: it lives in the right panel, reached from the button in the
+   // top-right corner (the changed-file badge moved there too).
   const items: RailItem[] = [
     { id: "launcher", label: "rail.sessions", icon: MessageMultiple01Icon },
     { id: "explorer", label: "rail.files", icon: FolderTreeIcon },

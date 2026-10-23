@@ -527,7 +527,8 @@ export class WebGpuTerminalSurface
     return this.theme.background;
   }
 
-  /** 画布按这个不透明度清屏；小于 1 就说明这一块要透出后面的东西。 */
+  /** The canvas clears at this opacity; below 1 means whatever is behind has to
+   * show through this pane. */
   backgroundAlpha(): number {
     return this.theme.backgroundAlpha;
   }

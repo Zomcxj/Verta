@@ -23,15 +23,17 @@ import { toast } from "sonner";
 import { useT } from "@/modules/i18n";
 
 type Props = {
-  /** 面板所在仓库；换仓库时重新读一遍。 */
+  /** Repo the panel is showing; switching repos re-reads it. */
   repoRoot: string | null;
-  /** 文件列表变化后（比如刚 stash 走一份改动）让外面刷新状态。 */
+  /** Lets the outside refresh state after the file list changes (a change just went
+   * into a stash, say). */
   onChanged: () => Promise<void>;
 };
 
 /**
- * 储藏列表。默认收起，展开才去读：储藏是「要用才翻」的东西，不该和文件列表
- * 抢每次刷新的开销。
+ * The stash list. Collapsed by default and only read when expanded: stashes are
+ * something you dig into when needed, so they should not compete with the file list
+ * for every refresh.
  */
 export function StashSection({ repoRoot, onChanged }: Props) {
   const t = useT();
@@ -56,7 +58,7 @@ export function StashSection({ repoRoot, onChanged }: Props) {
     [],
   );
 
-  // 换仓库、或第一次展开时才读。
+  // Read on repo switch, or the first time it is expanded.
   useEffect(() => {
     if (!repoRoot) {
       setEntries(null);
@@ -78,7 +80,8 @@ export function StashSection({ repoRoot, onChanged }: Props) {
         toast.message(done);
         return true;
       } catch (e) {
-        // git 的报错原样带出来：冲突、没东西可存这些都要让用户看见。
+        // Surface git's errors verbatim: conflicts and "nothing to save" both have to
+        // reach the user.
         setError(String(e));
         return false;
       } finally {
@@ -95,7 +98,8 @@ export function StashSection({ repoRoot, onChanged }: Props) {
       () => native.gitStashPush(repoRoot, trimmed || null, includeUntracked),
       t("scm.stash.done"),
     ).then((ok) => {
-      // 只有真的存进去了才清空输入框，失败时留着让人改。
+      // Clear the message only when the stash really landed; keep it on failure so it
+      // can be edited.
       if (ok) setMessage("");
     });
   }, [includeUntracked, message, repoRoot, run, t]);

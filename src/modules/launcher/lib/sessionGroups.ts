@@ -1,30 +1,33 @@
 import type { AgentSession, AgentTool } from "./types";
 
 /**
- * 会话列表怎么摆：`all` 全部放一块（按时间排），`tool` 按 agent 分开一段一段。
+ * How the session list is laid out: `all` keeps one block sorted by time, `tool` splits
+ * it into one section per agent.
  *
- * 默认 `all`：大多数时候人只想知道「最近聊了什么」，再照 agent 分一次家反而要多扫几眼。
- * 只有真的按工具找的时候，才切成 `tool`。
+ * `all` is the default: most of the time people just want "what did I talk about
+ * recently", and splitting by agent only means more scanning. Switch to `tool` when
+ * actually looking for a specific tool.
  */
 export type SessionGroupBy = "all" | "tool";
 
-/** 按时间倒序 —— 两个分组都遵守它，切来切去不会换顺序。 */
+/** Newest first — both groupings honor it, so switching between them never reorders. */
 export function sortByRecent(sessions: readonly AgentSession[]): AgentSession[] {
   return [...sessions].sort((left, right) => right.updatedAtMs - left.updatedAtMs);
 }
 
 export type SessionGroup = {
-  /** `null` 是全部放一块那一组（不画标题）；否则是某个 agent。 */
+  /** `null` is the single-block group (no heading drawn); otherwise it is one agent. */
   tool: AgentTool | null;
   sessions: AgentSession[];
 };
 
 /**
- * 按 agent 分段。
+ * Split into per-agent sections.
  *
- * 段的顺序跟着 `tools` 走（也就是设置里定下来的工具顺序），不跟着会话数或时间走 ——
- * 不然一段新消息进来整块列表就会换位置。没有会话的工具**不出现**，
- * 空列表给一组 `tool: null` 的空段，好让列表自己的空状态文案照常出现。
+ * Section order follows `tools` (the tool order fixed in settings), not session
+ * counts or timestamps — otherwise one new message would reshuffle the whole list.
+ * Tools with no sessions **do not appear**, and an empty list yields one empty
+ * section so the list's own empty-state copy still shows.
  */
 export function groupByTool(
   sessions: readonly AgentSession[],
@@ -39,7 +42,8 @@ export function groupByTool(
     tool,
     sessions: sortByRecent(sessions.filter((session) => session.tool === tool)),
   }));
-  // 存储里出现了不认识的工具名：照样列出来，别悄悄吞掉。
+  // An unknown tool name turned up in storage: list it anyway rather than silently
+  // swallowing it.
   const others = sessions.filter((session) => !known.has(session.tool));
   if (others.length > 0) {
     groups.push({ tool: null, sessions: sortByRecent(others) });

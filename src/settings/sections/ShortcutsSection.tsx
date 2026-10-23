@@ -45,7 +45,7 @@ export function ShortcutsSection() {
     const term = search.trim().toLowerCase();
     if (!term) return base;
     // Match what the user can see. Labels and group headings are message keys, so
-    // comparing the raw key never finds "关闭" or "Close" — only accidental
+    // comparing the raw key never finds the localized title — only accidental
     // English hits ("tab" happens to be inside "shortcut.newTab"). The binding
     // tokens are matched too, so typing "ctrl+w" finds the row as well.
     return base.filter((s) => {

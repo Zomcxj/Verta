@@ -159,9 +159,10 @@ export async function leafHasForegroundProcess(
 }
 
 /**
- * 这个叶子从 pty 收到的累计字节数。
+ * Cumulative bytes this leaf has received from its pty.
  *
- * 调用方在写命令之前取一次基线，之后用差量判断「界面上画了多少」。
+ * The caller takes a baseline before writing a command, then uses the difference to
+ * judge how much was painted on screen.
  */
 export function leafOutputBytes(leafId: number): number {
   return ghosttyLeafOutputBytes(leafId);

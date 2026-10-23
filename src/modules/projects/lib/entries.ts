@@ -4,8 +4,9 @@ import { mergeProjectPaths, normalizePath, samePath } from "./paths";
 import type { ProjectEntry } from "./types";
 
 /**
- * 清单里的路径 → 界面条目。环境按路径反推：盘上的项目是本机，用户手填的 Linux 路径
- * 属于某个发行版（`envForPath` 会用「上次用过的发行版」兜底）。
+ * Paths in the list → UI entries. The env is inferred from the path: a project on a
+ * drive is local, while a hand-typed Linux path belongs to some distro (`envForPath`
+ * falls back to the last distro used).
  */
 export function entriesFromPaths(paths: string[]): ProjectEntry[] {
   return paths.map((path) => ({
@@ -16,8 +17,9 @@ export function entriesFromPaths(paths: string[]): ProjectEntry[] {
 }
 
 /**
- * 从会话里发现的项目：打开 WSL 开关时，各发行版会话的 cwd 去重后并入列表，
- * 这样发行版里的会话也有项目行可挂。它们不是清单成员，界面不给「移除」。
+ * Projects discovered from sessions: with the WSL toggle on, the cwds of distro
+ * sessions are deduplicated and merged into the list, so sessions inside a distro have
+ * a project row to hang off. They are not list members, and the UI offers no "remove".
  */
 export function discoveredEntries(
   sessions: AgentSession[],

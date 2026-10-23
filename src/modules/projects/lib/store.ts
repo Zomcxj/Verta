@@ -1,7 +1,8 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { mergeProjectPaths } from "./paths";
 
-// 项目清单与空间一样放 plugin-store：用户自己维护的一份有序路径列表。
+// The project list lives in plugin-store like workspaces did: an ordered path list the
+// user maintains.
 const STORE_PATH = "verta-projects.json";
 const KEY_PROJECTS = "projects";
 
@@ -9,7 +10,8 @@ const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 500 });
 
 export async function loadProjectPaths(): Promise<string[]> {
   const raw = await store.get<string[]>(KEY_PROJECTS).catch(() => null);
-  // 存档被手改坏过也不能崩：不是数组就当空清单，并顺手去重规范化。
+  // A hand-edited store must not crash us: a non-array becomes an empty list, and the
+  // rest is deduplicated and normalized on the way in.
   if (!Array.isArray(raw)) return [];
   return mergeProjectPaths(
     [],

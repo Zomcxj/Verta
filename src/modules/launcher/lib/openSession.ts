@@ -2,7 +2,8 @@ import { LOCAL_WORKSPACE, type WorkspaceEnv } from "@/modules/workspace";
 import { resumeCommand } from "./resumeCommand";
 import type { AgentSession } from "./types";
 
-/** 点一个会话行之后要照着做的事：在哪恢复、开在哪个环境、跑哪条命令。 */
+/** What to do after clicking a session row: resume in which cwd and env, running which
+ * command. */
 export type SessionOpenPlan = {
   cwd: string;
   workspace: WorkspaceEnv;
@@ -10,11 +11,13 @@ export type SessionOpenPlan = {
 };
 
 /**
- * 会话在哪个环境里恢复，命令就按哪个环境写。会话记录里的 `distro` 是权威的
- * （`null` 即本机），**不能留空让终端去猜当前环境**：用户停在一个 WSL 终端上时点
- * 本机会话，命令是本机形式、shell 却是发行版的，`chdir F:/...` 在 Linux 侧必然
- * ENOENT（实测踩过这个坑）。环境与命令的写法必须同源，所以两件事一起算，
- * 不给调用方留下「只传一个」的机会。
+ * The command is written for whichever env the session resumes in. The `distro` in
+ * the session record is authoritative (`null` means local), and **it must not be left
+ * empty for the terminal to guess the current env**: clicking a local session while
+ * parked in a WSL terminal yields a local-style command in a distro shell, and
+ * `chdir F:/...` on the Linux side is a guaranteed ENOENT (we have hit this). Env and
+ * command spelling have to come from the same source, so both are computed here and
+ * callers never get the chance to pass just one.
  */
 export function planSessionOpen(session: AgentSession): SessionOpenPlan | null {
   const workspace: WorkspaceEnv = session.distro
@@ -30,7 +33,8 @@ export function planSessionOpen(session: AgentSession): SessionOpenPlan | null {
       ),
     };
   } catch {
-    // 会话 id 含非法字符：拒绝构造命令，调用方按「不打开」处理。
+    // The session id has illegal characters: refuse to build a command, and the caller
+    // treats it as "do not open".
     return null;
   }
 }

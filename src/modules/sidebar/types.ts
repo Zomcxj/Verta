@@ -1,5 +1,6 @@
 /**
- * 左栏里能选的面板。Git 视图不在这里：它搬到了右侧面板，入口只有右上角那个按钮与命令面板，
- * 免得同一个面板有两处入口、两份状态。
+ * The panels selectable in the left rail. The Git view is not here: it moved to the right
+ * panel, reachable only from the top-right button and the command palette, so one panel
+ * never has two entry points and two sets of state.
  */
 export type SidebarViewId = "explorer" | "launcher";

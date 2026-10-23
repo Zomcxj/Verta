@@ -25,7 +25,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 
-/** 一个具体终端：本机某个 shell、默认终端，或某个发行版里的终端。 */
+/** A specific terminal: a local shell, the default terminal, or a terminal inside a distro. */
 export type TerminalChoice = {
   shell?: string;
   env: WorkspaceEnv;
@@ -39,7 +39,7 @@ type ShellInfo = {
 
 type Props = {
   onNew: () => void;
-  /** 明确选一个终端（本机某个 shell，或某个发行版的终端）。 */
+  /** Open a specific terminal (a local shell, or a terminal in a given distro). */
   onNewTerminal: (choice: TerminalChoice) => void;
   onNewBlock: () => void;
   onNewPrivate: () => void;
@@ -64,7 +64,8 @@ export function NewTabMenu({
   const [shells, setShells] = useState<ShellInfo[]>([]);
   const [distros, setDistros] = useState<{ name: string }[]>([]);
 
-  // 打开菜单时才去枚举：这是一次进程探测（WSL 还要起 wsl.exe），不该拖慢启动。
+  // Enumerate only when the menu opens: it probes processes (and starts wsl.exe for
+  // WSL), which should not slow down startup.
   useEffect(() => {
     if (!menuOpen) return;
     let disposed = false;

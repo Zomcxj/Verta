@@ -15,8 +15,9 @@ import { lazy, Suspense, useState } from "react";
 import { changeLabel, mergeBlocked } from "./lib/issues";
 
 /**
- * Markdown 渲染器（含 Streamdown）按需加载：静态引入会把整块排版代码拖进启动图，
- * 体积预算测试会当场拦下。Release 那边也是这么处理的。
+ * The Markdown renderer (including Streamdown) loads on demand: a static import
+ * would drag the whole layout engine into the startup graph and the bundle-budget
+ * test would fail on the spot. The Releases side does the same.
  */
 const Markdown = lazy(() =>
   import("@/modules/markdown/MarkdownRender").then((module) => ({
@@ -26,9 +27,10 @@ const Markdown = lazy(() =>
 
 type Props = {
   detail: WireIssueDetail;
-  /** 这个仓库能不能写：只读时评论框与写按钮都不渲染。 */
+  /** Whether this repo is writable: on a read-only repo neither the comment box nor
+   * the write buttons render. */
   writable: boolean;
-  /** 动作进行中：按钮禁着，别让人重复点。 */
+  /** An action is in flight: buttons are disabled to stop double clicks. */
   busy: boolean;
   comment: string;
   onCommentChange: (value: string) => void;
@@ -45,11 +47,12 @@ const MERGE_METHODS = [
 ] as const;
 
 /**
- * 一条 issue / PR 的详情。
+ * Detail of one issue / PR.
  *
- * 正文按 Markdown 渲染；PR 额外多一段（源 → 目标分支、检查状态、改动量）。
- * 合并按钮能不能点是**后端说了算**（`mergeBlocked`，给的是原因码）—— 界面只照着禁，
- * 不自己再判一遍，免得两处口径打架。
+ * The body renders as Markdown; a PR gets an extra block (head → base branch, check
+ * status, diff size). Whether the merge button is clickable is **the backend's
+ * call** (`mergeBlocked`, which yields a reason code) — the UI only follows it rather
+ * than judging again, so the two cannot disagree.
  */
 export function IssueDetail({
   detail,
@@ -67,12 +70,13 @@ export function IssueDetail({
   const blocked = mergeBlocked(pull);
   const isOpen = detail.state === "open";
   const canComment = writable && !detail.locked;
-  // 合并方式：默认压缩（GitHub 新仓库的默认），用户可在下拉里改。
+  // Merge method: squash by default (GitHub's default for new repos), changeable in
+  // the dropdown.
   const [mergeMethod, setMergeMethod] = useState("squash");
   const checksKey = (
     detail.checks ? `remotes.issues.checks.${detail.checks.state}` : ""
   ) as MessageKey;
-  // 检查数量按状态取：失败就说失败几项，还在跑就说还在跑几项。
+  // The count depends on the state: how many failed, or how many are still running.
   const checkCount = !detail.checks
     ? 0
     : detail.checks.state === "fail"
@@ -126,7 +130,7 @@ export function IssueDetail({
         </Button>
       </div>
 
-      {/* 元信息：作者 · 时间 · 状态 · 标签 · 指派人 */}
+      {/* Metadata: author · time · state · labels · assignees */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
         <span>{detail.author || t("remotes.issues.unknown")}</span>
         {detail.createdAt ? (
@@ -159,7 +163,7 @@ export function IssueDetail({
         ) : null}
       </div>
 
-      {/* PR 专属：源 → 目标、检查状态、改动量 */}
+      {/* PR-only: head → base, check status, diff size */}
       {pull ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-border/60 bg-card/40 px-2 py-1.5 text-[11px]">
           <span className="font-mono">
@@ -193,7 +197,7 @@ export function IssueDetail({
         </p>
       ) : null}
 
-      {/* 正文 */}
+      {/* Body */}
       {detail.body.trim() ? (
         <div className="max-h-[35vh] overflow-auto rounded border border-border/60 px-2 py-1.5 text-xs">
           <Suspense
@@ -216,7 +220,7 @@ export function IssueDetail({
         </p>
       )}
 
-      {/* 评论区 */}
+      {/* Comments */}
       <div className="space-y-1.5">
         <div className="text-[11px] font-medium">
           {t("remotes.issues.comments", { count: detail.comments.length })}
@@ -276,7 +280,7 @@ export function IssueDetail({
         ) : null}
       </div>
 
-      {/* 动作条 */}
+      {/* Action bar */}
       <div className="flex flex-wrap items-center gap-2 border-t border-border/40 pt-2">
         {writable ? (
           <>

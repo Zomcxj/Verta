@@ -22,7 +22,8 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 /**
- * 分支下拉里点出来的那几种操作。每种对应一个弹窗，弹窗内容由这个联合类型决定。
+ * The operations picked from the branch dropdown. Each maps to one dialog, and the
+ * union member decides which dialog is shown.
  */
 export type BranchDialogRequest =
   | { kind: "create-branch" }
@@ -35,15 +36,15 @@ type DialogsProps = {
   repoRoot: string | null;
   request: BranchDialogRequest | null;
   onClose: () => void;
-  /** 操作成功后刷新分支列表。 */
+  /** Refresh the branch list after a successful operation. */
   onChanged: () => void;
 };
 
 /**
- * 弹出中的那个分支/worktree 弹窗。没有请求时什么都不渲染。
+ * Whichever branch / worktree dialog is open; nothing renders without a request.
  *
- * 每个弹窗都是独立组件并带 key：连续对两个分支做同一件事时，表单不会留下上一次的
- * 内容。
+ * Each dialog is its own component with a key, so performing the same action on two
+ * branches in a row does not leave the previous form contents behind.
  */
 export function BranchDialogs({
   repoRoot,
@@ -106,7 +107,8 @@ export function BranchDialogs({
 }
 
 /**
- * 提交一次改动：成功才收弹窗，失败把 git 的原话留在弹窗里让用户改。
+ * Submit a change: close the dialog only on success; on failure keep git's own words
+ * in the dialog so the user can fix the input.
  */
 function useSubmit(onClose: () => void, onChanged: () => void) {
   const [busy, setBusy] = useState(false);
@@ -266,8 +268,9 @@ function RenameBranchDialog({
 }
 
 /**
- * 删分支。git 拒绝删未合并的分支时会报原文，这里再给一个明确的「强制删除」按钮 ——
- * 那正是用户需要看见「会连带丢掉未合并提交」的时刻。
+ * Delete a branch. When git refuses to delete an unmerged one it reports that
+ * verbatim, and only then do we offer an explicit "force delete" button — exactly the
+ * moment the user needs to see that unmerged commits go with it.
  */
 function DeleteBranchDialog({
   repoRoot,
@@ -341,7 +344,8 @@ function DeleteBranchDialog({
   );
 }
 
-/** 目标目录默认摆在仓库旁边：`<仓库>-<分支>`，用户动过输入框就不再自动改。 */
+/** The destination defaults to a sibling of the repo: `<repo>-<branch>`, and stops
+ * auto-updating once the user has touched the field. */
 function suggestWorktreePath(repoRoot: string, branch: string): string {
   const base = repoRoot.replace(/[\\/]+$/, "");
   return `${base}-${branch.trim() || "worktree"}`;
@@ -442,8 +446,9 @@ function AddWorktreeDialog({
 }
 
 /**
- * 移除 worktree。目录里有未提交改动时 git 会拒绝，这时才出现「强制移除」——
- * 那也正是要告诉用户「改动会一起没了」的时刻。
+ * Remove a worktree. git refuses while the directory has uncommitted changes, and
+ * only then does "force remove" appear — exactly when the user must be told the
+ * changes go with it.
  */
 function RemoveWorktreeDialog({
   repoRoot,
@@ -491,7 +496,8 @@ function RemoveWorktreeDialog({
             disabled={busy}
             onClick={() =>
               void submit(
-                // 第一次被 git 拒绝之后才走到这个按钮，所以这里就是明确的强制。
+                // This button is only reachable after git has refused once, so this is
+                // an explicit force.
                 () => native.gitWorktreeRemove(repoRoot, path, Boolean(error)),
                 t("scm.worktree.removed"),
               )

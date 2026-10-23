@@ -6,7 +6,7 @@ import type {
 import type { MessageKey } from "@/modules/i18n";
 import { relativeTime } from "@/modules/launcher";
 
-/** 界面上一条 issue / PR：wire 字段之外，加上显示用的时间文案。 */
+/** An issue / PR as shown in the UI: the wire fields plus a display-ready time label. */
 export type IssueRow = {
   number: number;
   title: string;
@@ -15,20 +15,20 @@ export type IssueRow = {
   isDraft: boolean;
   merged: boolean;
   author: string;
-  /** 相对时间；日期解不出来时是 null。 */
+  /** Relative time; null when the date cannot be parsed. */
   when: string | null;
-  /** 评论条数。 */
+  /** Comment count. */
   comments: number;
   labels: string[];
   assignees: string[];
   htmlUrl: string;
-  /** 锁了的不能评论。 */
+  /** Locked items cannot be commented on. */
   locked: boolean;
 };
 
-/** 类型筛选。 */
+/** Kind filter. */
 export type IssueKindFilter = "all" | "issue" | "pr";
-/** 状态筛选。 */
+/** State filter. */
 export type IssueStateFilter = "open" | "closed" | "all";
 
 export type IssueFilters = {
@@ -40,18 +40,19 @@ export type IssueFilters = {
 export type IssueListKind = WireIssueListPayload["kind"];
 
 /**
- * 列表为空或读不到时界面上该说什么，有内容要画列表时是 null。
- * 文案是 i18n 键，色调决定提示块的样子。
+ * What to tell the user when the list is empty or unreadable; null when there is
+ * content to render. The copy is an i18n key, and the tone picks the styling of
+ * the notice block.
  */
 export type IssueNotice = {
   tone: "empty" | "warn" | "error";
   titleKey: MessageKey;
   hintKey: MessageKey;
-  /** 失败时 gh 的原话；真空态与筛空时是 null。 */
+  /** gh's own words on failure; null when genuinely empty or empty after filtering. */
   detail: string | null;
 };
 
-/** wire 的一条转成界面的一行。 */
+/** Convert one wire entry into a UI row. */
 export function toRow(issue: WireIssueSummary, nowMs: number): IssueRow {
   const ms = issue.createdAt ? Date.parse(issue.createdAt) : Number.NaN;
   return {
@@ -71,7 +72,7 @@ export function toRow(issue: WireIssueSummary, nowMs: number): IssueRow {
   };
 }
 
-/** wire 的整页转成界面的一批行。 */
+/** Convert a whole wire page into UI rows. */
 export function toRows(
   payload: WireIssueListPayload,
   nowMs: number,
@@ -80,17 +81,18 @@ export function toRows(
 }
 
 /**
- * 三维筛选：类型、状态、关键字。
+ * Three-way filter: kind, state, keyword.
  *
- * 状态筛「已关闭」时**已合并的 PR 也算数** —— GitHub 那边合完就是 closed，
- * 界面上要是把它滤掉，用户会觉得这个 PR 不见了。
+ * With the "closed" state **merged PRs count too** — on GitHub a merge makes the
+ * PR closed, so filtering them out would make the user think the PR vanished.
  */
 export function filterRows(
   rows: IssueRow[],
   filters: IssueFilters,
 ): IssueRow[] {
   const keyword = filters.keyword.trim().toLowerCase();
-  // `#20` 与 `20` 是同一件事：编号搜索不该因为多打一个井号就搜不到。
+  // `#20` and `20` are the same thing: a number search should not fail just
+  // because of an extra hash.
   const number = keyword.replace(/^#/, "");
   return rows.filter((row) => {
     if (filters.kind === "issue" && row.isPullRequest) return false;
@@ -108,9 +110,11 @@ export function filterRows(
 }
 
 /**
- * 列表读不到 / 为空时该说点什么；有内容要画列表时是 null。
+ * What to say when the list is unreadable or empty; null when there is content to
+ * render.
  *
- * 「一条都没有」和「查失败了」必须分开：前者是仓库真没开 issue，后者是没取到。
+ * "Nothing here" and "the query failed" must stay distinct: one means the repo
+ * really has no issues, the other means we never got them.
  */
 export function issueNotice(
   payload: WireIssueListPayload | null,
@@ -161,17 +165,18 @@ export function issueNotice(
 }
 
 /**
- * 合并按钮现在该不该禁着，以及禁的**原因码**（merged / closed / draft / conflict /
- * computing / unknown）。
+ * Whether the merge button should be disabled right now, as a **reason code**
+ * (merged / closed / draft / conflict / computing / unknown).
  *
- * 后端只给码，界面按码取文案（`remotes.issues.mergeBlocked.*`）：「能不能合」只有一处
- * 说了算，而说给用户听的那句话得跟着界面语言走。
+ * The backend only supplies the code and the UI looks up the copy by code
+ * (`remotes.issues.mergeBlocked.*`): "can it merge" is decided in exactly one
+ * place, while the sentence shown to the user has to follow the UI language.
  */
 export function mergeBlocked(pull: WirePullRequestInfo | null): string | null {
   return pull?.mergeBlocked ?? null;
 }
 
-/** 检查状态的色调：跟仓库列表的 CI 徽标一个口径。 */
+/** Tone for a check status, consistent with the CI badge in the repo list. */
 export function checkTone(
   state: "pass" | "fail" | "pending" | "partial" | "none",
 ): "ok" | "bad" | "busy" | "none" {
@@ -187,7 +192,7 @@ export function checkTone(
   }
 }
 
-/** 改动量的展示文案：`+12 −3`。 */
+/** Display label for a diff size: `+12 −3`. */
 export function changeLabel(pull: WirePullRequestInfo | null): string | null {
   if (!pull) return null;
   return `+${pull.additions} −${pull.deletions}`;

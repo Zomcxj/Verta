@@ -141,10 +141,12 @@ function parseVariant(raw: unknown, path: string): ThemeVariant | string {
 }
 
 /**
- * 表面层（渐变 / 纹理）。全是可选字段，写错了就说是哪一项，别整份主题都拒掉。
+ * The surface layer (gradient / texture). All fields are optional, and a bad one is
+ * reported by name rather than rejecting the whole theme.
  *
- * `image` 只接受 CSS 的 `background-image` 值（渐变、`url(...)`），不接受别的 CSS ——
- * 它会被写进样式变量，写进意外的属性就相当于让主题文件能改任意样式。
+ * `image` accepts only CSS `background-image` values (gradients, `url(...)`) and no
+ * other CSS — it is written into a style variable, and an unexpected property there
+ * would let a theme file restyle anything.
  */
 function parseSurface(raw: unknown, path: string): ThemeSurface | undefined | string {
   if (raw === undefined) return undefined;
@@ -175,9 +177,11 @@ function parseSurface(raw: unknown, path: string): ThemeSurface | undefined | st
 }
 
 /**
- * 玻璃那几项：都是 0–1 的比例或像素数，写错了说明是哪一项。
+ * The glass fields: all ratios in 0–1 or pixel counts, and a bad one is reported by
+ * name.
  *
- * 自定义主题能用，是因为「玻璃感」靠的是把框架与面板变半透明 —— 只给颜色不够。
+ * Custom themes can use them because the glass look comes from making the frame and
+ * panes translucent — colors alone are not enough.
  */
 function parseGlass(raw: unknown, path: string): ThemeGlass | undefined | string {
   if (raw === undefined) return undefined;

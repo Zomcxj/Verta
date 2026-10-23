@@ -18,9 +18,10 @@ export type PaneNode =
       id: PaneId;
       slotId?: PaneId;
       cwd?: string;
-      /** 这个叶子在哪个环境里跑：缺省是本机，WSL 会话恢复时是那个发行版。 */
+      /** Which env this leaf runs in: local by default, or the distro when a WSL
+       * session is restored. */
       workspace?: WorkspaceEnv;
-      /** 指定这个叶子跑哪个 shell；缺省用设置里的默认终端。 */
+      /** Which shell this leaf runs; defaults to the terminal set in preferences. */
       shell?: string;
     }
   | {
@@ -237,7 +238,7 @@ function directionalTarget(
   return candidates[0]?.id ?? null;
 }
 
-/** 按 id 找叶子节点本身，供读取叶子级的设置（cwd / 环境 / shell）。 */
+/** Find the leaf node itself by id, for reading leaf-level settings (cwd / env / shell). */
 export function findLeaf(
   node: PaneNode,
   id: PaneId,

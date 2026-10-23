@@ -2,7 +2,7 @@ import type { AgentSession } from "@/modules/launcher";
 import { samePath } from "./paths";
 import type { ProjectRow, ProjectStatus } from "./types";
 
-/** 界面上给一行定的色调，文案在 i18n 里。 */
+/** Tone assigned to a row in the UI; the copy lives in i18n. */
 export type StateTone =
   | "clean"
   | "dirty"
@@ -15,14 +15,14 @@ export type StateTone =
 
 export type RowState = {
   tone: StateTone;
-  /** i18n 键；带参数时用 `params` 插值。 */
+  /** i18n key; `params` are interpolated when present. */
   key: string;
   params?: Record<string, number | string>;
 };
 
 /**
- * 一行状态的判定。优先级按「用户最需要先看到什么」排：读不出来的错误最靠前，
- * 其次是改动，再是领先/落后。
+ * Row state resolution. Priority follows what the user most needs to see first: a
+ * read failure comes first, then uncommitted changes, then ahead/behind.
  */
 export function stateOf(status: ProjectStatus | null): RowState {
   if (!status) return { tone: "unknown", key: "projects.state.unchecked" };
@@ -67,7 +67,7 @@ export function stateOf(status: ProjectStatus | null): RowState {
   return { tone: "clean", key: "projects.state.clean" };
 }
 
-/** 排序用的稳定键：把「状态」折算成一个可比较的严重度，缺状态排最后。 */
+/** Stable sort key: fold the state into a comparable severity, with no status last. */
 const SEVERITY: Record<StateTone, number> = {
   error: 0,
   warn: 1,
@@ -91,8 +91,9 @@ export type SortKey =
 export type SortState = { key: SortKey; ascending: boolean } | null;
 
 /**
- * 列头点击的三态循环：第一次升序、第二次降序、第三次取消排序（回到清单原顺序）。
- * 点另一列则从该列的升序重新开始。
+ * Three-state cycle on a column header: first click ascending, second descending,
+ * third clears the sort (back to the list's own order). Clicking another column
+ * restarts from ascending for that column.
  */
 export function cycleSort(current: SortState, key: SortKey): SortState {
   if (current?.key !== key) return { key, ascending: true };
@@ -123,7 +124,7 @@ export function sortRows(rows: ProjectRow[], sort: SortState): ProjectRow[] {
         return 0;
     }
   };
-  // 复制一份再排：调用方拿到的数组顺序不该被就地改动。
+  // Sort a copy, so the caller's array is never reordered in place.
   return [...rows].sort((a, b) => {
     const left = value(a);
     const right = value(b);
@@ -132,7 +133,8 @@ export function sortRows(rows: ProjectRow[], sort: SortState): ProjectRow[] {
   });
 }
 
-/** 按路径关键字筛选（含完整路径，便于按盘符或父目录过滤）。 */
+/** Filter by a path keyword (the full path, so a drive or parent directory works as
+ * a filter). */
 export function filterRows(rows: ProjectRow[], keyword: string): ProjectRow[] {
   const needle = keyword.trim().toLowerCase();
   if (!needle) return rows;
@@ -140,8 +142,9 @@ export function filterRows(rows: ProjectRow[], keyword: string): ProjectRow[] {
 }
 
 /**
- * 这个会话属于这个项目吗。按 spec §12.2 的规则：会话 cwd 与项目 root **精确相等**
- * （不匹配子目录），并且两侧的环境要一致，免得本机与发行版里同名路径串在一起。
+ * Whether this session belongs to this project. Per spec §12.2 the session cwd and
+ * the project root must be **exactly equal** (subdirectories do not match), and the
+ * envs must agree, so same-named local and distro paths never get mixed up.
  */
 export function sessionBelongsToProject(
   session: AgentSession,
@@ -153,7 +156,7 @@ export function sessionBelongsToProject(
   return sessionDistro === null;
 }
 
-/** 该项目下的会话，最近的在前。 */
+/** Sessions under this project, most recent first. */
 export function sessionsForProject(
   sessions: AgentSession[],
   row: Pick<ProjectRow, "path" | "workspace">,

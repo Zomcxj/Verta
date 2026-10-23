@@ -18,9 +18,9 @@ const NERD_FONT_CANDIDATES = [
 
 const FALLBACK_CHAIN = '"JetBrains Mono", SFMono-Regular, Menlo, monospace';
 
-/** 折好的整串（带引号与兜底链）；保持原有 API 不变。 */
+/** The resolved stack (with quoting and the fallback chain); the public API stays as it was. */
 let detected: string | null = null;
-/** 检测到的家族名（不带引号）；测过一次就不再测。 */
+/** Detected family name (unquoted); measured once and then cached. */
 let detectedName: string | null = null;
 let detectedOnce = false;
 let monoReady: Promise<void> | null = null;
@@ -48,10 +48,13 @@ export function resolveFontFamily(userInput: string): string {
 }
 
 /**
- * 终端字体栈：选的字体 → 自动检测到的 Nerd Font（画图标字形用）→ 兜底链。
+ * Terminal font stack: the chosen font → the auto-detected Nerd Font (for icon glyphs)
+ * → the fallback chain.
  *
- * 图标那一档不留设置项：能画出 Nerd Font 图标的字体通常不是你想读正文的那个字体，所以
- * 正文用用户选的、图标交给自动检测，两边都空时就是老行为（检测到的那个字体一把抓）。
+ * The icon slot has no setting of its own: a font that draws Nerd Font icons is
+ * usually not the one you want to read text in, so text uses the user's pick and
+ * icons are left to auto-detection. When both are empty this is the old behavior
+ * (the detected font does everything).
  */
 export function resolveFontStack(family: string): string {
   const detected = detectedFamilyName();
@@ -65,7 +68,8 @@ export function resolveFontStack(family: string): string {
   return [...names, FALLBACK_CHAIN].join(", ");
 }
 
-/** 一个输入折成一个字体 token：带逗号的原样当栈头，否则加引号。 */
+/** Fold one input into a font token: with a comma it is used as-is as the stack head,
+ * otherwise it gets quoted. */
 function familyToken(input: string): string | null {
   const name = input.trim();
   if (!name) return null;
@@ -77,7 +81,8 @@ function sameName(a: string, b: string): boolean {
   return strip(a) === strip(b);
 }
 
-/** 检测到的家族名（不带引号）；没装任何候选时是 null。测过一次就不再测。 */
+/** Detected family name (unquoted); null when no candidate is installed. Measured once
+ * and then cached. */
 function detectedFamilyName(): string | null {
   if (detectedOnce) return detectedName;
   detectedOnce = true;

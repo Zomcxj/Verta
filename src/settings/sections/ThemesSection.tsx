@@ -60,7 +60,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 
-/** 过渡动画的名字。加一种动画就在这儿多一行，文案两侧各一份。 */
+/** Names of the transition animations. One more line here per animation, plus
+ * the copy on both sides of the string table. */
 const SESSION_TRANSITION_LABELS = {
   ripples: "settings.themes.transition.ripples",
   pulse: "settings.themes.transition.pulse",

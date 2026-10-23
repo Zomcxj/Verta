@@ -20,7 +20,8 @@ import { tokyoNight } from "./tokyo-night";
 import { xcode } from "./xcode";
 
 const BUILTIN: Theme[] = [
-  // 自己加的主题放最前面：设置页是按这个顺序列的，用户想找的是它们。
+  // Themes added by the user come first: the settings page lists them in this
+  // order, and they are what people are looking for.
   verta,
   acrylic,
   carbonWeave,

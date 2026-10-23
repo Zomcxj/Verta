@@ -18,9 +18,10 @@ type SerializedNode =
   | {
       kind: "leaf";
       cwd?: string;
-      /** 存下来，恢复时才知道这个叶子该开在本机还是哪个发行版里。 */
+      /** Stored so the restore knows whether this leaf opens locally or in a distro. */
       workspace?: WorkspaceEnv;
-      /** 存下来，恢复时用的还是当初那个 shell，而不是设置里的默认终端。 */
+      /** Stored so the restore keeps the original shell instead of the default terminal
+       * from preferences. */
       shell?: string;
       active?: boolean;
     }
@@ -119,8 +120,9 @@ type HydratedTree = {
 };
 
 /**
- * 老数据里叶子只存了 cwd。按 cwd 把环境补回去，恢复出来的每个终端才会在自己的环境里启动；
- * 少了这一步，存着发行版路径的那些终端会带着 Linux 路径去本机启动。
+ * In old data a leaf stored only its cwd. Recovering the env from that cwd lets each
+ * restored terminal start in its own env; without this step, terminals holding distro
+ * paths would start locally with a Linux path.
  */
 function restoredLeafEnv(
   cwd: string | undefined,

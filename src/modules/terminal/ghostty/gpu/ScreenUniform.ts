@@ -38,7 +38,8 @@ export type ScreenUniformState = {
   readonly cursor: CursorRect | null;
   readonly cursorColor: readonly [number, number, number];
   readonly background: readonly [number, number, number];
-  /** 终端底色的不透明度；小于 1 时画布按透明的底清屏（见 `TerminalGpuTheme`）。 */
+  /** Opacity of the terminal background. Below 1 the canvas clears to a
+   * transparent background (see `TerminalGpuTheme`). */
   readonly backgroundAlpha: number;
   readonly selection: SelectionUniform;
   readonly selectionColor: readonly [number, number, number];

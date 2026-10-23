@@ -43,8 +43,9 @@ const creating = new Map<string, Promise<Managed | null>>();
 const crashTimes = new Map<string, number[]>();
 
 /**
- * 这个模块在 React 之外：会话建立、崩溃回调都拿不到 hook，所以界面文案由
- * `useLspExtension` 翻好传进来。带名字的那几条收函数，因为名字要等 preset 定下来。
+ * This module lives outside React: session startup and crash callbacks have no access to
+ * hooks, so UI copy is translated by `useLspExtension` and passed in. The entries that
+ * carry a name take a function, since the name is only known once the preset is fixed.
  */
 export type LspSessionLabels = {
   panels: { definitions: string; references: string };

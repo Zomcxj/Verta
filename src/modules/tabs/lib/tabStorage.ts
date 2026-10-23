@@ -7,13 +7,14 @@ export type TabState = {
   activeTabIndex: number;
 };
 
-/** 桌面版只有一份标签列表，不再按空间分家。 */
+/** The desktop build keeps a single tab list, no longer split per workspace. */
 const STORE_PATH = "verta-tabs.json";
 const KEY_STATE = "state";
 
 /**
- * 老版本按空间存标签（`state:<空间 id>`）的那个文件：只读一次做迁移，之后不碰它。
- * 文件留在磁盘上无害，删别人的文件才是麻烦。
+ * The legacy file where older versions stored tabs per workspace (`state:<workspace
+ * id>`): read once for migration and never touched again. Leaving the file on disk is
+ * harmless; deleting someone else's file is what causes trouble.
  */
 const LEGACY_STORE_PATH = "verta-spaces.json";
 const LEGACY_KEY_SPACES = "spaces";
@@ -41,9 +42,11 @@ type LegacySpaceMeta = { id: string; env?: WorkspaceEnv };
 export type LegacyTabState = TabState & { env: WorkspaceEnv | null };
 
 /**
- * 从老文件里把「当时活动那个空间」的标签列表拿出来，顺手删掉那条键，让迁移只发生一次。
+ * Pull the tab list of the workspace that was active at the time out of the legacy
+ * file and delete that key on the way, so the migration only happens once.
  *
- * 老数据里环境记在空间上，不在标签上，所以一并带出来当恢复时的兜底。
+ * In the old data the env was recorded on the workspace rather than the tab, so it is
+ * carried out too as a fallback for the restore.
  */
 export async function loadLegacyTabState(): Promise<LegacyTabState | null> {
   const spaces =

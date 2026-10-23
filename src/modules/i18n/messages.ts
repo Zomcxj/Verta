@@ -610,6 +610,7 @@ const zh = {
   "screenshot.radius": "圆角",
   "screenshot.saveFailed": "保存失败：{error}",
   "screenshot.saved": "截图已保存",
+  "screenshot.handle": "调整 {handle}",
   "screenshot.copied": "已保存至 {path}，并已复制到剪贴板",
   "screenshot.notCopied": "已保存至 {path}；复制到剪贴板失败：{error}",
   "screenshot.insertPath": "插入路径",
@@ -724,6 +725,7 @@ const zh = {
   "launcher.deleting": "删除中",
   "launcher.deleteConfirm": "删除会话",
   "launcher.deleteWarnChildren": "删除父会话会连带删除它的子会话。",
+  "launcher.resumeBadId": "会话 id 含非法字符，无法构造恢复命令：{id}",
   "launcher.deleteWarnArtifacts": "删除会话时会连同它的产物目录一起删除。",
   "launcher.deleteWarnActive": "其中包含当前已在终端打开的会话。",
   "launcher.deleteSubagents": "其中 {count} 条是子代理或分叉会话。",
@@ -1876,6 +1878,7 @@ const en: Record<MessageKey, string> = {
   "screenshot.radius": "Corner radius",
   "screenshot.saveFailed": "Could not save: {error}",
   "screenshot.saved": "Screenshot saved",
+  "screenshot.handle": "Resize {handle}",
   "screenshot.copied": "Saved to {path} and copied to the clipboard",
   "screenshot.notCopied":
     "Saved to {path}; copying to the clipboard failed: {error}",
@@ -1992,6 +1995,8 @@ const en: Record<MessageKey, string> = {
   "launcher.deleteConfirm": "Delete session",
   "launcher.deleteWarnChildren":
     "Deleting a parent session also deletes its child sessions.",
+  "launcher.resumeBadId":
+    "That session id contains characters a resume command cannot carry: {id}",
   "launcher.deleteWarnArtifacts":
     "Deleting a session also deletes the artifacts folder that belongs to it.",
   "launcher.deleteWarnActive": "One of these is currently open in a terminal.",

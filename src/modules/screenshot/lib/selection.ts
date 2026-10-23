@@ -1,11 +1,13 @@
 /**
- * 选区换算与调整：覆盖窗口里的 CSS 像素 ↔ 后端要的物理像素，以及框选之后怎么拖、怎么拉。
+ * Selection conversion and adjustment: CSS pixels in the overlay ↔ physical pixels
+ * for the backend, plus how a selection is dragged and resized.
  *
- * 为什么要有这一层：覆盖窗口里量到的是 CSS 像素，而截图里要切的是物理像素。屏幕缩放到 125%
- * 时两者差一个 devicePixelRatio，直接把 CSS 坐标送过去就会切偏。
+ * Why this layer exists: the overlay measures CSS pixels while the capture crops
+ * physical pixels. At 125% display scaling the two differ by a devicePixelRatio,
+ * so passing CSS coordinates straight through crops off target.
  *
- * 取整的规矩是「宁可多含，不要少给」：起点向下取、终点向上取，用户框住的那一列像素不该因为
- * 取整被丢掉。
+ * Rounding leans toward including rather than cutting: floor the start, ceil the
+ * end, so the last row of pixels the user enclosed is never lost to rounding.
  */
 
 export type ScreenshotRect = {
@@ -15,16 +17,17 @@ export type ScreenshotRect = {
   height: number;
 };
 
-/** 八个把手：四角 + 四边。 */
+/** Eight handles: four corners plus four edges. */
 export type ResizeHandle = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
 
-/** 选区最小边长（物理像素）：手一抖不该产生一张 1×1 的图。跟后端 `geom::MIN_SIDE` 对齐。 */
+/** Minimum side of a selection (physical pixels) so a twitchy hand cannot produce a
+ * 1×1 image. Matches `geom::MIN_SIDE` in the backend. */
 export const MIN_SIDE = 8;
 
 type Pt = { x: number; y: number };
 type Bounds = { width: number; height: number };
 
-/** 拖拽的起点与终点（CSS 像素）→ 一块正着放的矩形。往回拖也一样。 */
+/** Drag start and end (CSS pixels) → a properly oriented rect. Dragging backwards works too. */
 export function rectFromDrag(start: Pt, end: Pt): ScreenshotRect {
   return {
     x: Math.min(start.x, end.x),
@@ -34,7 +37,8 @@ export function rectFromDrag(start: Pt, end: Pt): ScreenshotRect {
   };
 }
 
-/** 整块挪动：尺寸不变，四条边都不许出画面（画面比选区还小时就贴着左上角）。 */
+/** Move the whole rect: size unchanged, no edge may leave the viewport (if the
+ * viewport is smaller than the rect, it hugs the top-left). */
 export function moveRect(
   rect: ScreenshotRect,
   dx: number,
@@ -52,9 +56,11 @@ export function moveRect(
 }
 
 /**
- * 拉某一个把手改尺寸：对面的边不动，撞到画面边就停在边上。
+ * Resize by one handle: the opposite edge stays put, and hitting the viewport edge
+ * stops there.
  *
- * 允许拉过头再拉回来（跟手），所以夹取之后可能反向——只用「不小于最小边长」兜底。
+ * Overshooting and coming back is allowed (it tracks the cursor), so clamping can
+ * flip the direction; the minimum side is the only guard.
  */
 export function resizeRect(
   rect: ScreenshotRect,
@@ -81,7 +87,7 @@ export function resizeRect(
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-/** CSS 像素的矩形 → 后端要的物理像素选区。 */
+/** CSS-pixel rect → the physical-pixel selection the backend wants. */
 export function toPhysical(
   rect: ScreenshotRect,
   dpr: number,
@@ -103,7 +109,7 @@ export function toPhysical(
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-/** 拖拽的起点与终点（CSS 像素）→ 后端要的选区。 */
+/** Drag start and end (CSS pixels) → the selection the backend wants. */
 export function selectionRect(
   start: Pt,
   end: Pt,
@@ -113,13 +119,14 @@ export function selectionRect(
   return toPhysical(rectFromDrag(start, end), dpr, bounds);
 }
 
-/** 这块选区算不算选中：两边都得够大（按物理像素算，跟后端同一把尺子）。 */
+/** Whether this selection counts: both sides must be big enough (measured in
+ * physical pixels, the same ruler the backend uses). */
 export function isUsableSelection(rect: ScreenshotRect, dpr = 1): boolean {
   const scale = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
   return rect.width * scale >= MIN_SIDE && rect.height * scale >= MIN_SIDE;
 }
 
-/** 拖拽过程中画的那个框（CSS 像素）。 */
+/** The box drawn during a drag (CSS pixels). */
 export function dragBox(
   start: Pt,
   end: Pt,
@@ -128,7 +135,7 @@ export function dragBox(
   return { left: rect.x, top: rect.y, width: rect.width, height: rect.height };
 }
 
-/** 把手在用哪个光标：让人一看就知道能往哪拉。 */
+/** Cursor for a handle, so it is obvious which way it drags. */
 export function handleCursor(handle: ResizeHandle): string {
   switch (handle) {
     case "n":

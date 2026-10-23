@@ -15,23 +15,26 @@ import { useEffect, useState } from "react";
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 克隆完成后落地目录的路径（可能已被后端登记为已授权）。 */
+  /** Path of the directory the clone landed in (it may already be registered as
+   * authorized by the backend). */
   onCloned: (path: string) => void;
   /**
-   * 打开时预填的仓库地址与目标目录。
+   * Repo URL and destination prefilled on open.
    *
-   * 从远程仓库那一行进来时用：地址是那一行的克隆地址，目标是「已有项目同一级 + 仓库名」。
-   * 不传就还是空白（项目页那个入口就是自己填）。
+   * Used when coming from a remote-repos row: the URL is that row's clone URL and
+   * the destination is "next to an existing project, plus the repo name". Omitted
+   * from the Projects entry point, which leaves both fields empty.
    */
   defaultUrl?: string;
   defaultDest?: string;
 };
 
 /**
- * 克隆一个新仓库。
+ * Clone a new repo.
  *
- * 目标目录上一级不存在时后端会直接拒绝，并把缺的是哪一级写清楚 —— 这比让 git 报
- * "could not create work tree dir" 好懂。克隆中途可能要几十秒，这里如实显示忙状态。
+ * When the destination's parent directory does not exist the backend refuses
+ * outright and names the missing level, which beats git's "could not create work
+ * tree dir". A clone can take tens of seconds, so the busy state is shown honestly.
  */
 export function CloneRepoDialog({
   open,
@@ -46,8 +49,9 @@ export function CloneRepoDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 有预填就每次打开都覆盖（那一行换了就得跟着换）；没有预填就保持原样，
-  // 项目页那边自己填了一半再关掉重开，内容还在。
+  // Prefill wins on every open (a different row means different values); without it
+  // the fields are left alone, so a half-typed entry from the Projects page survives
+  // closing and reopening.
   useEffect(() => {
     if (!open) return;
     if (defaultUrl) setUrl(defaultUrl);
@@ -70,7 +74,8 @@ export function CloneRepoDialog({
     setError(null);
     try {
       const path = await native.gitCloneRepo(trimmedUrl, trimmedDest);
-      // 克隆出来的目录要能直接被打开：先授权，再交给项目页。
+      // The cloned directory has to be openable right away: authorize it, then hand it
+      // to the Projects page.
       await native.workspaceAuthorize(path).catch(() => null);
       setUrl("");
       setDest("");

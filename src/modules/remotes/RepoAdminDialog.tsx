@@ -28,27 +28,30 @@ import {
 } from "./lib/repoAdmin";
 
 type Props = {
-  /** 要管理的仓库全名；null 表示弹窗关着。 */
+  /** Full name of the repo being managed; null when the dialog is closed. */
   repo: string | null;
   onOpenChange: (open: boolean) => void;
-  /** 描述 / 可见性改成功后回传，列表那一行跟着更新。 */
+  /** Reported after a successful description / visibility change so the list row updates. */
   onChanged?: (
     repo: string,
     patch: { description?: string | null; visibility?: string | null },
   ) => void;
-  /** 仓库被删掉之后回传，列表里那一行要拿掉。 */
+  /** Reported after the repo is deleted, so the list row can be removed. */
   onDeleted?: (repo: string) => void;
 };
 
-/** 一次要先确认才能发的改动。 */
+/** A change that needs confirmation before it is sent. */
 type PendingChange = { what: "visibility"; isPrivate: boolean } | { what: "delete" };
 
 /**
- * 仓库设置：改描述、切可见性、删仓库。
+ * Repo settings: edit the description, change visibility, delete the repo.
  *
- * 打开时查一次设置（描述、可见性、当前账号是不是管理员）。改描述与切可见性都是「点一下
- * 真写回 GitHub」，所以切换可见性会先把后果逐条说清楚；删除更狠一步，要求手输仓库全名。
- * 失败一律把 GitHub 的原话留在弹窗里，而不是只弹一句「失败了」。
+ * Settings (description, visibility, whether the account is an admin) are read
+ * once on open. Editing the description and switching visibility both write
+ * straight back to GitHub on a click, so visibility lists the consequences one
+ * by one first; delete goes further and requires typing the full repo name.
+ * Every failure keeps GitHub's own message in the dialog instead of a bare
+ * "failed".
  */
 export function RepoAdminDialog({
   repo,
@@ -59,17 +62,17 @@ export function RepoAdminDialog({
   const t = useT();
   const [payload, setPayload] = useState<WireRepoSettingsPayload | null>(null);
   const [reading, setReading] = useState(false);
-  /** 命令本身失败（连 kind 都拿不到）时的原文。 */
+  /** Raw message when the command itself failed (no `kind` at all). */
   const [fatal, setFatal] = useState<string | null>(null);
-  /** 描述草稿：打开时填当前值，保存成功后跟着新值走。 */
+  /** Description draft: filled with the current value on open, then tracks the saved value. */
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState<null | "description" | "visibility" | "delete">(
     null,
   );
   const [pending, setPending] = useState<PendingChange | null>(null);
-  /** 动作失败时 GitHub 的原话，留在确认框里。 */
+  /** GitHub's own words when an action failed; kept in the confirm dialog. */
   const [actionError, setActionError] = useState<string | null>(null);
-  /** 删仓库前手输的仓库全名。 */
+  /** Full repo name typed before deleting. */
   const [typed, setTyped] = useState("");
 
   const load = useCallback(async () => {
@@ -90,7 +93,7 @@ export function RepoAdminDialog({
 
   useEffect(() => {
     if (!repo) {
-      // 关掉时清干净，下次打开不会先闪一眼旧数据。
+      // Clear on close so reopening does not flash stale data.
       setPayload(null);
       setFatal(null);
       setDraft("");
@@ -147,7 +150,8 @@ export function RepoAdminDialog({
           ? await native.githubRepoSetVisibility(repo, pending.isPrivate)
           : await native.githubRepoDelete(repo);
       if (result.kind !== "ready") {
-        // 失败不是「停在中间态」：原文留着，再试一次或收手由用户决定。
+        // A failure is not a "stuck midway" state: keep the raw message and let the
+        // user retry or back out.
         setActionError(result.error ?? t("remotes.ci.error"));
         return;
       }
@@ -183,8 +187,9 @@ export function RepoAdminDialog({
       <Dialog open={repo !== null} onOpenChange={close}>
         <DialogContent
           className="sm:max-w-xl"
-          // 确认框（AlertDialog）是另一个 Radix 层、被传送到 body 外面，点它会被当成
-          // 「点到设置弹窗外面」而把设置弹窗一起关掉。确认框开着时先别关。
+          // The confirm dialog (AlertDialog) is another Radix layer portalled
+          // outside body, so clicking it counts as "outside the settings dialog" and
+          // closes it too. Do not close while the confirm dialog is open.
           onInteractOutside={(event) => {
             if (pending !== null) event.preventDefault();
           }}

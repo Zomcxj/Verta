@@ -28,23 +28,26 @@ type Gesture =
   | { kind: "move"; origin: Pt; base: ScreenshotRect }
   | { kind: "resize"; handle: ResizeHandle; origin: Pt; base: ScreenshotRect };
 
-/** 后端把覆盖窗口亮出来时叫这一声。窗口是养着的，每次截图都从这条消息开始。 */
+/** Fired when the backend arms the overlay window. The window is kept alive, so
+ * every capture starts from this message. */
 const ARMED_EVENT = "screenshot:armed";
 
 /**
- * 压暗的程度。
+ * How dark the backdrop is.
  *
- * 轻一点：这一层只是提示「现在是截图模式」，底下是活着的屏幕。压太重会像把画面冻住——那是另一
- * 种做法（冻结快照），用户明确不要。
+ * Keep it light: this layer only signals "capture mode", and the screen below is
+ * still live. Dimming too much looks frozen — that is a different approach
+ * (frozen snapshot) that users explicitly did not want.
  */
 const DIM = "rgba(0, 0, 0, 0.25)";
 
-/** 圆角滑杆的默认值（CSS 像素）。 */
+/** Default for the corner-radius slider (CSS pixels). */
 const DEFAULT_RADIUS = 15;
 
 const HANDLES: ResizeHandle[] = ["n", "ne", "e", "se", "s", "sw", "w", "nw"];
 
-/** 把手在框上的位置（CSS 像素）。四角压在角上，四边压在边中点上。 */
+/** Handle positions on the box (CSS pixels). Corners sit on the corners, edges on
+ * the edge midpoints. */
 const HANDLE_POS: Record<
   ResizeHandle,
   { left: string; top: string; translate: string }
@@ -60,22 +63,28 @@ const HANDLE_POS: Record<
 };
 
 /**
- * 覆盖窗口：铺满整屏的一层浅灰，让人在上面框一块出来，松手之后还能接着调。
+ * Overlay window: a light gray layer over the whole screen to drag out a region
+ * on, adjustable after release.
  *
- * 这里只管「选」与「画」：屏幕上没有冻结的画面可画——压在底下的就是屏幕本身，框选期间它一直是
- * 活的（跟 Windows 自带截图一样）。真正的抓屏发生在点保存那一刻，由后端把窗口藏掉之后再抓，
- * 免得灰层、选择框、把手、操作条一起进到图里。
+ * This side only selects and draws. There is no frozen frame to draw on: what
+ * sits underneath is the live screen, which stays live during selection (same as
+ * the built-in Windows snipping tool). The actual screen grab happens on save,
+ * after the backend hides the window, so the dim layer, selection box, handles,
+ * and toolbar never end up in the image.
  *
- * 裁剪、存图、进剪贴板也都在后端：这里把选区坐标交回去就行。
+ * Cropping, saving, and copying to the clipboard also live in the backend; all
+ * this component does is hand back the selection rect.
  */
 export function ScreenshotOverlay() {
   const t = useT();
-  /** 已经框出来的那块（CSS 像素，相对窗口左上角）。松手之后就是它一直在，直到保存或取消。 */
+  /** The region dragged out so far (CSS pixels, relative to the window's top-left).
+   * It persists after release until save or cancel. */
   const [rect, setRect] = useState<ScreenshotRect | null>(null);
   const [gesture, setGesture] = useState<Gesture["kind"] | null>(null);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  /** 四角圆角半径，CSS 像素；0 就是不圆。默认 15：稍微收一点角，图上看着舒服。 */
+  /** Corner radius in CSS pixels; 0 means square. Default 15: a slight rounding
+   * reads better in the resulting image. */
   const [radius, setRadius] = useState(DEFAULT_RADIUS);
   const gestureRef = useRef<Gesture | null>(null);
 
@@ -83,8 +92,10 @@ export function ScreenshotOverlay() {
   const scale = dpr > 0 ? dpr : 1;
 
   /**
-   * 窗口自己的 CSS 尺寸就是「画面」的尺寸：这个窗口铺满整块虚拟桌面，它多大，量到的选区就在多
-   * 大的范围里；后端抓屏用的也是同一块范围。每次现读——显示器插拔、分辨率改过，窗口会跟着变。
+   * The window's own CSS size is the "image" size: it spans the whole virtual
+   * desktop, so the selection is measured within whatever size it has, and the
+   * backend grabs the same area. Read it live every time — monitors being plugged
+   * or unplugged and resolution changes resize the window.
    */
   const viewBounds = useCallback(
     () => ({ width: window.innerWidth, height: window.innerHeight }),
@@ -92,9 +103,11 @@ export function ScreenshotOverlay() {
   );
 
   /**
-   * 窗口是养着的（后端只把 webview 建一次），所以每次截图都从这一条消息开始。
+   * The window is kept alive (the backend builds the webview once), so every
+   * capture begins with this message.
    *
-   * 收到就把上一次的选区、圆角、报错全清掉：否则用户会看到上一次那个框还杵在屏幕上面。
+   * On receipt, clear the previous selection, radius, and error; otherwise the
+   * old box would still be sitting on screen.
    */
   useEffect(() => {
     let disposed = false;
@@ -128,10 +141,11 @@ export function ScreenshotOverlay() {
     setSaving(true);
     setFailure(null);
     try {
-      // 圆角按 CSS 像素调，交给后端的是物理像素。
+      // The radius is adjusted in CSS pixels; the backend gets physical pixels.
       const radiusPhysical = Math.round(radius * scale);
-      // 成与不成都不在这儿收尾：后端抓屏、存图之后会把窗口藏起来（抓屏得发生在藏之后）；
-      // 失败了会被告知，而且选区还留着——用户能接着调、接着存。
+      // Neither outcome finishes here: the backend hides the window after grabbing
+      // and saving (the grab has to happen after hiding). On failure we get told
+      // and the selection stays put, so the user can adjust and save again.
       await native.screenshotFinish(physical, radiusPhysical);
     } catch (e) {
       setFailure(String(e));
@@ -139,7 +153,8 @@ export function ScreenshotOverlay() {
     }
   }, [rect, saving, scale, viewBounds, radius]);
 
-  // Esc 取消、Enter 保存。截图中途想放弃、或者框完就想立刻存，都是很自然的动作。
+  // Esc cancels, Enter saves. Bailing out mid-capture and saving right after
+  // dragging are both natural things to reach for.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -156,9 +171,11 @@ export function ScreenshotOverlay() {
     return () => window.removeEventListener("keydown", onKey);
   }, [cancel, save]);
 
-  // 手势期间在 window 上收 move / up：把手与整块都要跟着走，而在元素上收事件会因为
-  // 指针捕获、子元素挡住等等漏掉几步。这里是 layout effect：要赶在下一帧之前就挂上，
-  // 否则按下之后紧接的那一下移动会丢（手快的人能碰上）。
+  // Listen for move / up on window during a gesture: both handles and box body
+  // move together, and element-level listeners miss steps because of pointer
+  // capture and child elements swallowing events. This is a layout effect so the
+  // listeners are attached before the next frame; otherwise the move immediately
+  // after pointerdown is lost (fast hands do hit that).
   useLayoutEffect(() => {
     if (!gesture) return;
     const onMove = (event: PointerEvent) => {
@@ -173,8 +190,9 @@ export function ScreenshotOverlay() {
       const next =
         active.kind === "move"
           ? moveRect(active.base, delta.dx, delta.dy, viewBounds())
-          : // 最小边长按物理像素折算回 CSS：拉到底也不能把它拉成一块「没法用」的框，
-            // 否则把手与操作条会在拖的过程中突然消失。
+          : // Convert the minimum side from physical pixels back to CSS so even the
+            // hardest drag cannot make the box unusably small, which would make the
+            // handles and toolbar vanish mid-drag.
             resizeRect(
               active.base,
               active.handle,
@@ -190,7 +208,8 @@ export function ScreenshotOverlay() {
       gestureRef.current = null;
       setGesture(null);
       if (active?.kind === "new") {
-        // 只是点了一下，或者框得太小：当没框，让人重来，别留个没法用的框在这儿。
+        // A plain click or a tiny drag: treat it as no selection and let the user
+        // start over rather than leaving an unusable box behind.
         setRect((current) => {
           if (!current) return null;
           const physical = toPhysical(current, scale, viewBounds());
@@ -211,13 +230,14 @@ export function ScreenshotOverlay() {
   const live = rect ? toPhysical(rect, scale, viewBounds()) : null;
   const hasSelection = !!live && isUsableSelection(live, scale);
   const picking = gesture === "new";
-  /** 框已经画出来了（哪怕还在拖）：这时候用阴影压暗框外，框里保持透明，好让人看清要截的那块。 */
+  /** A box exists (even mid-drag): dim outside it with a shadow and keep the inside
+   * clear so the user can see what they are capturing. */
   const boxed = !!rect && rect.width > 0 && rect.height > 0;
 
   const onBackdropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (saving || event.button !== 0) return;
     const at = { x: event.clientX, y: event.clientY };
-    // 点在已经框好的那块里面 = 整块挪；点在别处 = 重新框一块。
+    // Pressing inside the box moves it; pressing elsewhere starts a new one.
     if (hasSelection && rect && pointInRect(at, rect)) {
       gestureRef.current = { kind: "move", origin: at, base: rect };
       setGesture("move");
@@ -242,10 +262,12 @@ export function ScreenshotOverlay() {
       setGesture("resize");
     };
 
-  /** 操作条贴在哪：贴着选区**右下角**；底下放不下就翻到上面；横向不许出画面。
+  /** Where the toolbar sits: at the **bottom-right** corner of the selection, flipped
+   * above it when there is no room below, and clamped horizontally to the screen.
    *
-   * 宽度是用估算值收边的，条本身仍然是内容宽度（原来写死过 188，那是为了装尺寸文字；
-   * 尺寸挪到标签上之后，写死的宽度就变成右边一块空白了）。
+   * The width is only used as an estimate for clamping; the bar itself stays
+   * content-width (it used to be hard-coded to 188 to fit the size text, which
+   * became dead space on the right once the size moved into its own tag).
    */
   const toolbarStyle = (() => {
     if (!rect || !hasSelection) return undefined;
@@ -265,13 +287,16 @@ export function ScreenshotOverlay() {
     return { left, top };
   })();
 
-  /** 尺寸标签默认在框上头；贴着屏幕顶上就翻到下面去。 */
+  /** The size tag sits above the box by default and flips below when the box is at
+   * the top of the screen. */
   const tagAbove = !rect ? true : rect.y >= 34;
 
   return (
     <div className="fixed inset-0 select-none overflow-hidden">
-      {/* 还没框出东西来：整屏压一层浅灰，让人一眼看出现在是截图模式（跟系统一样）。
-          框出来之后撤掉这一层，改由选区那圈阴影压暗框外——框里是活着的屏幕，看得清要截的那块。 */}
+      {/* Before anything is dragged out, dim the whole screen so capture mode is
+          obvious at a glance (like the system tool). Once a box exists this layer
+          goes away and the selection's shadow dims outside it instead, keeping the
+          live screen visible inside. */}
       {boxed ? null : (
         <div className="absolute inset-0" style={{ background: DIM }} />
       )}
@@ -294,10 +319,12 @@ export function ScreenshotOverlay() {
             top: rect.y,
             width: rect.width,
             height: rect.height,
-            // 框外压暗：一圈夸张的阴影比再铺四块黑布简单，也不会漏缝。
+            // Dim the outside with one huge shadow: simpler than four covers around
+            // the box, and it cannot leave seams.
             boxShadow: `0 0 0 100vmax ${DIM}`,
             cursor: hasSelection ? "move" : "crosshair",
-            // 圆角所见即所得：这里圆成什么样，存出来的图就圆成什么样（后端按同一个半径抠角）。
+            // WYSIWYG rounding: the saved image is rounded exactly like this (the
+            // backend cuts with the same radius).
             borderRadius: radius,
           }}
           className="absolute outline-2 outline-primary outline-offset-[-1px]"
@@ -312,13 +339,14 @@ export function ScreenshotOverlay() {
             setGesture("move");
           }}
         >
-          {/* 只在框好之后给把手：还在拖的时候给把手会跟拖动打架。 */}
+          {/* Handles only once the box is settled; showing them mid-drag fights with
+              the drag gesture. */}
           {hasSelection && !picking
             ? HANDLES.map((handle) => (
                 <button
                   key={handle}
                   type="button"
-                  aria-label={`调整 ${handle}`}
+                  aria-label={t("screenshot.handle", { handle })}
                   className="absolute h-2.5 w-2.5 rounded-[3px] border border-primary bg-white shadow-[0_1px_2px_rgba(0,0,0,0.5)] transition-transform hover:scale-110"
                   style={{
                     left: HANDLE_POS[handle].left,

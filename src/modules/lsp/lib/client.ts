@@ -243,7 +243,8 @@ export function lspInteractions(opts: {
   documentUri: string;
   rootPath: string;
   onExternal: (uri: string, line: number) => void;
-  /** 结果面板的标题：这里没有 hook，翻好的文案由调用方给。 */
+  /** Title of the results panel. No hook here, so the caller passes the text it
+   * has already translated. */
   labels: { definitions: string; references: string };
 }): Extension {
   const navigate = (view: EditorView, loc: LspLocation): void => {

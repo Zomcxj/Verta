@@ -44,7 +44,7 @@ import {
 import { canWrite, readOnlyHintKey } from "./lib/permission";
 
 type Props = {
-  /** 要看 issue / PR 的仓库全名；null 表示弹窗关着。 */
+  /** Full name of the repo whose issues / PRs are shown; null when the dialog is closed. */
   repo: string | null;
   onOpenChange: (open: boolean) => void;
 };
@@ -52,48 +52,52 @@ type Props = {
 type Pending = {
   what: "close" | "reopen" | "merge";
   method?: string;
-  /** 点开确认框那一刻的 head sha：合并时带上它，防止期间有人又推了新提交。 */
+  /** Head sha at the moment the confirm dialog opened: passed along on merge so a
+   * commit pushed in between cannot be merged unnoticed. */
   headSha?: string;
 };
 
 /**
- * 某个仓库的 issue / PR。
+ * Issues / PRs for one repo.
  *
- * 两段式：先是列表，点某一条整个弹窗内容换成详情（跟 Releases 弹窗一个路子）。
+ * Two-stage: the list first, then clicking an entry swaps the whole dialog for
+ * its detail (same pattern as the Releases dialog).
  *
- * 状态筛选（打开 / 已关闭 / 全部）走 API 原生参数，换一次要重新发一次请求；
- * 类型筛选（只看 issue 或只看 PR）和关键字在前端做 —— `issues` 端点一次就把
- * 两类都带回来了，前端筛是零延迟。
+ * The state filter (open / closed / all) maps to an API parameter and refetches
+ * each time. The kind filter (issues only, PRs only) and the keyword are done in
+ * the frontend, since the `issues` endpoint returns both kinds in one call and
+ * filtering locally has zero latency.
  *
- * 写操作会真的发生在你账号上（评论、关 issue、合 PR），所以关和合都要先确认；
- * 只读仓库连评论框都不渲染。
+ * Writes really happen on your account (comment, close, merge), so closing and
+ * merging confirm first; on a read-only repo the comment box is not rendered at
+ * all.
  */
 export function IssuesDialog({ repo, onOpenChange }: Props) {
   const t = useT();
   const [payload, setPayload] = useState<WireIssueListPayload | null>(null);
   const [reading, setReading] = useState(false);
-  /** 命令本身失败（连 kind 都拿不到）时的原文。 */
+  /** Raw message when the command itself failed (no `kind` at all). */
   const [fatal, setFatal] = useState<string | null>(null);
   const [kind, setKind] = useState<IssueKindFilter>("all");
   const [state, setState] = useState<IssueStateFilter>("open");
   const [keyword, setKeyword] = useState("");
-  /** 展开看详情的那一条；null 表示还停在列表上。 */
+  /** Entry opened in detail view; null while still on the list. */
   const [detail, setDetail] = useState<WireIssueDetailPayload | null>(null);
-  /** 正在看详情的那一条的编号：详情读失败时好重试。 */
+  /** Number of the entry in detail view, so a failed detail read can be retried. */
   const [detailNumber, setDetailNumber] = useState<number | null>(null);
   const [detailReading, setDetailReading] = useState(false);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
-  /** 动作失败时 gh 的原话，留在确认框里。 */
+  /** gh's own words when an action failed; kept in the confirm dialog. */
   const [actionError, setActionError] = useState<string | null>(null);
-  /** 新建 issue 的表单；null 表示没在新建。 */
+  /** New-issue form; null when not creating one. */
   const [creating, setCreating] = useState<null | {
     title: string;
     body: string;
     labels: string;
   }>(null);
-  /** 这个仓库的权限：只影响写操作按钮在不在，读的部分照常给。 */
+  /** Permission on this repo: only affects whether write buttons show; reads still work. */
   const [permission, setPermission] = useState<WireRepoPermissionPayload | null>(
     null,
   );
@@ -116,8 +120,9 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
   }, [repo]);
 
   /**
-   * 每发一次列表请求就换一个序号：慢的那次回来时如果序号已经变了，就丢掉它。
-   * 切「打开 / 已关闭」很快，不这样的话先发的慢响应会把后发的正确结果盖掉。
+   * Each list request bumps a sequence number, and a slow response whose number
+   * is stale gets dropped. Users flip open / closed quickly, and without this an
+   * earlier slow response would overwrite the newer, correct one.
    */
   const listRequest = useRef(0);
   const load = useCallback(async () => {
@@ -140,7 +145,7 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
 
   useEffect(() => {
     if (!repo) {
-      // 关掉时把上一次的状态清干净，下次打开不会先闪一眼旧数据。
+      // Clear the previous state on close so reopening does not flash stale data.
       setPayload(null);
       setFatal(null);
       setPending(null);
@@ -198,9 +203,10 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
     [rows, filters],
   );
   const notice = issueNotice(payload, reading);
-  // 筛选后一条都不剩：那是「没匹配上」，不是「这个仓库没有 issue」。
+  // Nothing left after filtering means "no match", not "this repo has no issues".
   const emptyByFilter = notice === null && visible.length === 0;
-  // 看到「一条都没有」时，把当前筛选条件翻译成一句人话 —— 不然用户会以为仓库真的是空的。
+  // When showing "nothing here", spell out the active filter — otherwise the user
+  // assumes the repo is genuinely empty.
   const emptyReason = !emptyByFilter
     ? null
     : keyword.trim()
@@ -317,8 +323,9 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
       <Dialog open={repo !== null} onOpenChange={close}>
         <DialogContent
           className={detail ? "sm:max-w-4xl" : "sm:max-w-3xl"}
-          // 确认框（AlertDialog）是另一个 Radix 层、被传送到 body 外面，点它会被当成
-          // 「点到面板外面」而把面板一起关掉。
+          // The confirm dialog (AlertDialog) is another Radix layer portalled
+          // outside body, so clicking it counts as "outside the panel" and closes the
+          // panel too.
           onInteractOutside={(event) => {
             if (pending !== null) event.preventDefault();
           }}
@@ -350,7 +357,8 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
               }}
             />
           ) : detail !== null ? (
-            // 详情读失败了：说清楚为什么，不能默默掉回列表让人以为没点上。
+            // The detail read failed: explain why instead of silently falling back to
+            // the list and letting the click look lost.
             <div className="space-y-2">
               <Button
                 variant="ghost"
@@ -402,7 +410,7 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
                 ) : null}
               </DialogHeader>
 
-              {/* 筛选条 */}
+              {/* Filter bar */}
               <div className="flex flex-wrap items-center gap-2">
                 <Input
                   value={keyword}
@@ -617,7 +625,8 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
         </DialogContent>
       </Dialog>
 
-      {/* 确认框：关 issue 与合 PR 都会真的发生点什么，先问一句。 */}
+      {/* Confirm dialog: closing an issue or merging a PR really does something, so
+          ask first. */}
       <AlertDialog
         open={pending !== null}
         onOpenChange={(open) => {
@@ -677,7 +686,7 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
   );
 }
 
-/** 一组互斥的小按钮（类型筛选、状态筛选）。 */
+/** A set of mutually exclusive small buttons (kind filter, state filter). */
 function FilterGroup({
   value,
   options,

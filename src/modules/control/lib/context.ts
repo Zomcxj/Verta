@@ -4,8 +4,9 @@ import { hasLeaf } from "@/modules/terminal/lib/panes";
 export type ControlContext = {
   window_id: "main";
   /**
-   * 曾经是「哪个空间」。空间没了，但这条协议有外部消费者（`verta-cli identify` 会打印它，
-   * 脚本可能拿它做判断），所以留一个固定值，而不是把它从协议里删掉。
+   * Used to mean "which workspace". Workspaces are gone, but this protocol has external
+   * consumers (`verta-cli identify` prints it and scripts may branch on it), so it keeps
+   * a fixed value rather than being removed from the protocol.
    */
   space_id: string;
   tab_id: number | null;

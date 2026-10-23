@@ -170,8 +170,9 @@ export function createCommandItems(
       id: "tab.close",
       title: "cmd.closeTabOrPane",
       group: "cmdGroup.Tabs",
-      // 搜索别名（界面上不画）在 `SHORTCUT_ALIASES` 里，按 shortcutId 自动生效：
-      // 「终端」「删除」这类说法标题里没有，光比标题搜不到。
+      // Search aliases (never rendered) live in `SHORTCUT_ALIASES` and apply by
+      // shortcutId: words like "terminal" or "delete" are absent from the title, so
+      // matching the title alone would never find them.
       keywords: ["close", "remove", "pane"],
       icon: Cancel01Icon,
       shortcutId: "tab.close",

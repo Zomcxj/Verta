@@ -1,16 +1,18 @@
 /**
- * 设置里字体下拉的选项。
+ * Options for the font dropdown in settings.
  *
- * 「自动检测」是一个真实选项（值是空串），因为终端/图标的空值在老行为里就是自动检测。
- * 另外把**当前值**也塞进选项：配置可能是在别的机器上写的、或者字体后来被卸了，
- * 选项里没有它就显示不出当前状态（Select 会显示空白）。
+ * "Auto-detect" is a real option (its value is the empty string), because an empty
+ * terminal / icon font already meant auto-detect in the old behavior. The **current
+ * value** is also included: the config may have been written on another machine, or
+ * the font uninstalled since, and without it the dropdown cannot show the current
+ * state (a Select renders blank).
  */
 
 export type FontOption = {
-  /** Select 的 value：字体族名；空串表示「自动检测」。 */
+  /** The Select's value: the family name; the empty string means "auto-detect". */
   value: string;
   label: string;
-  /** 本机没装：界面上标一句，别让人以为是这个字体出了毛病。 */
+  /** Not installed locally: label it in the UI so it does not look like the font is broken. */
   missing?: boolean;
 };
 

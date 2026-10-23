@@ -56,7 +56,7 @@ export type GitChangedFile = {
   statusLabel: string;
 };
 
-/** 项目列表：扫描与状态查询的线格式。 */
+/** Projects list: wire format for discovery and status queries. */
 export type WireProjectTarget = {
   path: string;
   workspace: WorkspaceEnv;
@@ -77,7 +77,7 @@ export type WireProjectStatus = {
   error: string | null;
 };
 
-/** 远程仓库：一个仓库的线格式。 */
+/** Remote repos: wire format for a single repository. */
 export type WireRemoteRepo = {
   fullName: string;
   owner: string;
@@ -86,44 +86,45 @@ export type WireRemoteRepo = {
   isFork: boolean;
   isArchived: boolean;
   language: string | null;
-  /** GitHub 原样给的 ISO8601，界面自己折成相对时间。 */
+  /** ISO8601 exactly as GitHub returns it; the UI folds it into relative time. */
   pushedAt: string | null;
   description: string | null;
   webUrl: string;
 };
 
 /**
- * 远程仓库列表的返回。`kind` 说明这次读到了什么，`ready` 才是真的读到了（哪怕
- * 列表是空的）；读不到时 `error` 里是 gh 的原话，不伪装成空列表。
+ * Result of a remote repo listing. `kind` says what the read produced; only
+ * `ready` means we really got the data (even an empty list). On failure
+ * `error` carries gh's own words rather than a pretended empty list.
  */
 export type WireRemoteReposPayload = {
   kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
   login: string | null;
   accountName: string | null;
   repos: WireRemoteRepo[];
-  /** 取到翻页上限，后面的仓库没要。 */
+  /** Hit the pagination limit; later repos were not fetched. */
   truncated: boolean;
   error: string | null;
 };
 
-/** 一个仓库最近一次 workflow 运行。 */
+/** The most recent workflow run of a repository. */
 export type WireRepoCiRun = {
-  /** workflow 名字。 */
+  /** Workflow name. */
   name: string;
-  /** `queued` / `in_progress` / `completed` 等，GitHub 原样给的值。 */
+  /** `queued` / `in_progress` / `completed` etc., verbatim from GitHub. */
   status: string;
-  /** `success` / `failure` / `cancelled` 等；还没跑完时是 null。 */
+  /** `success` / `failure` / `cancelled` etc.; null while still running. */
   conclusion: string | null;
   runNumber: number;
   headBranch: string | null;
-  /** ISO8601，界面自己折成相对时间。 */
+  /** ISO8601; the UI folds it into relative time. */
   updatedAt: string | null;
   url: string;
 };
 
 /**
- * 单个仓库的 CI 查询结果。
- * `none` 是查清楚了的「没有运行记录」，不是失败。
+ * CI query result for one repository.
+ * `none` is a confirmed "no runs on record", not a failure.
  */
 export type WireRepoCiPayload = {
   kind: "ready" | "none" | "notInstalled" | "notLoggedIn" | "error";
@@ -133,36 +134,39 @@ export type WireRepoCiPayload = {
 };
 
 /**
- * 一个仓库的当前账号权限。
+ * Current account permission on a repository.
  *
- * `canWrite` 为 false 时界面不渲染写操作按钮；查不动（`notInstalled` / `notLoggedIn` / `error`）
- * 时后端给的也是 true，按钮照常渲染，点了让 GitHub 去拒绝。
+ * When `canWrite` is false the UI hides write actions. When the lookup itself
+ * fails (`notInstalled` / `notLoggedIn` / `error`) the backend still reports
+ * true, so the buttons stay visible and GitHub gets to reject the click.
  */
 export type WireRepoPermissionPayload = {
   kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
   repo: string;
-  /** `ADMIN` / `MAINTAIN` / `WRITE` / `TRIAGE` / `READ`；查不到时是 null。 */
+  /** `ADMIN` / `MAINTAIN` / `WRITE` / `TRIAGE` / `READ`; null when unknown. */
   permission: string | null;
   canWrite: boolean;
   error: string | null;
 };
 
 /**
- * 一个仓库的管理信息（描述、可见性、能不能改）。
+ * Admin info for a repository (description, visibility, whether edits are
+ * allowed).
  *
- * `canAdmin` 为 false 时界面不渲染改描述 / 切可见性 / 删除；查不动时后端给的也是 true。
+ * When `canAdmin` is false the UI hides edit-description / change-visibility /
+ * delete; when the lookup fails the backend still reports true.
  */
 export type WireRepoSettingsPayload = {
   kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
   repo: string;
   description: string | null;
-  /** `PUBLIC` / `PRIVATE` / `INTERNAL`；拿不到时是 null。 */
+  /** `PUBLIC` / `PRIVATE` / `INTERNAL`; null when unavailable. */
   visibility: string | null;
   canAdmin: boolean;
   error: string | null;
 };
 
-/** 一次仓库管理动作（改描述 / 切可见性 / 删仓库）的结果。 */
+/** Result of an admin action (edit description / change visibility / delete). */
 export type WireRepoActionResult = {
   kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
   repo: string;
@@ -170,9 +174,10 @@ export type WireRepoActionResult = {
 };
 
 /**
- * 本机 gh 的登录态。
+ * Local gh login state.
  *
- * `none` 是查清楚了的「一个 host 都没登」，不是错误。**token 本身永远不在这里。**
+ * `none` is a confirmed "no host logged in", not an error. **The token itself
+ * is never carried here.**
  */
 export type WireAuthStatusPayload = {
   kind: "ready" | "none" | "notInstalled" | "error";
@@ -186,18 +191,18 @@ export type WireAuthStatusPayload = {
   error: string | null;
 };
 
-/** 一次登录 / 登出动作的结果；`cancelled` 是用户自己中止的浏览器授权。 */
+/** Result of a login / logout action; `cancelled` means the user aborted the browser flow. */
 export type WireAuthActionPayload = {
   kind: "ready" | "cancelled" | "notInstalled" | "error";
-  /** 浏览器授权时 gh 打出来的那些话（一次性码、失败原因）。 */
+  /** Whatever gh printed during the browser flow (one-time code, failure reason). */
   output: string | null;
   error: string | null;
 };
 
-/** 浏览器授权过程中 gh 打出来的一段话。 */
+/** A chunk of gh output emitted while the browser auth flow runs. */
 export type WireAuthLoginProgress = { text: string };
 
-/** 运行列表里的一条（重跑/取消要用 `id`）。 */
+/** One entry in the run list (rerun/cancel need `id`). */
 export type WireRepoActionRun = {
   id: number;
   name: string;
@@ -205,14 +210,14 @@ export type WireRepoActionRun = {
   conclusion: string | null;
   runNumber: number;
   headBranch: string | null;
-  /** `push` / `pull_request` / `workflow_dispatch` 等，GitHub 原样给的值。 */
+  /** `push` / `pull_request` / `workflow_dispatch` etc., verbatim from GitHub. */
   event: string | null;
   createdAt: string | null;
   updatedAt: string | null;
   url: string;
 };
 
-/** 某个仓库的运行列表；`none` 是查清楚了的「没有运行记录」，不是失败。 */
+/** Run list for a repository; `none` is a confirmed "no runs on record", not a failure. */
 export type WireRepoActionRunsPayload = {
   kind: "ready" | "none" | "notInstalled" | "notLoggedIn" | "error";
   repo: string;
@@ -220,7 +225,7 @@ export type WireRepoActionRunsPayload = {
   error: string | null;
 };
 
-/** 重跑 / 取消的结果：成功不带数据，失败时 `error` 是 gh 的原话。 */
+/** Rerun / cancel result: success carries no data, failure puts gh's words in `error`. */
 export type WireRepoRunActionResult = {
   kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
   repo: string;
@@ -228,7 +233,7 @@ export type WireRepoRunActionResult = {
   error: string | null;
 };
 
-/** 运行详情里的一个步骤。 */
+/** One step inside a run's detail view. */
 export type WireRepoRunStep = {
   number: number;
   name: string;
@@ -236,7 +241,7 @@ export type WireRepoRunStep = {
   conclusion: string | null;
 };
 
-/** 运行详情里的一个 job（含它的步骤树）。 */
+/** One job inside a run's detail view (with its step tree). */
 export type WireRepoRunJob = {
   id: number;
   name: string;
@@ -245,12 +250,12 @@ export type WireRepoRunJob = {
   startedAt: string | null;
   completedAt: string | null;
   url: string | null;
-  /** 跑在哪个 runner 上；GitHub 没给就用第一个 label 兜底。 */
+  /** Which runner it ran on; falls back to the first label when GitHub omits it. */
   runner: string | null;
   steps: WireRepoRunStep[];
 };
 
-/** 一次运行的 job 列表；`none` 是「这个运行里一个 job 都没有」。 */
+/** Job list for a run; `none` means "this run has no jobs at all". */
 export type WireRepoRunJobsPayload = {
   kind: "ready" | "none" | "notInstalled" | "notLoggedIn" | "error";
   repo: string;
@@ -259,18 +264,19 @@ export type WireRepoRunJobsPayload = {
   error: string | null;
 };
 
-/** 日志的一行：前缀拆成了 job / step / 时间。 */
+/** One log line: the prefix split into job / step / time. */
 export type WireRepoRunLogLine = {
   job: string;
   step: string;
-  /** ISO8601，认不出来时是空串。 */
+  /** ISO8601; empty string when it cannot be parsed. */
   time: string;
   text: string;
 };
 
 /**
- * 一次运行的日志。
- * `clipped` 是我们只留了尾部；`capped` 是一次能取的上限就被撑满了（拿到的是开头）。
+ * Log of a single run.
+ * `clipped` means we kept only the tail; `capped` means the per-request
+ * limit was hit and we got the head instead.
  */
 export type WireRepoRunLogPayload = {
   kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
@@ -283,18 +289,18 @@ export type WireRepoRunLogPayload = {
   error: string | null;
 };
 
-/** 一个 Release 里的附件。`id` 是下载时要带回去的那个。 */
+/** An asset attached to a release. `id` is what to pass back when downloading. */
 export type WireReleaseAsset = {
   id: number;
   name: string;
-  /** 字节数；GitHub 没给时是 0。 */
+  /** Size in bytes; 0 when GitHub does not report it. */
   size: number;
   downloadCount: number;
   contentType: string | null;
   updatedAt: string | null;
 };
 
-/** 一个 Release：正文与附件都在列表响应里，详情不再另发一次请求。 */
+/** A release: body and assets ship with the list response, so detail needs no extra request. */
 export type WireRelease = {
   id: number;
   tagName: string;
@@ -308,7 +314,7 @@ export type WireRelease = {
   assets: WireReleaseAsset[];
 };
 
-/** 某个仓库的 Release 列表；空列表是查清楚了的「没有 Release」。 */
+/** Release list for a repository; an empty list is a confirmed "no releases". */
 export type WireReleasesPayload = {
   kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
   repo: string;
@@ -316,14 +322,14 @@ export type WireReleasesPayload = {
   error: string | null;
 };
 
-/** 下载进度：后端按 64 KiB / 100 ms 合并后推过来。 */
+/** Download progress: the backend coalesces updates at 64 KiB / 100 ms. */
 export type WireReleaseDownloadProgress = {
   id: string;
   written: number;
   total: number;
 };
 
-/** 一次下载的结局；取消不是错误。 */
+/** Outcome of a download; cancelling is not an error. */
 export type WireReleaseDownloadResult = {
   kind: "ok" | "cancelled" | "error";
   path: string | null;
@@ -331,46 +337,46 @@ export type WireReleaseDownloadResult = {
 };
 
 /**
- * 一条 issue 或 PR（列表用）。
+ * An issue or PR (list form).
  *
- * GitHub 的 `issues` 端点两者都返回，PR 多带一个 `pull_request` 对象 ——
- * `isPullRequest` 就是照那个字段判的。
+ * GitHub's `issues` endpoint returns both; a PR carries an extra
+ * `pull_request` object, and `isPullRequest` is derived from that field.
  */
 export type WireIssueSummary = {
   number: number;
   title: string;
-  /** 正文。列表不显示，但筛关键字要用，所以一并带上。 */
+  /** Body. The list does not render it, but keyword filtering needs it, so it comes along. */
   body: string;
-  /** `open` / `closed`。 */
+  /** `open` / `closed`. */
   state: string;
   isPullRequest: boolean;
-  /** 草稿只有 PR 详情里有；列表端点给不出。 */
+  /** Draft state only exists in PR detail; the list endpoint cannot supply it. */
   isDraft: boolean;
-  /** 已经合进基线（PR 专有）。 */
+  /** Already merged into the base branch (PRs only). */
   merged: boolean;
   author: string;
   createdAt: string | null;
   updatedAt: string | null;
-  /** 评论条数。 */
+  /** Comment count. */
   comments: number;
   labels: string[];
   assignees: string[];
   htmlUrl: string;
-  /** 锁了的不能评论。 */
+  /** Locked items cannot be commented on. */
   locked: boolean;
 };
 
-/** 某个仓库的 issue / PR 列表。 */
+/** Issue / PR list for a repository. */
 export type WireIssueListPayload = {
   kind: "ready" | "none" | "notInstalled" | "notLoggedIn" | "error";
   repo: string;
   issues: WireIssueSummary[];
-  /** 到了条数上限且最后一页仍是满页：后面多半还有没取。 */
+  /** Item cap reached with a full last page: more were probably left unfetched. */
   truncated: boolean;
   error: string | null;
 };
 
-/** 一条评论。 */
+/** One comment. */
 export type WireIssueComment = {
   id: number;
   author: string;
@@ -378,21 +384,22 @@ export type WireIssueComment = {
   createdAt: string | null;
 };
 
-/** PR 专属信息（普通 issue 没有这一块）。 */
+/** PR-only info (plain issues have no such block). */
 export type WirePullRequestInfo = {
   head: string;
   headSha: string;
   base: string;
   draft: boolean;
   merged: boolean;
-  /** `null` = GitHub 还在算（异步），不是「不能合」。 */
+  /** `null` = GitHub is still computing it (async); it does not mean "cannot merge". */
   mergeable: boolean | null;
   mergeableState: string;
   /**
-   * 现在为什么合不了；能合时是 null。
+   * Why the PR cannot merge right now; null when it can.
    *
-   * 给的是**原因码**（merged / closed / draft / conflict / computing / unknown）：句子由界面按码取，
-   * 才跟着界面语言走。后端算好送出来，界面只照着禁按钮。
+   * This is a **reason code** (merged / closed / draft / conflict / computing /
+   * unknown): the UI looks the sentence up by code so it follows the UI
+   * language. The backend only classifies; the UI just disables buttons.
    */
   mergeBlocked: string | null;
   additions: number;
@@ -409,18 +416,18 @@ export type WirePullRequestInfo = {
   locked: boolean;
 };
 
-/** 检查状态汇总。 */
+/** Rolled-up check status. */
 export type WireCheckSummary = {
   total: number;
   ok: number;
   failed: number;
   pending: number;
-  /** 只看到了一部分检查（一页最多 100 条）：这时不能报「全部通过」。 */
+  /** Only some checks were seen (100 per page max): never report "all passed" here. */
   truncated: boolean;
   state: "pass" | "fail" | "pending" | "partial" | "none";
 };
 
-/** 一条 issue / PR 的详情。 */
+/** Detail of a single issue / PR. */
 export type WireIssueDetail = {
   number: number;
   title: string;
@@ -437,16 +444,16 @@ export type WireIssueDetail = {
   htmlUrl: string;
   locked: boolean;
   comments: WireIssueComment[];
-  /** 评论取不到时的说明；正文照样给。 */
+  /** Explanation when comments could not be fetched; the body is still returned. */
   commentsError: string | null;
   pullRequest: WirePullRequestInfo | null;
-  /** PR 信息取不到时的说明。 */
+  /** Explanation when PR info could not be fetched. */
   pullRequestError: string | null;
-  /** `null` = 取不到（与「这个 PR 没有检查」不同，那种是 state === "none"）。 */
+  /** `null` = unavailable (a PR without checks is different: that is state === "none"). */
   checks: WireCheckSummary | null;
 };
 
-/** 一条 issue / PR 的详情查询结果。 */
+/** Result of an issue / PR detail query. */
 export type WireIssueDetailPayload = {
   kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
   repo: string;
@@ -454,21 +461,21 @@ export type WireIssueDetailPayload = {
   error: string | null;
 };
 
-/** 一次写操作（评论 / 开 / 关 / 合并 / 新建）的结果。 */
+/** Result of a write action (comment / open / close / merge / create). */
 export type WireIssueActionResult = {
   kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
   repo: string;
-  /** 新建 issue 时是新条目的编号；其它操作是被操作的条目编号。 */
+  /** On create, the new item's number; otherwise the number of the item acted on. */
   number: number;
   error: string | null;
 };
 
-/** 截图收尾的交代：存哪了、多大、剪贴板有没有写进去。 */
+/** Screenshot outcome: where it was saved, its size, and whether the clipboard got it. */
 export type WireScreenshotSaved = {
   path: string;
   width: number;
   height: number;
-  /** 图存好了、但剪贴板没写成功时的原因；成了就是 null。 */
+  /** Why the image was saved but the clipboard write failed; null on success. */
   clipboardError: string | null;
 };
 
@@ -552,13 +559,13 @@ export type GitBranchListResult = {
   branches: GitBranchEntry[];
 };
 
-/** 一条储藏。`reference` 形如 `stash@{0}`，操作命令原样带回去。 */
+/** One stash entry. `reference` looks like `stash@{0}`; commands take it verbatim. */
 export type GitStashEntry = {
   reference: string;
-  /** 列表里的顺序，0 是最新的一条。 */
+  /** Position in the list; 0 is the newest entry. */
   index: number;
   message: string;
-  /** 这条储藏建在哪个分支上；解析不出时为 null。 */
+  /** Which branch this stash was created on; null when it cannot be parsed. */
   branch: string | null;
 };
 
@@ -691,97 +698,104 @@ export const native = {
       cwd,
       workspace: envForPath(cwd),
     }),
-  /** 扫描 root 之下 depth 层以内的 git 仓库（默认 2）。 */
+  /** Find git repos up to `depth` levels below root (default 2). */
   projectsScan: (root: string, depth?: number) =>
     invoke<string[]>("projects_scan", {
       root,
       maxDepth: depth ?? null,
     }),
-  /** 批量取项目状态；每条独立成败，失败原因在该行的 error 里。 */
+  /** Batch project status; each row succeeds or fails on its own, with the
+   * reason in its `error`. */
   projectsStatus: (items: WireProjectTarget[]) =>
     invoke<WireProjectStatus[]>("projects_status", { items }),
   /**
-   * 本机 gh 读到的远程仓库（自己的 + 协作的 + 组织的），账号级查询，与当前空间无关。
-   * 没装 gh、没登录等状态由返回的 kind 说明，不抛异常。
+   * Remote repos the local gh can see (owned + collaborator + org), an
+   * account-level query independent of the current workspace. Conditions like
+   * gh missing or not logged in are reported via `kind` instead of throwing.
    */
   githubRepos: (limit?: number) =>
     invoke<WireRemoteReposPayload>("github_repos", { limit: limit ?? null }),
-  /** 单个仓库最近一次 CI 运行；由界面按需调用，别对整份列表批量查。 */
+  /** Latest CI run for one repo; the UI calls it on demand, never for a whole list. */
   githubRepoCi: (repo: string) =>
     invoke<WireRepoCiPayload>("github_repo_ci", { repo }),
-  /** 单个仓库的当前账号权限；同样按需调用，界面据此决定写操作按钮在不在。 */
+  /** Current account permission on one repo; also on demand, it decides whether
+   * write buttons show. */
   githubRepoPermission: (repo: string) =>
     invoke<WireRepoPermissionPayload>("github_repo_permission", { repo }),
-  /** 单个仓库的管理信息（描述 / 可见性 / 能不能改）；打开设置弹窗时调一次。 */
+  /** Admin info for one repo (description / visibility / editability); fetched
+   * once when the settings dialog opens. */
   githubRepoSettings: (repo: string) =>
     invoke<WireRepoSettingsPayload>("github_repo_settings", { repo }),
-  /** 改仓库描述；空串即清空。 */
+  /** Update the repo description; an empty string clears it. */
   githubRepoSetDescription: (repo: string, description: string) =>
     invoke<WireRepoActionResult>("github_repo_set_description", {
       repo,
       description,
     }),
-  /** 切可见性；`private` 为 true 是私有。 */
+  /** Change visibility; `private` = true makes it private. */
   githubRepoSetVisibility: (repo: string, isPrivate: boolean) =>
     invoke<WireRepoActionResult>("github_repo_set_visibility", {
       repo,
       private: isPrivate,
     }),
-  /** 删仓库（不可撤销）；后端发完请求会回查确认真的没了才报成功。 */
+  /** Delete a repo (irreversible); the backend re-checks that it is really gone
+   * before reporting success. */
   githubRepoDelete: (repo: string) =>
     invoke<WireRepoActionResult>("github_repo_delete", { repo }),
-  /** 本机 gh 的登录态。 */
+  /** Login state of the local gh. */
   githubAuthStatus: () =>
     invoke<WireAuthStatusPayload>("github_auth_status", {}),
-  /** 用粘贴的 PAT 登录；token 只经过内存，写进 gh 的 stdin。 */
+  /** Log in with a pasted PAT; the token only crosses memory and goes to gh's stdin. */
   githubAuthLoginToken: (token: string) =>
     invoke<WireAuthActionPayload>("github_auth_login_token", { token }),
-  /** 浏览器授权；gh 打出来的话通过 `verta://gh-auth` 事件流出来。 */
+  /** Browser auth; gh's output streams out via the `verta://gh-auth` event. */
   githubAuthLoginWeb: () =>
     invoke<WireAuthActionPayload>("github_auth_login_web", {}),
-  /** 中止浏览器授权（杀掉那个 gh 进程）。 */
+  /** Abort the browser auth flow (kills that gh process). */
   githubAuthLoginWebCancel: () =>
     invoke<void>("github_auth_login_web_cancel", {}),
-  /** 登出；界面上要求确认过才发这条。 */
+  /** Log out; the UI asks for confirmation before sending this. */
   githubAuthLogout: (login?: string) =>
     invoke<WireAuthActionPayload>("github_auth_logout", {
       login: login ?? null,
     }),
-  /** 本机已安装的字体族（给设置里的字体下拉用）；读不到时抛错，界面退回手输框。 */
+  /** Font families installed locally (feeds the settings dropdown); throws when
+   * unreadable, and the UI falls back to a text field. */
   fontsList: () => invoke<string[]>("fonts_list", {}),
-  /** 某个仓库的运行列表（默认 20 条）。 */
+  /** Run list for a repo (20 by default). */
   githubRepoRuns: (repo: string, limit?: number) =>
     invoke<WireRepoActionRunsPayload>("github_repo_runs", {
       repo,
       limit: limit ?? null,
     }),
-  /** 重跑一次运行。 */
+  /** Re-run a workflow run. */
   githubRunRerun: (repo: string, runId: number) =>
     invoke<WireRepoRunActionResult>("github_run_rerun", { repo, runId }),
-  /** 取消一次正在进行的运行。 */
+  /** Cancel an in-progress run. */
   githubRunCancel: (repo: string, runId: number) =>
     invoke<WireRepoRunActionResult>("github_run_cancel", { repo, runId }),
-  /** 删掉一次运行的记录（不可恢复）。 */
+  /** Delete a run's record (cannot be undone). */
   githubRunDelete: (repo: string, runId: number) =>
     invoke<WireRepoRunActionResult>("github_run_delete", { repo, runId }),
-  /** 一次运行的 job 与步骤树。 */
+  /** Jobs and step tree of one run. */
   githubRunJobs: (repo: string, runId: number) =>
     invoke<WireRepoRunJobsPayload>("github_run_jobs", { repo, runId }),
-  /** 一次运行的日志；`failedOnly` 为真时只看失败步骤的日志。 */
+  /** Log of one run; `failedOnly` restricts it to failed steps. */
   githubRunLog: (repo: string, runId: number, failedOnly?: boolean) =>
     invoke<WireRepoRunLogPayload>("github_run_log", {
       repo,
       runId,
       failedOnly: failedOnly ?? false,
     }),
-  /** 某个仓库的 Release 列表（默认 30 条，正文与附件都在里面）。 */
+  /** Release list for a repo (30 by default, bodies and assets included). */
   githubReleases: (repo: string, limit?: number) =>
     invoke<WireReleasesPayload>("github_releases", {
       repo,
       limit: limit ?? null,
     }) /**
-   * 把一个附件下载到 `dir`。`id` 由前端生成，进度事件带着它；
-   * `total` 是列表里那份附件大小，用来算百分比与校验完整性。
+   * Download one asset into `dir`. The frontend generates `id` and progress
+   * events carry it. `total` is the asset size from the list, used for the
+   * percentage and for an integrity check.
    */,
   githubReleaseDownload: (params: {
     id: string;
@@ -799,12 +813,13 @@ export const native = {
       dir: params.dir,
       total: params.total,
     }),
-  /** 取消一次正在进行的下载（按前端生成的 id 找）。 */
+  /** Cancel an in-progress download (looked up by the frontend-generated id). */
   githubReleaseDownloadCancel: (id: string) =>
     invoke<void>("github_release_download_cancel", { id }),
   /**
-   * 某个仓库的 issue / PR 列表。`state` 是 `open` / `closed` / `all`。
-   * 类型筛选（只看 issue 或只看 PR）在前端做 —— 一次请求两类都回来了。
+   * Issue / PR list for a repo. `state` is `open` / `closed` / `all`.
+   * Kind filtering (issues only, PRs only) happens in the frontend, since one
+   * request already returns both.
    */
   githubIssues: (repo: string, state: string, limit?: number) =>
     invoke<WireIssueListPayload>("github_issues", {
@@ -812,24 +827,24 @@ export const native = {
       state,
       limit: limit ?? null,
     }),
-  /** 一条 issue / PR 的详情：正文、评论、PR 专属信息、检查状态。 */
+  /** Detail of one issue / PR: body, comments, PR-only info, check status. */
   githubIssueDetail: (repo: string, number: number) =>
     invoke<WireIssueDetailPayload>("github_issue_detail", { repo, number }),
-  /** 给 issue / PR 加一条评论。 */
+  /** Add a comment to an issue / PR. */
   githubIssueComment: (repo: string, number: number, body: string) =>
     invoke<WireIssueActionResult>("github_issue_comment", {
       repo,
       number,
       body,
     }),
-  /** 打开或关闭一条 issue（PR 也一样）。 */
+  /** Open or close an issue (same for PRs). */
   githubIssueSetState: (repo: string, number: number, state: string) =>
     invoke<WireIssueActionResult>("github_issue_set_state", {
       repo,
       number,
       state,
     }),
-  /** 新建一个 issue。`labels` 是逗号 / 空格分隔的标签名。 */
+  /** Create an issue. `labels` is a comma- or space-separated label list. */
   githubIssueCreate: (
     repo: string,
     title: string,
@@ -842,7 +857,7 @@ export const native = {
       body: body ?? null,
       labels: labels ?? null,
     }),
-  /** 合并一个 PR。`method` 是 `merge` / `squash` / `rebase`。 */
+  /** Merge a PR. `method` is `merge` / `squash` / `rebase`. */
   githubPrMerge: (repo: string, number: number, method?: string, headSha?: string) =>
     invoke<WireIssueActionResult>("github_pr_merge", {
       repo,
@@ -999,14 +1014,14 @@ export const native = {
       reference,
       workspace: envForPath(repoRoot),
     }),
-  /** 丢弃储藏。调用前必须让用户确认过。 */
+  /** Drop a stash. The user must have confirmed beforehand. */
   gitStashDrop: (repoRoot: string, reference: string) =>
     invoke<void>("git_stash_drop", {
       repoRoot,
       reference,
       workspace: envForPath(repoRoot),
     }),
-  /** 新建分支；`switchTo` 为真时建完直接切过去。 */
+  /** Create a branch; with `switchTo` it also checks it out right away. */
   gitCreateBranch: (
     repoRoot: string,
     name: string,
@@ -1020,7 +1035,7 @@ export const native = {
       switch: switchTo,
       workspace: envForPath(repoRoot),
     }),
-  /** 删除分支。`force` 走 `-D`，会丢掉未合并的提交。 */
+  /** Delete a branch. `force` maps to `-D` and discards unmerged commits. */
   gitDeleteBranch: (repoRoot: string, name: string, force: boolean) =>
     invoke<void>("git_delete_branch", {
       repoRoot,
@@ -1035,7 +1050,7 @@ export const native = {
       to,
       workspace: envForPath(repoRoot),
     }),
-  /** 新建 worktree，返回新目录路径。 */
+  /** Create a worktree and return the path of the new directory. */
   gitWorktreeAdd: (
     repoRoot: string,
     path: string,
@@ -1051,7 +1066,7 @@ export const native = {
       startPoint,
       workspace: envForPath(repoRoot),
     }),
-  /** 移除 worktree。`force` 会丢掉那里的未提交改动。 */
+  /** Remove a worktree. `force` discards uncommitted changes in it. */
   gitWorktreeRemove: (repoRoot: string, path: string, force: boolean) =>
     invoke<void>("git_worktree_remove", {
       repoRoot,
@@ -1071,21 +1086,22 @@ export const native = {
       sha,
       workspace: envForPath(repoRoot),
     }),
-  /** 软撤回：分支指针退到该提交，工作区与暂存区保留。 */
+  /** Soft reset: move the branch pointer back to this commit, keeping the
+   * worktree and index. */
   gitResetSoft: (repoRoot: string, sha: string) =>
     invoke<void>("git_reset_soft", {
       repoRoot,
       sha,
       workspace: envForPath(repoRoot),
     }),
-  /** 中止卡住的拣选或还原。 */
+  /** Abort a stuck cherry-pick or revert. */
   gitAbortOperation: (repoRoot: string, kind: "cherry-pick" | "revert") =>
     invoke<void>("git_abort_operation", {
       repoRoot,
       kind,
       workspace: envForPath(repoRoot),
     }),
-  /** 克隆仓库到 `dest`，返回落地的目录路径。 */
+  /** Clone a repo into `dest` and return the resulting directory path. */
   gitCloneRepo: (url: string, dest: string) =>
     invoke<string>("git_clone_repo", {
       url,
@@ -1094,18 +1110,21 @@ export const native = {
     }),
   screenshotBegin: () => invoke<void>("screenshot_begin"),
   /**
-   * 按选区裁剪、存进「图片\屏幕截图」、送进剪贴板。
+   * Crop to the selection, save into the Pictures\Screenshots folder, and copy
+   * it to the clipboard.
    *
-   * 后端会先把覆盖窗口藏起来再抓屏（否则灰层与选择框会进到图里），所以这里传的坐标相对整块
-   * 虚拟桌面左上角；`cornerRadius` 是物理像素的圆角半径。
+   * The backend hides the overlay before grabbing the screen (otherwise the dim
+   * layer and the selection box end up in the image), so the rect passed here
+   * is relative to the top-left of the whole virtual desktop; `cornerRadius` is
+   * the corner radius in physical pixels.
    */
   screenshotFinish: (
     rect: { x: number; y: number; width: number; height: number },
     cornerRadius: number,
   ) => invoke<WireScreenshotSaved>("screenshot_finish", { rect, cornerRadius }),
-  /** 取消这次截图（Esc，或者点一下没拖）。 */
+  /** Cancel this capture (via Esc, or a click without a drag). */
   screenshotCancel: () => invoke<void>("screenshot_cancel"),
-  /** 覆盖窗口自己出岔子时的交代：把原文报回主窗口，别不吭声地消失。 */
+  /** Report an overlay-window failure back to the main window instead of vanishing silently. */
   screenshotFailed: (message: string) =>
     invoke<void>("screenshot_failed", { message }),
 };

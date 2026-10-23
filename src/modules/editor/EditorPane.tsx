@@ -113,7 +113,8 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** 草稿时间只要够认出「是哪一次中断」，所以到分为止。 */
+/** The draft timestamp only has to identify which interruption this was, so minutes are
+ * enough. */
 function draftTime(at: number): string {
   const d = new Date(at);
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -613,7 +614,8 @@ export const EditorPane = memo(
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {renderToggle?.({ open: sideOpen, setOpen: setSideOpen })}
           {pendingDraft ? (
-            // 中断前的草稿：一条窄提示条，不挡编辑，也不自动改文件。
+            // A draft from an interrupted session: a narrow bar that neither blocks
+            // editing nor changes the file on its own.
             <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11px]">
               <span className="min-w-0 flex-1 truncate text-foreground/90">
                 {tr("editor.draft.found", {

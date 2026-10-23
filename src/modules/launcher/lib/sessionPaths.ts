@@ -1,14 +1,18 @@
 /**
- * 相对路径：把会话的 cwd 折成「相对当前工作区根」的写法，给右键菜单用。
+ * Relative paths: fold a session's cwd into a form relative to the current workspace
+ * root, for the context menu.
  *
- * 只做字符串处理：会话的 cwd 与工作区根都来自同一台机器（`distro` 相同才比），
- * 不碰文件系统 —— 就算目录已经被删了，复制出这个相对路径仍然是用户想要的那条。
+ * String handling only: the session cwd and the workspace root come from the same
+ * machine (compared only when `distro` matches), and the filesystem is never touched —
+ * even if the directory has been deleted, the copied relative path is still the one
+ * the user wants.
  */
 
 /**
- * 统一分隔符、去掉尾部的 `/`。
+ * Unify separators and strip trailing `/`.
  *
- * 不用正则写「反斜杠」：那些 `\\` 在编辑与转义里都太容易掉，用字符编码拼出来。
+ * No regex for the backslash: those `\\` are too easy to lose in editing and
+ * escaping, so it is built from a char code.
  */
 const BACKSLASH = String.fromCharCode(92);
 
@@ -20,9 +24,10 @@ function normalize(path: string): string {
 }
 
 /**
- * `cwd` 相对 `root` 的路径；不在 `root` 之下（或 `root` 为空）时是 `null`。
+ * Path of `cwd` relative to `root`; `null` when `cwd` is not under `root` (or `root` is
+ * empty).
  *
- * 同一条路径返回 `"."`（表示就是根目录本身）。
+ * The same path returns `"."`, meaning the root directory itself.
  */
 export function relativeToRoot(
   root: string | null | undefined,

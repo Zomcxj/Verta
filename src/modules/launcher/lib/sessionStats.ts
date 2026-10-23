@@ -2,16 +2,17 @@ import type { Language } from "@/modules/i18n/language";
 import { translate } from "@/modules/i18n/messages";
 
 /**
- * 会话列表那一行上的三个数字：轮数、tokens、最后对话时间（到日）。
+ * The three numbers on a session row: turns, tokens, and the last conversation
+ * time (down to the day).
  *
- * 后端取不到某项时给的是 `null`（不是 0）—— 界面上要显示「—」，不能用 0 冒充，
- * 那会让人以为这个会话一句话都没说过。
+ * The backend reports `null` (not 0) when a value is unavailable, and the UI must
+ * show "—": passing 0 off as real would suggest the session never said a word.
  */
 
 export type SessionStats = {
   turns: number | null;
   tokens: number | null;
-  /** 最后一次**对话**的时间；没有就退回文件更新时间（`updatedAtMs`）。 */
+  /** Time of the last **conversation**; falls back to the file mtime (`updatedAtMs`). */
   lastAtMs: number | null;
 };
 
@@ -19,7 +20,7 @@ const MINUTE = 60_000;
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
 
-/** 轮数：`12 轮`；不知道就是 `—`。 */
+/** Turn count, e.g. `12 turns`; `—` when unknown. */
 export function turnsLabel(
   turns: number | null | undefined,
   language: Language = "zh",
@@ -29,9 +30,11 @@ export function turnsLabel(
 }
 
 /**
- * tokens：一万以内照写，一万以上折成 `12.3 万`，百万以上 `1.2 M`。
+ * Tokens: written out below ten thousand, folded to `12.3 k` above that, and to
+ * `1.2 M` in the millions.
  *
- * 会话动辄几十万 tokens，原样写一长串没人读得出来量级。
+ * Sessions routinely reach hundreds of thousands of tokens; the raw number is too
+ * long to read the magnitude off.
  */
 export function tokensLabel(
   tokens: number | null | undefined,
@@ -53,13 +56,16 @@ export function tokensLabel(
 }
 
 /**
- * 最后对话时间，由近到远：
- * `刚刚` → `N 分钟前` → `N 小时前`（1/3/6/12 各一档）→ `昨天` → `前天` → `2026-10-08`。
+ * Last conversation time, nearest first:
+ * `just now` → `N minutes ago` → `N hours ago` (steps 1/3/6/12) → `yesterday` →
+ * `day before` → `2026-10-08`.
  *
- * 越近越要说清「多久以前」：一小时内说分钟，一天内说小时（取最接近的那一档），
- * 再往前才值得看日期 —— 那时「几号」比「几天前」好认。
+ * The closer it is, the more precisely "how long ago" matters: minutes within the
+ * hour, hours within the day (nearest step), and only beyond that does the date
+ * become worth reading — the day of the month is easier to grasp than a day count.
  *
- * `nowMs` 与 `ms` 都按本地时间算日界；未来时间（时钟被改过）按「刚刚」说，不显示负数。
+ * Both `nowMs` and `ms` use local time for day boundaries. Future timestamps (a
+ * skewed clock) read as "just now" rather than a negative age.
  */
 export function lastTalkedDayLabel(
   nowMs: number,
@@ -68,7 +74,7 @@ export function lastTalkedDayLabel(
 ): string {
   if (!ms || ms <= 0) return "—";
   const elapsed = nowMs - ms;
-  // 时钟漂移或未来时间：当作刚刚，不显示「-3 小时前」。
+  // Clock skew or a future timestamp: treat it as just now, never "-3 hours ago".
   if (elapsed < MINUTE) return translate(language, "time.justNow");
 
   const day = (value: number) => {
@@ -77,7 +83,8 @@ export function lastTalkedDayLabel(
   };
   const diffDays = Math.round((day(nowMs) - day(ms)) / DAY);
 
-  // 今天之内：小时取最近的一档（1/2/3/6/12），让同一屏里的数字好比较。
+  // Within today: snap hours to the nearest step (1/3/6/12) so the numbers on one
+  // screen stay comparable.
   if (diffDays <= 0) {
     const hours = Math.floor(elapsed / HOUR);
     if (hours < 1)
@@ -96,20 +103,23 @@ export function lastTalkedDayLabel(
 }
 
 /**
- * 小时数归到 1 / 3 / 6 / 12 这几档，避免出现「7 小时前」这种没人在意的精度。
+ * Snap an hour count to the 1 / 3 / 6 / 12 steps; "7 hours ago" is precision
+ * nobody cares about.
  *
- * 取**最接近的那一档**（四舍五入），不是往上取整：2.9 小时说「3 小时前」没问题，
- * 但 5 小时说成「6 小时前」就夸张了 —— 5 离 6 最近，才算 6。
+ * Snap to the **nearest** step (round), not upward: 2.9 hours as "3 hours ago" is
+ * fine, but rounding 5 up to 6 would overstate it — 5 is already closest to 6.
  */
 function nearestHourStep(hours: number): number {
-  // 档与档之间的分界在中点，各段按「离哪档近就说哪档」四舍五入。
+  // Boundaries sit at the midpoints, so each range rounds to whichever step it is
+  // closer to.
   if (hours < 2) return 1;
   if (hours < 5) return 3;
   if (hours < 9) return 6;
   return 12;
 }
 
-/** 后端给的统计 + 兜底：没有对话时间就用更新时间，别的不知道就留空。 */
+/** Backend stats plus fallbacks: use the mtime when there is no conversation time,
+ * leave the rest empty. */
 export function statsOf(session: {
   turns?: number | null;
   tokens?: number | null;

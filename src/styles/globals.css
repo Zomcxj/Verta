@@ -777,13 +777,17 @@ html[data-window-inactive] *::after {
   scrollbar-width: thin;
 }
 
-/* 会话打开过渡（见 `app/components/SessionOpeningOverlay.tsx`）。
- * 只动 transform / opacity：柔边用径向渐变 —— 模糊与背景模糊都会多带一层
- * 合成层，合成层预算卡着启动那几帧。几圈波纹用动画延迟错开，看起来是连续往外扩；
- * 次数写死（不做无限循环）：这层本来只活一两秒，而全局动效预算只允许无限循环的动画走阶梯计时。 */
+/* Session-opening transition (see `app/components/SessionOpeningOverlay.tsx`).
+ * Only transform / opacity animate: soft edges come from radial gradients, since
+ * blur and backdrop blur each add a compositing layer and the layer budget is tight
+ * during the first frames of startup. Ripples are staggered with animation delays
+ * so they read as continuously expanding; the iteration count is fixed (no infinite
+ * loop) because this layer only lives a second or two, and the global motion budget
+ * only lets infinite animations use stepped timing. */
 .verta-session-opening {
-  /* 挡住的只是「命令被敲进终端」那一幕：那一行字得真的看不见，所以几乎不透明，
-   * 但用主题自己的底色，而不是写死一个灰。 */
+  /* This only hides the moment the command lands in the terminal: that line has to
+   * be truly invisible, hence the near-opaque layer — but using the theme's own base
+   * color rather than a hard-coded gray. */
   background: color-mix(in oklab, var(--background) 97%, transparent);
 }
 
@@ -831,7 +835,7 @@ html[data-window-inactive] *::after {
   border-radius: 16px;
   background: color-mix(in oklab, var(--card) 72%, transparent);
   box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.08);
-  /* 出现时那一震：先缩、再冲过一点、回正。 */
+  /* The punch on appearance: shrink, overshoot, settle back. */
   animation: verta-session-opening-punch 0.85s
     cubic-bezier(0.3, 1.25, 0.5, 1) 1;
 }
@@ -851,8 +855,10 @@ html[data-window-inactive] *::after {
   }
 }
 
-/* 过渡动画的另外三种（设置 → 主题页里选，见 `SessionOpeningOverlay.tsx`）。
- * 与波纹同一套约束：只动 transform / opacity，次数写死（不做无限循环），柔边用渐变不用模糊。 */
+/* The other three transitions (picked under Settings → Themes, see
+ * `SessionOpeningOverlay.tsx`). Same constraints as the ripples: only transform /
+ * opacity, a fixed iteration count (no infinite loop), and gradients instead of blur
+ * for soft edges. */
 .verta-session-opening-pulse {
   position: absolute;
   width: 128px;
@@ -870,7 +876,8 @@ html[data-window-inactive] *::after {
   animation-delay: 0.44s;
 }
 
-/* 同心圈在原地呼吸：不外扩，靠明暗与大小一起起伏。 */
+/* Concentric rings breathing in place: no expansion, just brightness and scale
+ * rising and falling together. */
 @keyframes verta-session-opening-pulse {
   0% {
     transform: scale(0.72);
@@ -891,7 +898,7 @@ html[data-window-inactive] *::after {
   width: 104px;
   height: 104px;
   border-radius: 9999px;
-  /* 只有上半圈有墨：转起来就是一条绕着图标跑的光弧。 */
+  /* Only the top half is inked, so spinning it draws an arc of light around the icon. */
   background: conic-gradient(
     from 0deg,
     transparent 0deg 210deg,

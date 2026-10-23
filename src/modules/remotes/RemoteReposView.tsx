@@ -31,49 +31,55 @@ import { copyTextOf, filterRows, noticeOf, toRows } from "./lib/rows";
 import type { RemoteRepoRow } from "./lib/types";
 
 type Props = {
-  /** 非活动标签页只是留在后台，不该反复去拉网络。 */
+  /** Inactive tabs just sit in the background; they should not keep hitting the network. */
   active: boolean;
 };
 
 /**
- * 远程仓库列表（本机 gh 读到的账号级仓库）。中间区域的标签页，和「项目」同一套路：
- * 没有项目清单那样的本机状态，全部来自一次查询。
+ * Remote repo list (account-level repos read by the local gh). A center-area tab
+ * following the same pattern as Projects: there is no local state like the
+ * project list, everything comes from a single query.
  */
 export function RemoteReposView({ active }: Props) {
   const t = useT();
 
   const [payload, setPayload] = useState<WireRemoteReposPayload | null>(null);
   const [reading, setReading] = useState(false);
-  /** 命令本身失败（连 kind 都拿不到）时的原文，与 gh 报错分开记。 */
+  /** Raw message when the command itself failed (no `kind` at all); kept apart
+   * from errors that gh reported. */
   const [failure, setFailure] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  /** 已经查过的 CI 结果，按 `owner/name` 存放；查过不再自动重查。 */
+  /** CI results already checked, keyed by `owner/name`; cached so they are not
+   * re-checked automatically. */
   const [ci, setCi] = useState<Record<string, WireRepoCiPayload>>({});
-  /** 正在看运行记录的仓库；null 表示弹窗关着。 */
+  /** Repo whose runs are being viewed; null when the dialog is closed. */
   const [runsFor, setRunsFor] = useState<string | null>(null);
-  /** 正在看 Releases 的仓库；null 表示弹窗关着。 */
+  /** Repo whose releases are being viewed; null when the dialog is closed. */
   const [releasesFor, setReleasesFor] = useState<string | null>(null);
-  /** 正在看 issue / PR 的仓库；null 表示弹窗关着。 */
+  /** Repo whose issues / PRs are being viewed; null when the dialog is closed. */
   const [issuesFor, setIssuesFor] = useState<string | null>(null);
-  /** 正在改设置的仓库；null 表示弹窗关着。 */
+  /** Repo being edited; null when the dialog is closed. */
   const [adminFor, setAdminFor] = useState<string | null>(null);
-  /** 正在克隆的仓库；`dest` 是预填的目标目录。 */
+  /** Repo being cloned; `dest` is the prefilled destination directory. */
   const [cloneFor, setCloneFor] = useState<{
     row: RemoteRepoRow;
     dest: string;
   } | null>(null);
-  /** 账号面板开着没有。 */
+  /** Whether the account panel is open. */
   const [authOpen, setAuthOpen] = useState(false);
   const [ciBusy, setCiBusy] = useState<Record<string, boolean>>({});
 
   /**
-   * 查一个仓库的 CI。
+   * Check CI for one repo.
    *
-   * 一次一个仓库：整份列表逐个去查会烧掉 API 配额，所以只查用户真正碰到的行（悬停，
-   * 或徽标本身没结果时点它一下）。`force` 用于徽标上写明「查不动」时的再试。
+   * One repo at a time: querying a whole list one by one burns the API quota, so
+   * we only check rows the user actually touches (hover, or a click on a badge
+   * that has no result yet). `force` retries a badge that says "can't check".
    *
-   * 行菜单里那句「检查 CI」已经去掉：它和「运行记录…」说的是同一件事（徽标就是最新那条），
-   * 留着只会出现两个入口给出两种说法。面板读完会回传最新那条，徽标照它更新。
+   * The "Check CI" entry was removed from the row menu: it means the same thing
+   * as "Runs…" (the badge is the latest run) and keeping both gave two entry
+   * points with two different stories. The runs panel reports the newest run back
+   * and the badge follows it.
    */
   const checkCi = useCallback(
     async (fullName: string, force = false) => {
@@ -85,7 +91,8 @@ export function RemoteReposView({ active }: Props) {
         const result = await native.githubRepoCi(fullName);
         setCi((prev) => ({ ...prev, [fullName]: result }));
       } catch (e) {
-        // 命令本身失败（不是 gh 报的错）：也放进结果里，让那一行自己说清楚。
+        // The command itself failed (not an error reported by gh): fold it into the
+        // result so the row can explain itself.
         setCi((prev) => ({
           ...prev,
           [fullName]: {
@@ -118,7 +125,8 @@ export function RemoteReposView({ active }: Props) {
     }
   }, []);
 
-  // 第一次露脸时读一次；之后由刷新按钮说了算，切标签页不会重复拉网络。
+  // Read once on first appearance; after that the refresh button is in charge,
+  // and switching tabs does not re-hit the network.
   useEffect(() => {
     if (!active || payload !== null) return;
     void read();
@@ -132,7 +140,8 @@ export function RemoteReposView({ active }: Props) {
   const notice = payload ? noticeOf(payload, visible.length, filter) : null;
 
   const copy = useCallback((value: string) => {
-    // 剪贴板尽力而为：没有权限时静默，别把一次复制失败说成列表出错。
+    // Clipboard is best-effort: stay silent when permission is missing rather
+    // than reporting a failed copy as a list error.
     void navigator.clipboard
       .writeText(value)
       .then(() => toast.message(t("remotes.action.copied")))
@@ -140,9 +149,11 @@ export function RemoteReposView({ active }: Props) {
   }, [t]);
 
   /**
-   * 克隆那一行：目标目录默认落在「已有项目的同一级 + 仓库名」。
+   * Clone this row: the destination defaults to "next to the existing projects,
+   * plus the repo name".
    *
-   * 读不到项目清单就留空让人自己填——猜一个不存在的目录只会让克隆白跑一趟。
+   * When the project list cannot be read the field stays empty for the user to
+   * fill in — guessing a directory that does not exist only wastes a clone.
    */
   const startClone = useCallback(async (row: RemoteRepoRow) => {
     let dest = "";
@@ -150,19 +161,21 @@ export function RemoteReposView({ active }: Props) {
       const paths = await loadProjectPaths();
       dest = cloneDestFromProjects(paths, row.name);
     } catch {
-      // 读不到清单不影响克隆本身，目标目录让用户填。
+      // An unreadable project list does not block cloning; the user fills in the
+      // destination.
     }
     setCloneFor({ row, dest });
   }, []);
 
-  /** 克隆完把新目录并进项目清单：切到项目页就能看到它。 */
+  /** Merge the new directory into the project list so the Projects tab shows it. */
   const handleCloned = useCallback(
     async (path: string) => {
       try {
         const paths = await loadProjectPaths();
         await saveProjectPaths(mergeProjectPaths(paths, [path]));
       } catch (e) {
-        // 克隆本身成功了，只是清单没写进去：如实说，别让它看起来像克隆失败。
+        // The clone succeeded; only the list write failed. Say so plainly, so it
+        // does not look like a failed clone.
         toast.error(String(e));
         return;
       }
@@ -171,7 +184,8 @@ export function RemoteReposView({ active }: Props) {
     [t],
   );
 
-  /** 描述 / 可见性改成功后，列表那一行跟着更新，不必整份重拉。 */
+  /** Patch just the affected row after a description / visibility change
+   * instead of refetching everything. */
   const applyPatch = useCallback(
     (
       repo: string,
@@ -289,7 +303,8 @@ export function RemoteReposView({ active }: Props) {
           ) : null}
           {notice.tone === "empty" ? null : (
             <div className="mt-2 flex flex-wrap gap-2">
-              {/* 没登录 / 没装 gh 时，这里最能直接给出下一步：打开账号面板。 */}
+              {/* When gh is missing or logged out, the account panel is the most
+                  direct next step. */}
               {payload.kind === "notLoggedIn" || payload.kind === "notInstalled" ? (
                 <Button
                   variant="ghost"
@@ -364,7 +379,8 @@ export function RemoteReposView({ active }: Props) {
           if (!open) setRunsFor(null);
         }}
         onLoaded={(payload) => {
-          // 徽标与面板说同一件事：面板读完就用它最新那条更新那一行的徽标。
+          // The badge and the panel tell the same story: once the panel has loaded,
+          // update the row badge from its newest run.
           setCi((prev) => ({ ...prev, [payload.repo]: ciFromRuns(payload) }));
         }}
       />
@@ -387,7 +403,8 @@ export function RemoteReposView({ active }: Props) {
         }}
         onChanged={applyPatch}
         onDeleted={(repo) => {
-          // 删掉了就从列表里拿掉：刷新回来它也不会再出现。
+          // Drop it from the list right away; a refresh would not bring it back
+          // either.
           setPayload((prev) =>
             prev
               ? {
@@ -414,7 +431,8 @@ export function RemoteReposView({ active }: Props) {
         open={authOpen}
         onOpenChange={(next) => {
           setAuthOpen(next);
-          // 关掉时重读一次列表：账号面板里可能刚登录 / 登出过，头部与列表都得跟着变。
+          // Re-read the list on close: the account panel may have logged in or out,
+          // and both the header and the list have to follow.
           if (!next) void read();
         }}
       />
@@ -450,7 +468,7 @@ function RepoRow({
     void openUrl(row.webUrl).catch(console.error);
   }, [row.webUrl]);
   const view = ciView(ci);
-  // 鼠标停到这一行就去查一次：整份列表不批量查，用户碰到哪行就查哪行。
+  // Check on hover: we never batch the whole list, only rows the user touches.
   const onHover = useCallback(() => {
     void onCheckCi(row.fullName);
   }, [onCheckCi, row.fullName]);
@@ -505,8 +523,9 @@ function RepoRow({
               ⋯
             </button>
           </DropdownMenuTrigger>
-          {/* 菜单内容是 Radix 传送到 body 的，但 React 事件仍沿组件树冒泡到整行 —— 不拦住的话，
-              点「仓库设置…」会顺手把运行记录弹窗也开出来，两个弹窗叠在一起。 */}
+          {/* Radix portals the menu content to body, but React events still bubble
+              up the component tree to the row — without stopping them, clicking
+              "Repo settings…" also opens the runs dialog on top of it. */}
           <DropdownMenuContent
             align="end"
             className="min-w-48"
@@ -547,10 +566,11 @@ function RepoRow({
 }
 
 /**
- * 一行的 CI 徽标。
+ * CI badge for one row.
  *
- * 有结果时可点开去看这次运行；没有结果（或正在查）时是个「检查 CI」按钮，点一下现查。
- * 不管哪种状态，点击都不该冒泡到行上——那会把浏览器转到仓库首页去。
+ * With a result it opens that run; without one (or while checking) it is a
+ * "Check CI" button that runs the query now. Either way the click must not
+ * bubble to the row, which would open the browser to the repo home page.
  */
 function CiCell({
   view,
@@ -563,7 +583,7 @@ function CiCell({
   busy: boolean;
   checkLabel: string;
   onCheck: () => void;
-  /** 已有结果时点它是「在软件里看运行」，不是跳浏览器。 */
+  /** With a result, clicking shows the run in-app rather than opening a browser. */
   onOpenDetail: () => void;
 }) {
   const t = useT();
@@ -579,7 +599,7 @@ function CiCell({
       title={view.detail ?? checkLabel}
       disabled={busy}
       className={cn(className, "hover:bg-accent disabled:opacity-60")}
-      // 点击都不该冒泡到行上（行点击是打开运行面板）。
+      // Clicks must not bubble to the row (a row click opens the runs panel).
       onMouseDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation();

@@ -26,10 +26,11 @@ const LOG_TONE_CLASS: Record<ReturnType<typeof logLineTone>, string> = {
 };
 
 /**
- * 一次运行的详情：job / step 树 + 日志。
+ * Detail of one run: the job / step tree plus the log.
  *
- * 都在软件内看，不在浏览器里看 —— 只有「完整日志」这种情况例外（一次能取的量有上限，
- * 截断时会把「在 GitHub 打开」放在显眼处，让人知道还有更多）。
+ * Everything is viewed in-app rather than in a browser — with one exception, the full
+ * log (a single fetch has a size limit, so when it is truncated "open on GitHub" is
+ * placed prominently so the user knows there is more).
  */
 export function RunDetail({ repo, run, onBack }: Props) {
   const t = useT();
@@ -37,7 +38,7 @@ export function RunDetail({ repo, run, onBack }: Props) {
   const [log, setLog] = useState<WireRepoRunLogPayload | null>(null);
   const [reading, setReading] = useState(false);
   const [failedOnly, setFailedOnly] = useState(false);
-  /** 命令本身失败（连 kind 都拿不到）时的原文。 */
+  /** Raw message when the command itself failed (no `kind` at all). */
   const [fatal, setFatal] = useState<string | null>(null);
 
   const loadLog = useCallback(
@@ -78,7 +79,8 @@ export function RunDetail({ repo, run, onBack }: Props) {
 
   const state = runState(run);
   const now = Date.now();
-  // 日志行没有 id，序号就是它的标识；顺手把「上一行的步骤」算好，用来只在步骤变化时显示。
+  // Log lines have no id, so the index is the key; the previous line's step is computed
+  // alongside so the step label only shows when it changes.
   const numberedLines = (log?.lines ?? []).map((line, i) => ({
     line,
     id: i,
@@ -113,7 +115,7 @@ export function RunDetail({ repo, run, onBack }: Props) {
             .join(" · ")}
         </span>
         <span className="grow" />
-        {/* 日志被截断时这条路是必须的；平时也只是个次要出口。 */}
+        {/* Essential when the log is truncated; otherwise just a secondary exit. */}
         <Button
           variant="ghost"
           size="sm"

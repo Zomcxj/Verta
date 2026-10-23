@@ -32,24 +32,26 @@ type Props = {
 };
 
 const AUTH_EVENT = "verta://gh-auth";
-/** 补 delete_repo 授权的命令：删仓库那一步要靠它。 */
+/** Command that grants the delete_repo scope, which the delete step needs. */
 const DELETE_SCOPE_COMMAND = "gh auth refresh -s delete_repo";
 
 /**
- * GitHub 账号面板：看当前登录态、浏览器授权、粘 PAT、登出。
+ * GitHub account panel: view the current login state, authorize in a browser, paste
+ * a PAT, log out.
  *
- * **token 不落进应用**：粘贴的那串只经过内存写进 gh 的 stdin，界面提交完就把输入框清掉；
- * 登录态里的 token 来源（keyring 等）照实显示，但 token 本身从不读出来。
+ * **The token never lands in the app**: a pasted one only crosses memory on its way
+ * to gh's stdin, and the field is cleared on submit. The token source in the login
+ * state (keyring, etc.) is shown as-is, but the token itself is never read out.
  */
 export function AuthDialog({ open, onOpenChange }: Props) {
   const t = useT();
   const [payload, setPayload] = useState<WireAuthStatusPayload | null>(null);
   const [reading, setReading] = useState(false);
-  /** 命令本身失败（连 kind 都拿不到）时的原文。 */
+  /** Raw message when the command itself failed (no `kind` at all). */
   const [fatal, setFatal] = useState<string | null>(null);
-  /** 浏览器授权中的实时输出。 */
+  /** Live output from the browser auth flow. */
   const [stream, setStream] = useState("");
-  /** 浏览器授权是不是正跑着（决定挂不挂事件监听）。 */
+  /** Whether the browser auth flow is running (gates the event listener). */
   const [streaming, setStreaming] = useState(false);
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState<null | "token" | "web" | "logout">(null);
@@ -60,10 +62,12 @@ export function AuthDialog({ open, onOpenChange }: Props) {
   const problem = tokenProblem(token);
 
   /**
-   * 读一次登录态。
+   * Read the login state once.
    *
-   * 依赖是空的：这个回调只在打开弹窗时用一次，`load` 的身份必须稳定 ——
-   * 它要是每次渲染都变，effect 会跟着重跑，读一次 → 重渲染 → 再读一次，弹窗会一直跳。
+   * The dependency list is empty on purpose: this callback is only used when the
+   * dialog opens, so `load` must keep a stable identity. If it changed on every
+   * render the effect would re-run, read → re-render → read again, and the dialog
+   * would keep flickering.
    */
   const load = useCallback(async () => {
     setReading(true);
@@ -81,7 +85,7 @@ export function AuthDialog({ open, onOpenChange }: Props) {
 
   useEffect(() => {
     if (!open) {
-      // 关掉时清干净：token 不留、流不留、错误不留。
+      // Clear everything on close: no token, no stream, no error.
       setPayload(null);
       setFatal(null);
       setStream("");
@@ -95,7 +99,7 @@ export function AuthDialog({ open, onOpenChange }: Props) {
     void load();
   }, [open, load]);
 
-  // 浏览器授权那一轮的输出。监听只在跑的时候挂着。
+  // Output of the current browser auth round. The listener is only attached while it runs.
   useEffect(() => {
     if (!streaming) return;
     let alive = true;
@@ -125,11 +129,13 @@ export function AuthDialog({ open, onOpenChange }: Props) {
         setActionError(result.error ?? t("remotes.auth.error"));
         return;
       }
-      // gh 退出码是 0 不等于「真登上了」：读完状态再决定说什么。
+      // gh exiting 0 does not mean "actually logged in": re-read the state before
+      // deciding what to say.
       const status = await native.githubAuthStatus();
       setPayload(status);
       if (status.kind !== "ready") {
-        // gh 报成功但登录态没变：多半是浏览器那步没走完（它退 0 只说明命令跑完了）。
+        // gh reported success but the login state did not change: usually the browser
+        // step never finished (exit 0 only means the command completed).
         setActionError(t("remotes.auth.web.unfinished"));
         return;
       }
@@ -157,7 +163,7 @@ export function AuthDialog({ open, onOpenChange }: Props) {
     } catch (e) {
       setActionError(String(e));
     } finally {
-      // 提交完就把输入框清掉：应用里不留这串东西。
+      // Clear the field after submitting so the string leaves nothing behind.
       setToken("");
       setBusy(null);
     }
@@ -305,7 +311,8 @@ export function AuthDialog({ open, onOpenChange }: Props) {
                 </p>
                 {streaming ? (
                   <>
-                    {/* 固定高度：一次性码一行行流进来时别再撑高弹窗（居中弹窗会跟着跳）。 */}
+                    {/* Fixed height so the one-time code streaming in line by line does
+                        not grow the dialog (a centered dialog would jump). */}
                     <pre className="h-24 overflow-auto rounded border border-border/60 bg-card px-2 py-1 font-mono text-[11px] whitespace-pre-wrap">
                       {stream || t("remotes.auth.web.running")}
                     </pre>

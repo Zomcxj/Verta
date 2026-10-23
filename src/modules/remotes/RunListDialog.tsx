@@ -30,21 +30,22 @@ import { RunDetail } from "./RunDetail";
 import { runRowView, withoutRun } from "./lib/runs";
 
 type Props = {
-  /** 要看运行记录的仓库全名；null 表示弹窗关着。 */
+  /** Full name of the repo whose runs are shown; null when the dialog is closed. */
   repo: string | null;
   onOpenChange: (open: boolean) => void;
   /**
-   * 每次读到运行列表后回传一次。
+   * Called after every successful read of the run list.
    *
-   * 面板是「这个仓库现在什么状态」的唯一来源：列表那一行的 CI 徽标就拿它最新那条来更新，
-   * 免得徽标和面板各说各话。
+   * This panel is the single source of truth for "what state is this repo in":
+   * the row's CI badge updates from its newest run, so badge and panel never
+   * disagree.
    */
   onLoaded?: (payload: WireRepoActionRunsPayload) => void;
 };
 
 type PendingAction = { run: WireRepoActionRun; what: "rerun" | "cancel" | "delete" };
 
-/// 三种动作各自的文案键：确认框标题（带运行号）、说明、成功浮层。
+// Copy keys per action: confirm-dialog title (with the run number), hint, success toast.
 const ACTION_TEXT: Record<
   PendingAction["what"],
   { title: MessageKey; hint: MessageKey; done: MessageKey }
@@ -67,27 +68,30 @@ const ACTION_TEXT: Record<
 };
 
 /**
- * 某个仓库的运行记录。
+ * Run history for one repo.
  *
- * 列表按需读（打开弹窗时读一次，最近 20 条）。重跑与取消都会在你账号上真发生点什么，
- * 所以都先确认；失败时把 gh 的原话留在确认框里，而不是只弹一句「失败了」——比如对一次
- * 已经跑完的运行点取消，GitHub 会给一句明确的话，那正是用户要看的。
+ * The list is read on demand (once on open, latest 20). Rerun and cancel really
+ * do something on your account, so both confirm first; on failure gh's own words
+ * stay in the confirm dialog instead of a bare "failed" — cancelling an
+ * already-finished run, for instance, earns a specific message from GitHub, and
+ * that is exactly what the user needs to see.
  */
 export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
   const t = useT();
   const [payload, setPayload] = useState<WireRepoActionRunsPayload | null>(null);
   const [reading, setReading] = useState(false);
-  /** 命令本身失败（连 kind 都拿不到）时的原文。 */
+  /** Raw message when the command itself failed (no `kind` at all). */
   const [fatal, setFatal] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [busy, setBusy] = useState(false);
-  /** 动作失败时 gh 的原话，留在确认框里。 */
+  /** gh's own words when an action failed; kept in the confirm dialog. */
   const [actionError, setActionError] = useState<string | null>(null);
-  /** 展开看详情的某次运行；null 表示还停在列表上。 */
+  /** Run opened in detail view; null while still on the list. */
   const [detail, setDetail] = useState<WireRepoActionRun | null>(null);
-  /** 刚删掉的运行 id：列表里立刻拿掉，刷新回来也滤掉（GitHub 那侧会慢一拍）。 */
+  /** Ids of just-deleted runs: dropped from the list immediately and filtered out
+   * of refreshes too (GitHub lags behind). */
   const [deletedIds, setDeletedIds] = useState<number[]>([]);
-  /** 这个仓库的权限：只影响写操作按钮在不在，读的部分照常给。 */
+  /** Permission on this repo: only affects whether write buttons show; reads still work. */
   const [permission, setPermission] = useState<WireRepoPermissionPayload | null>(
     null,
   );
@@ -95,10 +99,12 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
   const readOnlyHint = readOnlyHintKey(permission);
 
   /**
-   * 打开时查一次权限。
+   * Check permission once on open.
    *
-   * 与运行列表分开读：列表每次动作后都会刷新，权限不会因为重跑一次就变，没必要跟着重问。
-   * 查不动就保持 null —— `canWrite(null)` 是「按有权限渲染」，让 GitHub 去拒绝。
+   * Kept separate from the run list: the list refreshes after every action, but
+   * permission does not change because of a rerun, so there is no reason to ask
+   * again. When the lookup fails it stays null, and `canWrite(null)` means "render
+   * as if allowed" so GitHub gets to refuse.
    */
   useEffect(() => {
     setPermission(null);
@@ -122,7 +128,7 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
     try {
       const payload = await native.githubRepoRuns(repo);
       setPayload(payload);
-      // 徽标跟着面板走：一个事实一个来源。
+      // The badge follows the panel: one fact, one source.
       onLoaded?.(payload);
     } catch (e) {
       setPayload(null);
@@ -134,7 +140,7 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
 
   useEffect(() => {
     if (!repo) {
-      // 关掉时把上一次的状态清干净，下次打开不会先闪一眼旧数据。
+      // Clear the previous state on close so reopening does not flash stale data.
       setPayload(null);
       setFatal(null);
       setPending(null);
@@ -164,20 +170,23 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
             ? await native.githubRunCancel(repo, target.id)
             : await native.githubRunDelete(repo, target.id);
       if (result.kind !== "ready") {
-        // 失败不是「停在中间态」，原文留着，再试一次或收手由用户决定。
+        // A failure is not a "stuck midway" state: keep the raw message and let the
+        // user retry or back out.
         setActionError(result.error ?? t("remotes.ci.error"));
         return;
       }
       setPending(null);
       if (what === "delete") {
-        // 删除：行和浮层必须同时消失。刷新只是对账，慢一拍也不该把行弹回来。
+        // Delete: the row and the toast must go together. The refresh only
+        // reconciles, and even a late one must not bring the row back.
         setDeletedIds((prev) => [...prev, target.id]);
         setPayload((prev) =>
           prev ? { ...prev, runs: withoutRun(prev.runs, target.id) } : prev,
         );
       }
       toast.success(t(ACTION_TEXT[what].done));
-      // 成功之后先收确认框再刷新：刷新出了问题不该让确认框看起来像失败。
+      // Close the confirm dialog before refreshing: a refresh problem must not make
+      // the action look like a failure.
       await load();
     } catch (e) {
       setActionError(String(e));
@@ -187,7 +196,7 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
   };
 
   const job = pending ? runRowView(pending.run, Date.now()) : null;
-  // 刚删掉的先别显示；刷新回来时 GitHub 可能还带着它。
+  // Hide just-deleted runs: GitHub may still list them in a refresh.
   const visibleRuns = (payload?.runs ?? []).filter(
     (item) => !deletedIds.includes(item.id),
   );
@@ -197,8 +206,9 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
       <Dialog open={repo !== null} onOpenChange={close}>
         <DialogContent
           className={detail ? "sm:max-w-3xl" : "sm:max-w-2xl"}
-          // 确认框（AlertDialog）是另一个 Radix 层、被传送到 body 外面，点它会被当成
-          // 「点到面板外面」而把面板一起关掉（用户会以为自己点错了）。
+          // The confirm dialog (AlertDialog) is another Radix layer portalled
+          // outside body, so clicking it counts as "outside the panel" and closes the
+          // panel too (leaving the user thinking they misclicked).
           onInteractOutside={(event) => {
             if (pending !== null) event.preventDefault();
           }}
@@ -266,8 +276,9 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
                           <span className="text-foreground">{view.detail}</span>
                         </td>
                         <td className="w-[24%] truncate py-1.5 pr-2 text-muted-foreground">
-                          {/* 原始 conclusion 照原样显示：像 action_required 这种
-                              徽标翻不出来的值，用户得自己看得到，别只留在 title 里。 */}
+                          {/* Show the raw conclusion: values the badge cannot map,
+                              such as action_required, have to be visible, not just
+                              hidden in a title attribute. */}
                           {[item.event, item.conclusion, view.when]
                             .filter(Boolean)
                             .join(" · ")}

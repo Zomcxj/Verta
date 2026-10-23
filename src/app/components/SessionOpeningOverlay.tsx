@@ -1,16 +1,21 @@
 import { usePreferencesStore } from "@/modules/settings/preferences";
 
 /**
- * 会话开启时的过渡，**只盖终端那一块**（由 `WorkspaceSurface` 画在终端层里，
- * 不是铺满全屏）：要挡住的只是「命令被写进终端」那一幕，侧栏、标签栏、状态栏照常可见。
+ * The transition shown while a session opens. It **covers only the terminal area**
+ * (`WorkspaceSurface` draws it inside the terminal layer rather than full screen):
+ * the only thing to hide is the moment the command lands in the terminal, while the
+ * sidebar, tab bar, and status bar stay visible.
  *
- * 恢复一条会话要往终端里写命令，写进去的瞬间那行命令就画在终端上 —— 看到的就是
- * 「有人在替你敲命令」。开标签之前把这层盖上去，那一幕就换成居中的一段过渡：中间是
- * 应用图标，出现时图标震一下，周围按设置里选的那种动画走（设置 → 主题页那一项）。
+ * Resuming a session writes a command into the terminal, and the instant it lands the
+ * line is painted there — what you see is "someone is typing on your behalf".
+ * Covering that moment before the tab opens replaces it with a centered transition:
+ * the app icon in the middle, punched once on appearance, surrounded by the animation
+ * chosen in settings (Settings → Themes).
  *
- * 有意只动 transform / opacity：这两个属性不会额外带一层合成层（合成层预算那支测试
- * 盯着的就是这条）；柔边用径向渐变，不用模糊。一律 `pointer-events-none`：过渡期间
- * 也不该挡输入。
+ * Deliberately animating only transform / opacity: those add no extra compositing
+ * layer (exactly what the layer-budget test watches), and soft edges use radial
+ * gradients rather than blur. Always `pointer-events-none`, since the transition must
+ * not block input either.
  */
 export function SessionOpeningOverlay({ open }: { open: boolean }) {
   const variant = usePreferencesStore((s) => s.sessionTransition);

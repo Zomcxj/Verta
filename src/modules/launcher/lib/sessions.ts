@@ -39,10 +39,11 @@ export function deleteAgentSessions(
 }
 
 /**
- * 给会话改个名字。
+ * Rename a session.
  *
- * 只改名：opencode 改库里那一行，pi 追加一行 `session_info`。两个工具下次读会话时
- * 都会用新名字（后端读的是「最后一个名字」）。
+ * Only the name changes: opencode rewrites the row in its database and pi appends a
+ * `session_info` line. Both tools show the new name the next time sessions are read
+ * (the backend takes the last name it sees).
  */
 export function renameAgentSession(session: {
   tool: AgentTool;
@@ -60,22 +61,26 @@ export function renameAgentSession(session: {
 export type AgentSessionsLoad = {
   sessions: AgentSession[];
   warnings: string[];
-  /** 每个读不出来的来源一条，界面原样显示，不要伪装成「没有会话」。 */
+  /** One entry per unreadable source, shown verbatim rather than disguised as "no
+   * sessions". */
   failures: string[];
 };
 
 /**
- * 一次读齐所有来源（本机，加上 WSL 开关打开时的每个发行版）与所有工具的会话。
+ * Read sessions from every source (local, plus each distro when the WSL toggle is on)
+ * and every tool in one pass.
  *
- * 会话面板与项目列表都要这份数据：前者直接列出来，后者用它把会话挂到项目行上，
- * 不然同一次扫描要跑两遍。
+ * Both the sessions panel and the project list need this data: the first lists it,
+ * the second hangs sessions off project rows, and doing it separately would run the
+ * same scan twice.
  */
 export async function loadAllAgentSessions(): Promise<AgentSessionsLoad> {
   const wslEnabled = usePreferencesStore.getState().wslEnabled;
   const env = useWorkspaceEnvStore.getState();
   const distros = wslEnabled ? env.distros.map((d) => d.name) : [];
   if (wslEnabled && distros.length === 0) {
-    // 开关刚打开、还没枚举过发行版时补一次，否则会漏掉发行版里的会话。
+    // Right after the toggle turns on, distros have not been enumerated yet, so refresh
+    // once — otherwise sessions inside distros are missed.
     await env.refreshDistros().catch(() => []);
   }
   const sources: (string | null)[] = [

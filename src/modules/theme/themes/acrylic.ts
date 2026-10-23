@@ -1,24 +1,29 @@
 import type { Theme } from "../types";
 
 /**
- * 亚克力（Windows 11 的 Desktop Acrylic）。
+ * Acrylic (the Windows 11 "Desktop Acrylic" material).
  *
- * 不是「自己在界面里画一层半透明」—— 那种做法底下永远只有应用自己的颜色，
- * 看起来只是一块灰板。真正的亚克力由 DWM 画在窗口背后：
- * `DWMWA_SYSTEMBACKDROP_TYPE = DWMSBT_TRANSIENTWINDOW`（微软文档原话：
- * "For Windows 11, this corresponds to Desktop Acrylic, also known as Background
- * Acrylic, in its brightest variant"），桌面被真实地模糊、带噪声、微微提亮，
- * 窗口里所有透明的地方都透出它。这个主题的 `glass.desktop` 一开，
- * `WindowVibrancyBridge` 就会去切那块原生材质。
+ * This is not "paint a translucent layer ourselves" — that only ever puts the
+ * app's own colors underneath and ends up looking like a gray slab. Real acrylic
+ * is drawn behind the window by DWM:
+ * `DWMWA_SYSTEMBACKDROP_TYPE = DWMSBT_TRANSIENTWINDOW` (Microsoft's words: "For
+ * Windows 11, this corresponds to Desktop Acrylic, also known as Background
+ * Acrylic, in its brightest variant"), so the desktop is genuinely blurred,
+ * noise-grain, and slightly brightened, and every transparent part of the window
+ * shows it. Turning on this theme's `glass.desktop` makes `WindowVibrancyBridge`
+ * switch to that native material.
  *
- * 用色遵循微软 Acrylic 的配方：一层薄薄的**色调** + 顶部一道高光。色调压得低，
- * 因为桌面本身已经提供了绝大部分质感；色调一重，亚克力就退化成普通半透明面板。
+ * Colors follow Microsoft's acrylic recipe: a thin **tint** plus a highlight along
+ * the top. Keep the tint low, since the desktop already provides most of the
+ * texture; a heavy tint degrades acrylic into a plain translucent panel.
  *
- * **这个主题刻意不带 `surface`**：表面层会在整窗铺一层底色，正好盖住 DWM 画在窗口
- * 背后的桌面模糊 —— 那就白做原生材质了。质感只由材质 + 这里的色调提供。
+ * **This theme deliberately has no `surface`**: a surface layer would paint a base
+ * color over the whole window and cover exactly the DWM desktop blur behind it,
+ * wasting the native material. Material plus the tint here is the whole look.
  *
- * 也刻意不写任何 CSS 模糊：`filter` 会把界面自己糊掉，而 CSS 里那类「采样背后」的滤镜
- * 只能看到同一文档内的内容，**永远够不到桌面**。见 `styles/globals.css` 里那段注释。
+ * It also deliberately avoids any CSS blur: `filter` would blur the UI itself,
+ * and CSS filters that "sample behind" only see content in the same document and
+ * **never reach the desktop**. See the note in `styles/globals.css`.
  */
 export const acrylic: Theme = {
   id: "acrylic",
@@ -57,7 +62,8 @@ export const acrylic: Theme = {
         radius: "0.5rem",
       },
       glass: {
-        // 色调薄：桌面占大头。深色下略厚一点，免得浅色桌面把深色主题冲淡。
+        // Thin tint: the desktop does most of the work. Slightly heavier in dark
+        // mode so a light desktop does not wash the dark theme out.
         frame: 0.24,
         pane: 0.28,
         edge: 0.3,
@@ -65,8 +71,9 @@ export const acrylic: Theme = {
         desktop: true,
       },
       terminal: {
-        // alpha 0 = 终端自己那层底色不外画：终端区域与外面的面板同透，
-        // 桌面模糊在终端里也看得见（TUI 自己设的色块仍然是不透明的，见着色器）。
+        // alpha 0 = the terminal paints no base color of its own, so its area is as
+        // see-through as the surrounding panes and the desktop blur shows inside it
+        // too (color blocks a TUI sets stay opaque — see the shader).
         background: "rgba(21, 27, 32, 0)",
         foreground: "#eef2f5",
         cursor: "#8bb8d8",
@@ -94,7 +101,8 @@ export const acrylic: Theme = {
     },
     light: {
       colors: {
-        // 浅色亚克力：面板是一层很淡的白，底下的桌面模糊托着它。
+        // Light acrylic: panes are a very pale white resting on the desktop blur
+        // underneath.
         background: "#f3f6f8",
         foreground: "#1a1f24",
         card: "#ffffff",
@@ -124,7 +132,8 @@ export const acrylic: Theme = {
         radius: "0.5rem",
       },
       glass: {
-        // 浅色可以让桌面透得更多：白色面板就算薄，字也压得住。
+        // Light mode can let more desktop through: even a thin white pane still
+        // holds text.
         frame: 0.3,
         pane: 0.34,
         edge: 0.6,
@@ -132,7 +141,7 @@ export const acrylic: Theme = {
         desktop: true,
       },
       terminal: {
-        // 同上：浅色也让这一层全透。
+        // Same as above: light mode also leaves this layer fully transparent.
         background: "rgba(255, 255, 255, 0)",
         foreground: "#1a1f24",
         cursor: "#2d6f9e",

@@ -19,13 +19,15 @@ import { useEffect, useState } from "react";
 import { useInstalledFonts } from "../lib/useInstalledFonts";
 
 /**
- * 从本机已装字体里挑一个。
+ * Pick one of the locally installed fonts.
  *
- * 用可搜索的下拉（Popover + Command）而不是普通 Select：这台机器上 GDI 能列出近两百个
- * 家族名，滚着找不现实，得能边打边筛。
+ * A searchable dropdown (Popover + Command) rather than a plain Select: GDI lists
+ * nearly two hundred family names on a typical machine, so scrolling for one is not
+ * realistic — you have to be able to type and filter.
  *
- * 两条退路：字体列表还没读回来时给一个禁用的按钮（显示当前值），列表读不到时退回手输框
- * —— 设置项不能因为列不出字体就变成不能改。
+ * Two fallbacks: while the list is still loading the button is disabled (showing the
+ * current value), and if the list cannot be read we drop to a text field — a setting
+ * must not become uneditable just because the fonts cannot be enumerated.
  */
 export function FontPicker({
   value,
@@ -88,7 +90,8 @@ export function FontPicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-0">
-        {/* 模糊匹配会把 "Condensed" / "Comic Sans" 这类也捞进来，字体名清单用子串更可预测。 */}
+        {/* Fuzzy matching also drags in things like "Condensed" / "Comic Sans", so
+            substring matching is more predictable for a list of font names. */}
         <Command filter={filterBySubstring}>
           <CommandInput
             placeholder={t("settings.font.search")}
@@ -101,7 +104,8 @@ export function FontPicker({
             {options.map((option) => (
               <CommandItem
                 key={option.value || "__auto"}
-                // 过滤读的是这个值：两种写法都能搜到（空串那项显示成「自动检测」）。
+                // Filtering reads this value, so either spelling finds the entry (the
+                // empty one renders as "auto-detect").
                 value={`${option.label} ${option.value}`}
                 onSelect={() => {
                   onChange(option.value);
@@ -127,8 +131,8 @@ export function FontPicker({
 }
 
 /**
- * 只按子串筛：字体名是给人对号入座用的，模糊匹配反而把不相干的项混进来。
- * 返回值 0 就是不匹配（cmdk 的约定）。
+ * Substring match only: font names are for people matching them exactly, and fuzzy
+ * matching mixes in unrelated entries. Returning 0 means no match (the cmdk contract).
  */
 function filterBySubstring(value: string, search: string): number {
   const needle = search.trim().toLowerCase();
@@ -136,7 +140,8 @@ function filterBySubstring(value: string, search: string): number {
   return value.toLowerCase().includes(needle) ? 1 : 0;
 }
 
-/** 手输退路：只在失焦 / 回车时提交，好让人能把 "JetBrains Mono " 这种带空格的打完。 */
+/** Text-entry fallback: commits only on blur / Enter, so a name with a trailing space
+ * like "JetBrains Mono " can still be typed out. */
 function FontFamilyInput({
   value,
   onCommit,

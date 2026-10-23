@@ -124,9 +124,9 @@ export async function openPty(
   blocks?: boolean,
   shell?: string,
   paneId?: number,
-  /** 这个终端跑在哪个环境里；缺省跟随当前工作区。 */
+  /** Which env this terminal runs in; defaults to the current workspace. */
   workspace?: WorkspaceEnv,
-  /** 界面语言的提示文案；缺省不弹提示。 */
+  /** Notice copy in the UI language; omitted means no notices. */
   notices?: PtyNotices,
 ): Promise<PtySession> {
   const stream = outputHub();

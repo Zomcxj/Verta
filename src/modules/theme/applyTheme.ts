@@ -68,7 +68,8 @@ const ALL_VARS: readonly string[] = [
 
 let lastApplied: string | null = null;
 
-/** 主题自己带的表面层变量（离开一个带纹理的主题时要一起撤掉）。 */
+/** Surface-layer variables the theme brings along (all removed when leaving a
+ * textured theme). */
 const SURFACE_VARS: readonly string[] = [
   "--theme-surface-background",
   "--theme-surface-image",
@@ -78,7 +79,7 @@ const SURFACE_VARS: readonly string[] = [
   "--theme-surface-blend",
 ];
 
-/** 玻璃那套：窗口框架与面板的透明度、边缘亮度。 */
+/** Glass variables: frame and pane opacity, edge brightness. */
 const GLASS_VARS: readonly string[] = [
   "--theme-frame-opacity",
   "--theme-pane-opacity",
@@ -113,10 +114,13 @@ export function clearTheme(): void {
 }
 
 /**
- * 表面层只写 CSS 变量，真正铺出来的是 `SurfaceLayer` 那个 `[data-theme-surface]`。
+ * The surface layer only writes CSS variables; `SurfaceLayer` on
+ * `[data-theme-surface]` does the actual painting.
  *
- * 不直接往 `body` 上刷背景：开着背景图时那层是全屏覆盖的，直接给 body 上色会两边打架，
- * 而且设置窗口 / 截图窗口也会跟着变。放在专门的元素上，谁需要谁读变量。
+ * It does not paint onto `body`: with a background image enabled that layer covers
+ * the whole screen, so coloring body too would fight it, and the settings and
+ * screenshot windows would change along. Variables live on a dedicated element and
+ * whoever needs them reads them.
  */
 function writeSurface(root: HTMLElement, surface: ThemeSurface | undefined): void {
   for (const v of SURFACE_VARS) root.style.removeProperty(v);
@@ -140,10 +144,12 @@ function writeSurface(root: HTMLElement, surface: ThemeSurface | undefined): voi
 }
 
 /**
- * 玻璃：只有真给了透明度才打开（`data-theme-glass="on"`）。
+ * Glass: enabled only when an opacity is actually supplied
+ * (`data-theme-glass="on"`).
  *
- * CSS 那边靠这个属性决定要不要把 `--frame` 与 `.verta-pane` 换成半透明的写法；
- * 不给的话这两层保持原来的不透明，一点开销都不多。
+ * CSS uses that attribute to decide whether `--frame` and `.verta-pane` switch to
+ * translucent values; without it the two layers keep their opaque styling and cost
+ * nothing extra.
  */
 function writeGlass(root: HTMLElement, glass: ThemeGlass | undefined): void {
   for (const v of GLASS_VARS) root.style.removeProperty(v);
@@ -153,15 +159,17 @@ function writeGlass(root: HTMLElement, glass: ThemeGlass | undefined): void {
   }
   const set = (name: string, value: number | undefined) => {
     if (value === undefined) return;
-    // 下限放到 0.02：苹果那种玻璃面板本身就几乎全透，文字靠模糊与高光托着。
+    // The floor is 0.02: Apple-style glass panes are nearly fully transparent, with
+    // text carried by the blur and highlights.
     root.style.setProperty(name, String(Math.min(1, Math.max(0.02, value))));
   };
   set("--theme-frame-opacity", glass.frame);
   set("--theme-pane-opacity", glass.pane);
-  // 这里刻意不写任何 `filter`：模糊是原生材质（Windows 的 DWM 亚克力 / macOS 的
-  // NSVisualEffectView）画在窗口**背后**的，CSS 够不着；而在 #root 上写 blur 只会把
-  // 界面自己糊掉 —— 第一版就是这么错的，看起来像一团糊而不是玻璃。
-  // 饱和同理：材质自带，再叠一层会连界面颜色一起改。
+  // Deliberately no `filter` here: the blur is a native material (DWM acrylic on
+  // Windows, NSVisualEffectView on macOS) painted **behind** the window, out of
+  // CSS's reach, and a blur on #root only smears the UI itself — the first version
+  // did exactly that and looked like a smear rather than glass. Saturation is the
+  // same story: the material brings its own, and stacking more would recolor the UI.
   if (glass.sheen !== undefined) {
     root.style.setProperty(
       "--theme-glass-sheen",

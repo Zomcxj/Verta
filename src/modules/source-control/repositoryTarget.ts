@@ -23,11 +23,14 @@ function dirname(path: string | null): string | null {
 }
 
 /**
- * 右栏钉住的仓库按**工作区根**分开记（环境 + 根路径）：本机的 A 项目钉一个、B 项目钉一个，
- * 某个发行版里的项目各钉一个。原来按空间记，空间就是一个根；删掉空间后只按环境记，
- * 于是同一个环境里换项目（根变了）钉子还钉在老仓库上 —— 右栏继续显示上一个项目的改动与
- * 历史，看起来就是「切到项目却没跟着切」。资源管理器早就按「环境 + 根」分桶
- * （见 `explorer/lib/useFileTree` 的 scopeKey），这里对齐它。
+ * The repo pinned in the right panel is remembered per **workspace root** (env + root
+ * path): project A and project B locally each pin their own, and each project inside a
+ * distro pins its own. It used to be per workspace, and a workspace is a single root;
+ * after workspaces were removed it was per env only, so switching projects within one
+ * env (root changed) left the pin on the old repo — the right panel kept showing the
+ * previous project's changes and history, looking like "switched projects but it did
+ * not follow". The explorer has long bucketed by "env + root" (see `scopeKey` in
+ * `explorer/lib/useFileTree`); this aligns with it.
  */
 export function repositoryTargetScope(
   workspaceKey: string,
@@ -93,7 +96,7 @@ export function sourceControlRepositoryPath({
 }: {
   contextPath: string | null;
   badgeContextPath: string | null;
-  /** 右侧 Git 面板开着的时候，看的就是它自己的仓库。 */
+  /** While the right-side Git panel is open it looks at its own repo. */
   gitPanelOpen: boolean;
   hasOpenGitTab: boolean;
   target: SourceControlRepositoryTarget;

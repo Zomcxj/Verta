@@ -1,29 +1,35 @@
 import type { TerminalPalette, Theme, ThemeColors } from "../types";
 
 /**
- * Verta —— 应用图标就是一张「黑底白 V」，所以这套主题的配色直接照图标来：
- * 近黑的底、纯白当强调色、边界靠亮度分层而不是靠彩色。
+ * Verta — the app icon is a white V on black, so this theme's palette follows it
+ * directly: a near-black base, pure white as the accent, and edges layered by
+ * brightness rather than color.
  *
- * 跟 `Terax`（默认的中性灰）的区别在于「对比度」：Terax 是舒适的灰阶，
- * Verta 把底压到接近纯黑、把强调色提到纯白，更像那个图标本身 —— 干净、锐利。
- * 两者刻意都留在列表里，谁喜欢哪种就去选哪种。
+ * The difference from `Terax` (the default neutral gray) is contrast: Terax is a
+ * comfortable grayscale, while Verta presses the base down to almost pure black and
+ * pushes the accent up to pure white, closer to the icon itself — clean and sharp.
+ * Both stay in the list on purpose, so people can pick whichever they like.
  *
- * **深浅两套外观共用同一套配色**：图标本来就是黑底，浅色外观下也不翻成白底黑字 ——
- * 选的是这套主题，界面就是黑的。（早先那版把图标反过来做了白底黑字，浅色外观下
- * 跟预期不符，去掉了。）
+ * **Dark and light share one palette**: the icon is black, and the light appearance
+ * does not flip it to black-on-white either — choosing this theme means a black UI.
+ * (An earlier version inverted the icon for light mode, which did not match
+ * expectations and was dropped.)
  *
- * ANSI 那 16 色不跟着做黑白：终端里如果全是灰阶，`git diff` 的增删、日志级别、
- * 编译错误就分不出来了。这里用一组**低饱和但可辨**的颜色，整体仍像黑白界面。
+ * The 16 ANSI colors do not go monochrome: in an all-gray terminal, added and
+ * removed lines in `git diff`, log levels, and compile errors become
+ * indistinguishable. These are **low-saturation but distinguishable** colors, so the
+ * UI as a whole still reads as black and white.
  */
 const COLORS: ThemeColors = {
-  // 图标那个黑不是纯黑，是带一点冷调的近黑；照它取。
+  // The black in the icon is not pure black but a slightly cool near-black; sampled
+  // from it.
   background: "#0b0b0d",
   foreground: "#f4f4f5",
   card: "#131316",
   cardForeground: "#f4f4f5",
   popover: "#17171a",
   popoverForeground: "#f4f4f5",
-  // 图标里的 V 是纯白：强调色就是它。
+  // The V in the icon is pure white, and that is the accent color.
   primary: "#ffffff",
   primaryForeground: "#0b0b0d",
   secondary: "#1c1c20",
@@ -44,7 +50,8 @@ const COLORS: ThemeColors = {
   sidebarAccentForeground: "#f4f4f5",
   sidebarBorder: "#222228",
   sidebarRing: "#ffffff",
-  // 图标是圆角方块，但不是药丸；1/4 圆角比默认更贴它。
+  // The icon is a rounded square, not a pill; a 1/4 radius fits it better than the
+  // default.
   radius: "0.625rem",
 };
 
@@ -78,7 +85,8 @@ export const verta: Theme = {
   id: "verta",
   name: "Verta",
   description: "Near-black base with a pure white accent.",
-  // 界面是黑的，编辑器也跟着留在深色：不然代码区白着、四周黑着。
+  // The UI is black, so the editor stays dark too; otherwise the code area would be
+  // white inside a black frame.
   editorTheme: { dark: "github-dark", light: "github-dark" },
   variants: {
     dark: { colors: COLORS, terminal: TERMINAL },

@@ -98,7 +98,7 @@ export const EDITOR_THEME_LABELS: Record<EditorThemeId, string> = {
   "xcode-light": "Xcode Light",
 };
 
-/** 会话开启时那层过渡用哪种动画（设置 → 主题页里可选）。 */
+/** Which animation the session-opening transition uses (chosen under Settings → Themes). */
 export type SessionTransitionId =
   | "ripples"
   | "pulse"
@@ -106,7 +106,7 @@ export type SessionTransitionId =
   | "bars"
   | "none";
 
-/** 顺序就是设置里的顺序：默认那一种在最前。 */
+/** The order here is the order in settings, with the default first. */
 export const SESSION_TRANSITIONS: readonly SessionTransitionId[] = [
   "ripples",
   "pulse",
@@ -115,7 +115,7 @@ export const SESSION_TRANSITIONS: readonly SessionTransitionId[] = [
   "none",
 ];
 
-/** 存过的值可能是别的版本写的：不认得就退回默认。 */
+/** A stored value may come from another version: fall back to the default when unknown. */
 export function coerceSessionTransition(value: unknown): SessionTransitionId {
   return typeof value === "string" &&
     (SESSION_TRANSITIONS as readonly string[]).includes(value)
@@ -144,8 +144,9 @@ export type Preferences = {
   terminalCursorBlink: boolean;
   terminalCursorStyle: TerminalCursorStyle;
   /**
-   * 终端与编辑器共用的字体（就这一个设置项）。留空 = 自动检测本机的 Nerd Font；
-   * 键名沿用老的 `terminalFontFamily`，为的是不动已经存过的配置。
+   * The font shared by terminal and editor (a single setting). Empty means
+   * auto-detect the local Nerd Font; the key keeps the old `terminalFontFamily` name
+   * so already-stored config needs no migration.
    */
   terminalFontFamily: string;
   terminalFontWeight: string;
@@ -179,7 +180,7 @@ export type Preferences = {
   editorCustomFormatCommand: string;
   lspActivation: Record<string, LspActivation>;
   lspCustomServers: LspCustomServer[];
-  /** 打开会话时那层过渡用哪种动画；`none` 就是不要过渡。 */
+  /** Which animation the session-opening transition uses; `none` disables it. */
   sessionTransition: SessionTransitionId;
 };
 
@@ -286,7 +287,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   backgroundOpacity: 0.5,
   backgroundBlur: 0,
   editorTheme: EDITOR_THEME_AUTO,
-  // 其余主题自己带过渡动画；只有「新增的几种」在这里挑，默认是波纹。
+  // Other themes bring their own transition; only the newly added variants are picked
+  // here, with ripples as the default.
   sessionTransition: "ripples",
   editorFontSize: EDITOR_FONT_SIZE_DEFAULT,
   // Off by default: a translucent window keeps the compositor blending the
@@ -528,7 +530,7 @@ export async function setEditorTheme(value: EditorThemePref): Promise<void> {
   await writePref(KEY_EDITOR_THEME, value);
 }
 
-/** 会话开启过渡用哪种动画。 */
+/** Which animation the session-opening transition uses. */
 export async function setSessionTransition(
   value: SessionTransitionId,
 ): Promise<void> {

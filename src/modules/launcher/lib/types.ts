@@ -7,17 +7,17 @@ export type AgentSession = {
   cwd: string;
   updatedAtMs: number;
   parentId: string | null;
-  /** 会话来自哪个发行版；`null` 是本机。 */
+  /** Which distro the session came from; `null` means local. */
   distro: string | null;
-  /** 对话轮数；工具不记就是 `null`（界面上显示「—」）。 */
+  /** Conversation turns; `null` when the tool does not record them (shown as "—"). */
   turns?: number | null;
-  /** 累计 tokens；取不到就是 `null`。 */
+  /** Cumulative tokens; `null` when unavailable. */
   tokens?: number | null;
-  /** 最后一次**对话**的时间；没有就退回 `updatedAtMs`。 */
+  /** Time of the last **conversation**; falls back to `updatedAtMs`. */
   lastAtMs?: number | null;
 };
 
-/** 后端真正发回的形状：来源由发起请求的那一侧盖上去。 */
+/** The shape the backend actually returns: the source is stamped on by the requesting side. */
 export type WireSession = Omit<AgentSession, "distro">;
 
 export type AgentSessionsPayload = {
@@ -34,7 +34,7 @@ export type WireAgentSessionsPayload = {
 export type SessionTarget = {
   tool: AgentTool;
   id: string;
-  /** 与 `AgentSession.distro` 同义：删除必须带回同一个来源。 */
+  /** Same meaning as `AgentSession.distro`: a delete must carry the same source back. */
   distro: string | null;
 };
 

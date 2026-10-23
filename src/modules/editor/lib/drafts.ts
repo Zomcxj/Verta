@@ -1,13 +1,17 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 
 /**
- * 未保存内容的草稿备份。
+ * Draft backups for unsaved content.
  *
- * 编辑器的自动保存默认是关的（`editorAutoSave: false`），所以关掉标签页、进程被杀、
- * 或者机器重启都会把缓冲区连同改动一起丢掉。这里在改动之后把缓冲区镜像一份进 store：
- * 下次打开同一个文件时，如果磁盘内容与草稿不同，就提示用户恢复。
+ * Editor auto-save is off by default (`editorAutoSave: false`), so closing a tab,
+ * the process being killed, or a reboot would drop the buffer and its edits
+ * together. After every change the buffer is mirrored into a store: the next time
+ * the same file is opened, if the on-disk content differs from the draft, the user
+ * is offered a restore.
  *
- * 上限是刻意的：这是「别丢东西」的安全网，不是版本库。单份超限就不收，多了丢最旧的。
+ * The caps are deliberate: this is a "do not lose things" safety net, not a
+ * version store. A single oversized draft is skipped, and older ones are dropped
+ * first when the limits are exceeded.
  */
 const STORE_PATH = "verta-drafts.json";
 const KEY = "drafts";
@@ -18,23 +22,24 @@ export const MAX_DRAFT_TOTAL_BYTES = 4 * 1024 * 1024;
 
 export type Draft = {
   text: string;
-  /** 记草稿的时刻，用来在提示里说清是哪一刻中断的。 */
+  /** When the draft was recorded, so the prompt can say when the work was interrupted. */
   at: number;
 };
 
 export type DraftMap = Record<string, Draft>;
 
 /**
- * 草稿的键：统一分隔符，但不折叠大小写。
+ * Draft key: normalize separators but do not fold case.
  *
- * WSL 那边 `/home/x/File` 与 `/home/x/file` 是两个文件，折叠了会把草稿提示到错的
- * 文件上；本机大小写不同也只多留一份旧草稿，最坏是多看一眼。
+ * In WSL `/home/x/File` and `/home/x/file` are two different files, and folding case
+ * would offer a draft for the wrong one; on the local side, differing case only
+ * leaves one extra stale draft behind — at worst one glance too many.
  */
 export function draftKey(path: string): string {
   return path.trim().replace(/\\/g, "/");
 }
 
-/** 草稿还值不值得提示：内容跟磁盘不一样才有意义。 */
+/** Whether the draft is worth offering: only if it differs from what is on disk. */
 export function draftOffersRecovery(
   draft: Draft | null | undefined,
   fileText: string,
@@ -42,7 +47,7 @@ export function draftOffersRecovery(
   return draft != null && draft.text !== fileText;
 }
 
-/** 按上限裁一遍：最新的先留，超份数或超总量就丢旧的。 */
+/** Trim to the caps: keep the newest, drop older ones once count or total size is exceeded. */
 export function pruneDrafts(map: DraftMap): DraftMap {
   const newestFirst = Object.entries(map).sort((a, b) => b[1].at - a[1].at);
   const kept: DraftMap = {};
@@ -58,7 +63,8 @@ export function pruneDrafts(map: DraftMap): DraftMap {
   return kept;
 }
 
-/** 收一份草稿；大得装不下时原样返回（旧草稿留着比什么都不留好）。 */
+/** Store one draft; returns the map unchanged when it cannot fit (keeping the old
+ * draft beats keeping nothing). */
 export function putDraft(
   map: DraftMap,
   key: string,
@@ -69,7 +75,7 @@ export function putDraft(
   return pruneDrafts({ ...map, [key]: { text, at } });
 }
 
-/** 去掉某份草稿（保存成功或用户选择丢弃时）。 */
+/** Drop one draft (after a successful save, or when the user chooses to discard it). */
 export function removeDraft(map: DraftMap, key: string): DraftMap {
   if (!(key in map)) return map;
   const next = { ...map };
@@ -77,7 +83,7 @@ export function removeDraft(map: DraftMap, key: string): DraftMap {
   return next;
 }
 
-/** 存档被手改坏过也不能崩：形状不对的条目直接丢掉。 */
+/** A hand-edited store must not crash us: drop entries with the wrong shape. */
 function normalizeMap(raw: unknown): DraftMap {
   if (!raw || typeof raw !== "object") return {};
   const out: DraftMap = {};
@@ -102,7 +108,8 @@ async function readMap(): Promise<DraftMap> {
 }
 
 /**
- * 写盘串成一条链：一次改动只做一次「读-改-写」，并发的两次不会互相盖掉。
+ * Chain writes into a single queue so each change does one read-modify-write and two
+ * concurrent ones cannot overwrite each other.
  */
 let queue: Promise<void> = Promise.resolve();
 

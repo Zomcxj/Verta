@@ -57,7 +57,8 @@ type PendingDelete = {
 type Props = {
   activeSessionId: string | null;
   onOpenSession: (session: AgentSession) => void;
-  /** 当前工作区根：右键「复制相对路径」以它为基准；没有就没有那一项。 */
+  /** Current workspace root: "Copy relative path" resolves against it, and the item
+   * is absent without one. */
   workspaceRoot?: string | null;
 };
 
@@ -78,14 +79,15 @@ export function LauncherPanel({
     null,
   );
   const [deleting, setDeleting] = useState(false);
-  /** 正在就地改名的会话（`sessionKey`）；null 表示没有。 */
+  /** Session being renamed in place (`sessionKey`); null when none. */
   const [renaming, setRenaming] = useState<string | null>(null);
-  /** 默认全部放一块按时间排；切成 `tool` 就按 agent 分段。 */
+  /** Default is one block sorted by time; `tool` splits it into per-agent sections. */
   const [groupBy, setGroupBy] = useState<SessionGroupBy>("all");
 
   /**
-   * 改个名字。只改名字：opencode 改库里那一行、pi 追加一行 `session_info`，
-   * 后端写完再重读一次列表，界面上看到的就是存储里真实的那个名字。
+   * Rename a session. Nothing but the name changes: opencode rewrites the row in
+   * its database and pi appends a `session_info` line, and the backend re-reads
+   * the list afterwards so the UI shows the name as actually stored.
    */
   const renameSession = async (session: AgentSession, name: string) => {
     const next = name.trim();
@@ -109,12 +111,13 @@ export function LauncherPanel({
   const wslDistros = useWorkspaceEnvStore((s) => s.distros);
   const refreshDistros = useWorkspaceEnvStore((s) => s.refreshDistros);
 
-  // 只有开关打开时才去问发行版；关着的时候连发行版列表都不枚举。
+  // Only ask for distros when the toggle is on; while it is off we do not even
+  // enumerate them.
   useEffect(() => {
     if (wslEnabled) void refreshDistros();
   }, [wslEnabled, refreshDistros]);
 
-  /** 会话来源：本机，加上开关打开时的每个发行版。 */
+  /** Session sources: local, plus every distro when the toggle is on. */
   const sources = useMemo<(string | null)[]>(
     () => (wslEnabled ? [null, ...wslDistros.map((d) => d.name)] : [null]),
     [wslEnabled, wslDistros],
@@ -205,11 +208,13 @@ export function LauncherPanel({
   const visibleKeys = useMemo(() => visible.map(sessionKey), [visible]);
 
   /**
-   * 按来源分组（本机 / 各发行版）。只有一个来源时不显示来源标题，外观与从前一致。
+   * Group by source (local / each distro). With a single source no source heading
+   * is drawn, so the look stays as it was.
    *
-   * 每组里面再按 `groupBy` 摆：`all` 是整组按时间倒序的一块，`tool` 是每个 agent 一段。
-   * 来源 × agent 两层都是「小的嵌在大的里」：本机与 WSL 的会话本来就不是一个存储，
-   * 混在一起说「opencode」会让人分不清读的是哪一个。
+   * Within each group, `groupBy` decides the layout: `all` is one block in reverse
+   * chronological order, `tool` is one section per agent. Source and agent nest
+   * small-inside-large because local and WSL sessions are separate stores;
+   * lumping them under one "opencode" heading leaves no way to tell which is read.
    */
   const groups = useMemo(() => {
     const bySource = new Map<string, AgentSession[]>();
@@ -228,7 +233,8 @@ export function LauncherPanel({
       : [{ distro: null, sections: groupByTool([], TOOLS, groupBy) }];
   }, [visible, groupBy]);
 
-  /** 来源标题只在真有多个来源、或按 agent 分段时才值得画（否则一行多余的字）。 */
+  /** Source headings only earn their space with multiple sources or per-agent
+   * sections; otherwise they are a wasted line. */
   const showSourceHeadings = groups.length > 1 || groupBy === "tool";
 
   const toggleManaging = useCallback(() => {
@@ -315,7 +321,8 @@ export function LauncherPanel({
           placeholder={t("launcher.search")}
           className="w-full rounded-md border border-border/60 bg-transparent px-2 py-1 text-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
         />
-        {/* 默认「全部」：按时间排一行到底。切成「按 agent」才分段，段顺序跟着工具顺序走。 */}
+        {/* Default is "all": one straight chronological list. "By agent" splits it
+            into sections ordered like the tool list. */}
         <div
           role="tablist"
           aria-label={t("launcher.groupBy")}
@@ -444,8 +451,8 @@ export function LauncherPanel({
       ) : (
         <div
           className="shrink-0 border-t border-border/60 px-2 py-1 text-[10px] text-muted-foreground"
-          // 提示可能来自任何来源（解析失败、发行版里没有某个工具的库），文字要能读到，
-          // 不能只留一个数字。
+          // Warnings can come from anywhere (parse failures, a missing tool database
+          // in the distro), so the text has to be readable, not just a count.
           title={warnings.length > 0 ? warnings.join("\n") : undefined}
         >
           {visible.length === topLevel.length
@@ -490,8 +497,9 @@ function deleteWarning(
 ): string {
   const { total, byTool, subagents, hasSubagents } = pending.summary;
   const parts = [t("launcher.deleteBody", { total })];
-  // 每种工具自己的附带影响只在那类会话真被选中时才提，也不点名工具 ——
-  // 名字将来多一个 agent 就长一截（用户点名的毛病）。
+  // Mention each tool's side effects only when that kind of session is actually
+  // selected, and without naming the tool — a name list grows with every new agent
+  // and reads like calling users out.
   if (byTool.opencode > 0) parts.push(t("launcher.deleteWarnChildren"));
   if (byTool.pi > 0) parts.push(t("launcher.deleteWarnArtifacts"));
   if (hasSubagents) parts.push(t("launcher.deleteSubagents", { count: subagents }));

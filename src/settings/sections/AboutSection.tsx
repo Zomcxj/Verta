@@ -10,8 +10,8 @@ import { useEffect, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 
 /**
- * 你的仓库地址与站点。留空时 About 页的「源码 / 网站」行与「报告问题」按钮都不显示，
- * 发布时把地址填在这里即可。
+ * Your repo URL and website. When empty, the "source / website" row and the "report an
+ * issue" button on the About page are hidden — just fill the URLs in here on release.
  */
 const REPO_URL = "";
 const WEBSITE = "";

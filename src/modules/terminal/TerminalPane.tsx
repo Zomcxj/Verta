@@ -36,9 +36,10 @@ export type TerminalPaneProps = {
   /** This leaf is the active pane within its tab and receives auto-focus. */
   focused?: boolean;
   initialCwd?: string;
-  /** 该叶子在哪个环境里跑：缺省是本机，WSL 会话恢复时是那个发行版。 */
+  /** Which env this leaf runs in: local by default, or the distro when a WSL session is
+   * restored. */
   workspace?: WorkspaceEnv;
-  /** 该叶子跑哪个 shell；缺省用设置里的默认终端。 */
+  /** Which shell this leaf runs; defaults to the terminal set in preferences. */
   shell?: string;
   /** Enable command-block decorations (OSC 133) for this terminal. */
   blocks?: boolean;

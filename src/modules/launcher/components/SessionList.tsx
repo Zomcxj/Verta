@@ -20,15 +20,16 @@ import {
 } from "../lib/sessionStats";
 import type { AgentSession } from "../lib/types";
 
-/** 右键菜单里那几项要拿到的东西。路径由界面自己算（相对路径以会话 cwd 的父级为基准没意义，
- *  所以相对路径按「相对于当前工作区根」算，拿不到根就只给绝对路径）。 */
+/** Everything the context-menu items need. Paths are computed by the UI: a relative
+ *  path against the session cwd's parent is meaningless, so it is resolved against the
+ *  current workspace root, and without a root only the absolute path is offered. */
 export type SessionRowActions = {
   onOpen: (session: AgentSession) => void;
   onCopyAbsolute: (session: AgentSession) => void;
   onCopyRelative: (session: AgentSession) => void;
   onCopyId: (session: AgentSession) => void;
   onStartRename: (session: AgentSession) => void;
-  /** 相对路径算不出来（没有工作区根）时为 false，那一项就灰着。 */
+  /** False when no relative path can be computed (no workspace root), greying out that item. */
   canCopyRelative: boolean;
   renameId: string | null;
   onRenameSubmit: (session: AgentSession, name: string) => void;
@@ -43,7 +44,7 @@ type Props = {
   selectable?: boolean;
   selected?: ReadonlySet<string>;
   onToggle?: (session: AgentSession) => void;
-  /** 右键菜单与就地改名；不传就不渲染菜单（管理模式下用不到）。 */
+  /** Context menu and in-place rename; omitted means no menu (not needed in manage mode). */
   actions?: SessionRowActions;
 };
 
@@ -103,7 +104,8 @@ function SessionButton({
   const row = (
     <button
       type="button"
-      // 悬停提示只留会话名与 id 之外的两句：路径已经不显示了，别在 tooltip 里又塞一遍。
+      // The tooltip keeps only the session title: the path is no longer shown, so it must
+      // not sneak back in through a tooltip.
       title={session.title}
       onClick={() =>
         selectable && onToggle ? onToggle(session) : onOpen(session)
@@ -153,8 +155,8 @@ function SessionButton({
             </span>
           ) : null}
         </span>
-        {/* 路径不再显示：换成这个会话「聊了多少、多大、什么时候」——
-            这三样比路径更能帮人认出是哪一场。 */}
+        {/* The path is gone: show how much this session talked about, how big it is,
+            and when instead — these identify a session better than a path. */}
         <span className="flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
           <span className="shrink-0">{turnsLabel(stats.turns, language)}</span>
           <span aria-hidden>·</span>
@@ -199,7 +201,8 @@ function SessionButton({
   );
 }
 
-/** 就地改名：回车提交、Esc 取消、失焦也算提交（跟文件重命名一个手感）。 */
+/** In-place rename: Enter commits, Esc cancels, and blur also commits (the same feel
+ * as renaming a file). */
 function RenameField({
   value,
   onSubmit,
@@ -212,7 +215,8 @@ function RenameField({
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
   const done = useRef(false);
-  // 进来就选中原名：改名多半是「改掉一部分」，不是从空白重打。
+  // Select the existing name on entry: renaming usually means changing part of it, not
+  // retyping from scratch.
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();

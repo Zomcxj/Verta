@@ -34,7 +34,8 @@ export function NewEditorDialog({
   onCreated,
 }: Props) {
   const [name, setName] = useState("untitled.txt");
-  // 存的是键而不是句子：语言在对话框开着的时候变了也不该留着旧语言。
+  // Holds a key, not a sentence: the language can change while the dialog is
+  // open, and the old language must not stick around.
   const [error, setError] = useState<MessageKey | null>(null);
   // The backend's own error text is a runtime message, not a key: it is shown as it comes.
   const [errorDetail, setErrorDetail] = useState<string | null>(null);

@@ -13,8 +13,9 @@ import {
 } from "./lib/releases";
 
 /**
- * Markdown 渲染器（含 Streamdown）按需加载：Releases 弹窗随标签页常驻，
- * 静态引入会把整块排版代码拖进启动图，体积预算测试会当场拦下。
+ * The Markdown renderer (including Streamdown) loads on demand: the Releases dialog
+ * stays mounted with its tab, and a static import would drag the whole layout engine
+ * into the startup graph, which the bundle-budget test would catch immediately.
  */
 const Markdown = lazy(() =>
   import("@/modules/markdown/MarkdownRender").then((module) => ({
@@ -30,7 +31,8 @@ type Props = {
   onCancel: (assetId: number) => void;
 };
 
-/** 一个 Release 的详情：正文 + 附件行（下载 / 进度 / 取消 / 打开所在文件夹）。 */
+/** Detail of one release: the body plus asset rows (download / progress / cancel / show
+ * in folder). */
 export function ReleaseDetail({
   release,
   downloads,

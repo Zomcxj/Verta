@@ -115,13 +115,16 @@ function useTableSizing(
 }
 
 /**
- * 一张预览图的框，决定权按这个顺序排：表格量出来的尺寸 → 作者写的尺寸 → 都没有时
- * 先占位、加载完再回到图片自己的尺寸。
+ * The box for a preview image, resolved in this order: size measured from the table
+ * → the author's size → otherwise reserve space first and fall back to the image's own
+ * size once loaded.
  *
- * 最后那一档是关键：以前"没写尺寸"的图片一直被钉成 `height: 260px`，配上
- * `object-fit: contain`，一张 116×20 的徽章会被拉成整栏宽的大横幅；而大截图又确实
- * 需要个占位，不然加载完会往下顶一屏。所以加载前按 260px 占位，加载完换成
- * `max-height: 260px` —— 小图回到自己的尺寸，大图依旧被 260px 封顶。
+ * That last case is the tricky one: previously images "without a size" were pinned
+ * to `height: 260px`, and with `object-fit: contain` a 116×20 badge got stretched into
+ * a full-width banner; yet a large screenshot does need reserved space, or it shoves
+ * the content down a screen when it loads. So reserve 260px before load and switch to
+ * `max-height: 260px` after: small images take their own size, large ones stay capped
+ * at 260px.
  */
 export function previewImageStyle(options: {
   table: Sizing | null;
@@ -165,8 +168,8 @@ export function MarkdownImage({
 }: MarkdownImageProps) {
   const t = useT();
   const [failed, setFailed] = useState(false);
-  // 「加载完」以 src 为准：换了一张图（编辑 markdown 时常见）就自动回到未加载态，
-  // 不用再开个 effect 去重置。
+  // "Loaded" is keyed by src: swapping the image (common while editing markdown) drops
+  // back to the unloaded state on its own, with no extra reset effect.
   const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
   const ref = useRef<HTMLImageElement>(null);
   const resolved = resolveImageSrc(src, baseDir);
@@ -211,8 +214,9 @@ export function MarkdownImage({
       loading="lazy"
       // Size lives in CSS: an HTML height attribute beats any CSS that keeps the
       // ratio, which is what squashed the wide screenshots.
-      // `inline-block`（不是 `block`）让一行里的几张图并排放 —— 徽章那种一行两个的写法
-      // 被 block 拆成两行就不对了；`mr-2 last:mr-0` 给中间留间距、末尾不留尾巴。
+      // `inline-block` (not `block`) keeps several images on one line side by side — a
+      // two-badge row split into two lines by `block` is wrong; `mr-2 last:mr-0` spaces
+      // the middle without a trailing gap.
       className="inline-block align-middle mr-2 last:mr-0 rounded-sm"
       style={{ objectFit: "contain", ...sized, ...style }}
       onLoad={(event: SyntheticEvent<HTMLImageElement>) => {

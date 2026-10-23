@@ -65,22 +65,26 @@ import {
 import { loadProjectPaths, saveProjectPaths } from "./lib/store";
 import type { ProjectEntry, ProjectRow, ProjectStatus } from "./lib/types";
 
-/** 扫描深度。两层足够覆盖「工作区目录 → 各个仓库」这种布局。 */
+/** Scan depth. Two levels cover the "workspace directory → individual repos" layout. */
 const SCAN_DEPTH = 2;
 
 type Props = {
   /**
-   * 这个标签页是不是当前显示的那一个。视图会一直挂着（保持滚动与排序状态），
-   * 但清单与状态的加载只在激活时进行：15 个仓库的 git status 不该在启动时白跑一遍。
+   * Whether this tab is the one currently shown. The view stays mounted (to keep
+   * scroll and sort state), but the project list and statuses only load while
+   * active: running git status over 15 repos at startup would be wasted work.
    */
   active: boolean;
-  /** 悬停浮层里点一条会话：沿用会话面板同一套 resume（cwd 与会话 id 不可拆）。 */
+  /** Clicking a session in the hover popover: same resume path as the sessions panel
+   * (cwd and session id come as a pair). */
   onOpenSession: (session: AgentSession) => void;
-  /** 单击项目行：切换或新建以该项目为根的空间。 */
+  /** Clicking a project row: switch to a workspace rooted at that project, creating
+   * one if needed. */
   onOpenWorkspace: (entry: ProjectEntry) => void;
-  /** 在项目根开一个普通终端标签。 */
+  /** Open a plain terminal tab at the project root. */
   onOpenTerminal: (entry: ProjectEntry) => void;
-  /** 在项目根启动某个 agent 的交互式会话（新建，不带 --session）。 */
+  /** Start an interactive session for one agent at the project root (new session,
+   * no --session). */
   onNewSession: (entry: ProjectEntry, tool: AgentTool) => void;
 };
 
@@ -119,7 +123,7 @@ export function ProjectsView({
   const [pendingRemove, setPendingRemove] = useState<ProjectEntry | null>(null);
   const [cloneOpen, setCloneOpen] = useState(false);
 
-  // 清单与：读一次，之后所有改动都写回同一个文件。
+  // The list is read once and every later change is written back to the same file.
   useEffect(() => {
     if (!active) return;
     let alive = true;
@@ -135,7 +139,8 @@ export function ProjectsView({
     };
   }, [active]);
 
-  // 会话用来把项目行和 agent 会话连起来；读不到也不该挡住项目列表本身。
+  // Sessions link project rows to agent sessions; failing to read them must not
+  // block the project list itself.
   useEffect(() => {
     if (!active) return;
     let alive = true;
@@ -145,7 +150,8 @@ export function ProjectsView({
         setSessions(load.sessions);
       })
       .catch(() => {
-        // 会话读失败只是浮层里没有内容，错误已经由会话面板负责展示。
+        // A failed read only leaves the popover empty; the sessions panel is already
+        // responsible for surfacing that error.
       });
     return () => {
       alive = false;
@@ -157,7 +163,7 @@ export function ProjectsView({
     [paths],
   );
 
-  // 子代理会话不展示，与会话面板同一套规则（R1 的约定）。
+  // Subagent sessions are hidden, matching the sessions panel (the R1 rule).
   const topLevel = useMemo(() => topLevelSessions(sessions), [sessions]);
 
   const entries = useMemo(
@@ -175,7 +181,8 @@ export function ProjectsView({
     setChecking(true);
     setError(null);
     try {
-      // 先逐个授权：没有授权过的项目连 git 都起不来，状态必然是错的。
+      // Authorize each one first: git cannot even start in an unauthorized project,
+      // so its status would be wrong.
       await Promise.allSettled(
         entries.map((entry) =>
           native.workspaceAuthorize(entry.path, entry.workspace),
@@ -191,7 +198,8 @@ export function ProjectsView({
       setStatuses(next);
       setCheckedAt(Date.now());
     } catch (e) {
-      // 整批失败（比如后端崩了）如实报出来，不装作「都干净」。
+      // A whole-batch failure (backend crash, say) is reported honestly instead of
+      // pretending everything is clean.
       setError(String(e));
     } finally {
       setChecking(false);
@@ -246,7 +254,8 @@ export function ProjectsView({
 
   const handleCloned = useCallback(
     (path: string) => {
-      // 清单变化后 refresh 会自己重跑（它依赖 entries），不必手动再刷一次。
+      // refresh re-runs on its own when the list changes (it depends on `entries`),
+      // so no manual re-fetch is needed.
       addPaths([normalizePath(path)]);
       toast.success(t("projects.clone.done"));
     },
@@ -556,15 +565,16 @@ function ProjectRowView({
 
   type Action = {
     key: string;
-    /** 画出来的文案；带 agent 的项不画文字，它只做可访问名与悬停提示。 */
+    /** Rendered label. Items carrying an agent render no text; the label only serves
+     * as the accessible name and tooltip. */
     label?: string;
-    /** 带 agent 的项会挤成一行图标（见下面的渲染）。 */
+    /** Items carrying an agent collapse into one row of icons (see the rendering below). */
     agent?: AgentTool;
     disabled?: boolean;
     onSelect?: () => void;
     separator?: boolean;
   };
-  // 下拉菜单与右键菜单用同一份动作，避免两处走样。
+  // Dropdown and context menu share one action list so the two cannot drift apart.
   const actions: Action[] = [
     ...AGENT_TOOLS.map((tool) => ({
       key: `tool:${tool}`,

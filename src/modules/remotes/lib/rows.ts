@@ -2,13 +2,15 @@ import type { WireRemoteReposPayload } from "@/lib/native";
 import { relativeTime } from "@/modules/launcher";
 import type { RemoteReposKind, RemotesNotice, RemoteRepoRow } from "./types";
 
-/** `git clone` 用的地址：GitHub 页面地址加 `.git`，尾斜杠先抹掉。 */
+/** URL for `git clone`: the GitHub page URL plus `.git`, trailing slashes removed
+ * first. */
 export function cloneUrlOf(webUrl: string): string {
   const trimmed = webUrl.replace(/\/+$/, "");
   return trimmed ? `${trimmed}.git` : "";
 }
 
-/** 推送时间：GitHub 给 ISO8601，折成面板那套相对时间；解不出来就不装作有时间。 */
+/** Push time: GitHub gives ISO8601, folded into the panel's relative time; when it
+ * cannot be parsed we do not pretend there is a time. */
 export function pushedLabel(
   pushedAt: string | null,
   nowMs: number,
@@ -38,7 +40,8 @@ export function toRows(
   }));
 }
 
-/** 关键字匹配仓库全名、说明与语言；空关键字原样返回。 */
+/** Keyword matches the full name, description, and language; an empty keyword returns
+ * the rows unchanged. */
 export function filterRows(
   rows: RemoteRepoRow[],
   keyword: string,
@@ -54,7 +57,8 @@ export function filterRows(
 }
 
 /**
- * 读不到时 gh 的原话该配哪套文案。返回 null 说明这次真的读到了（哪怕列表是空的）。
+ * Which copy to pair with gh's message on a failed read. Null means the read really
+ * succeeded (even if the list is empty).
  */
 function failureOf(kind: RemoteReposKind): RemotesNotice | null {
   switch (kind) {
@@ -85,8 +89,8 @@ function failureOf(kind: RemoteReposKind): RemotesNotice | null {
 }
 
 /**
- * 界面上该说点什么。先看这次读没读到，再看读到的东西为什么是空的
- * （账号上真没有仓库，还是被筛选框筛掉了）。
+ * What to tell the user. First whether the read succeeded, then why the result is
+ * empty (the account genuinely has no repos, or the filter removed them all).
  */
 export function noticeOf(
   payload: WireRemoteReposPayload,
@@ -115,7 +119,7 @@ export function noticeOf(
   return null;
 }
 
-/** 仓库名与克隆地址都要能复制，克隆地址在界面上不显示。 */
+/** Both the repo name and the clone URL must be copyable; the clone URL is never shown. */
 export function copyTextOf(row: RemoteRepoRow, what: "name" | "clone"): string {
   return what === "name" ? row.fullName : row.cloneUrl;
 }

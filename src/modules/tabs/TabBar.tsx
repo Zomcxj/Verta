@@ -54,7 +54,7 @@ type Props = {
   activeId: number;
   onSelect: (id: number) => void;
   onNew: () => void;
-  /** 明确选一个终端（本机某个 shell，或某个发行版的终端）。 */
+  /** Open a specific terminal: a shell on this machine, or one in a distro. */
   onNewTerminal: (choice: TerminalChoice) => void;
   onNewBlock: () => void;
   onNewPrivate: () => void;

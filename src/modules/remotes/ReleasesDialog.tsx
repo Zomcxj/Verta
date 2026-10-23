@@ -28,7 +28,7 @@ import {
 } from "./lib/releases";
 
 type Props = {
-  /** 要看 Releases 的仓库全名；null 表示弹窗关着。 */
+  /** Full name of the repo whose releases are shown; null when the dialog is closed. */
   repo: string | null;
   onOpenChange: (open: boolean) => void;
 };
@@ -36,21 +36,25 @@ type Props = {
 const DOWNLOAD_EVENT = "verta://github-download";
 
 /**
- * 某个仓库的 Release 列表 + 详情 + 附件下载。
+ * Release list + detail + asset downloads for one repo.
  *
- * 正文与附件都在同一次查询里，点一行才展开详情。下载状态与进度监听都挂在这一层：
- * 从详情退回列表、甚至关掉弹窗，正在跑的下载都不会丢状态（命令在后端继续跑）。
+ * Bodies and assets come in the same query, and clicking a row expands the detail.
+ * Download state and the progress listener live at this level: going back from the
+ * detail, or even closing the dialog, never loses the state of a running download
+ * (the command keeps running in the backend).
  */
 export function ReleasesDialog({ repo, onOpenChange }: Props) {
   const t = useT();
   const [payload, setPayload] = useState<WireReleasesPayload | null>(null);
   const [reading, setReading] = useState(false);
-  /** 命令本身失败（连 kind 都拿不到）时的原文，与 gh 报错分开记。 */
+  /** Raw message when the command itself failed (no `kind` at all); kept apart from
+   * errors gh reported. */
   const [fatal, setFatal] = useState<string | null>(null);
-  /** 展开详情的那个版本；null 表示还停在列表上。 */
+  /** Release opened in detail view; null while still on the list. */
   const [detail, setDetail] = useState<ReleaseRow | null>(null);
   const [downloads, setDownloads] = useState<Record<number, DownloadEntry>>({});
-  /** 已经读过的仓库：关掉再打开同一个仓库不重复打网络，也不清掉下载进度。 */
+  /** Repo already read: reopening the same one neither hits the network again nor
+   * clears download progress. */
   const loadedRepo = useRef<string | null>(null);
 
   const load = useCallback(async () => {
@@ -77,7 +81,8 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
     void load();
   }, [repo, load]);
 
-  // 进度事件按前端生成的 id 认领；其他下载（或别的窗口）的事件一律不理。
+  // Progress events are claimed by the frontend-generated id; events from other
+  // downloads (or other windows) are ignored.
   useEffect(() => {
     let disposed = false;
     let stop: (() => void) | null = null;
@@ -107,7 +112,8 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
         else stop = unlisten;
       })
       .catch(() => {
-        // 没有事件通道时下载照样能完成，只是进度条不动。
+        // Without an event channel the download still completes; only the progress
+        // bar stays still.
       });
     return () => {
       disposed = true;
@@ -127,7 +133,8 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
         toast.error(String(error));
         return;
       }
-      // 用户取消了目录选择：什么都没发生，也不留一行假进度。
+      // The user cancelled the directory picker: nothing happened, and no fake
+      // progress row is left behind.
       if (!dir) return;
 
       const id = crypto.randomUUID();
@@ -161,7 +168,8 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
         });
         setDownloads((previous) => {
           const entry = previous[asset.id];
-          // 重试会生成新 id：旧那次的结局不该覆盖新那次。
+          // A retry generates a new id, so the old attempt's outcome must not
+          // overwrite the new one.
           if (!entry || entry.id !== id) return previous;
           if (result.kind === "ok") {
             return {

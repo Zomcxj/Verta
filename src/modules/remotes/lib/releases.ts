@@ -1,7 +1,7 @@
 import type { WireReleasesPayload } from "@/lib/native";
 import { relativeTime } from "@/modules/launcher";
 
-/** 界面上一条 Release：wire 字段之外，加上显示用的时间与大小文案。 */
+/** A release as shown in the UI: the wire fields plus display-ready time and size labels. */
 export type ReleaseRow = {
   id: number;
   tagName: string;
@@ -9,7 +9,7 @@ export type ReleaseRow = {
   body: string;
   draft: boolean;
   prerelease: boolean;
-  /** 相对时间；两个日期都解不出来时是 null。 */
+  /** Relative time; null when neither date can be parsed. */
   when: string | null;
   htmlUrl: string;
   assets: ReleaseAssetRow[];
@@ -19,7 +19,7 @@ export type ReleaseAssetRow = {
   id: number;
   name: string;
   size: number;
-  /** `1.5 MB` 这类展示文案。 */
+  /** Display label such as `1.5 MB`. */
   sizeLabel: string;
   downloadCount: number;
   contentType: string | null;
@@ -27,8 +27,9 @@ export type ReleaseAssetRow = {
 };
 
 /**
- * 列表为空或读不到时该说点什么，有内容要画列表时是 null。
- * 文案是 i18n 键，色调决定提示块的样子。
+ * What to say when the list is empty or unreadable; null when there is content to
+ * render. The copy is an i18n key, and the tone picks the styling of the notice
+ * block.
  */
 export type ReleaseNotice = {
   tone: "empty" | "warn" | "error";
@@ -37,11 +38,11 @@ export type ReleaseNotice = {
   detail: string | null;
 };
 
-/** 一次下载的进度；速度是平滑后的值，避免数字乱跳。 */
+/** Progress of one download; the speed is smoothed so the number does not jump around. */
 export type DownloadProgress = {
   written: number;
   total: number;
-  /** 字节每秒；第一个采样点是 0。 */
+  /** Bytes per second; 0 at the first sample. */
   speed: number;
   sampledAt: number;
   sampledWritten: number;
@@ -49,13 +50,13 @@ export type DownloadProgress = {
 
 export type DownloadStatus = "running" | "ok" | "error" | "cancelled";
 
-/** 界面上一个附件当前的下载状态，按附件 id 存放。 */
+/** Current download state of one asset, keyed by asset id. */
 export type DownloadEntry = {
-  /** 前端生成的标识，进度事件靠它认领。 */
+  /** Frontend-generated id; progress events are matched against it. */
   id: string;
   status: DownloadStatus;
   progress: DownloadProgress;
-  /** 成功后的最终路径。 */
+  /** Final path on success. */
   path: string | null;
   error: string | null;
   cancelling: boolean;
@@ -63,7 +64,7 @@ export type DownloadEntry = {
 
 const UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
 
-/** 二进制单位，一位小数；不到 1 KiB 就按字节说。 */
+/** Binary units with one decimal; below 1 KiB it reports bytes. */
 export function humanSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   if (bytes < 1024) return `${Math.round(bytes)} B`;
@@ -76,28 +77,31 @@ export function humanSize(bytes: number): string {
   return `${value.toFixed(1)} ${UNITS[unit]}`;
 }
 
-/** 已下载占总量的百分比；总量未知时是 null（界面走不确定态）。 */
+/** Downloaded percentage of the total; null when the total is unknown (the UI then
+ * goes indeterminate). */
 export function percentOf(written: number, total: number): number | null {
   if (!Number.isFinite(total) || total <= 0) return null;
   if (!Number.isFinite(written)) return 0;
   return Math.min(100, Math.max(0, (written / total) * 100));
 }
 
-/** 速度文案；还没测出来时不显示（别写一个假的 0 KB/s）。 */
+/** Speed label; nothing until it can be measured (no fake 0 KB/s). */
 export function formatSpeed(bytesPerSecond: number): string | null {
   if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return null;
   return `${humanSize(bytesPerSecond)}/s`;
 }
 
-/** 采样间隔：比这更密的进度只更新字节数，不重算速度。 */
+/** Sampling interval: more frequent progress only updates the byte counts and
+ * leaves the speed alone. */
 const SAMPLE_MS = 250;
 const SMOOTHING = 0.3;
 
 /**
- * 把一次进度事件折进状态。
+ * Fold one progress event into the state.
  *
- * 速度用指数平滑：一次 IPC 抖动不该让数字从 12 MB/s 掉到 3 MB/s。间隔太短时保留上一次的值，
- * 但字节数与总量照常更新（进度条不能停）。
+ * Speed is exponentially smoothed: a single IPC hiccup should not drop it from
+ * 12 MB/s to 3 MB/s. When the interval is too short, the previous value is kept
+ * but bytes and total still update — the progress bar must not stall.
  */
 export function nextDownloadProgress(
   previous: DownloadProgress | undefined,
@@ -136,7 +140,7 @@ export function nextDownloadProgress(
   };
 }
 
-/** wire 数据 → 列表行。 */
+/** Wire data → UI rows. */
 export function releaseRows(
   payload: WireReleasesPayload,
   nowMs: number,
@@ -166,7 +170,8 @@ export function releaseRows(
   });
 }
 
-/** 读不到时 gh 的原话该配哪套文案；null 说明这次真的读到了。 */
+/** Which copy to pair with gh's message on a failed read; null means the read
+ * succeeded. */
 export function releaseNotice(
   payload: WireReleasesPayload,
 ): ReleaseNotice | null {

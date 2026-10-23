@@ -92,8 +92,9 @@ export function GeneralSection() {
   } | null>(null);
 
   /**
-   * 关掉开关时先停掉 Verta 自己的查询，再按设置决定是否真的关掉 WSL。
-   * 关掉 WSL 会中断里面所有东西（含 Docker Desktop 的后端），所以成功与失败都要如实说出来。
+   * Turning the switch off first stops Verta's own queries, then the setting decides
+   * whether WSL itself shuts down. Shutting WSL down kills everything inside it
+   * (including Docker Desktop's backend), so both outcomes are reported plainly.
    */
   const applyWslEnabled = async (value: boolean) => {
     await setWslEnabled(value);

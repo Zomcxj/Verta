@@ -3,18 +3,20 @@ import { useT } from "@/modules/i18n";
 import type { ReactNode } from "react";
 
 /**
- * 源码 / 渲染 两档，编辑器那一侧再加一档「预览」（源码 + 右边并排那一栏）。
+ * Two modes, source / rendered, plus a third "preview" on the editor side (source with
+ * the side-by-side column on the right).
  *
- * 三档都是单选：选了「预览」就不是纯源码。并排预览属于编辑器，整页渲染时它
- * 不在场，所以只有编辑器侧传 `preview` 进来 —— 不传就只画两档。
+ * All three are mutually exclusive: picking "preview" is not plain source. The
+ * side-by-side preview belongs to the editor and is absent in full-page rendering, so
+ * only the editor side passes `preview` in; without it just two modes are drawn.
  */
 export type MarkdownViewMode = "rendered" | "raw" | "preview";
 
 type Props = {
-  /** 当前档位；`preview` 只在编辑器那一侧出现。 */
+  /** Current mode; `preview` only appears on the editor side. */
   mode: MarkdownViewMode;
   onChange: (mode: "rendered" | "raw") => void;
-  /** 画不画「预览」这一档，以及点了它做什么。缺省就不画。 */
+  /** Whether to draw the "preview" mode and what selecting it does. Omitted means not drawn. */
   preview?: { onSelect: () => void };
   renderedDisabled?: boolean;
   renderedHint?: string;

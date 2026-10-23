@@ -20,7 +20,7 @@ type Params = {
   launchCwdResolved: boolean;
   home: string | null;
   sidebarView: SidebarViewId;
-  /** 右侧 Git 面板是否展开。 */
+  /** Whether the right-hand Git panel is expanded. */
   gitPanelOpen: boolean;
   /** The sidebar panel is collapsed to 0 px (still mounted, not on screen). */
   sidebarCollapsed: boolean;

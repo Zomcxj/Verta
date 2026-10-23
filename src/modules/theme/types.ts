@@ -46,53 +46,65 @@ export type TerminalPalette = Partial<{
 }>;
 
 /**
- * 界面上那层「质感」：铺在所有内容底下的一层 CSS 背景。
+ * The "texture" layer of the UI: a CSS background painted under all content.
  *
- * 只做纯 CSS（渐变、极淡的 SVG 纹理），**刻意不做毛玻璃**那种模糊 —— 模糊要给整个窗口
- * 一块额外合成层，窗口拖动和缩放时代价很大，而且会跟背景图那套合成预算打架。
+ * Pure CSS only (gradients, very faint SVG noise), and **deliberately no frosted
+ * glass**: blur would force an extra compositing layer for the whole window,
+ * which is expensive while dragging and resizing, and it fights the compositing
+ * budget the background image already uses.
  */
 export type ThemeSurface = {
-  /** 整层背景色；不写就透明（露出主题自身的背景色）。 */
+  /** Background color for the whole layer; omitted means transparent (the theme's
+   * own background shows through). */
   background?: string;
-  /** 叠在最上面的那层 `background-image`（渐变 / data-URI SVG）。 */
+  /** The `background-image` painted on top (gradient / data-URI SVG). */
   image?: string;
-  /** 这层图怎么重复。渐变一般 `no-repeat`，纹理要 `repeat`。 */
+  /** How the image repeats. Gradients usually `no-repeat`; textures need `repeat`. */
   repeat?: "no-repeat" | "repeat";
-  /** 图的大小（`background-size`）。 */
+  /** Image size (`background-size`). */
   size?: string;
-  /** 不透明度，0–1。 */
+  /** Opacity, 0–1. */
   opacity?: number;
   /**
-   * 跟主题的底色混合：`soft-light` / `overlay` 之类的 `mix-blend-mode`。
-   * 用来让纹理跟着深浅两套配色走，而不是写死一个颜色。
+   * Blends with the theme's base color: a `mix-blend-mode` such as `soft-light`
+   * or `overlay`, so the texture follows the light and dark palettes instead of
+   * hard-coding a color.
    */
   blend?: string;
 };
 
 /**
- * 玻璃：让窗口框架与面板**真的半透明**，露出底下那层表面。
+ * Glass: makes the window frame and panes **genuinely translucent** so the
+ * surface layer shows through.
  *
- * 默认 `frame` / `pane` 两层都是不透明的（`--frame` 与 `.verta-pane` 的背景），
- * 所以只给 `surface` 加纹理是看不见的 —— 纹理全被它们盖住。要玻璃感就得让这两层
- * 透出来，同时把边框提亮一点（玻璃的边缘），并给面板一点背景模糊。
+ * By default both the `frame` and `pane` layers are opaque (the backgrounds of
+ * `--frame` and `.verta-pane`), so a texture on `surface` alone is invisible —
+ * they cover all of it. Glass means letting those two layers show through,
+ * brightening the border a little (the glass edge), and adding some backdrop
+ * blur to panes.
  *
- * 模糊**不在这里控制**：真正的模糊是原生材质画在窗口背后的（Windows 的 DWM 亚克力、
- * macOS 的 NSVisualEffectView），CSS 够不着；能调的只有色调与高光，见下面各项。
+ * Blur is **not controlled here**: the real blur is a native material painted
+ * behind the window (DWM acrylic on Windows, NSVisualEffectView on macOS), which
+ * CSS cannot reach. Only tint and highlights are adjustable — see below.
  */
 export type ThemeGlass = {
-  /** 面板的**不透明度**，0–1；越小越透明。0.15 基本就是纯玻璃了。 */
+  /** Pane **opacity**, 0–1; lower is more transparent. 0.15 is essentially pure glass. */
   pane?: number;
-  /** 框架层（顶栏、状态栏、面板之间的留白）的不透明度，0–1。 */
+  /** Opacity of the frame layer (title bar, status bar, the gaps between panes), 0–1. */
   frame?: number;
-  /** 玻璃边缘的亮度：顶部高光与边框的强度，0–1。 */
+  /** Glass edge brightness: strength of the top highlight and border, 0–1. */
   edge?: number;
-  /** 面板顶部那道高光渐变的不透明度，0–1。苹果玻璃的「上亮下暗」全靠它。 */
+  /** Opacity of the highlight gradient at the top of a pane, 0–1. It carries the
+   * light-on-top, dark-below look of Apple glass. */
   sheen?: number;
   /**
-   * 要不要连**桌面**一起透出来（Windows 的亚克力 / macOS 的 vibrancy）。
+   * Whether the **desktop** shows through too (acrylic on Windows, vibrancy on
+   * macOS).
    *
-   * 只给窗口内部垫一层渐变，永远只是「自己跟自己透」；真正的液态玻璃底下是桌面。
-   * 打开它以后，这个主题会自己把原生窗口背景切成亚克力，不用用户再去设置里开关一次。
+   * Layering a gradient inside the window only ever blends the window with
+   * itself; real liquid glass sits on top of the desktop. Enabling this makes the
+   * theme switch the native window background to acrylic on its own, so the user
+   * does not have to flip a setting as well.
    */
   desktop?: boolean;
 };

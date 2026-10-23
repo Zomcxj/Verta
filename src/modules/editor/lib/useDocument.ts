@@ -25,7 +25,7 @@ type FileStat = { size: number; mtime: number; kind: string };
 /// Mirrors FORCE_MAX_READ_BYTES in src-tauri fs/file.rs.
 export const FORCE_READ_LIMIT = 50 * 1024 * 1024;
 
-/** 草稿写盘的防抖时间：打字停下来这么久才镜像一次。 */
+/** Debounce for the draft write: mirror the buffer once typing pauses this long. */
 const DRAFT_FLUSH_MS = 1500;
 
 export type DocumentState =
@@ -43,7 +43,7 @@ type Options = {
 export function useDocument({ path, onDirtyChange }: Options) {
   const [doc, setDoc] = useState<DocumentState>({ status: "loading" });
   const [dirty, setDirty] = useState(false);
-  /** 中断前留下的草稿；有它在编辑器顶上出一条恢复条。 */
+  /** Draft left by an interrupted session; when present the editor shows a restore bar. */
   const [pendingDraft, setPendingDraft] = useState<Draft | null>(null);
 
   const t = useT();
@@ -65,13 +65,15 @@ export function useDocument({ path, onDirtyChange }: Options) {
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /** 草稿的写盘计时器；与自动保存各自独立，因为它的作用是「别丢东西」。 */
+  /** Draft-flush timer, kept separate from auto-save because its job is "do not lose
+   * things". */
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
-   * 把当前缓冲区镜像成草稿。
+   * Mirror the current buffer into a draft.
    *
-   * 只在真有改动时写：没改动的内容磁盘上本来就有，写一份只会多留垃圾。
+   * Only write when there are real changes: unchanged content already exists on
+   * disk, and a copy would just be garbage.
    */
   const flushDraft = useCallback(() => {
     if (draftTimerRef.current) {
@@ -87,7 +89,8 @@ export function useDocument({ path, onDirtyChange }: Options) {
   const flushDraftRef = useRef(flushDraft);
   flushDraftRef.current = flushDraft;
 
-  // 关标签就是卸载、关窗口会走 beforeunload：这两种「中断」都别再等防抖。
+  // Closing a tab unmounts, closing the window fires beforeunload: neither
+  // interruption should wait for the debounce.
   useEffect(() => {
     const flush = () => flushDraftRef.current();
     window.addEventListener("beforeunload", flush);
@@ -121,7 +124,8 @@ export function useDocument({ path, onDirtyChange }: Options) {
     // Edits typed while the write was in flight must stay dirty.
     setDirty(bufferRef.current !== content);
     notifyDocumentSaved(path);
-    // 内容已经进文件了，草稿再留着只会在下次打开时误报。
+    // The content is in the file now, so a leftover draft would only raise a false
+    // alarm next time the file is opened.
     if (bufferRef.current === content) void dropDraft(path).catch(() => {});
   }, [path]);
 
@@ -192,7 +196,8 @@ export function useDocument({ path, onDirtyChange }: Options) {
     [path],
   );
 
-  // 读磁盘成功之后再看有没有中断前的草稿：只有文本文件才有草稿可提。
+  // Look for a draft from an interrupted session only after a successful disk read;
+  // only text files can offer one.
   const checkDraft = useCallback(
     (res: ReadResult) => {
       if (res.kind !== "text") return;
@@ -202,7 +207,8 @@ export function useDocument({ path, onDirtyChange }: Options) {
             draftOffersRecovery(draft, savedRef.current) ? draft : null,
           );
         })
-        // 草稿读不到（存档坏了/权限）不该拖累打开文件本身。
+        // An unreadable draft (corrupt store / permissions) must not block opening
+        // the file itself.
         .catch(() => setPendingDraft(null));
     },
     [path],
@@ -243,7 +249,8 @@ export function useDocument({ path, onDirtyChange }: Options) {
       .catch((e) => setDoc({ status: "error", message: String(e) }));
   }, [readFromDisk, adoptRead, checkDraft]);
 
-  /** 把草稿放回缓冲区：它就是「未保存的改动」，保存与否由用户决定。 */
+  /** Put the draft back into the buffer: it is simply "unsaved changes", and saving
+   * is up to the user. */
   const restoreDraft = useCallback(() => {
     if (!pendingDraft) return;
     const text = pendingDraft.text;
@@ -255,7 +262,7 @@ export function useDocument({ path, onDirtyChange }: Options) {
     setPendingDraft(null);
   }, [pendingDraft]);
 
-  /** 不要这份草稿：删掉它，磁盘那份不动。 */
+  /** Decline the draft: delete it and leave the on-disk copy alone. */
   const discardDraft = useCallback(() => {
     setPendingDraft(null);
     void dropDraft(path).catch(() => {});
@@ -313,8 +320,9 @@ export function useDocument({ path, onDirtyChange }: Options) {
         }, delay);
       }
 
-      // 草稿与自动保存是否打开无关：自动保存默认是关的，这里才是那份安全网。
-      // 打字时不断重置，停下来才写一次，免得每敲一下就过一次 IPC。
+      // Drafts do not depend on auto-save being on: auto-save defaults to off, so this
+      // is the safety net. The timer resets while typing and fires once it pauses, so
+      // not every keystroke crosses IPC.
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       if (isDirty && next.length > 0 && next.length <= MAX_DRAFT_BYTES) {
         const forPath = path;

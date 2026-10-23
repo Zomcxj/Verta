@@ -2,10 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 
 /**
- * 右侧面板（Git）的宽度与收起态。与左栏 `useSidebarPanel` 同一套做法：宽度存像素、
- * 收起态存一个标记，收起时用 `collapse()` 而不是把宽度记成 0，展开时恢复用户最后一次的宽度。
+ * Width and collapsed state of the right panel (Git). Same approach as `useSidebarPanel`
+ * on the left: width is stored in pixels and collapsed state as a flag, collapsing uses
+ * `collapse()` rather than recording a width of 0, and expanding restores the user's
+ * last width.
  *
- * 默认**收起**：Git 是「要看的时候拉出来」的面板，不该挤掉刚打开就在看的终端。
+ * **Collapsed by default**: Git is a pull-out-when-needed panel and should not squeeze
+ * the terminal the user just opened.
  */
 const RIGHT_DEFAULT_WIDTH = 380;
 export const RIGHT_MIN_WIDTH = 260;
@@ -42,7 +45,8 @@ function readRightWidth(): number {
 function readRightCollapsed(): boolean {
   try {
     const stored = window.localStorage.getItem(RIGHT_COLLAPSED_STORAGE_KEY);
-    // 没存过就是收起：默认值写在这里，不靠调用方补。
+    // Nothing stored means collapsed: the default lives here rather than being patched
+    // in by callers.
     return stored === null ? true : stored === "1";
   } catch {
     return true;
