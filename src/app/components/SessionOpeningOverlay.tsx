@@ -1,7 +1,8 @@
 /**
- * 点开会话之后的过渡。
+ * 点开会话之后的过渡，**只盖终端那一块**（由 `WorkspaceSurface` 画在终端层里，
+ * 不是铺满全屏）：要挡住的只是「命令被写进终端」那一幕，侧栏、标签栏、状态栏照常可见。
  *
- * 恢复一条会话要往终端里写命令，而写进去的瞬间那行命令就画在终端上 —— 看到的就是
+ * 恢复一条会话要往终端里写命令，写进去的瞬间那行命令就画在终端上 —— 看到的就是
  * 「有人在替你敲命令」。开标签之前把这层盖上去，那一幕就换成居中的一段过渡：几圈
  * 波纹往外扩，中间是应用图标，出现时图标震一下（像播放器起播）。底下终端照旧准备，
  * 只是不给人看。
@@ -16,7 +17,7 @@ export function SessionOpeningOverlay({ open }: { open: boolean }) {
     <div
       data-session-opening
       aria-hidden="true"
-      className="verta-session-opening pointer-events-none fixed inset-0 z-50 flex items-center justify-center"
+      className="verta-session-opening pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
     >
       <span className="verta-session-opening-ripple" />
       <span className="verta-session-opening-ripple" />

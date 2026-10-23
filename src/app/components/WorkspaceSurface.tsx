@@ -10,6 +10,7 @@ import { PreviewStack } from "@/modules/preview";
 import type { Tab } from "@/modules/tabs";
 import { TerminalStack } from "@/modules/terminal";
 import type { ComponentProps } from "react";
+import { SessionOpeningOverlay } from "./SessionOpeningOverlay";
 
 type TerminalStackProps = ComponentProps<typeof TerminalStack>;
 type EditorStackProps = ComponentProps<typeof EditorStack>;
@@ -37,6 +38,8 @@ type Props = {
   onOpenProjectSession: (session: AgentSession) => void;
   onOpenProjectTerminal: (entry: ProjectEntry) => void;
   onNewProjectSession: (entry: ProjectEntry, tool: AgentTool) => void;
+  /** 点开会话时的过渡：只画在终端那块（见 `SessionOpeningOverlay`）。 */
+  sessionOpening: boolean;
 };
 
 const LAYER = "absolute inset-0";
@@ -70,6 +73,7 @@ export function WorkspaceSurface({
   onOpenProjectSession,
   onOpenProjectTerminal,
   onNewProjectSession,
+  sessionOpening,
 }: Props) {
   const kind = activeTab?.kind;
   const isTerminalTab = kind === "terminal";
@@ -100,6 +104,8 @@ export function WorkspaceSurface({
           onExit={onExit}
           onFocusLeaf={onFocusLeaf}
         />
+        {/* 只盖终端这一块，不铺满全屏：要挡住的只是「命令被写进终端」那一幕。 */}
+        <SessionOpeningOverlay open={sessionOpening} />
       </div>
       <div
         className={cn(LAYER, !isEditorTab && "invisible pointer-events-none")}

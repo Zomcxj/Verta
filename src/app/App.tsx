@@ -130,7 +130,6 @@ import {
   useState,
 } from "react";
 import { CloseDialogs } from "./components/CloseDialogs";
-import { SessionOpeningOverlay } from "./components/SessionOpeningOverlay";
 import { WorkspaceInputBar } from "./components/WorkspaceInputBar";
 import { WorkspaceSurface } from "./components/WorkspaceSurface";
 import { hasOpenPathTab, renamedPath } from "./hooks/tabCloseGuards";
@@ -1470,6 +1469,7 @@ export default function App() {
                         onOpenProjectSession={handleOpenSession}
                         onOpenProjectTerminal={handleOpenProjectTerminal}
                         onNewProjectSession={handleNewProjectSession}
+                        sessionOpening={sessionOpening}
                       />
                     </div>
 
@@ -1540,8 +1540,6 @@ export default function App() {
           />
 
           <Toaster position="bottom-right" />
-
-          <SessionOpeningOverlay open={sessionOpening} />
 
           {switcherState && (
             <TabSwitcherHud tabs={tabs} state={switcherState} />
