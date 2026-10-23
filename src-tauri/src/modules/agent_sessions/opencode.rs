@@ -251,9 +251,23 @@ fn capture_ready(mut command: Command, directory: &Path) -> Command {
 
 /// Deletes through opencode's own command so it also removes the session's child
 /// sessions and the rows it owns; the 5.6 GB WAL database is never written here.
+///
+/// The command has to run inside the session's directory (that is how it resolves
+/// the session), but that directory may be gone — the project was deleted, the
+/// session row stayed. Launching there fails at spawn time with the system's
+/// "The directory name is invalid" (Windows error 267), and the session could
+/// then never be deleted at all. So: use the recorded directory when it still
+/// exists, otherwise any directory we know is there. The id is all the command
+/// needs to find the session.
 pub(crate) fn delete_at(db: &Path, id: &str) -> Result<(), String> {
     let directory = session_directory(db, id)?;
-    let mut command = delete_command(Path::new(&directory), id);
+    let recorded = Path::new(&directory);
+    let workdir = if recorded.is_dir() {
+        recorded.to_path_buf()
+    } else {
+        std::env::temp_dir()
+    };
+    let mut command = delete_command(&workdir, id);
     let captured = capture::run(&mut command, DELETE_TIMEOUT, DELETE_LIMITS)
         .map_err(|e| format!("无法执行 opencode session delete：{e}"))?;
     if captured.timed_out {
@@ -604,6 +618,31 @@ mod tests {
     #[test]
     fn builds_the_delete_arguments_it_documents() {
         assert_eq!(delete_arguments("ses_1"), vec!["session", "delete", "ses_1"]);
+    }
+
+    /// 项目目录被删掉之后会话还在列表里（用户报的那条「目录名称无效」）：删除不能因此
+    /// 卡死 —— 删不掉目录就退到临时目录去跑命令。这里用一个确定不存在的目录当记录目录。
+    #[test]
+    fn deleting_a_session_whose_directory_is_gone_still_runs() {
+        let (dir, db) = temp_db(TABLE_ORDER[0]);
+        insert(
+            &db,
+            TABLE_ORDER[0],
+            "ses_gone",
+            None,
+            Some("DSH Desktop"),
+            "D:/no/such/project",
+            1,
+        );
+        // 命令本身会失败（这里没装 opencode），但失败的原因不该是「目录不存在」：
+        // 只要走到执行这一步就算通过这条不变式。
+        let error = delete_at(&db, "ses_gone").expect_err("no CLI in the test env");
+        assert!(
+            !error.contains("目录名称无效")
+                && !error.contains("The directory name is invalid"),
+            "still launched in the deleted directory: {error}"
+        );
+        drop(dir);
     }
 
     #[test]

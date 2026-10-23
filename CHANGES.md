@@ -15,6 +15,10 @@
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**会话的项目目录被删掉之后，那条会话再也删不掉了**
+
+- `src-tauri/src/modules/agent_sessions/opencode.rs`：删除要走 opencode 自己的命令，而它必须在会话记录的那个目录里跑（它靠工作目录定位会话）。项目删了、会话行还在时，那个目录已经不存在，于是启动就失败在系统那一层（Windows 的「目录名称无效」），这条会话从此删不掉。现在记录目录还在就用它，不在了就退到临时目录 —— 命令本来就只靠 id 找会话，有没有那个目录它都认得。
+
 **会话打开过渡：动画加到四种，在设置的主题页里选**
 
 - `src/modules/settings/store.ts`：新增偏好 `sessionTransition`（`ripples` / `pulse` / `orbit` / `bars` / `none`，默认 `ripples`），另加一个不认得的旧值退回默认的 `coerceSessionTransition`。
