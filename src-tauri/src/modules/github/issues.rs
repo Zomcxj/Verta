@@ -11,7 +11,8 @@
 use serde::Deserialize;
 
 use super::types::{
-    CheckSummary, IssueComment, IssueDetail, IssueSummary, PullRequestCommit, PullRequestInfo,
+    CheckItem, CheckSummary, IssueComment, IssueDetail, IssueSummary, PullRequestCommit,
+    PullRequestInfo,
 };
 
 /// Rows per list request. The cap matches the run list's.
@@ -95,8 +96,14 @@ struct RawComment {
 
 #[derive(Deserialize)]
 struct RawCheck {
+    id: Option<u64>,
+    name: Option<String>,
     status: Option<String>,
     conclusion: Option<String>,
+    /// The check's log page; `html_url` is the fallback for runs that carry only one
+    /// of the two links.
+    details_url: Option<String>,
+    html_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -354,29 +361,42 @@ pub fn checks_page_path(sha: &str, page: u32) -> String {
     format!("repos/{{slug}}/commits/{sha}/check-runs?per_page={CHECKS_PER_PAGE}&page={page}")
 }
 
-/// Count the raw `check-runs` JSON of all pages together.
+/// Roll up the raw `check-runs` JSON of all pages, counters **and** rows together.
 ///
 /// Repos with more than 100 checks are fetched page by page, but **counting and the
 /// overall state must happen once, over the union**: per-page tallies added up would
 /// lose the fact that some checks were never fetched. `total` is the largest
 /// `total_count` across pages, and fewer rows than that means `truncated`: the
 /// same rule as for a single page.
+///
+/// The item list walks the very same rows the counters do, so the two cannot disagree,
+/// and it holds no more than was fetched (filling it up would need more requests).
 pub fn summarize_check_pages(pages: &[String]) -> Result<CheckSummary, serde_json::Error> {
     let mut total = 0u32;
     let mut seen = 0u32;
     let mut ok = 0;
     let mut failed = 0;
     let mut pending = 0;
+    let mut items = Vec::new();
     for json in pages {
         let raw: RawCheckRuns = serde_json::from_str(json)?;
         let runs = raw.check_runs.unwrap_or_default();
         seen += runs.len() as u32;
         total = total.max(raw.total_count.unwrap_or(runs.len() as u32));
         for run in &runs {
-            match check_outcome(run) {
-                Outcome::Success => ok += 1,
-                Outcome::Failure => failed += 1,
-                Outcome::Pending => pending += 1,
+            let row = check_row(run);
+            items.push(CheckItem {
+                id: run.id.unwrap_or(0),
+                name: check_name(run),
+                state: row.key(),
+                url: check_url(run),
+            });
+            // The counter comes from the row's own outcome, so list and rollup agree.
+            match row {
+                CheckRow::Fail => failed += 1,
+                CheckRow::Pending => pending += 1,
+                // pass / skipped / neutral are all the "ok" column.
+                CheckRow::Pass | CheckRow::Skipped | CheckRow::Neutral => ok += 1,
             }
         }
     }
@@ -388,6 +408,7 @@ pub fn summarize_check_pages(pages: &[String]) -> Result<CheckSummary, serde_jso
         pending,
         truncated,
         state: check_state(total, failed, pending, truncated),
+        items,
     })
 }
 
@@ -404,27 +425,71 @@ pub fn count_check_runs(json: &str) -> Option<usize> {
     Some(raw.check_runs.unwrap_or_default().len())
 }
 
-enum Outcome {
-    Success,
-    Failure,
+/// How one check reads, as its own row and inside the counters.
+///
+/// One classification for both: `pass` / `skipped` / `neutral` all feed `ok`, while the
+/// row still tells them apart (a second judgement could contradict the rollup).
+#[derive(Clone, Copy)]
+enum CheckRow {
+    Pass,
+    Fail,
     Pending,
+    Skipped,
+    Neutral,
 }
 
-fn check_outcome(run: &RawCheck) -> Outcome {
+impl CheckRow {
+    /// The state code the UI resolves its wording and colour from.
+    fn key(self) -> &'static str {
+        match self {
+            CheckRow::Pass => "pass",
+            CheckRow::Fail => "fail",
+            CheckRow::Pending => "pending",
+            CheckRow::Skipped => "skipped",
+            CheckRow::Neutral => "neutral",
+        }
+    }
+}
+
+fn check_row(run: &RawCheck) -> CheckRow {
     let status = run.status.as_deref().unwrap_or("");
     // Queued / running: no conclusion yet, so everything counts as pending.
     if matches!(status, "queued" | "in_progress" | "waiting" | "requested" | "pending") {
-        return Outcome::Pending;
+        return CheckRow::Pending;
     }
     match run.conclusion.as_deref().unwrap_or("") {
-        "success" | "neutral" | "skipped" => Outcome::Success,
+        "success" => CheckRow::Pass,
+        "neutral" => CheckRow::Neutral,
+        "skipped" => CheckRow::Skipped,
         "failure" | "cancelled" | "timed_out" | "action_required" | "stale" | "startup_failure" => {
-            Outcome::Failure
+            CheckRow::Fail
         }
         // completed without a conclusion: cannot be called either way, so report
         // pending.
-        _ => Outcome::Pending,
+        _ => CheckRow::Pending,
     }
+}
+
+/// The row's name, with a neutral fallback when GitHub sends none: the row is already
+/// counted, so it must still be listed (the same fallback the CI run name uses).
+fn check_name(run: &RawCheck) -> String {
+    run.name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("check")
+        .to_string()
+}
+
+/// Where this check can be read on GitHub: the log page when there is one, the run
+/// page otherwise, and nothing when GitHub sent neither.
+fn check_url(run: &RawCheck) -> Option<String> {
+    run.details_url
+        .as_deref()
+        .or(run.html_url.as_deref())
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(str::to_string)
 }
 
 /// Overall check state: failures first, then pending, and only then pass.
@@ -803,6 +868,91 @@ mod tests {
         assert_eq!(checks.pending, 1);
         assert!(!checks.truncated, "三条都在，没少看");
         assert_eq!(checks.state, "fail");
+    }
+
+    #[test]
+    fn every_seen_check_gets_a_row_with_the_state_it_was_counted_as() {
+        let json = r#"{"total_count": 5, "check_runs": [
+            {"id": 11, "name": "build", "status": "completed", "conclusion": "success",
+             "details_url": "https://ci.example/build"},
+            {"id": 12, "name": "lint", "status": "completed", "conclusion": "failure",
+             "html_url": "https://github.com/o/r/runs/2"},
+            {"id": 13, "name": "e2e", "status": "in_progress", "conclusion": null},
+            {"id": 14, "name": "docs", "status": "completed", "conclusion": "skipped"},
+            {"id": 15, "name": "audit", "status": "completed", "conclusion": "neutral"}
+        ]}"#;
+        let checks = summarize_check_pages(&[json.to_string()]).expect("应能解析");
+        assert_eq!(checks.total, 5);
+        // pass / skipped / neutral are the "ok" column; the rows still tell them apart.
+        assert_eq!((checks.ok, checks.failed, checks.pending), (3, 1, 1));
+        assert_eq!(checks.items.len(), 5, "每条看过的检查都要有自己的行");
+        assert_eq!(checks.items[0].id, 11, "取 GitHub 的 id，UI 拿它当 key");
+        assert_eq!(checks.items[0].name, "build");
+        assert_eq!(checks.items[0].state, "pass");
+        assert_eq!(
+            checks.items[0].url.as_deref(),
+            Some("https://ci.example/build")
+        );
+        assert_eq!(checks.items[1].state, "fail");
+        // No details_url: the run page is the fallback.
+        assert_eq!(
+            checks.items[1].url.as_deref(),
+            Some("https://github.com/o/r/runs/2")
+        );
+        assert_eq!(checks.items[2].state, "pending");
+        assert_eq!(checks.items[2].url, None);
+        assert_eq!(checks.items[3].state, "skipped");
+        assert_eq!(checks.items[4].state, "neutral");
+        // The rows and the counters walk one classification: a row can only carry a
+        // state the counters have a column for.
+        assert_eq!(
+            checks.items.iter().filter(|item| item.state == "fail").count(),
+            checks.failed as usize
+        );
+        assert_eq!(
+            checks.items.iter().filter(|item| item.state == "pending").count(),
+            checks.pending as usize
+        );
+    }
+
+    #[test]
+    fn a_nameless_check_row_is_listed_under_a_fallback_name() {
+        // A check without a name was still counted, so the list needs a row for it
+        // rather than dropping it (or panicking).
+        let json = r#"{"total_count": 2, "check_runs": [
+            {"name": "  ", "status": "completed", "conclusion": "success"},
+            {"status": "completed", "conclusion": "success"}
+        ]}"#;
+        let checks = summarize_check_pages(&[json.to_string()]).expect("应能解析");
+        assert_eq!(checks.items.len(), 2);
+        assert_eq!(checks.items[0].name, "check");
+        assert_eq!(checks.items[1].name, "check");
+        assert_eq!(checks.items[0].id, 0, "没有 id 就用 0，交给 UI 按名字当 key");
+    }
+
+    #[test]
+    fn a_truncated_page_lists_its_rows_and_still_says_partial() {
+        // The rows are there to be read, but they are only the ones that were fetched:
+        // `truncated` stays true and the state must stay `partial` even though every
+        // row shown is green. The list must not become a back door to "all passed".
+        let json = r#"{"total_count": 140, "check_runs": [
+            {"name": "build", "status": "completed", "conclusion": "success"},
+            {"name": "lint", "status": "completed", "conclusion": "failure"}]}"#;
+        let checks = summarize_check_pages(&[json.to_string()]).expect("应能解析");
+        assert_eq!(checks.items.len(), 2, "只看过两行就只列两行");
+        assert!(checks.truncated, "140 条没看完");
+        assert_eq!(checks.state, "fail", "看到失败照样报失败");
+
+        // All the seen rows green: the list and the badge face 138 unseen checks, so
+        // this is exactly where "all green" would be a lie.
+        let green = r#"{"total_count": 140, "check_runs": [
+            {"name": "build", "status": "completed", "conclusion": "success"},
+            {"name": "lint", "status": "completed", "conclusion": "success"}]}"#;
+        let checks = summarize_check_pages(&[green.to_string()]).expect("应能解析");
+        assert_eq!(checks.items.len(), 2);
+        assert!(checks.items.iter().all(|item| item.state == "pass"));
+        assert!(checks.truncated);
+        assert_eq!(checks.state, "partial");
     }
 
     #[test]

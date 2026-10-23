@@ -17,6 +17,13 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**PR detail lists the checks one by one**
+
+- `src-tauri/src/modules/github/types.rs`, `issues.rs`: `CheckSummary` now carries the rows it was already counting (`CheckItem`: an id, a name, the state, a link), and the per-row verdict moved into a single `CheckRow` value that both the rows and the counts go through, so the list and the summary cannot disagree. No new request: the pages that were already fetched supply them. The `partial` rule is untouched (a page short of `total` still reports `partial`, never a pass), and three tests cover the list, the fallback name and that rule.
+- `src/lib/native.ts`, `src/modules/remotes/IssueDetail.tsx`: the PR block lists the checks under the summary badge in a scrollable list, with the same colours the badge uses. Read only, no actions.
+- `src/modules/i18n/messages.ts`: six strings, Chinese and English.
+- Verified against a public pull request that has checks (read only, nothing written): seven rows came back for a total of seven, every row carried a link, and the row states matched the summary counts exactly.
+
 **PR detail lists the commits**
 
 - `src-tauri/src/modules/github/commands.rs`: `read_issue_detail` already asks the pulls endpoint speculatively (a plain issue 404s, and that is ignored). When it comes back, one more `gh api "repos/{slug}/pulls/{n}/commits"` runs and the result is attached. Any failure there leaves the list empty instead of failing the page, the way the comment fetch already behaves.

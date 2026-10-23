@@ -201,6 +201,41 @@ export function IssueDetail({
         </p>
       ) : null}
 
+      {/* PR-only, read-only: one row per check that was seen. The state wording comes
+          from the message table, and the backend rolled both this list and the badge
+          above up from one classification, so they cannot disagree. A truncated fetch
+          simply shows fewer rows than `total`; the badge already says so. */}
+      {detail.checks && detail.checks.items.length > 0 ? (
+        <div className="space-y-1">
+          <div className="text-[11px] font-medium">
+            {t("remotes.issues.checks.title")}
+          </div>
+          <ul className="max-h-[20vh] space-y-1 overflow-auto">
+            {detail.checks.items.map((item) => (
+              <li
+                key={item.id || item.name}
+                className="flex items-baseline gap-2 rounded border border-border/60 px-2 py-1 text-[11px]"
+              >
+                <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                {/* Same colour rules as the summary badge above. */}
+                <span
+                  className={cn(
+                    "shrink-0 rounded border px-1 leading-4 whitespace-nowrap",
+                    item.state === "pass"
+                      ? "border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+                      : item.state === "fail"
+                        ? "border-destructive/50 text-destructive"
+                        : "border-border/60 text-muted-foreground",
+                  )}
+                >
+                  {t(`remotes.issues.checks.item.${item.state}` as MessageKey)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {/* PR-only, read-only: one row per commit. An empty list renders nothing
           (a PR has at least one commit, and there is no copy for an empty list);
           `null` is already "not fetched". */}

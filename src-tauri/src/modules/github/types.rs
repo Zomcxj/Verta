@@ -987,6 +987,26 @@ pub struct PullRequestInfo {
     pub locked: bool,
 }
 
+/// One check of a PR's check list (a single read-only row).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckItem {
+    /// GitHub's id for this run; 0 when it sent none. The UI keys rows by it, because a
+    /// check name is not unique (two apps can both report a `build`).
+    pub id: u64,
+    /// The check's own name; a neutral fallback when GitHub sends none, because a row
+    /// that was counted must not vanish from the list.
+    pub name: String,
+    /// `pass` / `fail` / `pending` / `skipped` / `neutral`, from the **same**
+    /// classification the counters use (there `pass` / `skipped` / `neutral` all feed
+    /// `ok`), so a row can never contradict the rollup it belongs to.
+    ///
+    /// A code rather than a sentence: the UI owns the wording and its language.
+    pub state: &'static str,
+    /// The check's page on GitHub; `None` when GitHub sent no link.
+    pub url: Option<String>,
+}
+
 /// Check status rollup.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1000,6 +1020,10 @@ pub struct CheckSummary {
     pub truncated: bool,
     /// `pass` / `fail` / `pending` / `partial` / `none`.
     pub state: &'static str,
+    /// The rows that were actually seen, one per check of the fetched pages (the list
+    /// costs no extra request). Fewer rows than `total` is the same shortfall
+    /// `truncated` reports.
+    pub items: Vec<CheckItem>,
 }
 
 /// Details of one issue / PR.

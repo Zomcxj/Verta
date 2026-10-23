@@ -425,6 +425,20 @@ export type WirePullRequestCommit = {
   htmlUrl: string;
 };
 
+/** One check of a PR (a single read-only row). */
+export type WireCheckItem = {
+  /** GitHub's run id; 0 when it sent none (the UI then keys the row by name). */
+  id: number;
+  name: string;
+  /**
+   * Same classification as the rollup: `pass` / `skipped` / `neutral` all feed `ok`
+   * there (as GitHub rolls them up), so a row cannot contradict the badge above it.
+   */
+  state: "pass" | "fail" | "pending" | "skipped" | "neutral";
+  /** The check's page on GitHub; `null` when GitHub sent no link. */
+  url: string | null;
+};
+
 /** Rolled-up check status. */
 export type WireCheckSummary = {
   total: number;
@@ -434,6 +448,11 @@ export type WireCheckSummary = {
   /** Only some checks were seen (100 per page max): never report "all passed" here. */
   truncated: boolean;
   state: "pass" | "fail" | "pending" | "partial" | "none";
+  /**
+   * The rows actually seen, one per check of the fetched pages (the list costs no
+   * extra request). Fewer rows than `total` is the same shortfall `truncated` reports.
+   */
+  items: WireCheckItem[];
 };
 
 /** Detail of a single issue / PR. */
