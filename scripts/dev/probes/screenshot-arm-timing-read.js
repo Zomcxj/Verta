@@ -1,2 +1,2 @@
-// 区域截图验收：读回 `screenshot-arm-timing-install.js` 记下的那两个数字。
+// Region-screenshot acceptance: read back the two numbers recorded by `screenshot-arm-timing-install.js`.
 (async () => window.__armProbe ?? { installed: false });

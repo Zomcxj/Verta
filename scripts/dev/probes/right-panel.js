@@ -1,4 +1,5 @@
-// R12 验收：右上 Git 面板按钮、左栏项、右栏内容是否可见。
+// R12 acceptance: the Git panel button in the top right, the left rail items, and whether the right panel
+// content is visible.
 (() => {
   const rectOf = (node) => {
     const r = node.getBoundingClientRect();

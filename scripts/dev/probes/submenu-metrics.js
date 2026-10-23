@@ -1,4 +1,5 @@
-// 验收悬浮窗宽度：读子菜单容器的宽度与每个条目的高度（高度超过一行说明折行了）。
+// Acceptance for the popover width: read the submenu container's width and each item's height (a height beyond one
+// line means it wrapped).
 (async () => {
   const sub = document.querySelector("[data-slot='dropdown-menu-sub-content']");
   const rect = (node) => {

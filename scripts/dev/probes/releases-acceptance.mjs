@@ -1,8 +1,10 @@
-// Releases 与附件下载的真机验收：先把界面走一遍（行菜单 → 列表 → 详情 → 下载按钮），
-// 再直接调用后端命令验证下载管线（进度事件、完整性、取消、失败不动旧文件）。
+// End-to-end acceptance for Releases and asset downloads: walk the UI first (row menu → list → detail →
+// download button), then call the backend commands directly to verify the download pipeline (progress
+// events, integrity, cancel, and a failure leaving the old file alone).
 //
-// 目录选择是不可自动化的原生弹窗，所以界面止步于「下载」按钮；管线本身走同一条命令。
-// 用法：node scripts/dev/probes/releases-acceptance.mjs [--port=9222]
+// The directory picker is a native dialog that cannot be automated, so the UI path stops at the download
+// button; the pipeline itself goes through the same command.
+// Usage: node scripts/dev/probes/releases-acceptance.mjs [--port=9222]
 import {
   existsSync,
   mkdirSync,
@@ -28,7 +30,7 @@ const fail = (message) => {
   process.exit(1);
 };
 
-/** 起一个干净的目标目录：验收只碰自己这份临时目录。 */
+/** Start from a clean target directory: the acceptance run only touches its own temp copy. */
 rmSync(DIR, { recursive: true, force: true });
 mkdirSync(DIR, { recursive: true });
 mkdirSync(SHOTS, { recursive: true });
@@ -98,8 +100,8 @@ const realClick = async (x, y) => {
     y,
     button: "none",
   });
-  // `buttons` 不能省：WebView2 少了它就不合成真正的 click（Radix 菜单靠 pointerdown
-  // 还能开，普通 React onClick 不会响应）。
+  // `buttons` is required: without it WebView2 never synthesizes a real click (a Radix menu still opens
+  // off pointerdown, but a plain React onClick does not fire).
   await send("Input.dispatchMouseEvent", {
     type: "mousePressed",
     x,
@@ -125,7 +127,7 @@ const shot = async (name) => {
   writeFileSync(`${SHOTS}/${name}`, Buffer.from(result.data, "base64"));
 };
 
-/** 等到页面里出现某个东西（返回它的矩形），超时就返回 null。 */
+/** Wait until something appears in the page (returns its rect), or null on timeout. */
 const waitFor = async (expression, timeoutMs = 60000) => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -137,14 +139,14 @@ const waitFor = async (expression, timeoutMs = 60000) => {
 };
 
 try {
-  // dev 下 IPC 有时先走 postMessage 回退，首屏要等一会儿。
+  // Under dev, IPC sometimes goes through the postMessage fallback first, so first paint takes a while.
   const booted = await waitFor(
     `document.querySelectorAll("button").length > 3 && document.querySelector("button")`,
     120000,
   );
   if (!booted) fail("界面一直没有渲染出来");
 
-  // ---- 1. 打开远程仓库标签页 ----
+  // ---- 1. Open the remote repositories tab ----
   const remotesButton = await waitFor(
     `[...document.querySelectorAll("button")].find((b) => /远程仓库|Remote repositories/.test(b.getAttribute("title") || ""))`,
   );
@@ -157,7 +159,7 @@ try {
   if (!filterBox) fail("远程仓库列表没有出现");
   report.remotesOpened = true;
 
-  // ---- 2. 筛选到 ModelHarbor，打开行菜单里的「Releases…」 ----
+  // ---- 2. Filter down to ModelHarbor and open "Releases..." from the row menu ----
   await evaluate(`(() => {
     const input = [...document.querySelectorAll("input[placeholder]")].find((i) => /筛选仓库|Filter repositories/.test(i.getAttribute("placeholder") || ""));
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
@@ -176,7 +178,7 @@ try {
   if (!releasesItem) fail("行菜单里没有 Releases 项");
   await realClick(releasesItem.x, releasesItem.y);
 
-  // ---- 3. 列表出现，点进详情 ----
+  // ---- 3. The list shows up; open the detail ----
   const firstRow = await waitFor(
     `[...document.querySelectorAll("li > button")].find((n) => /v\\d/.test(n.innerText || ""))`,
     15000,
@@ -197,7 +199,7 @@ try {
   report.detailHasAssets = detailText;
   await shot("releases-detail.png");
 
-  // ---- 4. 下载管线：13 MB 附件，进度事件 + 完整性 ----
+  // ---- 4. Download pipeline: a 13 MB asset, progress events plus integrity ----
   const small = await evaluate(`(async () => {
     const internals = window.__TAURI_INTERNALS__;
     const events = [];
@@ -239,7 +241,7 @@ try {
   if (!lastEvent || lastEvent.written !== smallRun.asset.size)
     fail(`最后一个进度事件不是完成态：${JSON.stringify(lastEvent)}`);
 
-  // ---- 5. 取消：中途停掉一个 155 MB 的附件，旧文件必须原样 ----
+  // ---- 5. Cancel: stop a 155 MB asset midway, and the existing file must be left untouched ----
   const bigAsset = await evaluate(`(async () => {
     const listing = await window.__TAURI_INTERNALS__.invoke("github_releases", { repo: "${BIG_REPO}", limit: 2 });
     const asset = listing.releases[0].assets[0];

@@ -1,12 +1,15 @@
-// 区域截图验收：在覆盖窗口里挂上「收到消息 → 画面真的出现在屏幕上一帧」的计时。
+// Region-screenshot acceptance: attach timing to the overlay window for "message received → a frame is
+// actually on screen".
 //
-// 用户对这件事的原始抱怨是「打开要弹一下」。现在不冻屏，也就没有「等图」这一段；要证的是：
-// 后端把窗口亮出来的那一刻起，覆盖窗口自己有没有拖后腿（理想是一帧内就画上）。
+// The user's original complaint was that it "pops" when opening. There is no frame freeze any more, so there
+// is no "waiting for the image" phase; what needs proving is whether the overlay itself holds things up once
+// the backend shows the window (ideally it paints within one frame).
 //
-// 为什么分成「挂载」与「读取」两个探针：先挂上（此时窗口可能还藏在后台，`rAF` 也不一定在跑），
-// 再从主窗口触发一次截图，最后回来读数字。
+// Why two probes, "install" and "read": install first (the window may still be in the background, where `rAF`
+// may not even be running), then trigger a screenshot from the main window, then come back and read the numbers.
 //
-// 探针是裸脚本，import 不了 `@tauri-apps/api`，所以按那个库的做法直接走内部实现。
+// The probe is a bare script and cannot import `@tauri-apps/api`, so it goes through the internals directly,
+// the way that library does.
 (async () => {
   const internals = window.__TAURI_INTERNALS__;
   const probe = { armed: null, firstFrameMs: null, settled: false };
@@ -15,7 +18,8 @@
     probe.armed = Math.round(performance.now());
     const start = probe.armed;
     requestAnimationFrame(() => {
-      // 窗口藏起来时 `rAF` 会被节流；能在一帧里回来，就说明亮出来之后没有多余的一段。
+      // `rAF` is throttled while the window is hidden; coming back within one frame proves nothing extra is
+      // added after it is shown.
       probe.firstFrameMs = Math.round(performance.now() - start);
       probe.settled = true;
     });

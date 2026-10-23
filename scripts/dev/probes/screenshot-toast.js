@@ -1,4 +1,5 @@
-// 区域截图验收（3/3）：在**主窗口**里报告收尾提示条的内容，以及「插入路径」按钮的坐标。
+// Region-screenshot acceptance (3/3): report the content of the follow-up toast in the **main window**, and the
+// coordinates of its "insert path" button.
 (() => {
   const toasts = [...document.querySelectorAll("[data-sonner-toast]")];
   const action = toasts

@@ -1,5 +1,6 @@
-// 打开带图片的那个探测会话，用于验证「终端应答像素尺寸查询后图片能否画出来」。
-// 只读操作：点开一个会话，不写任何文件。
+// Open the probe session that carries image output, to verify "can the image be drawn once the terminal answers
+// the pixel-size query".
+// Read-only: it opens a session and writes no files.
 (async () => {
   const TARGET_ID = "ses_verta_img_probe_0001";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

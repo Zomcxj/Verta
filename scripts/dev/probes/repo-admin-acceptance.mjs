@@ -1,18 +1,20 @@
-// 仓库管理（改描述 / 切可见性 / 删仓库 / 克隆到本地）的真机验收。
+// End-to-end acceptance for repository admin (edit description / flip visibility / delete repo / clone locally).
 //
-// 默认这一轮会在一个**临时仓库**上真跑完整条链路：读设置 → 改描述 → 切私有再切回公开
-// → 手输全名删掉；顺带把 ModelHarbor 克隆到临时目录，核对目录与项目清单。除了这个临时仓库，
-// 别的仓库一律不碰（只读它们的设置用来做对照）。
+// By default this run drives the whole chain for real against a **throwaway repository**: read settings →
+// edit description → flip to private and back to public → delete by typing the full name. It also clones
+// ModelHarbor into a temp directory and checks the directory and the project list. No other repository is
+// touched (their settings are read only, as a control).
 //
-// 这台机器上 gh 偶尔会来一次 `Post "https://api.github.com/graphql": EOF`（代理抽风），
-// 所以每步都是「点一下 → 轮询确认 → 没成再来一次」，并且把最后一次读到的结果与页面上的
-// 浮层文案记进报告，失败时能看出是「真失败」还是「读回失败」。
+// On this machine gh occasionally throws `Post "https://api.github.com/graphql": EOF` (flaky proxy), so
+// every step is "click once → poll to confirm → retry if it did not take", and the last value read back
+// plus the on-screen toast text go into the report, so a failure can be told apart as a real failure or a
+// read-back failure.
 //
-// 只读那一轮（`--readonly`）用可控实验：临时把 Rust 侧 `can_admin` 钉成 false，看设置弹窗
-// 是不是真的不给按钮（本机 gh 列出来的仓库全是我自己的 ADMIN；页面里
-// `__TAURI_INTERNALS__.invoke` 是 non-configurable，桩也打不进去）。
+// The read-only pass (`--readonly`) is a controlled experiment: temporarily pin the Rust-side `can_admin`
+// to false and check whether the settings dialog really offers no buttons (every repo local gh lists is my
+// own ADMIN; in the page `__TAURI_INTERNALS__.invoke` is non-configurable, so it cannot be stubbed).
 //
-// 用法：node scripts/dev/probes/repo-admin-acceptance.mjs [--readonly] [--port=9222]
+// Usage: node scripts/dev/probes/repo-admin-acceptance.mjs [--readonly] [--port=9222]
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,16 +23,16 @@ import { join } from "node:path";
 const EXPECT_READ_ONLY = process.argv.includes("--readonly");
 const port =
   process.argv.find((a) => a.startsWith("--port="))?.slice(7) ?? "9222";
-/** 验收用的临时仓库：这一轮真的会被删掉。 */
+/** The throwaway repository this pass really deletes. */
 const TEMP_REPO = "Zomcxj/verta-acceptance-tmp";
-/** 别人的公开仓库：拿来做「不是管理员」的对照。 */
+/** Someone else's public repository, as the "not an admin" control. */
 const OTHERS_REPO = "facebook/react";
-/** 克隆验收用的仓库（自己的，验完只删本地目录）。 */
+/** Repository used for the clone check (my own; only the local directory is deleted afterwards). */
 const CLONE_REPO = "Zomcxj/ModelHarbor";
 const CLONE_DIR = join(tmpdir(), "verta-repo-admin-acceptance");
 const NEW_DESCRIPTION = `Verta 验收写回：这条描述是被软件改的（${Date.now()}）`;
 const SHOTS = ".superpowers/shots";
-/** 路径比较用：这台机器上同一个目录可能被写成正斜杠或反斜杠。 */
+/** For path comparison: the same directory may come back with forward or back slashes on this machine. */
 const norm = (path) => String(path ?? "").replace(/\\/g, "/");
 
 const report = {};
@@ -115,7 +117,7 @@ const realClick = async (x, y) => {
     y,
     button: "none",
   });
-  // `buttons` 不能省：WebView2 少了它就不合成真正的 click。
+  // `buttons` is required: without it WebView2 never synthesizes a real click.
   await send("Input.dispatchMouseEvent", {
     type: "mousePressed",
     x,
@@ -174,7 +176,7 @@ const dialogText = () =>
     `[...document.querySelectorAll('[role="dialog"], [role="alertdialog"]')].map((d) => d.innerText).join("\\n=== \\n")`,
   );
 
-/** 在弹窗里填一个输入框（React 受控组件要靠原生 setter + input 事件）。 */
+/** Fill one input inside a dialog (a React controlled input needs the native setter plus an input event). */
 const fillInput = (index, value) =>
   evaluate(`(() => {
     const input = [...document.querySelectorAll('[role="dialog"] input')][${index}];
@@ -185,7 +187,7 @@ const fillInput = (index, value) =>
     return true;
   })()`);
 
-/** 直接调后端命令，读这个临时仓库的设置。 */
+/** Call the backend command directly to read the throwaway repository's settings. */
 const readSettings = async (tries = 3) => {
   let last = null;
   for (let i = 0; i < tries; i++) {
@@ -201,7 +203,7 @@ const invokeRaw = (cmd, args) =>
     `(async () => JSON.stringify(await window.__TAURI_INTERNALS__.invoke(${JSON.stringify(cmd)}, ${JSON.stringify(args)})))()`,
   ).then((text) => JSON.parse(text));
 
-/** 项目清单（走应用自己的存储 API，而不是从外面改那份 json）。 */
+/** Project list, read and written through the app's own storage API rather than by editing the json from outside. */
 const STORE_MODULE = "/src/modules/projects/lib/store.ts";
 const readProjects = () =>
   evaluate(
@@ -212,7 +214,7 @@ const writeProjects = (paths) =>
     `(async () => { const m = await import(${JSON.stringify(STORE_MODULE)}); await m.saveProjectPaths(${JSON.stringify(paths)}); return "ok"; })()`,
   );
 
-/** 独立的第三方核对：直接问 gh 这个仓库还在不在。 */
+/** Independent third-party check: ask gh directly whether the repository still exists. */
 const ghSaysRepoExists = () => {
   try {
     execFileSync("gh", ["repo", "view", TEMP_REPO, "--json", "name"], {
@@ -223,12 +225,12 @@ const ghSaysRepoExists = () => {
   } catch (e) {
     const text = `${e.stderr ?? ""}${e.stdout ?? ""}${e.message ?? ""}`;
     if (/could not resolve|not found|HTTP 404/i.test(text)) return false;
-    // 说不清就往上抛，别把网络错当成「删掉了」。
+    // If the answer is unclear, rethrow: never read a network error as "it was deleted".
     throw new Error(`gh repo view 没能给出结论：${text.slice(0, 200)}`);
   }
 };
 
-/** 点一次列表上的刷新（应用启动时读的那份可能还没有刚建好的仓库）。 */
+/** Click refresh on the list (the copy read at app startup may predate the repository just created). */
 const refreshRepos = async () => {
   const button = await waitFor(
     `[...document.querySelectorAll("button")].find((b) => /^(刷新|Refresh)$/.test((b.innerText || "").trim()))`,
@@ -236,7 +238,7 @@ const refreshRepos = async () => {
   );
   if (!button) fail("远程仓库面板里没有刷新按钮");
   await realClick(button.x, button.y);
-  // 读完之前按钮上写的是「正在读取…」，等它回到「刷新」。
+  // While loading, the button reads "reading..."; wait for it to get back to "refresh".
   await waitFor(
     `[...document.querySelectorAll("button")].find((b) => /^(刷新|Refresh)$/.test((b.innerText || "").trim()))`,
     60000,
@@ -256,7 +258,7 @@ const openRowMenu = async (needle, itemLabel) => {
     20000,
   );
   if (!rowMenu) {
-    // 还没读到那一行就刷一次再来（新建的仓库不在启动时那份列表里）。
+    // If the row never showed up, refresh once and retry (a new repository is missing from the startup list).
     await refreshRepos();
     rowMenu = await waitFor(
       `[...document.querySelectorAll("button")].find((b) => (b.getAttribute("title") || "").match(/更多操作|More actions/))`,
@@ -288,12 +290,12 @@ const openAdminDialog = async (needle) => {
   return dialog;
 };
 
-/** 切可见性：点按钮 → 认后果 → 确认 → 轮询确认；读回失败/值没变就再走一遍。 */
+/** Flip visibility: click → acknowledge consequences → confirm → poll to confirm; retry when the read-back fails or the value did not change. */
 const changeVisibility = async (toPrivate) => {
   const label = toPrivate ? "改为私有" : "改为公开";
   const wanted = toPrivate ? "PRIVATE" : "PUBLIC";
   for (let attempt = 0; attempt < 3; attempt++) {
-    // 也许上一次其实已经成了，只是读回失败。
+    // The previous attempt may have succeeded and only the read-back failed.
     const before = await readSettings();
     if (before.kind === "ready" && before.visibility === wanted) return before;
 
@@ -312,7 +314,7 @@ const changeVisibility = async (toPrivate) => {
       fail(`「${label}」的确认框没把后果说清楚：${text.slice(0, 200)}`);
     if (toPrivate) await shot("repo-admin-visibility-private.png");
     if (!(await clickButton("确认"))) fail("确认框里没有「确认」");
-    // 确认框关掉之后，设置弹窗自己必须还在（否则用户得重新打开才能看结果 —— 那是 bug）。
+    // Once the confirm dialog closes, the settings dialog itself must stay open (otherwise the user has to reopen it to see the result, which is a bug).
     await sleep(800);
     const stillOpen = await evaluate(
       `[...document.querySelectorAll('[role="dialog"]')].some((d) => /仓库设置/.test(d.innerText || ""))`,
@@ -325,7 +327,7 @@ const changeVisibility = async (toPrivate) => {
       const back = await readSettings(1);
       report[`visibilityTry${attempt}`] = back;
       if (back.kind === "ready" && back.visibility === wanted) return back;
-      // 确认框还开着就是真失败了：把原文记下来再重试一次。
+      // A still-open confirm dialog means a real failure: record the message and retry once.
       if (back.kind !== "ready") report.lastVisibilityError = back.error;
     }
     report.toasts = await toastTexts();
@@ -333,14 +335,14 @@ const changeVisibility = async (toPrivate) => {
   return null;
 };
 
-// ---- 起手：清干净上一次留下的弹窗与本地目录 ----
+// ---- Setup: clear dialogs and local directories left behind by the previous run ----
 rmSync(CLONE_DIR, { recursive: true, force: true });
 mkdirSync(SHOTS, { recursive: true });
-/** 验收前那份项目清单；跑完还原，不给用户留痕。 */
+/** Project list as it was before the run; restored afterwards so nothing is left behind for the user. */
 let originalProjects = null;
 
 try {
-  // ---- 0. 等首屏 ----
+  // ---- 0. Wait for first paint ----
   const booted = await waitFor(
     `document.querySelectorAll("button").length > 3 && document.querySelector("button")`,
     120000,
@@ -367,7 +369,7 @@ try {
   );
   if (leftover > 0) fail(`起始状态还有 ${leftover} 个弹窗没收掉`);
 
-  // ---- 1. 后端：临时仓库在、别人的仓库不是管理员、查不动的按能改算 ----
+  // ---- 1. Backend: the temp repo exists, someone else's repo is not admin, an unqueryable repo counts as editable ----
   const temp = await invokeRaw("github_repo_settings", { repo: TEMP_REPO });
   const others = await invokeRaw("github_repo_settings", { repo: OTHERS_REPO });
   const missing = await invokeRaw("github_repo_settings", {
@@ -375,7 +377,7 @@ try {
   });
   report.backend = { temp, others, missing };
   if (EXPECT_READ_ONLY) {
-    // 这一轮后端被临时钉成「不是管理员」：拿自己的仓库验那一下真的生效了。
+    // The backend is pinned to "not an admin" for this pass: verify with my own repo that it took effect.
     const mine = await invokeRaw("github_repo_settings", { repo: "Zomcxj/ModelHarbor" });
     report.readonlyBackend = mine;
     if (mine.kind !== "ready" || mine.canAdmin)
@@ -391,7 +393,7 @@ try {
   if (missing.canAdmin !== true)
     fail(`查不动时应该按「能改」算：${JSON.stringify(missing)}`);
 
-  // ---- 2. 打开远程仓库标签页 ----
+  // ---- 2. Open the remote repositories tab ----
   const remotesButton = await waitFor(
     `[...document.querySelectorAll("button")].find((b) => /远程仓库|Remote repositories/.test(b.getAttribute("title") || ""))`,
   );
@@ -402,7 +404,7 @@ try {
   );
   if (!filterBox) fail("远程仓库列表没有出现");
 
-  // ---- 3. 只读那一轮：非管理员时设置弹窗不给任何改动入口 ----
+  // ---- 3. Read-only pass: without admin rights the settings dialog offers no way to change anything ----
   if (EXPECT_READ_ONLY) {
     await openAdminDialog("ModelHarbor");
     const labels = JSON.parse(
@@ -429,7 +431,7 @@ try {
     process.exit(0);
   }
 
-  // ---- 4. 改描述 ----
+  // ---- 4. Edit the description ----
   await openAdminDialog("verta-acceptance-tmp");
   const prefilled = await evaluate(
     `document.querySelector('[role="dialog"] input').value`,
@@ -461,7 +463,7 @@ try {
   if (!afterSave)
     fail(`描述没写回 GitHub（最后一次读到：${JSON.stringify(report.lastSaveError ?? report.saveTry1 ?? report.saveTry0)}）`);
 
-  // ---- 5. 可见性：先切到相反那一档，再切回来（两个方向的确认框都要过一遍） ----
+  // ---- 5. Visibility: flip to the opposite state first, then back (exercises the confirm dialog both ways) ----
   const startedPrivate = temp.visibility === "PRIVATE";
   report.startedPrivate = startedPrivate;
 
@@ -473,8 +475,8 @@ try {
   report.afterSecondFlip = back;
   if (!back) fail(`可见性没切回 ${startedPrivate ? "私有" : "公开"}`);
 
-  // ---- 6. 克隆到本地（行菜单入口要预填地址与「已有项目同一级」的目录） ----
-  // 「落在已有项目同一级」得先有一条项目：用应用自己的存储 API 种一条（原清单记下来，跑完还原）。
+  // ---- 6. Clone locally (the row menu entry must prefill the URL and a directory beside an existing project) ----
+  // "Beside an existing project" needs a project to exist: seed one through the app's storage API (keep the original list and restore it afterwards).
   originalProjects = await readProjects();
   report.projectsBefore = originalProjects;
   await writeProjects([...originalProjects, CLONE_DIR]);
@@ -501,14 +503,14 @@ try {
   report.cloneFields = cloneFields;
   if (!String(cloneFields[0] ?? "").includes(CLONE_REPO))
     fail(`克隆地址没有预填：${JSON.stringify(cloneFields)}`);
-  // 清单里有一条可用项目（验收开跑前由脚本种下），所以目标目录该落在它的同一级。
+  // The list holds one usable project (seeded above, before the run), so the target directory must land beside it.
   if (!norm(cloneFields[1]).endsWith("ModelHarbor"))
     fail(`目标目录没按「已有项目同一级」预填：${JSON.stringify(cloneFields)}`);
 
-  // 真正落地换成验收自己的临时目录，别写进用户平时放项目的地方。
+  // Point the actual clone at the acceptance run's own temp directory instead of writing into where the user keeps projects.
   if (!(await fillInput(1, CLONE_DIR))) fail("找不到克隆目标目录输入框");
   if (!(await clickButton("克隆"))) fail("克隆弹窗里没有「克隆」按钮");
-  // `.git` 是克隆刚开始就出现的，所以等的是弹窗自己关掉（= 命令跑完），不是 `.git`。
+  // `.git` appears as soon as the clone starts, so wait for the dialog to close on its own (= the command finished), not for `.git`.
   const cloneFinished = await (async () => {
     const deadline = Date.now() + 300000;
     while (Date.now() < deadline) {
@@ -543,8 +545,8 @@ try {
   report.cloneListed = listedToast;
   if (!listedToast) fail("克隆成功后没有「已加入项目清单」的提示");
 
-  // 清单里现在有刚才那一条（就是 CLONE_DIR），再开一个仓库的克隆弹窗，
-  // 目标目录该落在它的同一级 —— 这才是「复用项目页克隆」那条要求里真正要验的预填。
+  // The list now holds the row just added (CLONE_DIR itself), so opening the clone dialog for another repository
+  // must prefill a target directory beside it - that is the prefill the "reuse the projects page clone" requirement really wants checked.
   await pressEscape();
   await openRowMenu("LabelForge", "克隆到本地…");
   const secondDialog = await waitFor(
@@ -571,7 +573,7 @@ try {
     fail(`目标目录没有落在已有项目（${CLONE_DIR}）同一级：${JSON.stringify(secondFields)}，期望 ${wanted}`);
   await pressEscape();
 
-  // ---- 7. 删仓库：先输错（按钮不给），再输全名 ----
+  // ---- 7. Delete the repository: type a wrong name first (button stays disabled), then the full name ----
   await pressEscape();
   await openAdminDialog("verta-acceptance-tmp");
   const deleteButtonState = async () => {
@@ -607,7 +609,7 @@ try {
   await shot("repo-admin-delete-confirm.png");
   if (!(await clickButton("确认"))) fail("删除确认框里没有「确认」");
 
-  // 独立核对：直接问 gh 这个仓库还在不在（后端自己也会回查一次 404）。
+  // Independent check: ask gh directly whether the repository still exists (the backend also re-checks for a 404).
   let gone = false;
   for (let i = 0; i < 15 && !gone; i++) {
     await sleep(2000);
@@ -617,8 +619,8 @@ try {
   if (!gone) fail("删除之后 gh 还能看到这个仓库");
   report.toastsAfterDelete = await toastTexts();
 
-  // 列表里那一行也该没了。注意：独立 gh 探到的「没了」比应用自己的回查确认更早，
-  // 所以要等应用这边跟上，不能立刻判。
+  // The row in the list should be gone too. Note: the independent gh probe reports "gone" earlier than the
+  // app's own re-check confirms it, so wait for the app to catch up instead of failing right away.
   const rowGone = await (async () => {
     const deadline = Date.now() + 60000;
     while (Date.now() < deadline) {
@@ -653,7 +655,7 @@ try {
   }
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {
-  // 失败也要还原清单：`fail()` 会直接退进程，所以得在这里先还原。
+  // Restore the list on failure too: `fail()` exits the process immediately, so it has to happen here.
   if (originalProjects !== null) {
     await writeProjects(originalProjects).catch(() => {});
   }

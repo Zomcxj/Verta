@@ -1,9 +1,9 @@
-// WebGL 回退路径的透明适配验收（没有 WebGPU 的机器走的就是这条路）：
-// 画布上下文是否带 alpha、画布/面板/根元素的底色是否真的透明。
+// Transparency acceptance for the WebGL fallback path (which is what machines without WebGPU use):
+// does the canvas context carry alpha, and are the canvas / pane / root backgrounds really transparent?
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  // WebGPU 的窗口画布带 data-verta-terminal-canvas；WebGL 回退的画布没有这个属性
-  // （构造函数只设了 class="block" 与 aria-hidden），所以两种都认。
+  // The WebGPU window canvas carries data-verta-terminal-canvas; the WebGL fallback's canvas does not
+  // (its constructor only sets class="block" and aria-hidden), so match either.
   for (let i = 0; i < 80; i += 1) {
     if (
       document.querySelector("[data-verta-terminal-canvas]") ??

@@ -1,12 +1,14 @@
-// 验「设置 → 快捷键」的搜索：中文标签能不能被搜到。
+// Verify search in "Settings → Shortcuts": can Chinese labels be found?
 //
-// 预期的正确行为：搜「终端」应当能搜到带「终端」字样的快捷键；搜「关闭」应当能搜到「关闭标签页或面板」。
-// 当前实现拿的是没翻译的 key（`shortcut.closeTabOrPane` / 分组 id `Tabs`）做匹配，所以中文一律搜不到。
+// Expected correct behaviour: searching the Chinese word for "terminal" finds the shortcuts whose label contains
+// it; searching the word for "close" finds "close tab or pane".
+// The current implementation matches against untranslated keys (`shortcut.closeTabOrPane`, group id `Tabs`), so
+// Chinese never matches anything.
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const text = (node) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
 
-  // 先切到「快捷键」页签（Radix 的页签认 mousedown，光 click 切不过去）
+  // Switch to the Shortcuts tab first (Radix tabs react to mousedown, so a bare click will not switch them)
   const tab = [...document.querySelectorAll("[role='tab']")].find((node) =>
     /快捷键/.test(text(node)),
   );

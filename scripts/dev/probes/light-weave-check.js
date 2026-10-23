@@ -1,5 +1,6 @@
-// 验收浅色外观下的碳纤维纹理：切「浅色」外观 → 选 Carbon Fiber → 回报主题变量与表面层
-// 的实际计算样式（供人看截图前先确认真的画上了）。用完自己再切回去。
+// Verify the carbon fibre texture under the light appearance: switch to Light → pick Carbon Fiber → report the
+// theme variables and the actual computed style of the surface layer (so a human can confirm it really paints
+// before looking at a screenshot). It switches back on its own when done.
 (async () => {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const buttons = () => [...document.querySelectorAll("button,[role=tab]")];

@@ -1,4 +1,5 @@
-// 列出标签页与屏幕坐标，供 cdp-key.mjs 按序号点某个标签（用来验环境跟随）。
+// List the tabs with their on-screen coordinates, so cdp-key.mjs can click the n-th one (to verify environment
+// following).
 (async () => {
   const rect = (node) => {
     const r = node.getBoundingClientRect();

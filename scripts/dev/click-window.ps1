@@ -1,5 +1,6 @@
-# 在 Verta 窗口的客户区坐标做一次真实点击，用于验收需要交互的界面。
-# 只做一次按下/抬起，并在结束时把光标还原到点击前的位置。
+# Do one real click at client-area coordinates in the Verta window, for acceptance runs that need to interact
+# with the UI. One press/release only, and the cursor is restored to where it was afterwards.
+# (ASCII-only comments: PowerShell 5.1 reads this file as ANSI.)
 param(
     [string]$ProcName = "verta",
     [string]$ExeMatch = "target\debug\verta.exe",
@@ -28,7 +29,7 @@ $proc = Get-Process -Name $ProcName -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -and $_.Path -like "*$ExeMatch*" -and $_.MainWindowHandle -ne [IntPtr]::Zero } |
     Select-Object -First 1
 if (-not $proc) {
-    Write-Error "未找到匹配 '$ExeMatch' 的 $ProcName 可见窗口"
+    Write-Error "No visible window of $ProcName matching '$ExeMatch'"
     exit 1
 }
 $h = $proc.MainWindowHandle
@@ -56,11 +57,11 @@ if (-not $NoForeground) {
         Start-Sleep -Milliseconds 300
     }
     if ([Click]::GetForegroundWindow() -ne $h) {
-        Write-Warning "窗口未能置前，点击可能被其他窗口接走"
+        Write-Warning "Window could not be raised; the click may land on another window"
     }
     Start-Sleep -Milliseconds 250
 }
-Write-Host "点击客户区 ($X, $Y) -> 屏幕 ($($target.X), $($target.Y))  pid=$($proc.Id)"
+Write-Host "click client ($X, $Y) -> screen ($($target.X), $($target.Y))  pid=$($proc.Id)"
 [void][Click]::SetCursorPos($target.X, $target.Y)
 Start-Sleep -Milliseconds 120
 [Click]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)   # LEFTDOWN
@@ -69,4 +70,4 @@ Start-Sleep -Milliseconds 80
 Start-Sleep -Milliseconds $SettleMs
 
 [void][Click]::SetCursorPos($saved.X, $saved.Y)
-Write-Host "已还原光标到 ($($saved.X), $($saved.Y))"
+Write-Host "cursor restored to ($($saved.X), $($saved.Y))"

@@ -9,7 +9,7 @@
   filesBtn?.click();
   await sleep(900);
 
-  // 文件树行的特征：带 path 或 aria-label
+  // What a file-tree row looks like: it carries a path or an aria-label
   const nodes = [...document.querySelectorAll('[role="treeitem"], [data-path], button, div')].filter(
     (el) => {
       const t = el.getAttribute("data-path") ?? el.getAttribute("aria-label") ?? "";

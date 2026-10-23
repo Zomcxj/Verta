@@ -1,4 +1,4 @@
-// 切到终端标签页（名字为 ok 的那个）。只用于验收。
+// Switch to the terminal tab (the one named ok). Acceptance use only.
 (async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const label = (el) => (el?.textContent ?? "").replace(/\s+/g, " ").trim();

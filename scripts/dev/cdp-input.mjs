@@ -1,16 +1,17 @@
-// 往 dev 实例的某个 WebView2 页面发真实输入（CDP Input.dispatch*）。
+// Send real input to one of the dev instance's WebView2 pages (CDP Input.dispatch*).
 //
-// 为什么另起一个而不是用 cdp-key.mjs：截图覆盖窗口是**第二个** page，键和鼠标必须送对窗口；
-// cdp-key 只会找第一个 page，也不支持拖拽。这里按 `--match` 挑窗口，并支持一次完整的拖拽
-// （mousePressed → 若干 mouseMoved → mouseReleased），这在 DOM 里合成 PointerEvent 顶不了，
-// 因为 setPointerCapture 只认真实的、正在按下的指针。
+// Why a separate script instead of cdp-key.mjs: the screenshot overlay is a **second** page, so keys and
+// mouse events have to go to the right window; cdp-key only ever picks the first page and cannot drag. This
+// one selects the window via `--match` and supports a full drag
+// (mousePressed → several mouseMoved → mouseReleased), which cannot be faked with a synthesized
+// PointerEvent in the DOM, because setPointerCapture only accepts a real, currently pressed pointer.
 //
-// 用法：
+// Usage:
 //   1) WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 pnpm tauri dev
 //   2) node scripts/dev/cdp-input.mjs --match=screenshot.html --drag=100,200,300,400
 //      node scripts/dev/cdp-input.mjs --click=100,200
 //      node scripts/dev/cdp-input.mjs --match=screenshot.html --key=Escape
-//      node scripts/dev/cdp-input.mjs --click=1,2 --steps=8   # 拖拽中间补几个移动点
+//      node scripts/dev/cdp-input.mjs --click=1,2 --steps=8   # more intermediate moves for a drag
 const [, , ...args] = process.argv;
 const port = args.find((a) => a.startsWith("--port="))?.slice(7) ?? "9222";
 const match = args.find((a) => a.startsWith("--match="))?.slice(8) ?? null;
@@ -41,8 +42,9 @@ if (pages.length === 0) {
   console.error("没找到 page 目标（dev 实例起来了吗？）");
   process.exit(1);
 }
-// 先按 URL 全等找，再退回片段：主窗口 URL 是 `http://localhost:1420/`，覆盖窗口是
-// `http://localhost:1420/screenshot.html`，只按片段找会挑错窗口（`/?` 这类片段两边都命中）。
+// Try an exact URL match first, then fall back to a substring: the main window URL is
+// `http://localhost:1420/` and the overlay is `http://localhost:1420/screenshot.html`, so a substring
+// search alone picks the wrong window (fragments like `/?` match both).
 const page = match
   ? (pages.find((t) => t.url === match) ??
     pages.find((t) => t.url.includes(match) || (t.title ?? "").includes(match)))
@@ -111,7 +113,8 @@ if (drag) {
   const to = point(`${parts[2]},${parts[3]}`);
   await mouse("mouseMoved", from, { button: "none", buttons: 0 });
   await mouse("mousePressed", from, { buttons: 1 });
-  // 中间必须真的动几步：拖拽的处理是按 pointermove 累积的，按下就直接抬起会被当成「没拖」。
+  // Several real moves in between are required: drag handling accumulates on pointermove, so
+  // pressing and releasing in place is treated as "no drag".
   for (let step = 1; step <= steps; step += 1) {
     const at = {
       x: Math.round(from.x + ((to.x - from.x) * step) / steps),

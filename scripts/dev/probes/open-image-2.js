@@ -7,7 +7,7 @@
       (el) => el.children.length === 0 && label(el) === text,
     );
 
-  // 双击进入 bear_bill（文件树的惯例是双击展开/进入）
+  // Double-click into bear_bill (file trees conventionally expand/enter on double-click)
   const target = leaf("bear_bill");
   out.push(`bear_bill 节点: ${target ? "找到" : "未找到"}`);
   if (target) {

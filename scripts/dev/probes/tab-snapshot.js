@@ -1,7 +1,9 @@
-// 只读快照：标签数 / 每个标签的标题与是否当前 / 终端叶子数 / 有没有弹确认框 / 焦点在哪。
+// Read-only snapshot: tab count / each tab's title and whether it is current / terminal leaf count / whether a
+// confirm dialog is up / where focus is.
 //
-// 主要用来验快捷键：按一次 Ctrl+W 前后各读一次，标签数变没变一目了然。
-// （首屏没渲染完会读到 0，所以先等标签出现。）
+// Mainly for verifying shortcuts: read once before and once after a Ctrl+W and it is obvious whether the tab
+// count changed.
+// (It reads 0 if first paint has not finished, hence the wait for tabs to appear.)
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   for (let i = 0; i < 60; i += 1) {

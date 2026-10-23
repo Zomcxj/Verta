@@ -1,11 +1,13 @@
 param([string]$Out = "D:\VsPro\Verta\.superpowers\shots\desktop.png")
 
-# 打印应用的可见窗口矩形，并顺手把整屏拍下来。
+# Print the app's visible window rect and grab a full screenshot along the way.
 #
-# 用 OS 的 GetWindowRect 而不是页面里的 `window.screenX`：抓屏取证时窗口可能已经动了、
-# 甚至应用已经退出，那时页面里读到的坐标会把量测引到别的窗口上去（白跑过一轮）。
-# 注意 `param` 必须在第一行 —— 这个文件是 UTF-8 无 BOM，Windows PowerShell 5.1 会按
-# ANSI 解码，中文注释排在 `param` 前面时整个脚本会解析失败、参数全变空。
+# Uses the OS's GetWindowRect instead of `window.screenX` in the page: by the time a screen capture is taken
+# the window may have moved, or the app may have quit, and coordinates read from the page then point at some
+# other window (one wasted round).
+# Note that `param` must stay on the first line -- this file is UTF-8 without a BOM, Windows PowerShell 5.1
+# decodes it as ANSI, and a non-ASCII comment ahead of `param` makes the whole script fail to parse with all
+# arguments turning empty. (That is also why this file keeps every comment ASCII-only.)
 
 Add-Type -TypeDefinition @"
 using System;

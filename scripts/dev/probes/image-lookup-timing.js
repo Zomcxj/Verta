@@ -1,4 +1,4 @@
-// 逐个量取图命令：命中/未命中与耗时。只读。
+// Time the image lookup command case by case: hit / miss and duration. Read-only.
 (async () => {
   const invoke = window.__TAURI_INTERNALS__?.invoke;
   if (!invoke) return "没有 __TAURI_INTERNALS__";

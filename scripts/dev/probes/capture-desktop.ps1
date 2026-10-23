@@ -1,8 +1,9 @@
-# 区域截图验收：把整个（虚拟）桌面拍下来。
+# Region-screenshot acceptance: capture the whole (virtual) desktop.
 #
-# 为什么不用覆盖窗口自己的 CDP 截图：那个窗口现在是**透明**的，CDP 只会给出页面自己画的东西
-# （灰层、选择框），看不到「屏幕本身透出来了吗」「覆盖窗口之外有没有被挡住」。要验的恰好是这
-# 一件事，所以只能从系统这一层拍桌面。
+# Why not use the overlay window's own CDP screenshot: that window is **transparent**, so CDP only returns what
+# the page itself draws (the dim layer, the selection box) and cannot show "does the screen show through" or
+# "is anything blocked outside the overlay". That is exactly what needs verifying, so the desktop has to be
+# captured at the OS level. (ASCII-only comments here: PowerShell 5.1 reads this file as ANSI.)
 param([string]$Out = "F:\VibeCoding_workspace\Verta\.superpowers\shots\desktop.png")
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing

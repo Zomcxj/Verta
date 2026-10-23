@@ -1,5 +1,6 @@
-// 设置窗口的纹理被哪一层压掉了：报出 shell / root / body 的矩形与底色，
-// 并临时把 shell 变透明，好量出纹理原本的强度（这一步只改内存里的样式）。
+// Which layer covers up the settings window's texture: report the rect and background colour of shell / root /
+// body, and temporarily make the shell transparent to measure the texture's original strength (this step only
+// touches in-memory styles).
 (() => {
   const shell = document.querySelector(".settings-shell");
   const root = document.getElementById("settings-root");
@@ -25,6 +26,6 @@
     shellParent: shell?.parentElement
       ? `${shell.parentElement.tagName.toLowerCase()}#${shell.parentElement.id}.${(typeof shell.parentElement.className === "string" ? shell.parentElement.className : "").split(/\s+/).slice(0, 2).join(".")}`
       : null,
-    note: "已临时把 .settings-shell 置透明（probe-shell-off），截图量完可以刷新还原",
+    note: ".settings-shell was temporarily made transparent (probe-shell-off); refresh to restore it after measuring",
   };
 })();

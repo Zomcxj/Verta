@@ -1,4 +1,5 @@
-// 验收 R13：切到「会话」视图，读回面板里的分组标题与会话行（Windows / WSL 并存）。
+// Acceptance R13: switch to the Sessions view and read back the group headings and session rows in the panel
+// (Windows and WSL side by side).
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const clickByText = (label) => {
@@ -11,10 +12,12 @@
   };
 
   const clicked = clickByText("会话");
-  // 本机是秒回，发行版要起 wsl.exe 跑 python3，实测 0.5 秒左右，多等一点。
+  // Local sessions answer instantly; a distro has to start wsl.exe and run python3, which measures around 0.5s, so
+  // wait a bit longer.
   await sleep(2500);
 
-  // 面板的空状态/分组标题都在文本里，直接读整页文本最省事（占位符读不到 textContent）。
+  // The panel's empty state and group headings are all in the text, so reading the whole page text is easiest
+  // (placeholders are not in textContent).
   const input = document.querySelector('input[placeholder="搜索标题或目录"]');
   return JSON.stringify(
     {

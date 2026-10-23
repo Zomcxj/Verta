@@ -1,5 +1,7 @@
-// 连续采样文件树区域一段时间的纯采样器（不点击）。供 click-watch.mjs 与手工并行使用。
-// 采样期间页面保持可交互，所以别再用第二个 CDP 客户端点击：WebView2 只服务一个调试客户端。
+// A pure sampler: poll the file-tree area for a while without clicking. Used by click-watch.mjs and manually, in
+// parallel.
+// The page stays interactive while sampling, so do not click from a second CDP client: WebView2 serves only one
+// debug client.
 (async () => {
   const ERROR = /找不到|指定的路径无效|os error|无法|不存在/;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

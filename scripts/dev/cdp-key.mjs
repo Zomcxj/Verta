@@ -1,11 +1,12 @@
-// 往 dev 实例的 WebView2 发真实键盘事件（Input.dispatchKeyEvent）。
-// 页面里合成的 KeyboardEvent 到不了终端（TUI 只认真按键），所以需要这一条通道。
-// 用法：
+// Send real keyboard events to the dev instance's WebView2 (Input.dispatchKeyEvent).
+// A KeyboardEvent synthesized in the page never reaches the terminal (a TUI only reacts to real key presses),
+// so this channel is needed.
+// Usage:
 //   1) WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 pnpm tauri dev
 //   2) node scripts/dev/cdp-key.mjs PageUp 4 [--port=9222]
-//      node scripts/dev/cdp-key.mjs Ctrl+W       # 组合键：修饰键用 + 连（Ctrl / Shift / Alt / Meta）
-//      node scripts/dev/cdp-key.mjs 812,300      # 点坐标（默认再滚一格，--no-wheel 跳过）
-//      node scripts/dev/cdp-key.mjs --type=ls -la   # 往终端敲一整行并回车
+//      node scripts/dev/cdp-key.mjs Ctrl+W       # chords: join modifiers with + (Ctrl / Shift / Alt / Meta)
+//      node scripts/dev/cdp-key.mjs 812,300      # click a point (then one wheel turn by default; --no-wheel skips it)
+//      node scripts/dev/cdp-key.mjs --type=ls -la   # type a whole line into the terminal and press Enter
 const [, , key, times = "1", ...rest] = process.argv;
 const port = rest.find((arg) => arg.startsWith("--port="))?.slice(7) ?? "9222";
 const match = rest.find((arg) => arg.startsWith("--match="))?.slice(8);
@@ -29,7 +30,7 @@ const CLICK = /^(\d+),(\d+)$/.exec(key);
 /** Type a whole line and press Enter, as characters the terminal accepts. */
 const TYPE = /^--type=(.*)$/.exec(key);
 
-// CDP 的 modifiers 是位掩码：Alt=1、Ctrl=2、Meta=4、Shift=8。
+// CDP modifiers are a bitmask: Alt=1, Ctrl=2, Meta=4, Shift=8.
 const MODIFIERS = {
   alt: 1,
   ctrl: 2,
@@ -40,10 +41,11 @@ const MODIFIERS = {
 };
 
 /**
- * 解析 `Ctrl+W` / `Ctrl+Shift+Tab` 这类组合键，或 `PageUp` 这种单键名。
+ * Parse a chord like `Ctrl+W` / `Ctrl+Shift+Tab`, or a single key name like `PageUp`.
  *
- * 组合键是必需的：终端里的 Ctrl 系按键只有真实按键才到得了（合成的 KeyboardEvent 会被丢掉），
- * 而「某个快捷键到底有没有被终端吞掉」只能靠真机按一次来回答。
+ * Chords are the whole point: Ctrl-keys inside the terminal only arrive as real key presses (a synthesized
+ * KeyboardEvent gets dropped), and "does the terminal swallow this shortcut" can only be answered by
+ * pressing it on the real machine.
  */
 function parseKeySpec(raw) {
   const parts = raw.split("+").filter(Boolean);
@@ -58,11 +60,11 @@ function parseKeySpec(raw) {
   const named = KEYS[bare] ?? KEYS[bare[0].toUpperCase() + bare.slice(1).toLowerCase()];
   if (named) return { ...named, key: bare, modifiers };
 
-  // 单字母 / 单数字：Ctrl+W 这类组合键的主力。
+  // Single letter / digit: the workhorse for chords like Ctrl+W.
   if (/^[a-zA-Z]$/.test(bare) || /^[0-9]$/.test(bare)) {
     const upper = bare.toUpperCase();
     const key = (modifiers & 8) !== 0 ? upper : bare.toLowerCase();
-    // 按住 Ctrl / Alt / Meta 是命令键，不是输入字符，不带 text。
+    // Holding Ctrl / Alt / Meta means a command key, not a typed character, so carry no text.
     const text = (modifiers & (1 | 2 | 4)) !== 0 ? "" : key;
     return {
       key,
@@ -86,7 +88,8 @@ if (!spec && !CLICK && !TYPE) {
 
 const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
 const pages = targets.filter((target) => target.type === "page");
-// 可能不止一个 page（设置窗口是新开的一个 page），默认挑第一个会挑错，所以给了 --match。
+// There may be more than one page (the settings window is its own page), and defaulting to the first one
+// picks the wrong one, hence --match.
 const page = match
   ? (pages.find((target) => target.url === match) ??
     pages.find(
@@ -140,7 +143,7 @@ if (CLICK) {
   const x = Number(CLICK[1]);
   const y = Number(CLICK[2]);
   if (rest.includes("--hover")) {
-    // 只移动指针：用来触发 Radix 的悬停浮层，不点下去。
+    // Move the pointer only: triggers a Radix hover popover without clicking.
     await send("Input.dispatchMouseEvent", {
       type: "mouseMoved",
       x,
@@ -166,8 +169,8 @@ if (CLICK) {
     clickCount: 1,
   });
   // A wheel turn is a mouse report the program itself handles, which is how a
-  // TUI in the alternate screen scrolls. 点 UI（菜单之类）时用 --no-wheel 跳过：
-  // 那一滚会被菜单当成外部滚动，把刚打开的菜单关掉。
+  // TUI in the alternate screen scrolls. Skip it with --no-wheel when clicking UI
+  // (a menu, say): that turn counts as an outside scroll and closes the menu just opened.
   const delta = rest.includes("--down") ? 120 : -120;
   const turns = rest.includes("--no-wheel") ? 0 : count;
   for (let index = 0; index < turns; index += 1) {
@@ -191,7 +194,7 @@ if (TYPE) {
     console.error("--type= 后面要有内容");
     process.exit(2);
   }
-  // 终端只认真按键，所以逐字符发 keyDown + text；最后单独发 \r 作为回车。
+  // The terminal only reacts to real key presses, so send keyDown + text per character, then a lone \r for Enter.
   for (const character of text) {
     await send("Input.dispatchKeyEvent", {
       type: "keyDown",

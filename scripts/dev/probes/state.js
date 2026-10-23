@@ -1,4 +1,4 @@
-// 只读地报告管理态当前状态，用于 OS 真鼠标点击之后核对结果。
+// Report the management state read-only, to check the result after a real OS mouse click.
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const label = (el) => (el?.textContent ?? "").replace(/\s+/g, " ").trim();

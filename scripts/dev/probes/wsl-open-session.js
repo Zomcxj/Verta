@@ -1,6 +1,7 @@
-// 验收 R13：点开一条 WSL 会话，确认它开在 WSL 终端里并在该会话的 Linux 目录恢复。
-// 终端正文画在 canvas 上读不到，所以这里只回标签与窗口标题；真正落在哪个环境看 dev 日志的
-// `pty cwd:` 与 `spawning ... shell` 两行。
+// Acceptance R13: open a WSL session and confirm it opens in a WSL terminal and resumes in that session's Linux
+// directory.
+// Terminal output is painted onto a canvas and cannot be read, so only the tab and window titles come back here;
+// which environment it really landed in shows up in the dev log's `pty cwd:` and `spawning ... shell` lines.
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const clickByText = (label) => {

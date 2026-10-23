@@ -1,8 +1,10 @@
-// 区域截图验收：在**覆盖窗口**里一口气把「框选 → 挪动 → 拉把手」做完，并报出每一步的选区。
+// Region-screenshot acceptance: do "marquee select → move → pull a handle" all at once inside the **overlay
+// window** and report the selection rect at each step.
 //
-// 为什么整段跑在一次 evaluate 里：dev 期间另一个会话改文件会触发 HMR 整页重载，跨命令的鼠标
-// 输入会被打断（CDP 的 Input.dispatchMouseEvent 会直接超时）。整段在一个 JavaScript 里跑完，
-// 中间插不进重载。合成 PointerEvent 能顶用，是因为覆盖窗口的手势挂在 window 上、不用指针捕获。
+// Why run the whole thing in one evaluate: during dev, another session touching files triggers an HMR page
+// reload, which interrupts mouse input across commands (CDP's Input.dispatchMouseEvent simply times out).
+// One self-contained piece of JavaScript leaves no gap for a reload to slip in. Synthesized PointerEvents
+// suffice here because the overlay's gestures are bound on `window` and need no pointer capture.
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const box = () => document.querySelector('[data-screenshot-ui="box"]');
@@ -35,7 +37,7 @@
 
   const out = { start: rect() };
 
-  // 1) 框一块：400,300 → 1000,700
+  // 1) Marquee a box: 400,300 → 1000,700
   fire(backdrop(), "pointerdown", 400, 300, 1);
   await sleep(30);
   fire(window, "pointermove", 1000, 700, 1);
@@ -49,7 +51,7 @@
     .map((b) => b.getAttribute("aria-label") || (b.innerText || "").trim())
     .filter(Boolean);
 
-  // 2) 拖整块：+60,+40
+  // 2) Drag the whole box: +60,+40
   fire(box(), "pointerdown", 700, 500, 1);
   await sleep(30);
   fire(window, "pointermove", 760, 540, 1);
@@ -59,7 +61,7 @@
   await sleep(60);
   out.moved = rect();
 
-  // 3) 拉右下角把手：+100,+100
+  // 3) Pull the bottom-right handle: +100,+100
   const before = rect();
   fire(
     document.querySelector('[aria-label="调整 se"]'),

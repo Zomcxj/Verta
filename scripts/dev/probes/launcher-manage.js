@@ -1,4 +1,5 @@
-// 会话管理态的验收探针：读 DOM、在 DOM 上触发真实点击，全程不确认任何删除。
+// Acceptance probe for the session management state: read the DOM and fire real clicks on it, never confirming
+// any deletion.
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const label = (el) => (el?.textContent ?? "").replace(/\s+/g, " ").trim();
@@ -16,7 +17,7 @@
   const rows = () => buttons().filter((b) => (b.getAttribute("title") ?? "").split("\n").length >= 3);
   const lines = [];
 
-  // 端口在 WebView2 启动时就存在，React 可能还没挂载，所以等界面出现。
+  // The port is up as soon as WebView2 starts while React may not have mounted yet, so wait for the UI to appear.
   for (let i = 0; i < 60; i += 1) {
     if (buttons().length > 0) break;
     await sleep(500);

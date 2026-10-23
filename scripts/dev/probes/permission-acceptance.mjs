@@ -1,25 +1,28 @@
-// 权限门禁的真机验收。
+// End-to-end acceptance for the permission gate.
 //
-// 两段：后端命令拿真 gh 查三种仓库（自己的 ADMIN、别人的 READ、不存在的仓库），
-// 界面看权限落不落到按钮上（有写权限时按钮在、只读时按钮消失并出提示）。
+// Two parts: the backend command queries three repositories with real gh (my own ADMIN, someone else's READ,
+// a non-existent one); the UI checks whether permission actually reaches the buttons (writable means the
+// write buttons are there, read-only means they vanish and a hint appears).
 //
-// 只读那一段要单独跑一次：本机 `gh repo list` 列出来的仓库全是自己的 ADMIN，界面上拿不到一个
-// 真的只读行；页面里的 `window.__TAURI_INTERNALS__.invoke` 又是 non-writable / non-configurable，
-// 桩也打不进去。所以用一个可控实验顶替：临时把 `read_repo_permission` 里的结论钉成
-// `can_write = false`（改一行，tauri dev 自己重编重启），跑：
+// The read-only part has to be run separately: every repository `gh repo list` reports on this machine is my
+// own ADMIN, so the UI has no genuinely read-only row; and in the page `window.__TAURI_INTERNALS__.invoke` is
+// non-writable / non-configurable, so it cannot be stubbed. A controlled experiment stands in instead:
+// temporarily pin the result inside `read_repo_permission` to `can_write = false` (one line; tauri dev
+// recompiles and restarts by itself), then run:
 //
 //   node scripts/dev/probes/permission-acceptance.mjs --readonly
 //
-// 验完把那行还原。这样 go 的仍是真实链路：gh → payload → 前端纯函数 → 弹窗渲染。
+// Restore that line afterwards. Everything still goes through the real path: gh → payload → frontend pure
+// functions → dialog rendering.
 //
-// 用法：node scripts/dev/probes/permission-acceptance.mjs [--readonly] [--port=9222]
+// Usage: node scripts/dev/probes/permission-acceptance.mjs [--readonly] [--port=9222]
 import { mkdirSync, writeFileSync } from "node:fs";
 
 const EXPECT_READ_ONLY = process.argv.includes("--readonly");
 const port =
   process.argv.find((a) => a.startsWith("--port="))?.slice(7) ?? "9222";
 const REPO = "Zomcxj/ModelHarbor";
-/** 别人的公开仓库：viewerPermission 是 READ。 */
+/** Someone else's public repository: viewerPermission is READ. */
 const READ_ONLY_REPO = "facebook/react";
 const SHOTS = ".superpowers/shots";
 
@@ -102,7 +105,7 @@ const realClick = async (x, y) => {
     y,
     button: "none",
   });
-  // `buttons` 不能省：WebView2 少了它就不合成真正的 click。
+  // `buttons` is required: without it WebView2 never synthesizes a real click.
   await send("Input.dispatchMouseEvent", {
     type: "mousePressed",
     x,
@@ -128,7 +131,7 @@ const shot = async (name) => {
   writeFileSync(`${SHOTS}/${name}`, Buffer.from(data, "base64"));
 };
 
-/** 把弹窗里的按钮文字读出来，用来判断写按钮在不在。 */
+/** Read the button labels in the dialog, to tell whether the write buttons are there. */
 const modalButtons = () =>
   evaluate(`JSON.stringify(
     [...document.querySelectorAll('[role="dialog"] button')]
@@ -139,14 +142,14 @@ const modalButtons = () =>
 const WRITE_LABELS = /^(重跑|取消|删除|Rerun|Cancel|Delete)$/;
 
 try {
-  // ---- 0. 等首屏（dev 下 IPC 先走 postMessage 回退，启动很慢） ----
+  // ---- 0. Wait for first paint (under dev, IPC falls back to postMessage first, so startup is slow) ----
   const booted = await waitFor(
     `document.querySelectorAll("button").length > 3 && document.querySelector("button")`,
     120000,
   );
   if (!booted) fail("界面一直没有渲染出来");
 
-  // 上一轮失败可能把弹窗留在屏幕上；先按两次 Esc 清干净，免得后面的真实点击全落在遮罩上。
+  // A previous failed run may have left dialogs on screen; press Esc twice first so the real clicks below do not land on an overlay.
   for (let i = 0; i < 2; i++) {
     await send("Input.dispatchKeyEvent", {
       type: "keyDown",
@@ -169,7 +172,7 @@ try {
   );
   if (leftover > 0) fail(`起始状态还有 ${leftover} 个弹窗没收掉`);
 
-  // ---- 1. 后端命令：真 gh 查三种仓库 ----
+  // ---- 1. Backend command: query three kinds of repository with real gh ----
   const probe = await evaluate(`(async () => {
     const invoke = (repo) => window.__TAURI_INTERNALS__.invoke("github_repo_permission", { repo });
     const [mine, others, missing] = await Promise.all([
@@ -183,7 +186,7 @@ try {
   report.backend = { mine, others, missing };
 
   if (EXPECT_READ_ONLY) {
-    // 这一轮后端被临时钉成「不可写」，界面就该一个写按钮都不给。
+    // The backend is pinned to "not writable" for this pass, so the UI must offer no write button at all.
     if (mine.kind !== "ready" || mine.canWrite)
       fail(`--readonly 这轮后端应该是不可写：${JSON.stringify(mine)}`);
   } else {
@@ -197,7 +200,7 @@ try {
   if (missing.kind === "ready") fail(`不存在的仓库不该是 ready：${JSON.stringify(missing)}`);
   if (!missing.error) fail("查不动时应该带上 gh 的原话");
 
-  // ---- 2. 界面：打开运行记录，看写按钮在不在 ----
+  // ---- 2. UI: open the run history and check the write buttons ----
   const remotesButton = await waitFor(
     `[...document.querySelectorAll("button")].find((b) => /远程仓库|Remote repositories/.test(b.getAttribute("title") || ""))`,
   );
@@ -227,7 +230,7 @@ try {
     );
     if (!runsItem) fail("行菜单里没有「运行记录…」");
     await realClick(runsItem.x, runsItem.y);
-    // 等到表格里真有运行行（详情按钮是每行都有的那个）。
+    // Wait until the table really has a run row (the details button every row carries).
     const row = await waitFor(
       `[...document.querySelectorAll('[role="dialog"] button')].find((b) => /^(详情|Details)$/.test((b.innerText || "").trim()))`,
       40000,
@@ -237,7 +240,7 @@ try {
 
   await openRuns();
   if (EXPECT_READ_ONLY) {
-    // gh 被换成「只读」转发脚本时跑这一段。
+    // This part runs with gh swapped for a "read-only" forwarding shim.
     const buttons = await modalButtons();
     report.readOnly = buttons.slice(0, 12);
     if (buttons.some((label) => WRITE_LABELS.test(label)))
@@ -267,7 +270,7 @@ try {
   await shot("permission-writable.png");
 
   report.readOnlyUi =
-    "另跑一次 --readonly：临时把后端 can_write 钉成 false，验界面不给写按钮";
+    "Run --readonly separately: temporarily pin backend can_write to false and verify the UI offers no write buttons";
   report.ok = true;
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {

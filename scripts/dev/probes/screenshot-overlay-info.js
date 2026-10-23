@@ -1,10 +1,11 @@
-// 区域截图验收（2/3）：在**覆盖窗口**里报告它现在的样子。
+// Region-screenshot acceptance (2/3): report the current look of the **overlay window**.
 //
-// 要看得见的三件事：整屏图有没有按 1/dpr 铺满（像素一比一）、当前选区与把手、操作条上有哪些按钮。
+// Three things must be visible: whether the full-screen image fills at 1/dpr (one pixel per pixel), the current
+// selection and handles, and which buttons the action bar carries.
 (() => {
   const img = document.querySelector("img");
   const imgRect = img?.getBoundingClientRect();
-  // 选区那一块的特征：用一圈夸张的 box-shadow 压暗框外。
+  // The marker for the selection block: an oversized box-shadow dims everything outside the box.
   const selection = [...document.querySelectorAll("div")].find((d) =>
     (d.style.boxShadow || "").includes("100vmax"),
   );

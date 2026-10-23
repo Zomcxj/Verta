@@ -1,4 +1,5 @@
-// 验收：停在 WSL 终端上点一条**本机**会话，必须开在本机终端里（修 R：以前会开成 WSL）。
+// Acceptance: while sitting on a WSL terminal, click a **local** session; it must open in a local terminal (fix
+// R: it used to open as WSL).
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const wanted = "/vibe/coding".length ? "F:\VibeCoding_workspace\PasteLabel" : "";

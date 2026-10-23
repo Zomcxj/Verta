@@ -1,5 +1,6 @@
-// 按标题激活一个标签（点的是真实标签元素）。用于验收「某个标签里的东西是不是透明」这类事。
-// 标题写在下面的 NAME 里；点完把当时活动的标签 id 一起回报，方便点回去。
+// Activate a tab by title (clicking the real tab element). Used to verify things like "is the content of a given
+// tab transparent".
+// The title goes in NAME below; the id of the tab that ends up active is reported so it can be clicked back.
 (async () => {
   const NAME = "README.md";
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -12,7 +13,7 @@
       seen: tabs.map((el) => (el.textContent || "").replace(/\s+/g, " ").trim()),
     };
   }
-  // 标签是 Radix 的页签触发器：它认 mousedown，光 click 切不过去。
+  // Tabs are Radix tab triggers: they react to mousedown, so a bare click will not switch them.
   target.dispatchEvent(
     new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }),
   );

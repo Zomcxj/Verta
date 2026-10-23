@@ -1,9 +1,11 @@
-// 找出「不透明、又占屏够大」的元素 —— 玻璃主题下这些就是盖住桌面的那几层。
-// 计算值以 rgb( 开头 = 不透明；rgba( / oklab(… / 0.34) 这类带 alpha 的不算。
+// Find the elements that are both opaque and big enough on screen - under a glass theme these are the layers
+// covering the desktop. A computed value starting with `rgb(` is opaque; anything with alpha (`rgba(`,
+// `oklab(... / 0.34)`) does not count.
 //
-// 不过滤 `visibility: hidden`：编辑器/终端各标签是 `absolute inset-0` 叠在一起、
-// 非活动的那几个标成 `invisible`，但**它们照样在 DOM 里**。滤掉就只能量当前活动标签，
-// 而量的人往往不想动用户正在看的那个标签。
+// `visibility: hidden` is not filtered out: the editor/terminal tabs are stacked as `absolute inset-0` and
+// the inactive ones are marked `invisible`, but **they are still in the DOM**. Filtering them would leave
+// only the active tab measurable, and whoever measures usually does not want to disturb the tab the user is
+// looking at.
 (() => {
   const total = window.innerWidth * window.innerHeight;
   const out = [];

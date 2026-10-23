@@ -1,5 +1,5 @@
-// 阶段一验证：直接经 IPC 打开一张真实图片，检查编辑器是否渲染出可显示的 <img>。
-// 只读：不写任何文件。
+// Phase-one check: open a real image through IPC and see whether the editor renders a displayable <img>.
+// Read-only: it writes no files.
 (async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const lines = [];
@@ -12,7 +12,7 @@
   }
 
   const invoke = window.__TAURI_INTERNALS__.invoke;
-  // 先看文件本身能不能被读到（确认路径有效、以及被判定为二进制）
+  // First check the file can be read at all (valid path, and classified as binary)
   try {
     const read = await invoke("fs_read_file", { path: IMAGE });
     lines.push(`fs_read_file -> kind=${read?.kind} size=${read?.size ?? "?"}`);
@@ -20,7 +20,7 @@
     lines.push(`fs_read_file 失败: ${String(error)}`);
   }
 
-  // 再走应用自己的“打开文件”入口
+  // Then go through the app's own "open file" entry point
   const before = document.querySelectorAll('[data-testid="editor-tab"]').length;
   let dispatched = false;
   for (const name of ["__vertaOpenFile", "verta:open-file"]) {

@@ -1,5 +1,7 @@
-// 从某个元素往上走，把每一层的背景色报出来 —— 一眼看出是哪一层盖住了窗口材质。
-// 默认从窗口里最靠上的那块容器开始；也可以传 --match=settings.html 看设置窗口。
+// Walk up from an element and report each layer's background colour - so it is obvious which layer is covering the
+// window material.
+// By default it starts from the topmost container in the window; pass --match=settings.html to inspect the
+// settings window instead.
 (() => {
   const chains = [];
   const roots = [
@@ -20,7 +22,7 @@
       });
       node = node.parentElement;
     }
-    // 再补一层：窗口正中那个元素（面板 / 卡片）。
+    // Plus one more: whatever element sits at the centre of the window (a panel / card).
     const middle = document.elementFromPoint(
       window.innerWidth / 2,
       window.innerHeight / 2,

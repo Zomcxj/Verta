@@ -1,5 +1,5 @@
-// 阶段一验证：让编辑器打开一张真实图片，确认 <img> 是否真的渲染出来。
-// 只读操作：打开一个编辑器标签，不写任何文件。
+// Phase-one check: have the editor open a real image and confirm whether an <img> actually renders.
+// Read-only: it opens an editor tab and writes no files.
 (async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const label = (el) => (el?.textContent ?? "").replace(/\s+/g, " ").trim();
@@ -12,8 +12,8 @@
   }
   lines.push(`界面就绪: 按钮 ${buttons().length} 个`);
 
-  // Tauri 的 invoke 在 window.__TAURI_INTERNALS__ 上；用它直接开一个编辑器标签，
-  // 避免依赖菜单点击的坐标。
+  // Tauri's invoke lives on window.__TAURI_INTERNALS__; use it to open an editor tab directly,
+  // so the measurement does not depend on menu-click coordinates.
   const tauri = window.__TAURI_INTERNALS__;
   lines.push(`__TAURI_INTERNALS__: ${tauri ? "存在" : "不存在"}`);
   return lines.join("\n");

@@ -1,5 +1,7 @@
-// 主窗口里「表面 / 纹理层 / 填充层」三层各自的位置、层级与谁在它们上面：
-// 纹理在设置窗口看得见、在主窗口看不见，差别就在这几层上。
+// Position, stacking and whoever sits above each of the three layers in the main window - "surface / texture
+// layer / fill layer":
+// the texture is visible in the settings window but not in the main window, and this stack is where the
+// difference lies.
 (() => {
   const info = (el) => {
     if (!el) return null;
@@ -28,7 +30,7 @@
     cls: (typeof el.className === "string" ? el.className : "").split(/\s+/).slice(0, 3).join(" "),
     hasLayer: Boolean(el.querySelector("[data-theme-surface-layer]")),
   }));
-  // 框架缝里那个点（左上角往里 4px 的位置）到底是谁画的。
+  // Who actually paints that dot in the frame gap (4px in from the top-left corner).
   const at = (x, y) => {
     const el = document.elementFromPoint(x, y);
     return el ? `${el.tagName.toLowerCase()}.${(typeof el.className === "string" ? el.className : "").split(/\s+/).slice(0, 2).join(".")}` : null;

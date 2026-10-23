@@ -1,5 +1,5 @@
-// 真删除一条子代理会话（用户已授权），用于验证删除的成功路径。
-// 关键安全点：点确认之前先断言「被选中的恰好是目标那一条」，不是就放弃。
+// Really delete one subagent session (the user has approved it), to verify the delete success path.
+// Key safety point: before confirming, assert that the selected row is exactly the target one; otherwise give up.
 (async () => {
   const TARGET_ID = "ses_eda8cfdc5ffeN3XYbjTRWiSx92";
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -24,7 +24,7 @@
     find("管理")?.click();
     await sleep(400);
   }
-  // 先把可能残留的选择清掉，保证下面只选中目标这一条
+  // Clear any leftover selection first so only the target ends up selected below
   if (selectedRows().length > 0) {
     find("清空")?.click();
     await sleep(300);

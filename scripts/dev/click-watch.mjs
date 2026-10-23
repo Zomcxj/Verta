@@ -1,8 +1,8 @@
-// 一边在页面里连续采样（抓一闪而过的报错），一边用 CDP 真鼠标事件点开
-// 「加号 → 终端 → 某个发行版」。必须在同一个调试客户端里做：两个客户端同时连会互相挡住，
-// 而页面内合成的事件又打不开 Radix 菜单（它认指针事件的细节）。
+// Sample the page continuously (to catch errors that flash by) while real CDP mouse events open
+// "plus → terminal → some distro". It has to happen in one debug client: two clients block each other, and
+// events synthesized in the page cannot open a Radix menu (it cares about pointer-event details).
 //
-// 用法：node scripts/dev/click-watch.mjs [--port=9222] [--distro=Ubuntu-22.04]
+// Usage: node scripts/dev/click-watch.mjs [--port=9222] [--distro=Ubuntu-22.04]
 import { readFileSync } from "node:fs";
 
 const [, , ...rest] = process.argv;
@@ -42,7 +42,7 @@ const send = (method, params) =>
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** 在页面里跑一小段表达式并拿回值（与采样并发，互不干扰）。 */
+/** Evaluate a small expression in the page and return its value (concurrent with the sampling, no interference). */
 const evaluate = async (expression) => {
   const result = await send("Runtime.evaluate", {
     expression,
@@ -64,7 +64,7 @@ const click = async (x, y) => {
   await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
 };
 
-/** 找菜单项（或加号按钮）的中心点。 */
+/** Find the centre of a menu item (or of the plus button). */
 const centerOf = (selector, text) =>
   evaluate(`(() => {
     const nodes = [...document.querySelectorAll(${JSON.stringify(selector)})];
@@ -76,7 +76,7 @@ const centerOf = (selector, text) =>
 
 const steps = [];
 
-// 先启动采样（不 await），它自己会跑 20 秒。
+// Kick off the sampling first (not awaited); it runs for 20 seconds on its own.
 const sampling = send("Runtime.evaluate", {
   expression: sampler,
   awaitPromise: true,
@@ -133,7 +133,7 @@ steps.push({ 步骤: "点发行版", at: entry });
 const tabsBefore = await evaluate(`document.querySelectorAll("[role='tab']").length`);
 await click(entry.x, entry.y);
 
-// 等标签多出来（说明终端真的开了），再多等一会儿让采样覆盖到稳定态。
+// Wait for a new tab to appear (the terminal really opened), then linger so the sampling covers the steady state.
 for (let i = 0; i < 250; i += 1) {
   const now = await evaluate(`document.querySelectorAll("[role='tab']").length`);
   if (now > tabsBefore) break;

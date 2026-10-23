@@ -1,4 +1,5 @@
-// R12 验收：右栏宽度/收起态持久化、徽标、再点一次收起。
+// R12 acceptance: right panel width / collapsed state persistence, the badge, and collapsing again on a second
+// click.
 (() => {
   const panels = () => [...document.querySelectorAll("[data-panel]")].map((n) => Math.round(n.getBoundingClientRect().width));
   const button = document.querySelector("button[title='显示/隐藏 Git 面板']");

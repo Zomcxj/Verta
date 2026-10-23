@@ -1,7 +1,7 @@
 (async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const label = (el) => (el?.textContent ?? "").replace(/\s+/g, " ").trim();
-  await sleep(1200); // 等 Vite HMR 生效
+  await sleep(1200); // let Vite HMR apply
   const rows = [...document.querySelectorAll("button")].filter(
     (b) => (b.getAttribute("title") ?? "").split("\n").length >= 3,
   );

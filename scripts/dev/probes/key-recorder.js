@@ -1,5 +1,5 @@
-// 按键记录器：装一次，之后每次调用都返回「自上次以来收到过哪些 keydown」。
-// 用来判断 CDP 发的真按键到底有没有到页面（以及被谁 preventDefault 了）。
+// Key recorder: install once, then every call returns "which keydowns arrived since the previous call".
+// Used to tell whether real keys sent over CDP actually reach the page (and who preventDefault'd them).
 (() => {
   if (!window.__keyLog) {
     window.__keyLog = [];
@@ -18,8 +18,8 @@
           target: `${target?.tagName ?? "?"}.${((target?.className ?? "").toString().split(/\s+/)[0] ?? "")}`,
         });
       },
-      // 捕获阶段先记一笔：应用自己的处理在捕获阶段就可能 stopImmediatePropagation，
-      // 挂在冒泡阶段会漏掉「被应用吃掉」的那些键。
+      // Log during the capture phase: the app's own handlers may stopImmediatePropagation there, so binding
+      // on the bubble phase would miss exactly the keys the app swallows.
       true,
     );
   }

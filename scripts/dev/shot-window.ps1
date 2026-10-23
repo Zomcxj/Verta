@@ -1,6 +1,9 @@
-# 按进程名 + 可执行文件路径抓窗口截图，用于逐期验收（PrintWindow，不依赖前台焦点）。
-# 必须按路径过滤：本机同时装着另一个已发布版本时，只按进程名会抓到那个窗口。
-# 选窗口也不能用 MainWindowHandle：本应用还带一个 16x16 的辅助窗，它会挑错，所以取该进程面积最大的可见窗。
+# Capture a window screenshot by process name + executable path, for per-milestone acceptance (PrintWindow,
+# independent of foreground focus). (ASCII-only comments: PowerShell 5.1 reads this file as ANSI.)
+# The path filter is required: with another released build also installed on this machine, filtering by
+# process name alone captures that window instead.
+# Window selection cannot use MainWindowHandle either: this app also owns a 16x16 helper window, which gets
+# picked wrongly, so take the largest visible window of that process.
 param(
     [string]$ProcName = "verta",
     [string]$ExeMatch = "target\debug\verta.exe",
@@ -57,12 +60,12 @@ while ((Get-Date) -lt $deadline) {
 if (-not $proc -or $h -eq [IntPtr]::Zero) {
     $seen = Get-Process -Name $ProcName -ErrorAction SilentlyContinue |
         ForEach-Object { "  pid=$($_.Id) path=$($_.Path)" }
-    Write-Error "未找到匹配 '$ExeMatch' 的 $ProcName 可见窗口。当前同名进程：`n$($seen -join "`n")"
+    Write-Error "No visible window of $ProcName matching '$ExeMatch'. Same-named processes:`n$($seen -join "`n")"
     exit 1
 }
 
-Write-Host "目标进程 pid=$($proc.Id) path=$($proc.Path)"
-Write-Host "窗口句柄 $h"
+Write-Host "target process pid=$($proc.Id) path=$($proc.Path)"
+Write-Host "window handle $h"
 
 $r = New-Object Win+RECT
 # A minimized window reports its icon-sized rect, and a window that is still
@@ -71,7 +74,7 @@ $r = New-Object Win+RECT
 $sizeDeadline = (Get-Date).AddMilliseconds($WaitMs)
 while ((Get-Date) -lt $sizeDeadline) {
     if ([Win]::IsIconic($h)) {
-        Write-Host "窗口处于最小化，先还原"
+        Write-Host "Window is minimized, restoring first"
         [void][Win]::ShowWindow($h, 9)   # 9 = SW_RESTORE
         Start-Sleep -Milliseconds 600
     }
@@ -83,12 +86,12 @@ Start-Sleep -Milliseconds 800   # let the webview paint after it has been sized
 [void][Win]::GetWindowRect($h, [ref]$r)
 $w = $r.R - $r.L
 $hh = $r.B - $r.T
-Write-Host "窗口 ${w}x${hh}"
+Write-Host "window ${w}x${hh}"
 
 $bmp = New-Object System.Drawing.Bitmap($w, $hh)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
 $hdc = $g.GetHdc()
-[void][Win]::PrintWindow($h, $hdc, 2)   # 2 = PW_RENDERFULLCONTENT，含 GPU 合成内容
+[void][Win]::PrintWindow($h, $hdc, 2)   # 2 = PW_RENDERFULLCONTENT, includes GPU-composited content
 $g.ReleaseHdc($hdc)
 $g.Dispose()
 
@@ -96,4 +99,4 @@ $outPath = Join-Path (Get-Location) $Out
 New-Item -ItemType Directory -Force -Path (Split-Path $outPath) | Out-Null
 $bmp.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
-Write-Host "已保存 $outPath"
+Write-Host "saved $outPath"

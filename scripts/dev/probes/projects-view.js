@@ -1,4 +1,4 @@
-// 读项目列表标签页的现状：表格行、输入框、空态与报错。
+// Read the current state of the project list tab: table rows, inputs, empty state and errors.
 (async () => {
   const text = (node) => node.innerText.trim().replace(/\s+/g, " ");
   const rows = [...document.querySelectorAll("table tbody tr")].map((tr) =>

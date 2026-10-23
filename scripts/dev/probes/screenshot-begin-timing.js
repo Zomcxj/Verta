@@ -1,7 +1,8 @@
-// 区域截图验收：在主窗口里量一次 `screenshot_begin` 要多久。
+// Region-screenshot acceptance: measure how long one `screenshot_begin` takes from the main window.
 //
-// 这一步现在只做「把覆盖窗口亮出来」：不抓屏、不落盘、不换图，所以它就是「点一下到灰层上来」的
-// 上界。冷启动（第一次要建 webview）和热启动（窗口养着）差多少，一眼能看出来。
+// All this step does now is show the overlay window: no screen grab, no file write, no image swap, so it is the
+// upper bound for "click to dim layer on screen". The gap between a cold start (the webview has to be created)
+// and a warm one (the window is kept around) is visible at a glance.
 (async () => {
   const started = performance.now();
   await window.__TAURI_INTERNALS__.invoke("screenshot_begin");

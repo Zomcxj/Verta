@@ -1,4 +1,5 @@
-// 远程仓库标签页验收：头部按钮、标签页、表格行数与前几行内容、四态文案。
+// Remote repositories tab acceptance: header buttons, tabs, table row count and the first few rows, and the copy
+// for each of the four states.
 (() => {
   const rectOf = (node) => {
     const r = node.getBoundingClientRect();

@@ -1,5 +1,6 @@
-// 纹理（主题 surface）到底画在哪个元素上、以什么不透明度与混合模式画：
-// 主窗口与设置窗口是两份文档，同一套变量未必落在同一层上。
+// Which element the texture (the theme surface) is actually painted on, at what opacity and blend mode:
+// the main window and the settings window are two documents, and the same set of variables need not land on the
+// same layer.
 (() => {
   const describe = (el) => {
     const s = getComputedStyle(el);

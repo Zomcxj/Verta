@@ -1,7 +1,7 @@
-// issue / PR 界面的真机验收：先把后端写操作走完（评论 → 读详情 → 关闭），
-// 再把界面走一遍（远程仓库列表 → 行菜单 → Issues / PR → 列表 → 详情）。
+// End-to-end acceptance for the issue / PR UI: drive the backend write path first (comment → read the detail
+// → close), then walk the UI (remote repository list → row menu → Issues / PR → list → detail).
 //
-// 用法：node scripts/dev/probes/issues-acceptance.mjs [--port=9222] [--repo=Zomcxj/LabelForge]
+// Usage: node scripts/dev/probes/issues-acceptance.mjs [--port=9222] [--repo=Zomcxj/LabelForge]
 import { mkdirSync, writeFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
@@ -43,7 +43,7 @@ socket.addEventListener("message", (event) => {
   else entry.resolve(message.result);
 });
 
-/** 后端一次调用要十几秒（gh 走网络），这里给足超时。 */
+/** A single backend call takes a dozen seconds (gh goes over the network), so allow a generous timeout. */
 const send = (method, params) =>
   new Promise((resolve, reject) => {
     const id = nextId++;
@@ -97,7 +97,7 @@ const realClick = async (x, y) => {
     y,
     button: "none",
   });
-  // `buttons` 不能省：WebView2 少了它就不合成真正的 click。
+  // `buttons` is required: without it WebView2 never synthesizes a real click.
   await send("Input.dispatchMouseEvent", {
     type: "mousePressed",
     x,
@@ -123,7 +123,7 @@ const shot = async (name) => {
   writeFileSync(`${SHOTS}/${name}`, Buffer.from(result.data, "base64"));
 };
 
-/** 等到页面里出现某个东西（返回它的矩形），超时就返回 null。 */
+/** Wait until something appears in the page (returns its rect), or null on timeout. */
 const waitFor = async (expression, timeoutMs = 60_000) => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -135,7 +135,7 @@ const waitFor = async (expression, timeoutMs = 60_000) => {
 };
 
 try {
-  // 界面可能还在跑旧代码：先重载一次，让新模块真的进来。
+  // The UI may still be running the old code: reload once so the new modules really load.
   await send("Page.reload", { ignoreCache: true });
   await sleep(6000);
   const booted = await waitFor(
@@ -144,7 +144,7 @@ try {
   );
   if (!booted) fail("界面一直没有渲染出来");
 
-  // ---- 1. 打开远程仓库标签页 ----
+  // ---- 1. Open the remote repositories tab ----
   const remotesButton = await waitFor(
     `[...document.querySelectorAll("button")].find((b) => /远程仓库|Remote repositories/.test(b.getAttribute("title") || ""))`,
   );
@@ -156,7 +156,7 @@ try {
   );
   if (!filterBox) fail("远程仓库列表没有出现");
 
-  // ---- 2. 筛到目标仓库，打开行菜单里的「Issues / PR…」----
+  // ---- 2. Filter down to the target repository and open "Issues / PR..." from the row menu ----
   await evaluate(`(() => {
     const input = [...document.querySelectorAll("input[placeholder]")].find((i) => /筛选仓库|Filter repositories/.test(i.getAttribute("placeholder") || ""));
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
@@ -176,7 +176,7 @@ try {
   report.menuItem = issuesItem.text;
   await realClick(issuesItem.x, issuesItem.y);
 
-  // ---- 3. 列表出现 ----
+  // ---- 3. The list shows up ----
   const dialog = await waitFor(`document.querySelector('[role="dialog"]')`, 20_000);
   if (!dialog) fail("Issues / PR 弹窗没有打开");
   const listRows = await waitFor(
@@ -184,7 +184,7 @@ try {
     30_000,
   );
   if (!listRows) {
-    // 可能是「没有 issue」的空态 —— 那也是有效的界面，把正文记下来。
+    // It may be the "no issues" empty state, which is a valid screen too: record the body text.
     const emptyText = await evaluate(
       `document.querySelector('[role="dialog"]')?.innerText?.slice(0, 400) ?? ""`,
     );
@@ -194,7 +194,7 @@ try {
   report.listRow = listRows.text;
   await shot("issues-list.png");
 
-  // ---- 4. 切状态筛选：已关闭 ----
+  // ---- 4. Switch the state filter to Closed ----
   const closedFilter = await waitFor(
     `[...document.querySelectorAll('[role="dialog"] button')].find((b) => /^(已关闭|Closed)$/.test((b.innerText || "").trim()))`,
   );
@@ -208,7 +208,7 @@ try {
   if (!closedRow) fail("切到「已关闭」后列表是空的");
   report.closedRow = closedRow.text;
 
-  // ---- 5. 点进详情 ----
+  // ---- 5. Open the detail ----
   await realClick(closedRow.x, closedRow.y);
   const back = await waitFor(
     `[...document.querySelectorAll('[role="dialog"] button')].find((b) => /返回|Back/.test(b.innerText || ""))`,
@@ -219,7 +219,7 @@ try {
     `document.querySelector('[role="dialog"]')?.innerText?.slice(0, 800) ?? ""`,
   );
   report.detailText = detailText;
-  // 正文那一段不能是个空框：Markdown 是懒加载的，等它落定再量高度。
+  // The body box must not be empty: Markdown loads lazily, so let it settle before measuring.
   await sleep(3000);
   const bodyBox = await evaluate(
     `(() => {
@@ -237,7 +237,7 @@ try {
   }
   await shot("issues-detail.png");
 
-  // ---- 6. 后端写操作：评论 → 读详情 → 关闭 ----
+  // ---- 6. Backend writes: comment → read the detail → close ----
   const write = JSON.parse(
     await evaluate(`(async () => {
       const internals = window.__TAURI_INTERNALS__;

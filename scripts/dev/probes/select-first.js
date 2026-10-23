@@ -1,4 +1,4 @@
-// 只勾选第一行会话，供「OS 真鼠标点击」的对照实验使用。
+// Tick only the first session row, for the "real OS mouse click" control experiment.
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const label = (el) => (el?.textContent ?? "").replace(/\s+/g, " ").trim();

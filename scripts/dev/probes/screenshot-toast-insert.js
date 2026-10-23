@@ -1,7 +1,9 @@
-// 区域截图验收（4/4）：在主窗口里**等**截图提示条出现，点它的「插入路径」，报告看到了什么。
+// Region-screenshot acceptance (4/4): **wait** for the screenshot toast in the main window, click its "insert
+// path", and report what was seen.
 //
-// 为什么要等：提示条默认 4 秒就消失，事后再问往往已经没了（我踩过）。这个探针先挂上轮询，
-// 由外面去触发截图，等提示条真出现了再读它、点它。
+// Why wait: the toast disappears after 4 seconds by default, so asking afterwards usually finds it gone (been
+// there). This probe installs a poll first, something outside triggers the screenshot, and only once the toast
+// really shows up does it read and click it.
 (async () => {
   const deadline = Date.now() + 60_000;
   let toast = null;

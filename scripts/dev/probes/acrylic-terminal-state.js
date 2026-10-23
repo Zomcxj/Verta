@@ -1,12 +1,13 @@
-// 亚克力验收：报当前主题、终端底色（是否带 alpha）、窗口材质，以及终端画布的情况。
-// 用法：node scripts/dev/webview-eval.mjs scripts/dev/probes/acrylic-terminal-state.js
-//      设置窗口用 --match=settings.html
+// Acrylic acceptance: report the current theme, the terminal background colour (alpha or not), the window
+// material, and the state of the terminal canvases.
+// Usage: node scripts/dev/webview-eval.mjs scripts/dev/probes/acrylic-terminal-state.js
+//      Use --match=settings.html for the settings window
 (() => {
   const root = document.documentElement;
   const terminalBackground = getComputedStyle(root)
     .getPropertyValue("--terminal-background")
     .trim();
-  // 终端底色是否带 alpha：探针取一遍色值（rgba 的第四位小于 1 就是透的）。
+  // Whether the terminal background carries alpha: resolve the colour once (an rgba alpha below 1 means translucent).
   const probe = document.createElement("div");
   probe.style.cssText = "position:fixed;width:0;height:0;background-color:var(--terminal-background)";
   document.body.appendChild(probe);
@@ -28,7 +29,7 @@
     },
   );
 
-  // 终端面板自己的 DOM 底色：透明主题下这里不该是实心色。
+  // The terminal pane's own DOM background: under a transparent theme it must not be a solid colour.
   const paneBackgrounds = [
     ...document.querySelectorAll("[data-verta-ghostty-surface]"),
   ].map((el) => ({

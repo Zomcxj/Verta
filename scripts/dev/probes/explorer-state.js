@@ -1,4 +1,4 @@
-// 读左侧文件树：根路径与第一层条目（title 属性里带完整路径）。
+// Read the file tree on the left: the root path and the first-level entries (the title attribute carries the full path).
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const railButton = (label) =>

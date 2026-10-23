@@ -1,5 +1,5 @@
-// 区域截图验收：先把圆角拉到一个值，再点操作条上的「保存」，并把按下前的选区与圆角报出来
-// （好跟落盘的文件对账）。
+// Region-screenshot acceptance: set the corner radius to a value, click "save" on the action bar, and report the
+// selection and radius from just before the click (so the file on disk can be reconciled against them).
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const box = document.querySelector('[data-screenshot-ui="box"]');
@@ -16,7 +16,7 @@
 
   const slider = document.querySelector('input[type="range"]');
   if (slider) {
-    // React 认的是「原生 setter + input 事件」，直接改 .value 不会被它接住。
+    // React only reacts to "native setter + input event"; writing .value directly is ignored.
     const setter = Object.getOwnPropertyDescriptor(
       window.HTMLInputElement.prototype,
       "value",

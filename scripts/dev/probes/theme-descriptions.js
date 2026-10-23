@@ -1,4 +1,5 @@
-// 设置页主题列表里每一项的中文名与说明，用来核对新主题的文案风格是否与其余一致。
+// The Chinese name and description of every entry in the settings page's theme list, to check that a new theme's
+// copy matches the style of the rest.
 (() => {
   const out = [];
   for (const el of document.querySelectorAll("span")) {

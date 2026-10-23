@@ -1,5 +1,5 @@
-// 在设置页里按主题名选一个主题：先切到「主题」那一节（Radix 的页签认的是 mousedown，
-// 光 click 切不过去），再点真实的主题卡片。名字写在下面的 NAME 里。
+// Pick a theme by name in the settings page: switch to the Themes section first (Radix tabs react to mousedown,
+// so a bare click will not switch them), then click the real theme card. The name goes in NAME below.
 (async () => {
   const NAME = "Acrylic";
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

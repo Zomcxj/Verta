@@ -1,4 +1,5 @@
-// 列出当前菜单里的条目与屏幕坐标，供 cdp-key.mjs 发真实鼠标事件点开某一项。
+// List the items in the current menu with their on-screen coordinates, so cdp-key.mjs can open one with real
+// mouse events.
 (async () => {
   const rect = (node) => {
     const r = node.getBoundingClientRect();

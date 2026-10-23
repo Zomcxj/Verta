@@ -1,4 +1,4 @@
-// 找出 TSX/TS 里「写在代码里、没走 t()/tr()」的中文文案（排除注释）。
+// Find Chinese text hard-coded in TSX/TS that bypasses t()/tr() (comments excluded).
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -17,7 +17,7 @@ function walk(dir) {
       const trimmed = line.trim();
       if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) return;
       if (trimmed.startsWith("{/*") || trimmed.startsWith("*/")) return;
-      // 键名/文件里的中文说明不算文案
+      // Chinese in key names / inside the files themselves is not user-facing copy
       if (/messages\.ts|themeNames\.ts/.test(p)) return;
       out.push(`${p}:${i + 1}: ${trimmed.slice(0, 100)}`);
     });

@@ -1,7 +1,8 @@
-// 在命令面板里搜一个词，把命中的条目列出来（用户视角：能搜到哪些命令、带不带快捷键角标）。
+// Search a word in the command palette and list the hits (from the user's point of view: which commands are
+// findable, and whether they carry a shortcut badge).
 //
-// 用法：先在主窗口发 Ctrl+P 打开面板，再跑这个探针（或由探针自己按 Ctrl+P 不行 —— 页面里合成的
-// KeyboardEvent 应用收不到，得用 cdp-key.mjs）。
+// Usage: open the palette first with Ctrl+P in the main window, then run this probe (the probe cannot press
+// Ctrl+P itself - the app does not receive a KeyboardEvent synthesized in the page, so use cdp-key.mjs).
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const text = (node) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();

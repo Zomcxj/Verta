@@ -1,764 +1,1058 @@
 # Changes vs Upstream (Terax AI)
 
-本项目基于 [crynta/terax-ai](https://github.com/crynta/terax-ai)（Apache-2.0）二次开发，该协议要求
-修改过的项目说明改动内容，这份文件就是那份说明。按日期倒序，最近的在前。
+This project is a derivative of [crynta/terax-ai](https://github.com/crynta/terax-ai) (Apache-2.0), and that
+license requires a modified project to state what was changed. This file is that statement. Newest first,
+ordered by date descending.
 
-一条改动写一行：**上游没有的新模块 / 新功能**写一行就够；**改到上游原有文件的**要具体到文件
-（哪个文件、改了什么）。不写行号与函数名。
+One change per line: a **new module / new feature that upstream does not have** needs one line; a **change to a
+file upstream already had** must name that file (which file, what changed). No line numbers, no function names.
 
-明细按日期折叠：日期本身就是折叠行的标题（`<details>` + `<summary>`），GitHub 上渲染成日期左侧的
-展开/收起箭头，纯文本打开也照读。**最新的一天默认 `open`**；换到新的一天时，照抄上一段并把日期换成当天、
-上一天的 `open` 去掉即可。
+Details are collapsed by date: the date itself is the summary of the collapsed block (`<details>` +
+`<summary>`), which GitHub renders as an expand/collapse arrow to the left of the date and which still reads
+fine as plain text. **The newest day is `open` by default**; when a new day starts, copy the previous block,
+swap in the new date, and drop the `open` from the day before.
 
 ---
 
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
-**主题页那一项改叫「会话开启过渡」**
+**Comments across the code base are in English**
 
-- `src/modules/i18n/messages.ts`：标题由「会话打开过渡」改成「会话开启过渡」，说明里的「开启会话」同步（英文 `Session start transition`）—— 这一项说的是会话开始那一下，不是「点开」这个动作。
+- The whole source tree — `src/`, `src-tauri/src/` and `scripts/` — had its comments translated to English. Code, string literals, identifiers and data (benchmark payloads, language names, the string tables) are untouched; only the prose in comments changed.
+- `CHANGES.md`: this file is in English now.
 
-**会话的项目目录被删掉之后，那条会话再也删不掉了**
+**Chinese strings still hardcoded in the session list moved into the message tables**
 
-- `src-tauri/src/modules/agent_sessions/opencode.rs`：删除要走 opencode 自己的命令，而它必须在会话记录的那个目录里跑（它靠工作目录定位会话）。项目删了、会话行还在时，那个目录已经不存在，于是启动就失败在系统那一层（Windows 的「目录名称无效」），这条会话从此删不掉。现在记录目录还在就用它，不在了就退到临时目录 —— 命令本来就只靠 id 找会话，有没有那个目录它都认得。
+- `src/modules/i18n/messages.ts`: added the strings the session list still hardcoded (empty list, sub-agent badge, the five context-menu items, the copy-succeeded toast, rounds / tokens / relative time), one copy in Chinese and one in English.
+- `src/modules/launcher/components/SessionList.tsx`, `src/modules/launcher/lib/sessionStats.ts`, `src/modules/launcher/lib/relativeTime.ts`, `src/modules/launcher/components/LauncherPanel.tsx`, `src/modules/projects/ProjectsView.tsx`: now go through the message tables; the formatting functions take an extra locale argument (Chinese by default, and the pure formatting logic is still callable directly).
+- Chinese wording unchanged (verified on the running app: `99 轮 · 652 M tokens · 刚刚`, `13 分钟前`); no Chinese leaks through once the locale is switched.
 
-**会话打开过渡：动画加到四种，在设置的主题页里选**
+**Theme page item renamed to "session start transition"**
 
-- `src/modules/settings/store.ts`：新增偏好 `sessionTransition`（`ripples` / `pulse` / `orbit` / `bars` / `none`，默认 `ripples`），另加一个不认得的旧值退回默认的 `coerceSessionTransition`。
-- `src/app/components/SessionOpeningOverlay.tsx`：按这项偏好画不同动画 —— 波纹扩散 / 同心脉冲 / 光环绕行 / 音条起伏，选 `none` 就整层不画（照旧看得见命令写进终端）。
-- `src/styles/globals.css`：三种新动画的样式，与波纹同一套约束（只动 transform / opacity、次数写死、`prefers-reduced-motion` 下不播）。
-- `src/settings/sections/ThemesSection.tsx`：主题页加一行「会话打开过渡」的下拉选择。
-- `src/modules/i18n/messages.ts`：中英各一份键。
+- `src/modules/i18n/messages.ts`: the title goes from "会话打开过渡" to "会话开启过渡", and the description's "开启会话" follows (English `Session start transition`) — the item is about the moment a session starts, not about the act of clicking it open.
 
-**删除会话的对话框不再点名 opencode / pi**
+**A session can no longer be deleted once its project directory is gone**
 
-- `src/modules/i18n/messages.ts`：`launcher.deleteBody` 去掉「（opencode N 条、pi N 条）」那截，两条提示也不再写工具名，只留后果（连带子会话 / 连带产物目录）—— 文案里点一个工具名，将来多一个 agent 就长一截。
-- `src/modules/launcher/components/LauncherPanel.tsx`：那两条提示改成**只在该类会话真被选进这批删除时**才拼上（原来不管选了什么，两条都拼在一起），顺带去掉了不再用的两个计数占位。
+- `src-tauri/src/modules/agent_sessions/opencode.rs`: deletion goes through opencode's own command, and that command has to run inside the directory recorded on the session (it locates the session by working directory). When the project is deleted but the session row remains, that directory no longer exists and the launch fails at the OS layer (Windows: "The directory name is invalid"), so the session can never be deleted. Now the recorded directory is used when it still exists and a temporary directory is used when it does not — the command only finds the session by id, with or without that directory.
 
-**点开会话不再露出「命令被敲进终端」那一幕，改成一个居中的过渡**
+**Session opening transition: four animations, chosen on the theme page in settings**
 
-- `src/app/components/SessionOpeningOverlay.tsx`（新增）：居中的过渡层 —— 三圈波纹依次往外扩，中间是应用图标，出现时图标震一下（先缩、冲过一点、回正）。原来的做法是直接往终端里写恢复命令，那行命令画出来的瞬间就是「有人替你敲命令」。
-- `src/app/App.tsx`：打开会话（会话列表里点开）与项目行「用某个智能体打开」两处，开标签的同时盖上这层；撤的时机是 **agent 的界面画出来之后** —— 写命令前先取一次这个叶子的累计输出字节，之后同时满足「shell 有子进程（`leafHasForegroundProcess`）」与「又多画了 900 字节」才撤，上限 8 秒、兜底 8.5 秒。只看进程不够：agent 起来后还要一两秒才画第一帧，撤早了露出来的就是「命令刚被敲进去」的终端；而「输出安静下来」也不行 —— 活着的 TUI 会不停重绘（实测从不断 420ms），所以按**累计**输出量而不是安静时长判断。
-- `src/app/components/WorkspaceSurface.tsx`：这层画在**终端那一层**里，只盖终端那一块，不铺满全屏 —— 要挡的只有终端里那行命令，侧栏、标签栏、状态栏照常看得见。
-- `src/modules/terminal/ghostty/useGhosttyTerminalSession.ts` + `src/modules/terminal/lib/terminalSessionApi.ts`：终端侧多记一个按叶子的累计输出字节（`leafOutputBytes`），给上面那条判据用；会话销毁时一起清掉。
-- `src/styles/globals.css`：过渡层的样式。只动 transform / opacity（多带合成层会被合成层预算拦下），柔边用径向渐变；波纹的重复次数写死，不做无限循环 —— 全局动效预算只允许无限循环的动画走阶梯计时。波纹一圈 1.9 秒、图标那一震 0.85 秒，`prefers-reduced-motion` 下不播动画。
+- `src/modules/settings/store.ts`: new preference `sessionTransition` (`ripples` / `pulse` / `orbit` / `bars` / `none`, default `ripples`), plus `coerceSessionTransition` to fall back to the default for an unrecognized older value.
+- `src/app/components/SessionOpeningOverlay.tsx`: draws a different animation per preference — ripple spread / concentric pulse / orbiting glow / bar bounce; with `none` the whole layer is not drawn (the command written into the terminal stays visible as before).
+- `src/styles/globals.css`: styles for the three new animations, under the same constraints as the ripple (transform / opacity only, fixed iteration count, not played under `prefers-reduced-motion`).
+- `src/settings/sections/ThemesSection.tsx`: the theme page gains a "session start transition" dropdown.
+- `src/modules/i18n/messages.ts`: one key in Chinese and one in English.
 
-**并排预览那一栏不再自己铺一层 60% 的底色**
+**The delete-session dialog no longer names opencode / pi**
 
-- `src/modules/editor/SidePreview.tsx`：这一栏原来写死 `bg-background/60`。不透明主题下看不出来（跟面板同色），玻璃主题下它就是另一套：面板只给 0.28 的色调，它又压上 0.6，比旁边的编辑器厚一截，并排预览看着不像同一个界面。去掉这层，底色交给它所在的那块面板，与编辑器的分界靠左边那条边框。
+- `src/modules/i18n/messages.ts`: `launcher.deleteBody` drops the "(opencode N, pi N)" part, and the two notices no longer name the tool, only the consequence (child sessions / artifact directory go with it) — naming a tool in the copy means growing the sentence every time an agent is added.
+- `src/modules/launcher/components/LauncherPanel.tsx`: those two notices are now appended **only when a session of that kind is actually part of this batch** (previously both were always concatenated regardless of the selection), and the two now-unused count placeholders are gone.
 
-**Markdown 的「渲染 / 源码」与编辑器右下角的「预览」合成一个三档控件**
+**Opening a session no longer shows the command being typed into the terminal; it shows a centered transition instead**
 
-- `src/modules/markdown/MarkdownViewToggle.tsx`：控件从两档扩到三档（渲染 / 源码 / 预览），三档单选；「预览」这一档只在编辑器那侧画（并排预览属于编辑器，整页渲染时它不在场）。
-- `src/modules/editor/EditorPane.tsx`：右下角那个「预览」按钮撤掉 —— 文档类文件（Markdown）改由上面的控件管，图片这类没有视图切换、只有并排预览的文件仍留原来的按钮。控件改为接收并排预览的开关状态，好把它画进同一组。
-- `src/modules/editor/EditorStack.tsx`：Markdown 标签把并排预览的开关接进控件；选「渲染」「源码」都先收起并排预览，三档才是单选。
+- `src/app/components/SessionOpeningOverlay.tsx` (new): a centered transition layer — three ripples spread outward in sequence, the app icon in the middle, with the icon jolting as it appears (shrink, overshoot, settle). The old behavior wrote the resume command straight into the terminal, and that line being painted is exactly what "someone typed the command for you" looks like.
+- `src/app/App.tsx`: both places that open a session (clicking one in the session list, and "open with an agent" on a project row) cover the terminal with this layer while opening the tab; it is removed **after the agent UI has painted** — the leaf's cumulative output bytes are sampled once before writing the command, and the layer is removed when both "the shell has a child process (`leafHasForegroundProcess`)" and "another 900 bytes were painted" hold, capped at 8 seconds with a hard fallback at 8.5 seconds. Watching the process alone is not enough: the agent takes another second or two to paint its first frame, and removing the layer too early exposes the terminal with the command just typed into it. "Output went quiet" does not work either — a live TUI repaints constantly (measured: never quiet for 420ms), so the criterion is **cumulative** output rather than quiet duration.
+- `src/app/components/WorkspaceSurface.tsx`: the layer is drawn **inside the terminal layer** and covers only that area, not the whole screen — the only thing that needs hiding is that one command line, so the sidebar, tab bar and status bar stay visible.
+- `src/modules/terminal/ghostty/useGhosttyTerminalSession.ts` + `src/modules/terminal/lib/terminalSessionApi.ts`: the terminal side tracks one more counter, cumulative output bytes per leaf (`leafOutputBytes`), feeding the criterion above; it is cleared when the session is destroyed.
+- `src/styles/globals.css`: styles for the transition layer. Only transform / opacity are animated (anything that adds a compositing layer hits the compositing budget), soft edges come from radial gradients; the ripple iterations are fixed rather than an infinite loop — the global animation budget only allows infinite animations to use step timing. One ripple cycle is 1.9 seconds and the icon jolt is 0.85 seconds; no animation plays under `prefers-reduced-motion`.
 
-**设置窗口的纹理与主窗口同参数，铺满整页**
+**The side-by-side preview column no longer lays down its own 60% background**
 
-- `src/styles/globals.css`：设置窗口的 `.settings-shell` 原来自己写死 82% 的底色，比主窗口的框架（`--frame`，开了 Mica 时是 55%）厚，同一张纹理落到设置窗口只剩三分之一（实拍：设置窗口边距每通道波动约 3，主窗口状态栏约 11）。改成直接取 `--frame`：两处同参数，纹理铺满整个设置页，卡片与开关本身照旧实心可读；Mica 关掉时两边一起变实心。
+- `src/modules/editor/SidePreview.tsx`: the column hardcoded `bg-background/60`. In opaque themes it is invisible (same color as the panel); in glass themes it is a different story: the panel gives a 0.28 tint and this layer piles 0.6 on top, so it is visibly heavier than the editor next to it and the side-by-side preview does not look like the same UI. The layer is gone, the background is left to the panel it sits in, and the boundary with the editor is the border on the left.
 
-**浅色外观：Carbon Fiber 的蜂窝纹理显出来了，Verta 仍然是黑的**
+**Markdown "rendered / source" and the "preview" button at the editor's bottom right merged into one three-way control**
 
-- `src/modules/theme/themes/pattern-base.ts`：浅色那侧的纹理原来是**白线配 `multiply`** —— 白是 `multiply` 的单位元，再怎么调不透明度那层纹理也不会显出来；改成深色墨线配 `multiply`，强度按深色那侧定（深色白线每通道抬约 22，浅色墨线压约 15）。
-- `src/modules/theme/themes/verta.ts`：这套配色来自图标的黑底，却跟着外观在浅色下翻成白底黑字。深浅两套外观现在共用同一套近黑配色，编辑器也留在深色 —— 选中它就是黑的，与外观无关。
+- `src/modules/markdown/MarkdownViewToggle.tsx`: the control goes from two states to three (rendered / source / preview), single-select; the "preview" state is only drawn on the editor side (side-by-side preview belongs to the editor, and it is not present when a whole page is rendered).
+- `src/modules/editor/EditorPane.tsx`: the "preview" button at the bottom right is removed — document files (Markdown) are handled by the control above, while files with no view toggle such as images keep the original button. The control now receives the side-by-side preview on/off state so it can be drawn in the same group.
+- `src/modules/editor/EditorStack.tsx`: Markdown tabs wire the side-by-side preview toggle into the control; choosing "rendered" or "source" collapses the side-by-side preview first, so the three states really are single-select.
 
-**会话标签：画对应智能体的图标，不再一律画终端图标**
+**Settings window texture uses the same values as the main window and covers the whole page**
 
-- `src/modules/tabs/lib/useTabs.ts`：终端标签多记一个 `agent`（这个标签是为哪个智能体开的），建会话标签的两条入口都收下它。
-- `src/app/App.tsx`：打开会话时把会话自己的工具传进去，项目行「用某个智能体打开」同理。
-- `src/modules/tabs/TabBar.tsx`：标签图标在该标签记了 `agent` 时画那个智能体的品牌标，没记的（普通终端、命令块、私有终端）照旧画终端图标。
-- `src/modules/tabs/lib/serialize.ts`：`agent` 跟着标签一起落盘与还原，重启后标签上的图标不掉。
+- `src/styles/globals.css`: `.settings-shell` in the settings window hardcoded an 82% background, heavier than the main window frame (`--frame`, 55% when Mica is on), so the same texture came out at a third of its strength there (measured: about 3 per-channel variation in the settings window margins vs about 11 in the main window status bar). It now takes `--frame` directly: same values in both places, the texture covers the entire settings page, and the cards and switches themselves stay solid and readable; with Mica off both go solid together.
 
-**新加的三个主题的说明：原来各有旁白，改成与其他主题一样的一句话**
+**Light appearance: Carbon Fiber's honeycomb texture shows through, Verta stays black**
 
-- `src/modules/theme/themes/verta.ts`、`src/modules/theme/themes/acrylic.ts`、`src/modules/theme/themes/pattern-base.ts`：三段说明原来都是长句（带冒号或分号，还写了材质怎么实现 —— 模糊、噪声、面板是不是实心）。主题列表里其他每一条都是一句交代观感的短话，这三条夹在中间格外显眼，现在照它们写。
-- `src/modules/theme/themes/themeNames.ts`：对应的三条中文一并改短，并在文件头把这条风格写成规矩（说明只写观感，来历与实现留给主题文件自己的注释），省得下次又写成旁白。
+- `src/modules/theme/themes/pattern-base.ts`: the light-side texture was **white lines with `multiply`** — white is the identity element for `multiply`, so no opacity tweak would ever make that texture show; it now uses dark ink lines with `multiply`, with strength set against the dark side (dark: white lines lift about 22 per channel, light: ink lines knock down about 15).
+- `src/modules/theme/themes/verta.ts`: the palette comes from the icon's black background yet flipped to white background with black text in light appearance. Both appearances now share the same near-black palette, and the editor stays dark too — picking this theme is black, regardless of appearance.
 
-**关闭标签页（终端也在内）的快捷键：补一条终端吃不掉的绑定，设置页把每条绑定都画出来**
+**Session tabs: draw the icon of the matching agent instead of always drawing the terminal icon**
 
-- `src/modules/shortcuts/shortcuts.ts`：`tab.close` 多一条默认绑定 `Ctrl/⌘+Shift+W`。焦点在终端里时那条 plain 的 `Ctrl+W` 根本到不了应用 —— shell 把它当 `^W`（删前一个词）用掉了，所以关终端标签得有一条 shell 不认的组合键；它同时也是 Windows Terminal 关标签用的那条。只绑了 plain 那条的旧配置照旧不变。
-- `src/settings/sections/ShortcutsSection.tsx`：快捷键列表每行原来只画**第一条**绑定，多出来的那条等于用户看不见（`sidebar.toggle` / `view.zenMode` 本来就是两条），于是「这条快捷键不存在」的印象就来了。现在每条绑定都画，中间用 `/` 分开。
+- `src/modules/tabs/lib/useTabs.ts`: terminal tabs record an extra `agent` (which agent this tab was opened for); both entry points that create session tabs accept it.
+- `src/app/App.tsx`: opening a session passes the session's own tool; the "open with an agent" project row does the same.
+- `src/modules/tabs/TabBar.tsx`: the tab icon draws that agent's brand mark when the tab records an `agent`, and the terminal icon as before when it does not (plain terminal, command block, private terminal).
+- `src/modules/tabs/lib/serialize.ts`: `agent` is persisted and restored with the tab, so the icon survives a restart.
 
-**玻璃主题：编辑区与 Markdown 预览原来自己铺了一层不透明底色，把面板的色调整个盖住**
+**Descriptions of the three new themes: each had its own narration, now one line like the others**
 
-- `src/modules/editor/EditorStack.tsx`、`src/modules/markdown/MarkdownPreviewPane.tsx`：两处 `bg-background` 去掉 —— 它们的外层就是面板（`.verta-pane`），不透明主题下面板本来就画 `--background`（观感不变），玻璃主题下面板画的是自己那份色调，而这两层一铺就把它盖没了（实拍：整窗 66% 的面积是 `--background` 的实色）。
+- `src/modules/theme/themes/verta.ts`, `src/modules/theme/themes/acrylic.ts`, `src/modules/theme/themes/pattern-base.ts`: all three descriptions were long sentences (with colons or semicolons, and explaining how the material is implemented — blur, noise, whether the panel is solid). Every other entry in the theme list is one short phrase about how it looks, so these three stood out; they are now written the same way.
+- `src/modules/theme/themes/themeNames.ts`: the matching Chinese entries are shortened too, and the style rule is written into the file header (a description states only how it looks; origin and implementation stay in comments inside the theme file) so the next one does not turn into narration again.
 
-**命令块底部那两句提示：一句是假的，一句漏了翻译**
+**Shortcut for closing a tab (terminals included): add a binding the terminal does not swallow, and the settings page draws every binding**
 
-- `src/modules/i18n/messages.ts`、`src/modules/terminal/block/ShellInput.tsx`：输入块占位文案里「`{shortcut} 切换到 AI`」删掉 —— 全仓库**没有任何**绑定给这个组合键（`Ctrl+U` 在快捷键表与终端 keymap 里都不存在），是一条广告不存在的快捷键的提示；连带去掉那处 `fmtShortcut` 插值。
-- `src/app/components/WorkspaceInputBar.tsx`、`src/modules/i18n/messages.ts`：plain 模式下那句提示语原来写死英文（`Type directly in the terminal`，i18n 那一轮漏掉的一处），改成键 `term.typeDirectly`（中英两份）。
+- `src/modules/shortcuts/shortcuts.ts`: `tab.close` gains an additional default binding, `Ctrl/⌘+Shift+W`. When focus is in the terminal the plain `Ctrl+W` never reaches the app — the shell consumes it as `^W` (delete previous word), so closing a terminal tab needs a chord the shell does not recognize; it is also the chord Windows Terminal uses to close a tab. Configs that only bound the plain one are unchanged.
+- `src/settings/sections/ShortcutsSection.tsx`: each row in the shortcut list drew only the **first** binding, so the extra one was invisible to the user (`sidebar.toggle` / `view.zenMode` already had two), which created the impression that the shortcut did not exist. Every binding is drawn now, separated by `/`.
 
-**预览页面与提交图：不再各带一套自己的颜色**
+**Glass themes: the editor area and Markdown preview laid down an opaque background of their own, covering the panel's tint entirely**
 
-- `src/modules/preview/PreviewPane.tsx`：预览页面的底原来是写死的 `bg-white`（地址栏里一有 URL 就铺），暗色主题下就是一张白纸；改成跟主题走（`bg-background`）。被预览的网页自己的颜色照旧。
-- `src/modules/git-history/lib/graph.ts`：提交图的泳道色原来是写死的调色板（blue-400 / purple-400 / amber-400 …），换主题它一点不变；改成取主题自己的终端调色板（`var(--terminal-ansi-*)`）—— 每个主题都填了这 16 色，本来就是为「要能分辨」准备的一组色，图谱从此跟着主题换色。rail 照旧以 `var()` 画（`--background` 那处一直是这么用的），浏览器自己重解，不需要 React 重渲染。
+- `src/modules/editor/EditorStack.tsx`, `src/modules/markdown/MarkdownPreviewPane.tsx`: `bg-background` removed in both — their parent is the panel (`.verta-pane`), which already paints `--background` under opaque themes (appearance unchanged) and paints its own tint under glass themes, which those two layers were completely covering (measured: 66% of the window area was solid `--background`).
+
+**The two hints at the bottom of the command block: one was fake, one missed translation**
+
+- `src/modules/i18n/messages.ts`, `src/modules/terminal/block/ShellInput.tsx`: the "`{shortcut} 切换到 AI`" part of the input block placeholder is removed — **nothing** in the repository binds that chord (`Ctrl+U` exists neither in the shortcut table nor in the terminal keymap), so it advertised a shortcut that does not exist; the `fmtShortcut` interpolation goes with it.
+- `src/app/components/WorkspaceInputBar.tsx`, `src/modules/i18n/messages.ts`: the hint in plain mode was hardcoded English (`Type directly in the terminal`, one spot missed in the i18n pass); it now uses the key `term.typeDirectly` (Chinese and English).
+
+**Preview page and commit graph: no longer carry their own color schemes**
+
+- `src/modules/preview/PreviewPane.tsx`: the preview page background was hardcoded `bg-white` (painted as soon as the address bar holds a URL), a blank white sheet under dark themes; it now follows the theme (`bg-background`). Colors of the previewed page itself are unchanged.
+- `src/modules/git-history/lib/graph.ts`: the commit graph lane colors were a hardcoded palette (blue-400 / purple-400 / amber-400 …) that did not change with the theme; they now come from the theme's own terminal palette (`var(--terminal-ansi-*)`) — every theme fills in those 16 colors, which are already a set made to be told apart, so the graph now recolors with the theme. The rail is still drawn with `var()` as before (that is how `--background` has always been used there); the browser re-resolves it, no React re-render needed.
 
 </details>
 
 <details>
 <summary><strong>2026-10-22</strong></summary>
 
-**主题：默认主题改名 Terax，新增「Verta」「亚克力」与「碳纤维」**
+**Themes: default theme renamed to Terax, plus new "Verta", "Acrylic" and "Carbon Fiber"**
 
-- `src/modules/theme/themes/verta-default.ts`：只把显示名从 `Verta Default` 改成 `Terax`（`id` 仍是 `verta-default`，颜色还在 `styles/globals.css`）。
-- `src/modules/theme/themes/verta.ts`、`src/modules/theme/themes/acrylic.ts`、`src/modules/theme/themes/pattern-base.ts`：新增三个主题（都带深色与浅色两套，并排在设置页最前面）—— Verta 照应用图标做黑白；亚克力用 Windows 11 的原生亚克力材质，桌面真的透进来；碳纤维是石墨底加细蜂窝网格，面板实心不透明。
-- `src/modules/theme/themes/themeNames.ts`：新增，主题名与说明的中文；原有主题也一并覆盖（Dracula / Nord 这类专名保留不翻）。
-- `src/modules/theme/types.ts`、`applyTheme.ts`、`validateTheme.ts`：主题多两项可选配置 ——「表面层」（底色、纹理、不透明度、混合方式）与「玻璃」（框架与面板的透明度、高光强度、是否连桌面一起透）；自定义主题 JSON 也认这两块。
-- `src/modules/theme/SurfaceLayer.tsx`、`src/styles/globals.css`：界面最底下多一个专门画表面层的元素，没纹理的主题里它不显示，也不挡任何内容；设置窗口同样铺满。
-- `src-tauri/src/modules/vibrancy.rs`、`src/modules/theme/vibrancy.ts`、`src/modules/theme/WindowVibrancyBridge.tsx`：窗口背景材质多一种「亚克力」（Windows 的 `DWMSBT_TRANSIENTWINDOW`，比 Mica 更透桌面），由主题自己声明，不用手动去设置里开。
-- `src/settings/sections/ThemesSection.tsx`、`src/settings/components/LspInstallDialog.tsx`、`src/modules/i18n/messages.ts`：主题设置里的「模糊」与语言服务器对话框里的「检测中… / 再检测一次」原来是写死的英文，改成中文文案（跟随界面语言）。
+- `src/modules/theme/themes/verta-default.ts`: only the display name goes from `Verta Default` to `Terax` (`id` stays `verta-default`, the colors stay in `styles/globals.css`).
+- `src/modules/theme/themes/verta.ts`, `src/modules/theme/themes/acrylic.ts`, `src/modules/theme/themes/pattern-base.ts`: three new themes (each with a dark and a light variant, listed first on the settings page) — Verta is black and white after the app icon; Acrylic uses the native Windows 11 acrylic material, with the desktop really showing through; Carbon Fiber is a graphite base with a fine honeycomb grid and solid, opaque panels.
+- `src/modules/theme/themes/themeNames.ts`: new, the Chinese theme names and descriptions; the existing themes are covered too (proper names such as Dracula / Nord stay untranslated).
+- `src/modules/theme/types.ts`, `applyTheme.ts`, `validateTheme.ts`: themes gain two optional blocks — "surface layer" (base color, texture, opacity, blend mode) and "glass" (frame and panel opacity, highlight strength, whether the desktop shows through too); custom theme JSON accepts both as well.
+- `src/modules/theme/SurfaceLayer.tsx`, `src/styles/globals.css`: one more element at the very bottom of the UI dedicated to drawing the surface layer; it is not displayed in themes without a texture and does not block anything; it covers the settings window as well.
+- `src-tauri/src/modules/vibrancy.rs`, `src/modules/theme/vibrancy.ts`, `src/modules/theme/WindowVibrancyBridge.tsx`: the window background material gains an "acrylic" option (Windows' `DWMSBT_TRANSIENTWINDOW`, showing more of the desktop than Mica), declared by the theme itself rather than turned on manually in settings.
+- `src/settings/sections/ThemesSection.tsx`, `src/settings/components/LspInstallDialog.tsx`, `src/modules/i18n/messages.ts`: "blur" in the theme settings and "checking… / check again" in the language server dialog were hardcoded English and are now Chinese copy (following the UI language).
 
-**会话列表：默认全部放一块按时间排，也可以按 agent 分段**
+**Session list: everything in one block sorted by time by default, or grouped by agent**
 
-- `src/modules/launcher/lib/sessionGroups.ts`：新增，分组与排序规则（分段顺序跟着工具顺序走，不在列表里的工具名也照样列出来）。
-- `src/modules/launcher/components/LauncherPanel.tsx`：搜索框下加「全部 / 按 agent」切换，默认「全部」。
+- `src/modules/launcher/lib/sessionGroups.ts`: new, the grouping and sorting rules (section order follows the tool order, and tool names missing from the list are still listed).
+- `src/modules/launcher/components/LauncherPanel.tsx`: an "all / by agent" toggle under the search box, defaulting to "all".
 
-**会话的轮数与「最后对话时间」读不到今天的数据（新版 opencode 换了存储表）**
+**Session round count and "last conversation time" could not see today's data (newer opencode switched its storage tables)**
 
-- `src-tauri/src/modules/agent_sessions/opencode.rs`：消息改从新表 `session_message` 读（新版 opencode 把消息写在这里，旧表 `message` 早已停止更新，只读旧表就看不到最近几天的对话），没有新表时才退回旧表；轮数改成数用户消息（原来数的是消息总数，助手一轮要发好几条），消息被清空但 tokens 还在的会话按 tokens 估算轮数；tokens 原先在各项全为空时被算成 0，一并修正。
-- `src-tauri/src/modules/agent_sessions/wsl.rs`：发行版里那条查询同步改。
-- `src/modules/launcher/lib/sessionStats.ts`：最后对话时间细化成「刚刚 / N 分钟前 / 1·3·6·12 小时前 / 昨天 / 前天 / 具体日期」。
+- `src-tauri/src/modules/agent_sessions/opencode.rs`: messages are read from the new `session_message` table (newer opencode writes messages there; the old `message` table stopped being updated long ago, so reading only the old table misses the last few days of conversation), falling back to the old table only when the new one is absent; the round count now counts user messages (it used to count all messages, and the assistant sends several per round), and sessions whose messages were cleared but whose tokens remain get an estimated round count from the tokens; tokens were also computed as 0 when every field was empty, fixed here too.
+- `src-tauri/src/modules/agent_sessions/wsl.rs`: the equivalent query inside a distro changed the same way.
+- `src/modules/launcher/lib/sessionStats.ts`: last conversation time refined to "just now / N minutes ago / 1·3·6·12 hours ago / yesterday / day before yesterday / concrete date".
 
-**会话列表：行上改显示轮数 / tokens / 最后对话日，右键可复制与改名**
+**Session list: rows show rounds / tokens / last conversation date, context menu copies and renames**
 
-- `src-tauri/src/modules/agent_sessions/stats.rs`：新增，会话统计的纯逻辑（pi 的 usage 怎么折成 tokens、一个都没有时是「不知道」而不是 0）。
-- `src-tauri/src/modules/agent_sessions/opencode.rs`、`pi.rs`、`wsl.rs`、`types.rs`、`mod.rs`：列表多带轮数、tokens、最后对话时间（取不到就是 null）；新增 `agent_sessions_rename` 命令（opencode 改 `title` 一列，pi 追加一行 `session_info`，都不碰别的字段）。
-- `src/modules/launcher/components/SessionList.tsx`、`components/LauncherPanel.tsx`：行上不再显示路径，改成「N 轮 · tokens · 最后对话日」；右键菜单给复制绝对路径 / 相对路径 / 会话 id 与就地改名。
-- `src/modules/launcher/lib/sessionStats.ts`、`lib/sessionPaths.ts`：新增，前者是三个数字的展示规则（一万以上折成「万」），后者算相对工作区的路径。
+- `src-tauri/src/modules/agent_sessions/stats.rs`: new, the pure logic of session statistics (how pi's usage folds into tokens, and "unknown" rather than 0 when there is none).
+- `src-tauri/src/modules/agent_sessions/opencode.rs`, `pi.rs`, `wsl.rs`, `types.rs`, `mod.rs`: the list also carries rounds, tokens and last conversation time (null when unavailable); new `agent_sessions_rename` command (opencode rewrites the `title` column, pi appends a `session_info` line, neither touches any other field).
+- `src/modules/launcher/components/SessionList.tsx`, `components/LauncherPanel.tsx`: rows no longer show the path but "N rounds · tokens · last conversation date"; the context menu offers copying the absolute path / relative path / session id and renaming in place.
+- `src/modules/launcher/lib/sessionStats.ts`, `lib/sessionPaths.ts`: new; the former holds the display rules for the three numbers (ten thousand and above folded to "万"), the latter computes the path relative to the workspace.
 
-**会话名读不到（Pi 长会话改名后列表还是旧名字）**
+**Session name unreadable (a renamed long Pi session still showed its old name in the list)**
 
-- `src-tauri/src/modules/agent_sessions/pi.rs`：名字不再只从文件头 8 MB 找 —— 长会话里改名那行可能在几十 MB 之后；改成从文件末尾往回搜，取最后一个名字。
+- `src-tauri/src/modules/agent_sessions/pi.rs`: the name is no longer looked for only in the first 8 MB of the file — in a long session the rename line can sit tens of MB in; it now searches backwards from the end of the file and takes the last name.
 
-**设置窗口：关掉再打开不再重建整个 webview**
+**Settings window: closing and reopening no longer rebuilds the whole webview**
 
-- `src-tauri/src/lib.rs`：设置窗口收到关闭请求时改成 `prevent_close()` + `hide()`，下次打开直接复用（原来它会销毁 webview，每次点设置都要重新加载一遍设置页，慢到被当成 bug 报上来）。主窗口不可见或退出时仍按原逻辑销毁。
+- `src-tauri/src/lib.rs`: on a close request the settings window now does `prevent_close()` + `hide()` and is reused on the next open (it used to destroy the webview, so every click on Settings reloaded the settings page — slow enough to be reported as a bug). It is still destroyed per the original logic when the main window is hidden or exits.
 
-**Issues / PR：合并前锁住 head sha、检查超过 100 条会翻页、列表几个小毛病**
+**Issues / PR: lock the head sha before merging, page through more than 100 checks, a few list fixes**
 
-- `src-tauri/src/modules/github/commands.rs`：合并 PR 带上确认框打开时那条 PR 的 head sha（`sha` 字段）—— 你点确认到请求落地之间别人又推了提交的话，GitHub 回 409，我们把原文透出来，不会把没看过的提交一起合掉；`check-runs` 超过 100 条时按页取（最多 10 页），取完再一起数。
-- `src-tauri/src/modules/github/issues.rs`：新增 `head_sha_problem`（空的允许，给了值必须是 40 位十六进制）、`summarize_check_pages`（多页合并后只算一次状态，少拿仍是 `partial`）、`checks_page_path` / `checks_have_more` / `count_check_runs`。
-- `src/lib/native.ts`、`src/modules/remotes/IssuesDialog.tsx`：合并时把 head sha 从详情带进去；列表请求加序号，切「打开 / 已关闭」时慢响应不会盖掉新结果；空态按当前筛选说人话（「只看打开的」「只看已关闭的」「哪里都没有」）。
-- `src/modules/remotes/lib/issues.ts`：关键字里带 `#` 也能按编号搜（`#20` 与 `20` 等价）。
-- `src/modules/command-palette/commands.ts`、`src/modules/command-palette/types.ts`、`src/modules/i18n/messages.ts`：命令面板里禁用原因原来写死英文（`Last tab` / `Pane limit` / `No workspace root`），改成 i18n 键，中文界面不再蹦英文。
+- `src-tauri/src/modules/github/commands.rs`: the PR merge carries the head sha of the PR as it was when the confirmation dialog opened (the `sha` field) — if somebody pushes commits between your confirmation and the request landing, GitHub answers 409 and the raw text is surfaced, so commits you never saw are not merged along; `check-runs` above 100 entries are fetched page by page (up to 10 pages) and counted once all are in.
+- `src-tauri/src/modules/github/issues.rs`: new `head_sha_problem` (empty is allowed, a given value must be 40 hex digits), `summarize_check_pages` (state computed once over the merged pages, still `partial` when pages are missing), `checks_page_path` / `checks_have_more` / `count_check_runs`.
+- `src/lib/native.ts`, `src/modules/remotes/IssuesDialog.tsx`: the head sha is carried from the detail into the merge; list requests are numbered so a slow response does not overwrite newer results when switching "open / closed"; the empty state speaks to the current filter ("only open ones", "only closed ones", "none at all").
+- `src/modules/remotes/lib/issues.ts`: a keyword containing `#` still searches by number (`#20` equals `20`).
+- `src/modules/command-palette/commands.ts`, `src/modules/command-palette/types.ts`, `src/modules/i18n/messages.ts`: the disabled reasons in the command palette were hardcoded English (`Last tab` / `Pane limit` / `No workspace root`) and are now i18n keys, so the Chinese UI stops popping English.
 
-**GitHub 面板：检查状态不再「假绿」，合并被拦的理由不再写死中文**
+**GitHub panel: check status is no longer falsely green, and the merge-blocked reason is no longer hardcoded Chinese**
 
-- `src-tauri/src/modules/github/commands.rs`：取 `check-runs` 时显式带 `per_page=100`（GitHub 默认一页只有
-  30 条）。一页 40 个检查只看到前 30 个，界面就会把「没看完」当成「全通过」。
-- `src-tauri/src/modules/github/issues.rs`：`parse_checks` 记下 `truncated`（拿到的条数少于 `total_count`）；
-  `check_state` 多一个 `partial` —— **只看到一部分、而被看到的那部分又全绿时不再报 `pass`**（看到失败、
-  或还有在跑的，照旧优先报 `fail` / `pending`）。`merge_block_reason` 改名 `merge_block_code`，不再返回
-  中文句子，改返回原因码（`merged` / `closed` / `draft` / `conflict` / `computing` / `unknown`）。
-- `src-tauri/src/modules/github/types.rs`：`CheckSummary` 增 `truncated`；`merge_blocked_reason` 改名
-  `merge_blocked`（内容是原因码，不再是可以直接画上屏幕的句子）。
-- `src/lib/native.ts`、`src/modules/remotes/lib/issues.ts`：wire 与映射跟上；`mergeBlocked()` 直通原因码，
-  `checkTone` 接受 `partial`（给中性色，不给绿）。
-- `src/modules/remotes/IssueDetail.tsx`：合并被拦的那句话从「后端中文串直出」改成按码走 i18n。
-- `src/modules/i18n/messages.ts`：新增 `remotes.issues.checks.partial` 与 `remotes.issues.mergeBlocked.*`
-  六条键（中英两份）。
+- `src-tauri/src/modules/github/commands.rs`: fetching `check-runs` now passes `per_page=100` explicitly (GitHub's default page holds only
+  30 entries). With 40 checks on a page only the first 30 are seen, and the UI takes "not all seen" for "all passed".
+- `src-tauri/src/modules/github/issues.rs`: `parse_checks` records `truncated` (fewer entries received than `total_count`);
+  `check_state` gains a `partial` — **when only part was seen and the part that was seen is all green it no longer reports `pass`** (a
+  seen failure, or something still running, still takes precedence as `fail` / `pending`). `merge_block_reason` is renamed `merge_block_code` and no
+  longer returns a Chinese sentence but a reason code (`merged` / `closed` / `draft` / `conflict` / `computing` / `unknown`).
+- `src-tauri/src/modules/github/types.rs`: `CheckSummary` gains `truncated`; `merge_blocked_reason` is renamed
+  `merge_blocked` (its content is the reason code, no longer a sentence that can be painted straight onto the screen).
+- `src/lib/native.ts`, `src/modules/remotes/lib/issues.ts`: wire and mapping follow; `mergeBlocked()` passes the reason code through,
+  `checkTone` accepts `partial` (a neutral color, not green).
+- `src/modules/remotes/IssueDetail.tsx`: the merge-blocked sentence is no longer the backend's Chinese string shown verbatim but goes through i18n by code.
+- `src/modules/i18n/messages.ts`: new `remotes.issues.checks.partial` and `remotes.issues.mergeBlocked.*`,
+  six keys (Chinese and English).
 
-**亚克力主题：终端底色可透明，设置窗口一并切换窗口材质**
+**Acrylic theme: terminal background can be transparent, and the settings window switches window material too**
 
-- `src/modules/terminal/ghostty/gpu/terminalVisuals.ts`、`gpu/ScreenUniform.ts`、`gpu/WebGpuTerminalSurface.ts`、`gpu/WebGpuWindowCanvas.ts`、`gpu/WebGpuTerminalRuntime.ts`、`gpu/shaders.ts`：终端底色支持透明。主题把 `terminal.background` 写成带 alpha 的颜色时，终端画布按该 alpha 清屏（画布的 alpha 模式随面板的主题底色切换）；两个着色器改为预乘输出，字形管线的混合状态同步（不透明时结果与原来一致）。**应用自己设的底色 —— TUI 色块、选中、搜索命中、下划线 —— 仍为不透明**，不受主题的透明影响；终端首帧之前的占位底色在透明主题下也不再画成实心。
-- `src/modules/theme/themes/acrylic.ts`：终端底色改为全透（玻璃覆盖到终端区域），面板与框架的色调调薄一档，名字与说明改为英文。
-- `src/settings/SettingsApp.tsx`：设置窗口补上切换窗口背景材质的组件（原先未渲染它，主窗口为亚克力时设置窗口不是）。
-- `src/styles/globals.css`：设置窗口的根节点原来写死 `--background`（不透明），与主窗口 `#root` 用的 `--frame` 不一致 —— 主窗口透明时它仍是一块不透明底色。现在窗口可能透出背后内容时（原生材质 / 玻璃主题）走同一套分层：根节点取 `--frame`，整块 `.settings-shell` 取面板的色调。
+- `src/modules/terminal/ghostty/gpu/terminalVisuals.ts`, `gpu/ScreenUniform.ts`, `gpu/WebGpuTerminalSurface.ts`, `gpu/WebGpuWindowCanvas.ts`, `gpu/WebGpuTerminalRuntime.ts`, `gpu/shaders.ts`: the terminal background supports transparency. When a theme writes `terminal.background` as a color with alpha, the terminal canvas clears to that alpha (the canvas alpha mode follows the panel's theme background); the two shaders output premultiplied and the glyph pipeline's blend state follows (identical results while opaque). **Colors the app itself sets — TUI blocks, selection, search hits, underlines — stay opaque** and are unaffected by theme transparency; the placeholder background before the terminal's first frame is no longer painted solid under transparent themes either.
+- `src/modules/theme/themes/acrylic.ts`: terminal background made fully transparent (glass covers the terminal area), panel and frame tints thinned by one step, name and description switched to English.
+- `src/settings/SettingsApp.tsx`: the settings window now renders the component that switches the window background material (it was not rendered, so the settings window was not acrylic while the main window was).
+- `src/styles/globals.css`: the settings window root hardcoded `--background` (opaque), inconsistent with `--frame` used by `#root` in the main window — so it stayed an opaque block while the main window was transparent. When the window can show what is behind it (native material / glass theme) it now uses the same layering: the root takes `--frame`, and the `.settings-shell` block takes the panel tint.
 
-**亚克力材质：改用可调色调的磨砂**
+**Acrylic material: switch to a blur with an adjustable tint**
 
-- `src-tauri/src/modules/vibrancy.rs`、`src-tauri/Cargo.toml`：亚克力不再用 DWM 的 `DWMSBT_TRANSIENTWINDOW`，改用 `ACCENT_ENABLE_ACRYLICBLURBEHIND`。前者按微软文档即为该材质「最亮的那一档」，实测材质本身是一块**均匀的浅灰**（窗内像素无变化，桌面完全透不上来），加 `DWMWA_USE_IMMERSIVE_DARK_MODE` 也压不动；后者模糊的是窗口背后真实的内容，色调与不透明度由我们给出，主题的 `glass` 色调再叠在其上。该属性未公开，故运行时从 `user32.dll` 取地址，取不到则退回 Mica；`windows-sys` 相应补上 `Win32_Graphics_Dwm` 与 `Win32_System_LibraryLoader`。
+- `src-tauri/src/modules/vibrancy.rs`, `src-tauri/Cargo.toml`: acrylic no longer uses DWM's `DWMSBT_TRANSIENTWINDOW` but `ACCENT_ENABLE_ACRYLICBLURBEHIND`. Per Microsoft's documentation the former is the "brightest step" of that material, and in practice the material itself is a **uniform light gray** (window pixels do not vary, the desktop does not show through at all), and adding `DWMWA_USE_IMMERSIVE_DARK_MODE` does not push it; the latter blurs the real content behind the window, with the tint and opacity supplied by us and the theme's `glass` tint layered on top. That attribute is undocumented, so its address is taken from `user32.dll` at runtime and Mica is the fallback when it cannot be resolved; `windows-sys` gains `Win32_Graphics_Dwm` and `Win32_System_LibraryLoader` accordingly.
 
-**窗口圆角：不再露出直角的材质**
+**Window corners: no more square-cornered material showing through**
 
-- `src-tauri/src/modules/vibrancy.rs`：切换窗口材质时一并设 `DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND`。材质铺满整个窗口矩形，窗口本身不做圆角时，四个圆角之外各留一块直角的材质。
-- `src/styles/globals.css`：窗口圆角抽成 `--window-radius: 8px`，与 DWM 的 `DWMWCP_ROUND` 对齐 —— CSS 圆角大于它时，角上会余出一条月牙形的材质。
+- `src-tauri/src/modules/vibrancy.rs`: switching the window material also sets `DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND`. The material covers the entire window rectangle, so without rounding on the window itself a square patch of material is left outside each of the four corners.
+- `src/styles/globals.css`: the window corner radius is extracted into `--window-radius: 8px`, aligned with DWM's `DWMWCP_ROUND` — a larger CSS radius leaves a crescent of material at the corners.
 
-**主题名与说明：亚克力 / 碳纤维 改用英文名**
+**Theme names and descriptions: Acrylic / Carbon Fiber use English names**
 
-- `src/modules/theme/themes/themeNames.ts`、`themes/acrylic.ts`、`themes/pattern-base.ts`：Acrylic 与 Carbon Fiber 采用英文名（与 Dracula 等专名同例，指的是材质本身），中文说明保留，亚克力的说明改为描述效果。
+- `src/modules/theme/themes/themeNames.ts`, `themes/acrylic.ts`, `themes/pattern-base.ts`: Acrylic and Carbon Fiber use English names (same rule as proper names such as Dracula; they refer to the material itself), the Chinese descriptions stay, and the acrylic description now describes the effect.
 
-**快捷键：两个搜索入口都搜得到「关闭标签页」了**
+**Shortcuts: "close tab" is findable from both search entry points**
 
-- `src/settings/sections/ShortcutsSection.tsx`：快捷键列表的搜索原来拿**没翻译的 key** 比对（标签 `shortcut.closeTabOrPane`、分组 id `Tabs`），中文界面上搜「终端」「关闭」「标签」一律是空白页，只有 `tab` 这类英文能偶然命中。改成比屏幕上看得见的东西（翻译后的标签与分组名）并加上键位本身（`Ctrl+W`），两种语言都能搜。
-- `src/modules/shortcuts/shortcuts.ts`、`src/modules/shortcuts/index.ts`：新增 `SHORTCUT_ALIASES`（搜索别名，界面上不画）—— 关闭标签页这条认「终端 / 删除 / 关闭 / 标签 / 面板 / terminal / close」等说法。该行标题写的是「关闭标签页或面板」，而用户脑子里叫它「终端」，只比标题永远搜不到。
-- `src/modules/command-palette/CommandPalette.tsx`、`commands.ts`：命令面板的模糊匹配按 `shortcutId` 把这组别名一并算进去，两个入口共用同一处别名。
-- `scripts/dev/cdp-key.mjs`：原来只认 6 个具名键（注释里那条「用数字发 Ctrl+C」其实是错的），现在支持 `Ctrl+W` 这类组合键与任意字母/数字，并可用 `--match` 指定页面（设置窗口是另一个 page，默认会挑错）。
+- `src/settings/sections/ShortcutsSection.tsx`: the shortcut list search compared against **untranslated keys** (label `shortcut.closeTabOrPane`, group id `Tabs`), so in the Chinese UI searching "终端", "关闭" or "标签" gave an empty page and only English like `tab` matched by chance. It now compares what is visible on screen (translated labels and group names) and adds the chord itself (`Ctrl+W`), so both languages work.
+- `src/modules/shortcuts/shortcuts.ts`, `src/modules/shortcuts/index.ts`: new `SHORTCUT_ALIASES` (search aliases, not drawn in the UI) — close-tab accepts "终端 / 删除 / 关闭 / 标签 / 面板 / terminal / close" and the like. The row is titled "close tab or pane" while users call it "terminal", and comparing titles alone will never find it.
+- `src/modules/command-palette/CommandPalette.tsx`, `commands.ts`: the command palette's fuzzy match folds this alias set in by `shortcutId`, so both entry points share one set of aliases.
+- `scripts/dev/cdp-key.mjs`: it used to accept only 6 named keys (the comment claiming you could send Ctrl+C with a digit was wrong); it now supports chords like `Ctrl+W` and any letter/digit, and `--match` selects the page (the settings window is a different page, and the default would pick the wrong one).
 
-**没有 WebGPU 的机器上终端是一块死黑（WebGL 回退路径漏改）**
+**On machines without WebGPU the terminal is dead black (the WebGL fallback path was missed)**
 
-- `src/modules/terminal/ghostty/webgl/WebGlCellRenderer.ts`：这条回退路径建 `webgl2` 上下文时用的是 `alpha: false`，清屏色的 alpha 写死 1，两段片元着色器输出非预乘色、字形混合用 `SRC_ALPHA`。于是主题把终端底色写成透明（亚克力）时，画布仍然是不透明的一块 —— 拿不到 WebGPU 适配器的机器上终端永远透不出桌面。现在上下文带 alpha 且预乘；清屏色按主题的 `backgroundAlpha` 预乘给出（默认底色不画矩形，清屏色就是终端底色本身）；两段片元着色器改预乘输出、混合改 `ONE`。alpha 为 1 时与原来完全等价，不透明主题不受影响。
-- `src/modules/terminal/ghostty/webgl/WebGlTerminalSurface.ts`：根元素的占位底色在主题半透明时改成 `transparent`（与 WebGPU 那条路一致），不再一律铺不透明主题色。
-- `VERTA.md`：把「WebGL 回退有一块不透明底色」那句改成描述新的预乘 alpha 行为。
+- `src/modules/terminal/ghostty/webgl/WebGlCellRenderer.ts`: this fallback path created its `webgl2` context with `alpha: false`, hardcoded the clear color's alpha to 1, had both fragment shaders output non-premultiplied colors, and blended glyphs with `SRC_ALPHA`. So when a theme made the terminal background transparent (acrylic), the canvas stayed an opaque block — on machines that get no WebGPU adapter the terminal can never show the desktop. The context now has alpha and premultiplied; the clear color is given premultiplied from the theme's `backgroundAlpha` (with the default background no rectangle is drawn, so the clear color is the terminal background itself); both fragment shaders output premultiplied and blending uses `ONE`. With alpha 1 this is exactly equivalent to before, so opaque themes are unaffected.
+- `src/modules/terminal/ghostty/webgl/WebGlTerminalSurface.ts`: the root element's placeholder background becomes `transparent` when the theme is translucent (matching the WebGPU path) instead of always painting an opaque theme color.
+- `VERTA.md`: the sentence about the WebGL fallback having an opaque block now describes the new premultiplied alpha behavior.
 
-**标签页：项目列表那个标签改叫「本地项目」**
 
-- `src/modules/i18n/messages.ts`：`tabs.new.projects` 从「项目 / Projects」改成「本地项目 / Local projects」，与另一个标签「远程仓库」对仗。这一个键同时决定标签页标题和标签栏「+」菜单里的那一项，两处一起变。
+**Tabs: the project list tab is now called "local projects"**
 
-**预览窗与「新建文件」对话框接上 i18n**
+- `src/modules/i18n/messages.ts`: `tabs.new.projects` goes from "项目 / Projects" to "本地项目 / Local projects", mirroring the other tab "远程仓库". This single key drives both the tab title and the item in the tab bar's "+" menu, so both change together.
 
-- `src/modules/preview/PreviewPane.tsx`：空状态那两句、`Preview suspended` 那句与 `Reload` 按钮原来都写死在 JSX 里；现在走 `preview.empty.*`、`preview.suspended.*` 与已有的 `preview.reload`。空状态正文里那个 `Ports` 小圆角芯片拆成前后两段（`preview.empty.before` / `.after`）夹住，中英两边读起来都顺。
-- `src/modules/preview/PreviewAddressBar.tsx`：地址栏上的 `Ports` 标签改走 `preview.ports`。
-- `src/modules/editor/NewEditorDialog.tsx`：标题复用 `explorer.newFile`，说明与「请填文件名 / 只能是相对路径」两条校验提示新增 `editor.newFile.*`，取消与创建复用其它对话框在用的 `scm.common.cancel` / `scm.common.create`，「没有工作区根目录」复用命令面板那条 `cmd.noWorkspaceRoot`。校验提示存的是**键**而不是句子（对话框开着时切语言也跟着变），后端抛回来的原始错误串照旧原样显示。
-- `src/modules/i18n/messages.ts`：上述新增 9 条键（中英两份，集中插在同一处，减少与另一会话的冲突面）。
+**Preview pane and the "new file" dialog hooked up to i18n**
 
-**关闭确认框：五个对话框的文案接上 i18n**
+- `src/modules/preview/PreviewPane.tsx`: the two empty-state sentences, the `Preview suspended` sentence and the `Reload` button were all hardcoded in JSX; they now go through `preview.empty.*`, `preview.suspended.*` and the existing `preview.reload`. The little rounded `Ports` chip inside the empty-state body is split into a before and an after segment (`preview.empty.before` / `.after`) wrapped around it, so both Chinese and English read naturally.
+- `src/modules/preview/PreviewAddressBar.tsx`: the `Ports` label in the address bar goes through `preview.ports`.
+- `src/modules/editor/NewEditorDialog.tsx`: the title reuses `explorer.newFile`, the description and the two validation messages ("please enter a file name / relative path only") gain `editor.newFile.*`, cancel and create reuse `scm.common.cancel` / `scm.common.create` as the other dialogs do, and "no workspace root" reuses the command palette's `cmd.noWorkspaceRoot`. The validation messages store **keys** rather than sentences (so switching language while the dialog is open follows along); raw error strings thrown back by the backend are still shown verbatim.
+- `src/modules/i18n/messages.ts`: the 9 new keys above (Chinese and English, inserted together in one place to keep the conflict surface with another session small).
 
-- `src/app/components/CloseDialogs.tsx`：五个确认框（未保存的文件、终端里还有进程、文件已被删除、关闭右侧 / 关闭其他标签页、退出应用）原来文案全写死在 JSX 里；现在全走 `closeDialog.*`，标题复用 `tabs.unsaved` / `tabs.closeRight` / `tabs.closeOthers`，取消复用 `scm.common.cancel`。消息表没有复数规则，所以改成「按数量选键、片段也进表」：两个构造器（`appCloseMessage` / `closeManyMessage`）只返回 `{键, 参数}`，句子与片段（`closeDialog.frag.*`）都在表里，中英各自读得顺、不必引入复数引擎。
-- `src/modules/i18n/messages.ts`：新增 29 条键（中英两份）。
+**Close dialogs: copy of the five dialogs hooked up to i18n**
 
-**右栏源码管理不跟项目走（删 Spaces 时把「钉住的仓库」改粗了）**
+- `src/app/components/CloseDialogs.tsx`: the five confirmation dialogs (unsaved files, processes still running in a terminal, file already deleted, close to the right / close other tabs, quit the app) had all their copy hardcoded in JSX; it now all goes through `closeDialog.*`, with titles reusing `tabs.unsaved` / `tabs.closeRight` / `tabs.closeOthers` and cancel reusing `scm.common.cancel`. The message table has no plural rules, so this is done as "pick the key by count, and put the fragments in the table too": the two builders (`appCloseMessage` / `closeManyMessage`) return only `{ key, params }`, while the sentences and fragments (`closeDialog.frag.*`) live in the table, so Chinese and English each read naturally without pulling in a plural engine.
+- `src/modules/i18n/messages.ts`: 29 new keys (Chinese and English).
 
-- `src/modules/source-control/repositoryTarget.ts`：钉住的仓库原来按**环境**分开记（本机一个、某个发行版一个）。删掉空间之前它是按空间记的，而空间就是一个项目根 —— 改成按环境记之后，同一个环境里换项目（根变了）钉子还钉在上一个项目的仓库上，右栏的改动列表与提交图就停在老仓库，看起来正是「切到项目却没跟着切」。改成按**工作区根**（环境 + 根路径）记，与资源管理器 `useFileTree` 的 scopeKey 同一种做法；新增 `repositoryTargetScope` 负责这层拼装。
-- `src/app/App.tsx`、`src/modules/source-control/index.ts`：用新的 scope 键；`isRepositoryContextCurrent` 只再校验「环境没变」（拼装格式由 `repositoryTargetScope` 保证）。
-- `src/modules/source-control/repositoryTarget.test.ts`：三条用例改成断言「按根分桶」，并新增一条把用户报的现象立成回归测试（同一环境换项目 ⇒ 回到跟随上下文）。
+**The source control panel on the right does not follow the project (deleting Spaces made "pinned repository" too coarse)**
 
-**截图覆盖窗口读不到偏好（权限没给）**
+- `src/modules/source-control/repositoryTarget.ts`: the pinned repository used to be recorded per **environment** (one for the host, one per distro). Before Spaces were removed it was recorded per space, and a space was a project root — after the switch to per environment, changing project within the same environment (the root changed) left the pin on the previous project's repository, so the changes list and commit graph in the right panel stayed on the old repository, which looks exactly like "switched project but nothing followed". It is now recorded per **workspace root** (environment + root path), the same approach as `useFileTree`'s scopeKey in the explorer; new `repositoryTargetScope` does that assembly.
+- `src/app/App.tsx`, `src/modules/source-control/index.ts`: use the new scope key; `isRepositoryContextCurrent` now only re-checks that the environment has not changed (the assembly format is guaranteed by `repositoryTargetScope`).
+- `src/modules/source-control/repositoryTarget.test.ts`: three cases now assert "bucketed by root", plus a new case turning the reported symptom into a regression test (changing project in the same environment ⇒ follows the context again).
 
-- `src-tauri/capabilities/screenshot.json`：截图覆盖窗口的前端要读偏好（按当前主题给选框、把手、操作条上色），但这个能力文件当初只给了 `core:default` 与事件监听，于是每次开截图都掉一条 `store.load not allowed on window "screenshot"`，窗口里的兜底「脚本崩了就自己收起来」也跟着走了一遍。补上 `store:default`（与主窗口一致），并把说明改准确：它既监听 arm 事件，也读偏好。
+**The screenshot overlay window cannot read its preferences (permission not granted)**
 
-**界面文案长尾：标签名、源码管理面板、Git 历史面板**
+- `src-tauri/capabilities/screenshot.json`: the frontend of the screenshot overlay window needs to read preferences (to color the selection, handles and action bar per the current theme), but this capability file only granted `core:default` and event listening, so every screenshot produced `store.load not allowed on window "screenshot"` and the window's "hide myself if the script crashes" fallback ran its course too. `store:default` is added (matching the main window), and the description now states it accurately: it listens for the arm event and also reads preferences.
 
-- `src/modules/tabs/lib/useTabs.ts`：标签兜底名原来是纯函数里硬拼的英文 —— 提交历史的标题（`History · {分支}` / `Git History`）、预览标签按 url 取名失败时的 `preview`、终端与命令块标签的 `shell` / `blocks`。改成由 hook 用 `t(...)` 生成好再交给规划函数：`planCommitHistoryOpen` 现在收 `{ repoRoot, title }`，与 `planProjectsOpen` 同一种做法，规划函数保持纯的。`t` 在 `setTabs((t) => ...)` 里会被标签数组遮住，所以三条兜底文案在 hook 顶部先算成字符串，回调依赖字符串而不是 `t`。
-- `src/modules/tabs/lib/serialize.ts`、`useTabRestore.ts`：恢复标签时预览的兜底名也按语言给 —— 存盘的只有 url，名字是恢复那一刻算的。恢复只跑一次、不能因为换语言重跑，所以这里用 ref 读文案，而不是把它塞进 effect 的依赖。
-- `src/modules/tabs/lib/planCommitHistoryOpen.test.ts`：三条用例改成「标题由调用方给」，并新增一条断言规划器不自己造标题（给中文标题也原样带上）。
-- `src/modules/source-control/SourceControlPanel.tsx`：21 处文案接上 `t()`（分支下拉、状态、提交框、文件列表、右键菜单与丢弃确认）。提交框下那句 `to commit` 现在是「提交」，`Commit with {快捷键}.` 也进了表（快捷键本身是键名，不翻）。能复用既有 `scm.*` 键的都复用了，只新增确实缺的。
-- `src/modules/git-history/GitHistoryPane.tsx`、`lib/remoteWebUrl.ts`：34 处文案接上 `t()`（表头 提交 / 主题 / 作者 / 日期 / 改动、加载与空态、`Copy SHA` / `Copied`、作者兜底名、文件数句子与 `View on GitHub` 那一组按钮）。`normalizeError` 多收一个「已经翻好的兜底」形参，`hostLabel` 多收一组可传的文案（默认仍是英文，纯函数与既有单测不受影响）。
-- `src/modules/i18n/messages.ts`：新增 `tabs.preview` / `tabs.shell` / `tabs.blocks`、`gitHistory.*` 29 条、`scm.*` 18 条（中英两份）。
+**UI copy long tail: tab names, source control panel, Git history panel**
 
-**界面文案长尾（第二轮）：资源管理器、源码管理 hook 层、设置页与外壳、终端与编辑器、更新 / LSP / 预览**
+- `src/modules/tabs/lib/useTabs.ts`: fallback tab names used to be English hardcoded inside pure functions — the commit history title (`History · {branch}` / `Git History`), `preview` when naming a preview tab by url fails, and `shell` / `blocks` for terminal and command block tabs. The hook now generates them with `t(...)` before handing them to the planning functions: `planCommitHistoryOpen` now takes `{ repoRoot, title }`, the same approach as `planProjectsOpen`, so the planners stay pure. `t` would be shadowed by the tab array inside `setTabs((t) => ...)`, so the three fallback strings are computed at the top of the hook and the callbacks depend on the strings rather than on `t`.
+- `src/modules/tabs/lib/serialize.ts`, `useTabRestore.ts`: the preview fallback name on restore is language-dependent too — only the url is persisted, and the name is computed at restore time. Restore runs once and must not re-run on a language switch, so the copy is read through a ref instead of being put into the effect's dependencies.
+- `src/modules/tabs/lib/planCommitHistoryOpen.test.ts`: three cases changed to "the title is supplied by the caller", plus a new case asserting the planner does not invent a title (a Chinese title is passed through as given).
+- `src/modules/source-control/SourceControlPanel.tsx`: 21 strings hooked up to `t()` (branch dropdown, status, commit box, file list, context menu and discard confirmation). The `to commit` line under the commit box is now "提交", and `Commit with {shortcut}.` is in the table too (the shortcut itself is a key name and is not translated). Existing `scm.*` keys were reused wherever possible; only genuinely missing ones were added.
+- `src/modules/git-history/GitHistoryPane.tsx`, `lib/remoteWebUrl.ts`: 34 strings hooked up to `t()` (table headers commit / subject / author / date / changes, loading and empty states, `Copy SHA` / `Copied`, the author fallback name, the file-count sentence and the `View on GitHub` button group). `normalizeError` takes one more parameter, an already-translated fallback, and `hostLabel` takes an optional set of strings (English by default, so the pure functions and existing unit tests are unaffected).
+- `src/modules/i18n/messages.ts`: new `tabs.preview` / `tabs.shell` / `tabs.blocks`, 29 `gitHistory.*` and 18 `scm.*` keys (Chinese and English).
 
-- `src/modules/explorer/**`（18 键）：顺手修了那个真 bug —— **搜索结果右键菜单里写死的 `Reveal in Finder`** 在 Windows 上也照显示。现在两处调用点（搜索结果菜单与文件 / 根右键菜单）都走平台分支 `IS_MAC ? t("explorer.revealFinder") : t("explorer.revealManager")`，跟 `SourceControlPanel` 的写法一致。搜索的空态与「只显示部分结果」、删除与拖放的项数、剪贴板与粘贴 / 复制 / 移动的失败 toast、重名替换确认都进了表。
-- `src/modules/source-control/useSourceControlPanel.ts`、`useRepositoryTargeting.ts`（11 键）：push 按钮 tooltip 的那四种 `pushHint`（原来在 hook 的 `useMemo` 里硬编码）、提交 / 推送后的反馈条、discard 确认里的「几个未暂存文件」、两条 toast，以及两个 `normalizeError` 的兜底（改成收「已经翻好的兜底」这个形参，照 `GitHistoryPane` 的写法）。`useSourceControl.ts` 里那处不能因为换语言重跑的地方用 ref 读文案，依赖数组一个没动。
-- `src/settings/sections/*`、`src/settings/components/LspInstallDialog.tsx`、`src/components/WindowControls.tsx`、`src/modules/statusbar/CwdBreadcrumb.tsx`（39 键）：字重与光标形状下拉、录制指示、主题导入失败、关于页更新按钮的八种状态、格式化器选择、LSP 安装对话框、窗口控制按钮的 `aria-label` 与提示、面包屑（主目录 / 没有目录 / 没有子文件夹）。
-- `src/modules/terminal/**`、`src/modules/editor/lib/useDocument.ts`（21 键）：终端无法显示 / 无法启动 / 会话保留那组错误态、区块的复制与查找、输入框占位（**双空格照原样保留** —— 那两处是刻意的间距）、输出暂停 / 失败 / 等待这三条 toast，以及保存冲突对话框。`lib/pty-bridge.ts` 里只翻了那四条 toast；invoke 命令名、协议字段与 `"running" | "stalled" | "failed"` 状态枚举一律不动（协议面）。该模块不是组件，所以新增可选参数 `notices`，由 hook 把当前语言的字符串传进来。
-- `src/modules/updater/UpdaterDialog.tsx`、`src/modules/lsp/**`、`src/modules/markdown/**`、`src/components/chat-code.tsx`（46 键）：更新对话框的八种状态、LSP 状态卡与崩溃 / 退出 / 启动失败 toast、文档扩展的 `LspSessionLabels`（模块级代码，照先例加参数递文案）、markdown 预览的加载 / 二进制 / 过大与「渲染 / 源码」切换、chat-code 的生成中 / 已发送 / 运行。
-- `src/modules/i18n/messages.ts`：新增 135 条键（中英两份）。能复用既有键的都复用了（`explorer.revealFinder`、`explorer.loading`、`scm.unknownError`、`lsp.stopped`、`common.copyCode` 等）；同一句「Retry」这类按仓库「每模块各自出键」的惯例留在各自模块里。
-- 顺手规范了两处破折号：设置页更新失败的 `Check failed — retry` 与 markdown 的 `Binary file — cannot render as markdown.` —— 原文用的是 U+2014，与仓库「No em-dash anywhere」的规矩冲突，改成连字符（只有这个字符变了，其它逐字不变）。
-- 明确**不翻**（都是没有消费方的死字符串、协议面或技术诊断）：`useSourceControlPanel.ts` 的 `statusLabel` 与 `stagedEmptyText` / `unstagedEmptyText`（全仓库无人读）、ghostty 渲染器的内部诊断串、`pty-bridge` 的协议字段与状态枚举、`block/lib/shellEditor.ts` 那个到不了的兜底占位（`ShellInput` 总会传 `placeholderText`）、工具专名与 `ms` / `px` 这类单位符号。
+**UI copy long tail (second round): explorer, source control hook layer, settings page and shell, terminal and editor, updater / LSP / preview**
 
-**界面文案长尾（第三轮）：全仓扫描补漏**
+- `src/modules/explorer/**` (18 keys): also fixed the real bug — the **hardcoded `Reveal in Finder` in the search results context menu** was shown on Windows too. Both call sites (the search results menu and the file / root context menus) now branch on platform, `IS_MAC ? t("explorer.revealFinder") : t("explorer.revealManager")`, matching how `SourceControlPanel` does it. The search empty state and "showing partial results", the delete and drag-and-drop item counts, the clipboard and paste / copy / move failure toasts, and the duplicate-name replace confirmation all went into the table.
+- `src/modules/source-control/useSourceControlPanel.ts`, `useRepositoryTargeting.ts` (11 keys): the four `pushHint` variants on the push button tooltip (previously hardcoded inside the hook's `useMemo`), the feedback bars after commit / push, "N unstaged files" in the discard confirmation, two toasts, and the fallbacks of the two `normalizeError` calls (changed to take an already-translated fallback parameter, following `GitHistoryPane`). The spot in `useSourceControl.ts` that must not re-run on a language switch reads the copy through a ref; its dependency array is untouched.
+- `src/settings/sections/*`, `src/settings/components/LspInstallDialog.tsx`, `src/components/WindowControls.tsx`, `src/modules/statusbar/CwdBreadcrumb.tsx` (39 keys): font weight and cursor shape dropdowns, the recording indicator, theme import failure, the eight states of the update button on the about page, the formatter selection, the LSP install dialog, the window controls' `aria-label` and tooltips, and the breadcrumb (home directory / no directory / no subfolders).
+- `src/modules/terminal/**`, `src/modules/editor/lib/useDocument.ts` (21 keys): the terminal cannot-display / cannot-start / session-kept error states, block copy and find, the input placeholder (**double spaces preserved exactly** — those two spots are deliberate spacing), the output paused / failed / waiting toasts, and the save conflict dialog. Only those four toasts were translated in `lib/pty-bridge.ts`; invoke command names, protocol fields and the `"running" | "stalled" | "failed"` status enum are untouched (that is the protocol surface). That module is not a component, so it gains an optional `notices` parameter through which the hook passes the current language's strings.
+- `src/modules/updater/UpdaterDialog.tsx`, `src/modules/lsp/**`, `src/modules/markdown/**`, `src/components/chat-code.tsx` (46 keys): the eight states of the update dialog, the LSP status card and the crash / exit / start-failure toasts, `LspSessionLabels` for document extensions (module-level code, so a parameter carries the copy, following precedent), the markdown preview's loading / binary / too-large states and the "rendered / source" toggle, and chat-code's generating / sent / run.
+- `src/modules/i18n/messages.ts`: 135 new keys (Chinese and English). Existing keys were reused wherever possible (`explorer.revealFinder`, `explorer.loading`, `scm.unknownError`, `lsp.stopped`, `common.copyCode` and others); strings like "Retry" stay local to each module per the repository's "each module emits its own keys" convention.
+- Two em-dashes normalized along the way: `Check failed — retry` in the settings update failure and markdown's `Binary file — cannot render as markdown.` — the originals used U+2014, conflicting with the repository rule "No em-dash anywhere", and are now hyphens (only that character changed, everything else is verbatim).
+- Explicitly **not translated** (all are dead strings with no consumer, protocol surface, or technical diagnostics): `statusLabel` and `stagedEmptyText` / `unstagedEmptyText` in `useSourceControlPanel.ts` (nothing in the repository reads them), the ghostty renderer's internal diagnostic strings, `pty-bridge`'s protocol fields and status enum, the unreachable fallback placeholder in `block/lib/shellEditor.ts` (`ShellInput` always passes `placeholderText`), tool proper names, and unit symbols like `ms` / `px`.
 
-上一轮是「按交接单给的名单逐模块做」✗，所以漏了不少 ✗ —— 这轮改成**扫描驱动** ✓，扫九种形态：裸 JSX 文本 ✓、`title`/`aria-label`/`placeholder` 的字面量与 JSX 表达式 ✓、`toast(...)` ✓、模板串里的英文句子 ✓、对象数组里的英文串 ✓、原生 `alert`/`confirm` ✓、`sr-only` ✓、静态 HTML ✓、Rust 侧会进 UI 的串 ✓。
+**UI copy long tail (third round): repository-wide scan to fill the gaps**
 
-- `src/modules/tabs/TabBar.tsx`：标签右键菜单的 `Rename` / `Close` 写死了 ✗（同一菜单里「关闭右侧」「关闭其他」早就在用 `tr(...)` ✗）→ 改走既有的 `tabs.rename` / `tabs.close` ✓。**用户报的就是这处** ✓，真机已验：菜单现在是「重命名标签页 / 关闭标签页 / 关闭右侧所有标签页 / 关闭其他标签页」✓。
-- `src/app/components/WorkspaceInputBar.tsx`：分支 chip 的 `` title={`Branch: ${branch}`} `` ✗ → `t("workspace.branchChip")` ✓（那个 chip 只出现在命令块标签页上 ✓）。
-- `src/modules/preview/PreviewAddressBar.tsx`：`` setNotice(`No server listening on :${port}.`) `` ✗ → `t("preview.noServerOnPort")` ✓。
-- `src/app/hooks/useAppCloseGuard.ts`、`useWorkspaceSwitcher.ts`：关窗口失败的 toast ✓ 与切换工作区前的原生长提示 ✓；后者用 ref 读文案 ✓（那个回调的身份会被消费方当依赖 ✗，不能因为换语言而换身份 ✓，照 `useTabRestore.ts` 的先例 ✓）。
-- `src/modules/editor/EditorStack.tsx`、`GitDiffPane.tsx`：`renderedHint="Save to preview"` ✓、diff 预览不可用 / 二进制 / 文件过大 / 正在加载差异 ✓。`EditorStack` 里的翻译函数取名 `tr` ✓ —— 那个文件里 `.map((t) => …)` 的 `t` 已经被标签对象占了 ✓。
-- `src/modules/editor/EditorPane.tsx`：**另一会话的在制品** ✗，本轮经用户明确点头后才一起接上 ✓ —— 14 处：语言服务器格式化的成败 toast ✓、`Binary file` / `File too large` / `Hide preview` / `Show preview` / `Original size` / `Fit to window` ✓、`Loading…` / `Open anyway` / 图片读不出 ✓。**只动文案行** ✓（文件里的半成品原样留着 ✓）。键名解析器 `Mod-s` / `Ctrl-g` 与扩展名表 ✗ 不翻 ✓。
-- `src/components/ui/*`（shadcn 原语）：`breadcrumb` 的 `sr-only`「More」与 `aria-label="breadcrumb"` ✓、`dialog` / `sheet` 的 `sr-only`「Close」✓、`dialog` 里那个**可见的** `Close` 按钮 ✓、`command` 的两个默认参数 ✓。**这是一次破例手改原语** ✓（`VERTA.md` 原本写着「别手改」✗）—— 理由：读屏与可见文案同样得跟着语言走 ✓，先例是 `spinner.tsx` 早就在用 `t("common.loading")` ✓；`command.tsx` 的改法是**删掉默认值、在组件体里 `?? t(...)` 兜底** ✓（默认参数不依赖 hook ✓、签名不变 ✓）。`VERTA.md` 已把这条例外写进规矩 ✓。
-- `src/modules/i18n/messages.ts`：新增 29 条键（中英两份 ✓），复用了 `tabs.rename` / `tabs.close` / `palette.title` / `editor.hidePreview` / `editor.showPreview` / `editor.preview.title` ✓。
-- ⚠️ 本轮顺带记下两条**留给下一轮**的：① `messages.ts` 里有多组**同义键** ✗（`editor.hidePreview` 与 `editor.preview.hide`、`preview.show` / `preview.hide` / `preview.label` ✗）—— 去重要跨文件改 ✓；② 后端来的英文 ✗（Rust 的 `Added` / `Modified` 等状态标签、主题校验串、updater 的 `status.message`、LSP stderr ✗）与两个窗口标题 ✗。
+The previous round was "do the modules on the handover list one by one" ✗, which is why a fair number were missed ✗ — this round is **scan-driven** ✓, across nine shapes: bare JSX text ✓, string literals and JSX expressions in `title`/`aria-label`/`placeholder` ✓, `toast(...)` ✓, English sentences in template strings ✓, English strings in object arrays ✓, native `alert`/`confirm` ✓, `sr-only` ✓, static HTML ✓, and strings on the Rust side that reach the UI ✓.
 
-**界面文案收口：同义键与后端来的英文**
+- `src/modules/tabs/TabBar.tsx`: `Rename` / `Close` in the tab context menu were hardcoded ✗ (the same menu already used `tr(...)` for "close to the right" and "close others" ✗) → now go through the existing `tabs.rename` / `tabs.close` ✓. **This is the spot the user reported** ✓, verified on the running app: the menu now reads "重命名标签页 / 关闭标签页 / 关闭右侧所有标签页 / 关闭其他标签页" ✓.
+- `src/app/components/WorkspaceInputBar.tsx`: the branch chip's `` title={`Branch: ${branch}`} `` ✗ → `t("workspace.branchChip")` ✓ (that chip only appears on command block tabs ✓).
+- `src/modules/preview/PreviewAddressBar.tsx`: `` setNotice(`No server listening on :${port}.`) `` ✗ → `t("preview.noServerOnPort")` ✓.
+- `src/app/hooks/useAppCloseGuard.ts`, `useWorkspaceSwitcher.ts`: the window close failure toast ✓ and the native long prompt before switching workspace ✓; the latter reads the copy through a ref ✓ (the callback's identity is used as a dependency by consumers ✗, so it must not change identity on a language switch ✓, following the precedent in `useTabRestore.ts` ✓).
+- `src/modules/editor/EditorStack.tsx`, `GitDiffPane.tsx`: `renderedHint="Save to preview"` ✓, diff preview unavailable / binary / file too large / loading diff ✓. The translation function inside `EditorStack` is named `tr` ✓ — in that file `t` is already taken by the tab object in `.map((t) => …)` ✓.
+- `src/modules/editor/EditorPane.tsx`: **another session's work in progress** ✗, hooked up in this round only after explicit user sign-off ✓ — 14 spots: the language server format success / failure toasts ✓, `Binary file` / `File too large` / `Hide preview` / `Show preview` / `Original size` / `Fit to window` ✓, `Loading…` / `Open anyway` / image unreadable ✓. **Only the copy lines were touched** ✓ (the half-finished work in the file is left as is ✓). The key-name parser (`Mod-s` / `Ctrl-g`) and the extension table ✗ are not translated ✓.
+- `src/components/ui/*` (shadcn primitives): `breadcrumb`'s `sr-only` "More" and `aria-label="breadcrumb"` ✓, `dialog` / `sheet`'s `sr-only` "Close" ✓, the **visible** `Close` button in `dialog` ✓, and `command`'s two default parameters ✓. **This is a one-time exception hand-editing primitives** ✓ (`VERTA.md` used to say "do not hand-edit" ✗) — because screen-reader and visible copy alike have to follow the language ✓, with `spinner.tsx` already using `t("common.loading")` as precedent ✓; `command.tsx` was changed by **dropping the default values and falling back with `?? t(...)` in the component body** ✓ (default parameters do not depend on hooks ✓, signature unchanged ✓). `VERTA.md` now records this exception as a rule ✓.
+- `src/modules/i18n/messages.ts`: 29 new keys (Chinese and English ✓), reusing `tabs.rename` / `tabs.close` / `palette.title` / `editor.hidePreview` / `editor.showPreview` / `editor.preview.title` ✓.
+- ⚠️ Two things noted in this round and **left for the next one**: ① several groups of **synonymous keys** in `messages.ts` ✗ (`editor.hidePreview` alongside `editor.preview.hide`, and `preview.show` / `preview.hide` / `preview.label` ✗) — deduplicating spans several files ✓; ② English coming from the backend ✗ (Rust's `Added` / `Modified` status labels, theme validation strings, the updater's `status.message`, LSP stderr ✗) and the two window titles ✗.
 
-- `src/modules/i18n/messages.ts`：把「编辑器预览开关」那组同义键收成一对 —— `SidePreview.tsx` 用 `editor.preview.hide`，`EditorPane.tsx` 原来用 `editor.hidePreview` / `editor.showPreview`（同一句英文），统一成 `editor.preview.hide` / `editor.preview.show`，并删掉三条**全仓无人引用**的死键（`preview.hide` / `preview.show` / `preview.label`，前两条英文与 `editor.preview.*` 逐字相同）。
-  ⚠️ **其余九十来组同义键一律保留**：那是仓库既定的「每模块各自出键」惯例（「取消」7 处、「重试」5 处、「刷新」4 处、「关闭」5 处…），而且很多是**动态键**（`` t(`shortcut.${id}`) ``、`` t(`cmd.${id}`) ``）—— 静态脚本判「无人使用」会把它们误判成死键，所以这一轮**不碰**。审计脚本（`.superpowers/keys-audit.mjs`，可复用）的结论已记进待办，供以后参考。
-- `src/modules/editor/EditorPane.tsx`：那两处 `tr(...)` 跟着改到新键（`tr` 是它文件里的翻译别名）。
-- `src/modules/git-history/GitHistoryPane.tsx`：文件行的 `title` 原来直接显示 Rust 传来的**英文句子**（`Added` / `Modified` / `Deleted` / `Renamed` / `Copied` / `Unmerged` / `Untracked`）→ 改成前端映射到 `gitStatus.*`，**映射表命中不到的值原样透出**（后端将来新增状态时不会变成空白）。**Rust 侧一个字节没动**：不动后端就不会触发重编译重启，那两处 `status_label_for` / `parser.rs` 的英文串留着，前端已经不再依赖它们。
-- ⬜ 这轮**没做**、留给下一轮的：① `src/modules/theme/validateTheme.ts` 的校验串 —— 它返回的是**整句英文**，且 `validateTheme.test.ts` 断言的正是那些句子 → 要改就得改返回约定 + 改测试，值得另开一轮；② updater 的 `status.message`（插件给的串）与 LSP 的 stderr tail（诊断数据）；③ 两个**窗口标题**（`Verta — Settings`）。
+**UI copy wrap-up: synonymous keys and English coming from the backend**
+
+- `src/modules/i18n/messages.ts`: the "editor preview toggle" group of synonymous keys is folded into one pair — `SidePreview.tsx` uses `editor.preview.hide`, while `EditorPane.tsx` used `editor.hidePreview` / `editor.showPreview` (the same English sentence), now unified as `editor.preview.hide` / `editor.preview.show`, and three dead keys **referenced by nothing in the repository** are removed (`preview.hide` / `preview.show` / `preview.label`, the first two being byte-identical in English to `editor.preview.*`).
+  ⚠️ **The other ninety-odd groups of synonymous keys are all kept**: they follow the repository's established "each module emits its own keys" convention (7 instances of "cancel", 5 of "retry", 4 of "refresh", 5 of "close"…), and many are **dynamic keys** (`` t(`shortcut.${id}`) ``, `` t(`cmd.${id}`) ``) — a static script judging "unused" would misclassify them as dead, so this round **leaves them alone**. The audit script's conclusions (`.superpowers/keys-audit.mjs`, reusable) are recorded in the todo list for later reference.
+- `src/modules/editor/EditorPane.tsx`: those two `tr(...)` calls follow to the new keys (`tr` is the translation alias in that file).
+- `src/modules/git-history/GitHistoryPane.tsx`: the file row's `title` used to show the **English sentence** passed in from Rust directly (`Added` / `Modified` / `Deleted` / `Renamed` / `Copied` / `Unmerged` / `Untracked`) → the frontend now maps it to `gitStatus.*`, and **values the map does not match pass through as is** (so a future backend status does not turn into a blank). **Not a byte changed on the Rust side**: not touching the backend avoids a recompile and restart, the English strings in `status_label_for` / `parser.rs` stay, and the frontend no longer depends on them.
+- ⬜ **Not done** this round, left for the next one: ① the validation strings in `src/modules/theme/validateTheme.ts` — it returns **whole English sentences** and `validateTheme.test.ts` asserts exactly those sentences → changing it means changing the return contract plus the tests, worth its own round; ② the updater's `status.message` (a string from the plugin) and the LSP stderr tail (diagnostic data); ③ the two **window titles** (`Verta — Settings`).
 
 </details>
 
 <details>
 <summary><strong>2026-10-21</strong></summary>
 
-**标签页：去掉「空间」（Spaces），只留一份标签列表**
+**Tabs: drop "spaces" and keep a single tab list**
 
-- `src/modules/spaces/**`（14 个文件）、`src/modules/i18n/spaceName.ts`：整个模块删掉。空间（名字、根目录、
-  环境、配色、各自的标签持久化、`SpaceSwitcher`）和项目列表是同一件事的两种说法，还让每个标签都要带一个
-  空间 id。`src/modules/spaces/lib/serialize.ts` 与 `activeSpace.ts` 里真正有用的两件事搬到了别处（见下）。
-- `src/modules/tabs/lib/useTabs.ts`：`Tab.spaceId`、`DEFAULT_SPACE_ID`、按空间去重的各类 `plan*`
-  （打开文件 / markdown / git diff / 提交历史 / 项目列表 / 远程仓库）、空间删除、跨空间移动一起删掉；
-  去重、关闭、拖拽排序现在都作用在同一条列表上。**「最后一个标签拒绝关闭」的语义保留**
-  （`nextActiveInSpace` 因此改名 `nextActiveTab`），私有标签不落盘也一样。
-- `src/modules/tabs/lib/serialize.ts`（从 spaces 模块搬来，去掉 `spaceId`）、新增 `tabStorage.ts` 与
-  `useTabRestore.ts`：标签列表改存 `verta-tabs.json` 里的单个 `state` 键。改用新格式后第一次启动，会从老文件
-  `verta-spaces.json` 里把当时活动空间那份 `state:<空间 id>` 读出来、写进新文件、删掉那条键，老文件留在磁盘上；
-  恢复仍然要求标签各自回到自己的环境（叶子记着环境，只记了 cwd 的按路径反推），并且 cwd 先授权再开终端。
-  `usePreferencesStore.init()` 依旧只在这一处调用，写盘也依旧等恢复完成才开闸。
-- `src/app/App.tsx`：空间状态、`SpaceSwitcher`、只喂给它的六个 handler、三个空间快捷键、命令面板里的
-  五条空间命令、「单击项目行 = 切换到以该项目为根的空间」全部去掉。项目行现在只做一件事：切到该项目的
-  环境（本机 / 发行版），在项目根目录开一个终端。
-- `src/modules/header/Header.tsx`：标题栏给切换器留的槽位删掉。
-- `src/modules/source-control/repositoryTarget.ts`、`useRepositoryTargeting.ts`：右栏钉住的仓库按**环境**
-  （本机 / 某个发行版）而不是按空间分开记。
-- `src/modules/control/lib/context.ts`、`useControlBridge.ts`：`space_id` 保留但固定为 `default`——
-  `verta-cli identify` 会打印它，删掉等于改协议。
-- `src/modules/i18n/messages.ts`：中英两份里的 14 个空间键（`spaces.*`、`shortcut.nextSpace` /
-  `prevSpace` / `openSpaces`、`cmd.spacesOverview` / `newSpace` / `switchToSpace` / `currentSpace`、
-  `cmdGroup.Spaces`、`shortcutGroup.Spaces`）删除。
-- `src/modules/shortcuts/shortcuts.ts`、`src/modules/command-palette/commands.ts`、`types.ts`、
-  `CommandPalette.tsx`：空间快捷键组、空间命令、`spaceName` 一并清掉。
+- `src/modules/spaces/**` (14 files), `src/modules/i18n/spaceName.ts`: the whole module is deleted. A space (name, root
+  directory, environment, color scheme, its own tab persistence, `SpaceSwitcher`) was a second way of saying what the
+  project list already says, and it forced a space id onto every tab. The two genuinely useful pieces in
+  `src/modules/spaces/lib/serialize.ts` and `activeSpace.ts` moved elsewhere (see below).
+- `src/modules/tabs/lib/useTabs.ts`: `Tab.spaceId`, `DEFAULT_SPACE_ID`, the per-space deduplication in the various `plan*`
+  functions (open file / markdown / git diff / commit history / project list / remote repositories), space deletion and
+  cross-space moves are all removed; deduplication, closing and drag reordering now act on one list. **The "the last tab
+  refuses to close" semantics is kept** (`nextActiveInSpace` is therefore renamed `nextActiveTab`), and private tabs still do
+  not get persisted.
+- `src/modules/tabs/lib/serialize.ts` (moved over from the spaces module, minus `spaceId`), plus new `tabStorage.ts` and
+  `useTabRestore.ts`: the tab list is now stored as a single `state` key in `verta-tabs.json`. On the first launch with the
+  new format, the `state:<space id>` of the then-active space is read from the old `verta-spaces.json`, written into the new
+  file and that key is deleted, leaving the old file on disk; restore still requires each tab to return to its own
+  environment (leaves record the environment, tabs that only recorded a cwd are inferred from the path), and a cwd is
+  authorized before the terminal opens. `usePreferencesStore.init()` is still called in exactly one place, and disk writes
+  are still held back until restore finishes.
+- `src/app/App.tsx`: space state, `SpaceSwitcher`, the six handlers that only fed it, the three space shortcuts, the five
+  space commands in the command palette and "clicking a project row = switch to a space rooted at that project" are all
+  gone. A project row now does one thing: switch to that project's environment (host / distro) and open a terminal at the
+  project root.
+- `src/modules/header/Header.tsx`: the slot reserved for the switcher in the title bar is removed.
+- `src/modules/source-control/repositoryTarget.ts`, `useRepositoryTargeting.ts`: the repository pinned in the right panel is
+  recorded per **environment** (host / a given distro) rather than per space.
+- `src/modules/control/lib/context.ts`, `useControlBridge.ts`: `space_id` is kept but fixed to `default` —
+  `verta-cli identify` prints it, and removing it would change the protocol.
+- `src/modules/i18n/messages.ts`: the 14 space keys in both Chinese and English (`spaces.*`, `shortcut.nextSpace` /
+  `prevSpace` / `openSpaces`, `cmd.spacesOverview` / `newSpace` / `switchToSpace` / `currentSpace`,
+  `cmdGroup.Spaces`, `shortcutGroup.Spaces`) are deleted.
+- `src/modules/shortcuts/shortcuts.ts`, `src/modules/command-palette/commands.ts`, `types.ts`,
+  `CommandPalette.tsx`: the space shortcut group, the space commands and `spaceName` are cleared out too.
 
-**区域截图：像系统自带那样不冻屏，框完点保存才抓**
+**Area screenshot: no screen freeze like the system tool, and the capture happens on save**
 
-- `src-tauri/src/modules/screenshot/mod.rs`：改成**不冻屏**。屏幕在框选期间一直是活的（覆盖窗口是透明的，
-  只压一层浅灰），抓屏挪到**点保存那一刻**：先把覆盖窗口藏起来、等它真的从屏幕上消失（`hide()` 只是把请求
-  交给系统，屏幕上那一帧还留着）再抓，否则灰层、选择框、把手、操作条会一起进到图里；整段放在阻塞线程上做。
-  窗口仍然**建一次就养着**（每次只是把它亮出来：第一次要建 webview 约 0.4 秒，之后 0.1 秒出头）；
-  失败时把窗口亮回来，选区还在，能接着调、接着存。
-- `src-tauri/src/modules/screenshot/capture.rs`：新增 `virtual_screen_bounds()`——抓屏与覆盖窗口的铺法从同一
-  处取范围，选区坐标才对得上。`RawShot` 不再带 origin（覆盖窗口的位置同样来自这一处）。
-- `src-tauri/src/modules/screenshot/encode.rs`：删掉 BMP 预览编码器（不再有预览文件），只留存盘那份 PNG。
-- `src/modules/screenshot/ScreenshotOverlay.tsx`：**去掉画布与冻结画面**。整屏压一层 25% 的浅灰；一画出选区
-  就撤掉这层、改由选区一圈阴影压暗框外——框里是全透明的洞，透出来的是活着的那块屏幕（这也是「像系统自带」
-  的关键：不冻屏，屏幕该动就动）。圆角滑杆（0–40，默认 **15**，所见即所得）、保存 / 取消两个图标按钮放在
-  选区右下角；描边、把手、按钮都取主题色。松手之后选区留着可继续调整：拖整块、八个把手改大小。
-  Enter 保存、Esc 取消，都没变。
-- `screenshot.html`、`src/screenshot/main.tsx`：这个窗口**必须透明**——这两处按窗口的性质把底色铺成透明
-  （globals.css 给 body 铺了主题底色），并补上 `.light` / `.dark` 类（`--primary` 那些变量在根节点上没有
-  这个类就取不到，描边会退成灰白）。另外：窗口自己的脚本崩了就调 `screenshot_failed` 把自己收起来，
-  别在用户面前杵着一层点不动的灰。
-- `src/lib/native.ts`、`src/modules/i18n/messages.ts`：`screenshot_begin` 不再返回抓屏结果；删掉
-  `screenshot_pending` / `screenshot_pixels`（预览文件、IPC 整块传像素这两条路都不需要了）；收尾文案改成
-  正式口气（不再有「也在剪贴板里了」这类说法，Rust 侧的错误串一并改）。
-- `src-tauri/capabilities/screenshot.json`：显示与聚焦现在由 Rust 侧做，覆盖窗口的权限缩到「只听事件」。
-- `scripts/dev/probes/`：验收探针跟着改——`screenshot-arm-timing-*`（量「收到消息到首帧」）、
-  `capture-desktop.ps1`（拍整屏取证；`CopyFromScreen` 与窗口自己的 CDP 截图看的不是同一件事）、
-  `screenshot-begin-timing.js`（只量「点一下到灰层上来」）。
+- `src-tauri/src/modules/screenshot/mod.rs`: changed to **not freeze the screen**. The screen stays live while the
+  selection is being drawn (the overlay window is transparent and only lays down a light gray wash), and the capture moves to
+  **the moment save is clicked**: the overlay is hidden first and the capture waits until it has really left the screen
+  (`hide()` only hands the request to the OS, that frame is still there), otherwise the gray wash, selection box, handles and
+  action bar end up in the image; the whole thing runs on a blocking thread. The window is still **created once and kept**
+  (each use only shows it: about 0.4 seconds to build the webview the first time, just over 0.1 afterwards); on failure the
+  window is shown again with the selection intact, so it can be adjusted and saved again.
+- `src-tauri/src/modules/screenshot/capture.rs`: new `virtual_screen_bounds()` — the capture and the overlay window take
+  their extent from the same place, so selection coordinates line up. `RawShot` no longer carries an origin (the overlay
+  position comes from that same place).
+- `src-tauri/src/modules/screenshot/encode.rs`: the BMP preview encoder is deleted (there is no preview file any more); only
+  the PNG that gets saved remains.
+- `src/modules/screenshot/ScreenshotOverlay.tsx`: **canvas and frozen frame removed**. A 25% light gray wash covers the
+  screen; as soon as a selection is drawn the wash goes away and a shadow around the selection darkens the outside — the
+  inside is a fully transparent hole, showing the live screen behind it (this is the point of "like the system tool": no
+  freeze, the screen keeps moving). A corner-radius slider (0–40, default **15**, WYSIWYG) and two icon buttons for save /
+  cancel sit at the bottom right of the selection; stroke, handles and buttons take theme colors. After releasing the mouse
+  the selection stays adjustable: drag the whole block, resize with the eight handles. Enter saves, Esc cancels, unchanged.
+- `screenshot.html`, `src/screenshot/main.tsx`: this window **must be transparent** — both spots paint the background
+  transparent according to the window's nature (globals.css gives body a theme background) and add the `.light` / `.dark`
+  classes (`--primary` and friends cannot resolve without that class on the root, and the stroke would fall back to gray). Also:
+  if the window's own script crashes, it calls `screenshot_failed` to hide itself rather than leaving an unclickable gray
+  layer in front of the user.
+- `src/lib/native.ts`, `src/modules/i18n/messages.ts`: `screenshot_begin` no longer returns the captured image; `screenshot_pending` /
+  `screenshot_pixels` are deleted (neither the preview file nor shipping pixels over IPC is needed any more); the completion
+  copy is in a more formal tone (no more "it is in the clipboard too", and the Rust-side error strings changed with it).
+- `src-tauri/capabilities/screenshot.json`: showing and focusing are done by Rust now, so the overlay window's permissions
+  shrink to "listen to events only".
+- `scripts/dev/probes/`: the acceptance probes follow — `screenshot-arm-timing-*` (measures "message received to first
+  frame"), `capture-desktop.ps1` (captures the whole screen as evidence; `CopyFromScreen` and the window's own CDP screenshot
+  are not the same thing), `screenshot-begin-timing.js` (measures only "click to gray wash appearing").
 
-**区域截图：抓屏、框选、存图、进剪贴板都在应用里**
+**Area screenshot: capture, select, save and clipboard all inside the app**
 
-- `src-tauri/src/modules/screenshot/`（新增一个模块，四个文件）：
-  - `capture.rs`：Windows 用 GDI 抓整块虚拟桌面。GDI 给的是 BGRA、alpha 是垃圾值，顺手补成不透明
-    RGBA —— 不补的话存出来的 PNG 与剪贴板里的图都是半透明的；别的平台如实拒绝，不假装能跑。
-  - `geom.rs`：选区收边（往回拖、拖出画面都算对）、按选区抠图、文件名与本地时间戳。全是纯函数带单测。
-  - `encode.rs`：PNG 编码，用依赖树里本来就有的 `image`，只开 `png` 一个 feature。
-  - `mod.rs`：截图状态与命令（`begin` 把覆盖窗口亮出来 / `finish` 藏窗口、抓屏、裁剪、落盘、进剪贴板 /
-    `cancel` / `failed`）。裁剪用的是抓下来的原始像素：把整屏喂给 asset 协议再让 canvas 裁会被跨源
-    污染，`toBlob` 直接抛。裁剪在后端、选区在前端，所以选区在后端还要再收一次边。
-- `src-tauri/src/modules/mod.rs`、`src-tauri/src/lib.rs`、`src-tauri/Cargo.toml`：注册模块、状态与命令；
-  windows-sys 补 `Win32_UI_WindowsAndMessaging`（要 `GetSystemMetrics` 与虚拟屏幕常量）。
-- `src-tauri/capabilities/screenshot.json`（新增）：覆盖窗口单独一份**最小**权限——只听事件，显示与聚焦
-  由 Rust 侧做，也不给 store / dialog / opener 那些它用不着的。
-- `screenshot.html`、`src/screenshot/main.tsx`、`vite.config.ts`：第二个窗口的前端入口（透明窗口），
-  多页构建多一份。
-- `src/modules/screenshot/ScreenshotOverlay.tsx`（新增）：铺一层浅灰、拖框（带物理像素尺寸提示）、
-  松手后可挪可拉、圆角滑杆、保存 / 取消图标按钮，Enter 保存、Esc 取消；不冻屏——屏幕一直是活的。
-- `src/modules/screenshot/lib/selection.ts`（新增）：CSS 像素 ↔ 物理像素换算——屏幕缩放到 125% 时两者差
-  一个 devicePixelRatio，直接送 CSS 坐标会切偏；取整是「宁可多含一列，不少给一列」。带单测。
-- `src/modules/header/Header.tsx`：右上角 Git 按钮左边多一个「截图」。
-- `src/app/App.tsx`、`src/lib/native.ts`、`src/modules/i18n/messages.ts`：收尾提示条（写明存到哪儿、
-  剪贴板成没成，两件事分开报）与「插入路径」——点了才把路径插进当前终端输入行（走括起的粘贴，
-  路径里有空格也不怕），不自动插、不回车；不在终端页时干脆不给这个按钮（点了也没处插）。
-- `scripts/dev/cdp-input.mjs`（新增）+ `scripts/dev/probes/`（截图这一块的探针与 `capture-desktop.ps1`）：
-  往**指定**窗口发真实输入与验收取证。`cdp-key.mjs` 只会找第一个 page，而覆盖窗口是第二个，鼠标拖拽也需要
-  一次完整的 press/move/release（DOM 里合成 PointerEvent 顶不了：`setPointerCapture` 只认真指针）。
+- `src-tauri/src/modules/screenshot/` (a new module, four files):
+  - `capture.rs`: Windows captures the whole virtual desktop with GDI. GDI returns BGRA with garbage alpha, which is
+    filled in as opaque RGBA — without that, the saved PNG and the clipboard image are semi-transparent; other platforms
+    refuse honestly instead of pretending to work.
+  - `geom.rs`: selection snapping (dragging back and dragging off-screen are handled correctly), cropping by selection, file
+    names and local timestamps. All pure functions with unit tests.
+  - `encode.rs`: PNG encoding via the `image` crate already in the dependency tree, with only the `png` feature enabled.
+  - `mod.rs`: screenshot state and commands (`begin` shows the overlay window / `finish` hides the window, captures, crops,
+    writes to disk, puts it on the clipboard / `cancel` / `failed`). Cropping uses the raw captured pixels: feeding the whole
+    screen to the asset protocol and cropping on a canvas would taint it cross-origin and make `toBlob` throw. Cropping is in
+    the backend and selection in the frontend, so the backend snaps the selection once more.
+- `src-tauri/src/modules/mod.rs`, `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`: register the module, state and commands;
+  windows-sys gains `Win32_UI_WindowsAndMessaging` (for `GetSystemMetrics` and the virtual screen constants).
+- `src-tauri/capabilities/screenshot.json` (new): the overlay window gets its own **minimal** capability — events only, with
+  show and focus done by Rust, and none of the store / dialog / opener permissions it does not need.
+- `screenshot.html`, `src/screenshot/main.tsx`, `vite.config.ts`: the frontend entry of the second window (a transparent
+  window), one more entry in the multi-page build.
+- `src/modules/screenshot/ScreenshotOverlay.tsx` (new): light gray wash, drag a box (with a physical-pixel size hint),
+  movable and resizable after release, corner-radius slider, save / cancel icon buttons, Enter to save, Esc to cancel; no
+  screen freeze — the screen stays live.
+- `src/modules/screenshot/lib/selection.ts` (new): CSS pixel ↔ physical pixel conversion — at 125% display scaling the two
+  differ by a devicePixelRatio and sending CSS coordinates directly crops off target; rounding is "one column too many rather
+  than one too few". With unit tests.
+- `src/modules/header/Header.tsx`: a "screenshot" entry appears to the left of the Git button at the top right.
+- `src/app/App.tsx`, `src/lib/native.ts`, `src/modules/i18n/messages.ts`: the completion toast (stating where it was saved
+  and whether the clipboard worked, reported separately) and "insert path" — clicking it inserts the path into the current
+  terminal input line with bracketed paste, so spaces in the path are fine, with no automatic insert and no Enter; on tabs
+  that are not a terminal the button is not offered at all (there would be nowhere to insert it).
+- `scripts/dev/cdp-input.mjs` (new) plus `scripts/dev/probes/` (the probes for this area and `capture-desktop.ps1`):
+  send real input to a **specific** window and capture evidence for acceptance. `cdp-key.mjs` only ever finds the first
+  page and the overlay window is the second, and mouse dragging also needs a full press/move/release (synthesizing a
+  PointerEvent in the DOM will not do: `setPointerCapture` only honors real pointers).
 
-**Pi 会话列表：显示最新的会话名**
+**Pi session list: show the latest session name**
 
-- `src-tauri/src/modules/agent_sessions/pi.rs`：会话名不再只从文件头 8 MB 里找（长会话里改名那行可能在几十 MB 之后，读不到就退回第一条用户消息）；改成从文件末尾按块往回搜 `session_info`，取最后一个名字，命中处把那一整行读全。头部窗口从 8 MB 降到 1 MB。
+- `src-tauri/src/modules/agent_sessions/pi.rs`: the session name is no longer looked for only in the first 8 MB of the file
+  (in a long session the rename line can be tens of MB in; when it was not found the first user message was used); it now
+  searches backwards from the end of the file in blocks for `session_info`, takes the last name and reads that whole line at
+  the match. The header window drops from 8 MB to 1 MB.
 
-**Markdown 预览：没写尺寸的小图不再被撑成大横幅**
+**Markdown preview: small images without a size are no longer stretched into a full-width banner**
 
-- `src/modules/markdown/MarkdownImage.tsx`：没写高度的图片原来一律钉成 `height: 260px`（配 `object-fit: contain`），116×20 的徽章被拉成整栏宽的大横幅；改成加载前按 260px 占位、加载完回到图片自己的尺寸（260px 只当封顶）。尺寸决策抽成纯函数 `previewImageStyle`。
-- `src/modules/markdown/MarkdownImage.test.ts`：新增，覆盖四个分支。
+- `src/modules/markdown/MarkdownImage.tsx`: images without a height used to be pinned to `height: 260px` (with `object-fit: contain`),
+  so a 116×20 badge was blown up into a full-column banner; they now reserve 260px before load and go back to their own size
+  once loaded (260px is only a cap). The sizing decision is extracted into a pure function `previewImageStyle`.
+- `src/modules/markdown/MarkdownImage.test.ts`: new, covering the four branches.
 
-**Markdown 预览：并排的小图回到一行**
+**Markdown preview: inline images sit on one line again**
 
-- `src/modules/markdown/MarkdownImage.tsx`：图片 `display` 从 `block` 改成 `inline-block`（配 `mr-2 last:mr-0`），一行里的几张图并排显示、中间留间距。
+- `src/modules/markdown/MarkdownImage.tsx`: image `display` changes from `block` to `inline-block` (with `mr-2 last:mr-0`), so
+  several images in one line display side by side with spacing between them.
 
-**字体：改成下拉选本机字体（终端与编辑器共用一个字体）**
+**Fonts: pick an installed font from a dropdown (terminal and editor share one font)**
 
-- `src-tauri/src/modules/fonts.rs`：新增，列本机字体族（Windows GDI `EnumFontFamiliesExW` / Linux `fc-list` / macOS `system_profiler`）；新增命令 `fonts_list`。
-- `src/lib/fontOptions.ts`、`src/settings/components/FontPicker.tsx`、`src/settings/lib/useInstalledFonts.ts`：新增，选项是「自动检测」+ 本机字体（当前值不在本机时也列出来并标注），下拉可搜索。
-- `src/settings/sections/GeneralSection.tsx`、`src/modules/i18n/messages.ts`：字体那一栏改成下拉，说明写明终端与编辑器共用。
-- `src/modules/settings/store.ts`：`terminalFontFamily` 默认值由空改成 `Cascadia Code`（已经存过的值不动）。
-- `src/lib/fonts.ts`：终端字体栈「选中的字体 → 自动检测到的 Nerd Font（图标）→ 兜底链」。
-- `src/modules/editor/lib/useApplyEditorFontFamily.ts`、`src/modules/editor/lib/extensions.ts`：编辑器字体走 `--editor-font-family` 变量。
-- `src-tauri/Cargo.toml`：`windows-sys` 加 `Win32_Graphics_Gdi` feature。
+- `src-tauri/src/modules/fonts.rs`: new, lists installed font families (Windows GDI `EnumFontFamiliesExW` / Linux `fc-list` /
+  macOS `system_profiler`); new command `fonts_list`.
+- `src/lib/fontOptions.ts`, `src/settings/components/FontPicker.tsx`, `src/settings/lib/useInstalledFonts.ts`: new; the options are
+  "auto-detect" plus installed fonts (the current value is listed and marked even when it is not installed), searchable.
+- `src/settings/sections/GeneralSection.tsx`, `src/modules/i18n/messages.ts`: the font row becomes a dropdown, and the
+  description states that the terminal and the editor share it.
+- `src/modules/settings/store.ts`: the default for `terminalFontFamily` changes from empty to `Cascadia Code` (stored values
+  are untouched).
+- `src/lib/fonts.ts`: the terminal font stack is "selected font → auto-detected Nerd Font (icons) → fallback chain".
+- `src/modules/editor/lib/useApplyEditorFontFamily.ts`, `src/modules/editor/lib/extensions.ts`: the editor font goes through the
+  `--editor-font-family` variable.
+- `src-tauri/Cargo.toml`: `windows-sys` gains the `Win32_Graphics_Gdi` feature.
 
-**GitHub：账号与登录**
+**GitHub: account and sign-in**
 
-- `src-tauri/src/modules/github/auth.rs`：新增。解析 `gh auth status --json hosts`（挑活跃账号、拆 scopes、缺字段不崩），以及在本地拦掉明显不对的粘贴 token。
-- `src-tauri/src/modules/github/gh.rs`：抽出 `command()`（参数一条条传、关交互提示、套代理、隐藏控制台统一备好）；新增 `spawn` / `pump` / `run_with_stdin`（粘 PAT 只能从 stdin 进）；新增 `AUTH_TOKEN_TIMEOUT_SECS` / `AUTH_WEB_TIMEOUT_SECS`。
-- `src-tauri/src/modules/github/types.rs`：新增 `AuthStatusPayload` / `AuthActionPayload` / `AuthLoginProgress`。
-- `src-tauri/src/modules/github/commands.rs`、`mod.rs`、`src-tauri/src/lib.rs`：新增 `github_auth_status` / `github_auth_login_token` / `github_auth_login_web`（把 gh 打的一次性码实时推给界面，可中止）/ `github_auth_login_web_cancel` / `github_auth_logout`，以及 `AuthLoginState`。
-- `src/lib/native.ts`：新增上述五条包装与线格式类型。
-- `src/modules/remotes/lib/auth.ts`：新增。登录态折成界面要的样子、缺 `delete_repo` 授权的判定、粘 token 的本地预检。
-- `src/modules/remotes/AuthDialog.tsx`：新增。当前状态 / 浏览器授权（实时输出一次性码、可中止）/ 粘贴 PAT（提交后立刻清空输入框）/ 登出（确认框先说清后果）。
-- `src/modules/remotes/RemoteReposView.tsx`：页头账号变成入口；没登录 / 没装 gh 的提示块里也加一个入口；关掉面板时重读一次列表。
-- `src/modules/i18n/messages.ts`：新增上述界面的中英文文案。
-- `scripts/dev/probes/auth-acceptance.mjs`：新增，登录态面板的验收脚本（`--isolated` 那轮在临时 `GH_CONFIG_DIR` 里跑「没登录」的流程，不碰真实登录态）。
+- `src-tauri/src/modules/github/auth.rs`: new. Parses `gh auth status --json hosts` (picks the active account, splits scopes,
+  does not crash on missing fields), and rejects obviously wrong pasted tokens locally.
+- `src-tauri/src/modules/github/gh.rs`: extracts `command()` (arguments passed one by one, interactive prompts off, proxy applied,
+  console hidden — all prepared centrally); new `spawn` / `pump` / `run_with_stdin` (a pasted PAT can only come in over stdin);
+  new `AUTH_TOKEN_TIMEOUT_SECS` / `AUTH_WEB_TIMEOUT_SECS`.
+- `src-tauri/src/modules/github/types.rs`: new `AuthStatusPayload` / `AuthActionPayload` / `AuthLoginProgress`.
+- `src-tauri/src/modules/github/commands.rs`, `mod.rs`, `src-tauri/src/lib.rs`: new `github_auth_status` /
+  `github_auth_login_token` / `github_auth_login_web` (streams the one-time code gh prints to the UI in real time, cancellable) /
+  `github_auth_login_web_cancel` / `github_auth_logout`, plus `AuthLoginState`.
+- `src/lib/native.ts`: new wrappers and wire types for those five.
+- `src/modules/remotes/lib/auth.ts`: new. Folds the sign-in state into what the UI needs, detects a missing
+  `delete_repo` authorization, and pre-checks a pasted token locally.
+- `src/modules/remotes/AuthDialog.tsx`: new. Current state / browser authorization (live output of the one-time code,
+  cancellable) / paste a PAT (the input is cleared immediately on submit) / sign out (the confirmation states the
+  consequences first).
+- `src/modules/remotes/RemoteReposView.tsx`: the account in the page header becomes an entry point; a prompt block for "not signed
+  in / gh not installed" gains an entry point too; the list is re-read when the panel closes.
+- `src/modules/i18n/messages.ts`: Chinese and English copy for the UI above.
+- `scripts/dev/probes/auth-acceptance.mjs`: new; acceptance script for the account panel (the `--isolated` run exercises
+  the "not signed in" flow in a temporary `GH_CONFIG_DIR` without touching the real sign-in state).
 
-**GitHub：仓库管理（改描述 / 切可见性 / 删仓库）与克隆到本地**
+**GitHub: repository management (edit description / switch visibility / delete repository) and clone locally**
 
-- `src-tauri/src/modules/github/repo_admin.rs`：新增。读 `gh repo view --json description,visibility,viewerPermission`；描述超 350 字在本地拦下；认出「gh 缺 delete_repo 授权」这种能自己补救的失败。
-- `src-tauri/src/modules/github/permission.rs`：新增 `admin_allowed`（只有 `ADMIN` 算管理员；查不到 / 不认识的档位按能改算）。
-- `src-tauri/src/modules/github/types.rs`：新增 `RepoSettingsPayload`（失败时 `can_admin` 仍是 true）与 `RepoActionResult`。
-- `src-tauri/src/modules/github/commands.rs`、`gh.rs`、`mod.rs`、`src-tauri/src/lib.rs`：新增 `github_repo_settings` / `github_repo_set_description` / `github_repo_set_visibility` / `github_repo_delete`（60 秒超时；删除发完请求回查 `gh api repos/{slug}` 拿到 404 才算成功；缺 delete_repo 授权时把该跑的命令写进报错原文）。
-- `src/lib/native.ts`：新增 `githubRepoSettings` / `githubRepoSetDescription` / `githubRepoSetVisibility` / `githubRepoDelete` 与线格式类型。
-- `src/modules/remotes/lib/repoAdmin.ts`：新增。`canAdmin`（没查出来 / 查不动都按能改）、只读提示键、`isPrivateVisibility`、删仓库的「手输全名」判定、描述长度、克隆目标目录的相邻推算。
-- `src/modules/remotes/RepoAdminDialog.tsx`：新增。描述保存、可见性切换（切公开 / 切私有各自的后果确认）与危险区（手输仓库全名才给删除按钮，删完回传让列表拿掉那一行）；非管理员时三类入口都不渲染。
-- `src/modules/remotes/RemoteReposView.tsx`：行菜单新增「克隆到本地…」与「仓库设置…」；描述 / 可见性改成功后只更新那一行；接上克隆与设置两个弹窗。另修：菜单内容是 Radix 传送到 body 的，但 React 事件仍沿组件树冒泡，点菜单项会连带触发整行点击（于是「仓库设置…」会顺手把运行记录面板也开出来）—— 在菜单内容上拦掉。
-- `src/modules/remotes/RunListDialog.tsx`：修：确认框（AlertDialog）是另一个 Radix 层，点它会被上层当成「点到面板外面」而把面板一起关掉；确认框开着时不再关。
-- `src/modules/projects/CloneRepoDialog.tsx`：新增可选的地址与目标目录预填（从远程仓库那一行进来时用）。
-- `src/modules/i18n/messages.ts`：新增上述界面的中英文文案。
-- `scripts/dev/probes/repo-admin-acceptance.mjs`：新增，仓库管理与克隆的验收脚本。
+- `src-tauri/src/modules/github/repo_admin.rs`: new. Reads `gh repo view --json description,visibility,viewerPermission`;
+  descriptions over 350 characters are rejected locally; recognizes the recoverable "gh lacks the delete_repo authorization"
+  failure.
+- `src-tauri/src/modules/github/permission.rs`: new `admin_allowed` (only `ADMIN` counts as administrator; an unknown or
+  unresolvable level counts as allowed to change).
+- `src-tauri/src/modules/github/types.rs`: new `RepoSettingsPayload` (`can_admin` is still true on failure) and
+  `RepoActionResult`.
+- `src-tauri/src/modules/github/commands.rs`, `gh.rs`, `mod.rs`, `src-tauri/src/lib.rs`: new `github_repo_settings` /
+  `github_repo_set_description` / `github_repo_set_visibility` / `github_repo_delete` (60 second timeout; after the delete request
+  it re-queries `gh api repos/{slug}` and only a 404 counts as success; when the delete_repo authorization is missing, the command
+  to run is included in the error text).
+- `src/lib/native.ts`: new `githubRepoSettings` / `githubRepoSetDescription` / `githubRepoSetVisibility` / `githubRepoDelete`
+  and wire types.
+- `src/modules/remotes/lib/repoAdmin.ts`: new. `canAdmin` (unresolved / unfetchable counts as allowed to change), the read-only
+  prompt key, `isPrivateVisibility`, the "type the full name" check for deleting a repository, the description length, and the
+  adjacent-path guess for a clone target directory.
+- `src/modules/remotes/RepoAdminDialog.tsx`: new. Description saving, visibility switching (each of public / private gets its own
+  consequence confirmation) and a danger zone (the delete button only appears once the full repository name is typed; after
+  deletion the result is reported back so the list can drop that row); none of the three entry points render for non-admins.
+- `src/modules/remotes/RemoteReposView.tsx`: the row menu gains "clone locally…" and "repository settings…"; a successful description /
+  visibility change updates only that row; the clone and settings dialogs are wired in. Also fixed: the menu content is portalled to
+  the body by Radix, but React events still bubble along the component tree, so clicking a menu item also triggered the row click
+  (and "repository settings…" therefore also opened the runs panel) — intercepted on the menu content.
+- `src/modules/remotes/RunListDialog.tsx`: fixed: the confirmation dialog (AlertDialog) is another Radix layer, and clicking it was
+  taken by the layer above as "clicked outside the panel", closing the panel too; it no longer closes while the confirmation is open.
+- `src/modules/projects/CloneRepoDialog.tsx`: optional prefilling of the URL and target directory (used when entering from a remote
+  repository row).
+- `src/modules/i18n/messages.ts`: Chinese and English copy for the UI above.
+- `scripts/dev/probes/repo-admin-acceptance.mjs`: new; acceptance script for repository management and cloning.
 
-**GitHub：权限门禁**
+**GitHub: permission gate**
 
-- `src-tauri/src/modules/github/permission.rs`：新增。读 `gh repo view --json viewerPermission`，`TRIAGE` / `READ` 判成不可写；查不到或不认识的档位按可写算（按钮照样给，让 GitHub 去拒绝）。
-- `src-tauri/src/modules/github/types.rs`：新增 `RepoPermissionPayload`；失败时 `can_write` 仍是 true。
-- `src-tauri/src/modules/github/commands.rs`、`gh.rs`、`mod.rs`、`src-tauri/src/lib.rs`：新增 `github_repo_permission` 命令（30 秒超时）与注册。
-- `src/lib/native.ts`：新增 `githubRepoPermission` 与 `WireRepoPermissionPayload`。
-- `src/modules/remotes/lib/permission.ts`：新增。`canWrite`（没查出来 / 查不动都按可写）与只读提示键。
-- `src/modules/remotes/RunListDialog.tsx`：打开时查一次该仓库权限；不可写时不渲染重跑 / 取消 / 删除，并加一句只读提示。
-- `src/modules/i18n/messages.ts`：新增只读提示的中英文文案。
-- `scripts/dev/probes/permission-acceptance.mjs`：新增，权限门禁的验收脚本。
+- `src-tauri/src/modules/github/permission.rs`: new. Reads `gh repo view --json viewerPermission`, treating `TRIAGE` / `READ` as
+  not writable; an unknown or unresolvable level counts as writable (the button is still offered and GitHub gets to refuse).
+- `src-tauri/src/modules/github/types.rs`: new `RepoPermissionPayload`; `can_write` is still true on failure.
+- `src-tauri/src/modules/github/commands.rs`, `gh.rs`, `mod.rs`, `src-tauri/src/lib.rs`: new `github_repo_permission` command
+  (30 second timeout) and its registration.
+- `src/lib/native.ts`: new `githubRepoPermission` and `WireRepoPermissionPayload`.
+- `src/modules/remotes/lib/permission.ts`: new. `canWrite` (unresolved / unfetchable counts as writable) and the read-only prompt key.
+- `src/modules/remotes/RunListDialog.tsx`: checks that repository's permission once on open; when not writable it does not render
+  rerun / cancel / delete and adds a read-only note.
+- `src/modules/i18n/messages.ts`: Chinese and English copy for the read-only note.
+- `scripts/dev/probes/permission-acceptance.mjs`: new; acceptance script for the permission gate.
 
-**GitHub：Releases 与附件下载**
+**GitHub: releases and asset downloads**
 
-- `src-tauri/src/modules/github/releases.rs`：新增。解析 Release 列表、附件名落盘预检、进度合并阈值、`<name>.verta-part` 成功才改名（失败只删临时文件），以及按 id 的取消标记。
-- `src-tauri/src/modules/github/types.rs`：新增 `RepoRelease` / `RepoReleaseAsset` / `RepoReleasesPayload` / `ReleaseDownloadProgress` / `ReleaseDownloadResult`。
-- `src-tauri/src/modules/github/commands.rs`：新增 `github_releases`；新增 `github_release_download`（流式读 gh 输出，45 秒停滞 / 30 分钟总超时，实收字节与附件大小不符判失败，进度经 `verta://github-download` 发出）与 `github_release_download_cancel`。
-- `src-tauri/src/modules/github/mod.rs`、`src-tauri/src/lib.rs`：注册新模块、三条命令与 `DownloadState`。
-- `src-tauri/Cargo.toml`、`src-tauri/capabilities/default.json`、`package.json`、`pnpm-lock.yaml`、`src-tauri/Cargo.lock`：新增 `tauri-plugin-dialog` 与 `@tauri-apps/plugin-dialog`，权限只给 `dialog:allow-open`。
-- `src/lib/native.ts`：新增 `githubReleases` / `githubReleaseDownload` / `githubReleaseDownloadCancel` 与线格式类型。
-- `src/modules/remotes/lib/releases.ts`：新增。列表映射、大小与速度文案、百分比、进度平滑。
-- `src/modules/remotes/lib/pickDownloadDir.ts`：新增。目录选择，默认系统下载夹，取不到退回主目录。
-- `src/modules/remotes/ReleasesDialog.tsx`：新增。列表 → 详情，进度事件按下载 id 认领。
-- `src/modules/remotes/ReleaseDetail.tsx`：新增。附件行下载 / 进度 / 速度 / 取消 / 打开所在文件夹，正文用按需加载的 Markdown 渲染。
-- `src/modules/remotes/RemoteReposView.tsx`：行菜单新增「Releases…」。
-- `src/modules/i18n/messages.ts`：新增上述界面的中英文文案。
-- `README.md`：功能表补 Releases 与附件下载。
-- `scripts/dev/probes/releases-acceptance.mjs`：新增，Releases 与附件下载的验收脚本。
+- `src-tauri/src/modules/github/releases.rs`: new. Parses the release list, pre-checks asset file names on disk, thresholds progress
+  coalescing, renames `<name>.verta-part` only on success (on failure only the temporary file is deleted), and keeps a per-id cancel flag.
+- `src-tauri/src/modules/github/types.rs`: new `RepoRelease` / `RepoReleaseAsset` / `RepoReleasesPayload` / `ReleaseDownloadProgress` /
+  `ReleaseDownloadResult`.
+- `src-tauri/src/modules/github/commands.rs`: new `github_releases`; new `github_release_download` (streams gh output, 45 second stall and
+  30 minute total timeout, a byte count that does not match the asset size counts as failure, progress emitted over
+  `verta://github-download`) and `github_release_download_cancel`.
+- `src-tauri/src/modules/github/mod.rs`, `src-tauri/src/lib.rs`: register the new module, the three commands and `DownloadState`.
+- `src-tauri/Cargo.toml`, `src-tauri/capabilities/default.json`, `package.json`, `pnpm-lock.yaml`, `src-tauri/Cargo.lock`: add
+  `tauri-plugin-dialog` and `@tauri-apps/plugin-dialog`, with only the `dialog:allow-open` permission granted.
+- `src/lib/native.ts`: new `githubReleases` / `githubReleaseDownload` / `githubReleaseDownloadCancel` and wire types.
+- `src/modules/remotes/lib/releases.ts`: new. List mapping, size and speed copy, percentages, progress smoothing.
+- `src/modules/remotes/lib/pickDownloadDir.ts`: new. Directory picking, defaulting to the system downloads folder and falling back to
+  the home directory.
+- `src/modules/remotes/ReleasesDialog.tsx`: new. List → detail, with progress events claimed by download id.
+- `src/modules/remotes/ReleaseDetail.tsx`: new. Asset rows with download / progress / speed / cancel / open containing folder, and the
+  body rendered with a lazily loaded Markdown renderer.
+- `src/modules/remotes/RemoteReposView.tsx`: the row menu gains "releases…".
+- `src/modules/i18n/messages.ts`: Chinese and English copy for the UI above.
+- `README.md`: the feature table gains releases and asset downloads.
+- `scripts/dev/probes/releases-acceptance.mjs`: new; acceptance script for releases and asset downloads.
 
-**文档对账**
+**Area screenshot: no screen freeze like the system tool, and the capture happens on save**
 
-- `VERTA.md`：删掉已不存在的内置智能体章节；模块清单补 `launcher` / `projects` / `remotes` / `i18n`，Rust 命令清单补 `agent_sessions` / `projects` / `github`；标签种类补 `projects` / `remotes`；Git 面板改记右栏、侧栏只留会话与文件；删掉已移除性能脚本的引用；补未保存草稿备份、终端会话图片、Markdown 图片尺寸与 Releases 下载；门禁命令改为 `cargo test --lib`；删掉两处与代码不符的说法（图片鉴权、secret deny-list）。
+- `src-tauri/src/modules/screenshot/mod.rs`: changed to **not freeze the screen**. The screen stays live while the
+  selection is being drawn (the overlay window is transparent and only lays down a light gray wash), and the capture moves to
+  **the moment save is clicked**: the overlay is hidden first and the capture waits until it has really left the screen
+  (`hide()` only hands the request to the OS, that frame is still there), otherwise the gray wash, selection box, handles and
+  action bar end up in the image; the whole thing runs on a blocking thread. The window is still **created once and kept**
+  (each use only shows it: about 0.4 seconds to build the webview the first time, just over 0.1 afterwards); on failure the
+  window is shown again with the selection intact, so it can be adjusted and saved again.
+- `src-tauri/src/modules/screenshot/capture.rs`: new `virtual_screen_bounds()` — the capture and the overlay window take
+  their extent from the same place, so selection coordinates line up. `RawShot` no longer carries an origin (the overlay
+  position comes from that same place).
+- `src-tauri/src/modules/screenshot/encode.rs`: the BMP preview encoder is deleted (there is no preview file any more); only
+  the PNG that gets saved remains.
+- `src/modules/screenshot/ScreenshotOverlay.tsx`: **canvas and frozen frame removed**. A 25% light gray wash covers the
+  screen; as soon as a selection is drawn the wash goes away and a shadow around the selection darkens the outside — the
+  inside is a fully transparent hole, showing the live screen behind it (this is the point of "like the system tool": no
+  freeze, the screen keeps moving). A corner-radius slider (0–40, default **15**, WYSIWYG) and two icon buttons for save /
+  cancel sit at the bottom right of the selection; stroke, handles and buttons take theme colors. After releasing the mouse
+  the selection stays adjustable: drag the whole block, resize with the eight handles. Enter saves, Esc cancels, unchanged.
+- `screenshot.html`, `src/screenshot/main.tsx`: this window **must be transparent** — both spots paint the background
+  transparent according to the window's nature (globals.css gives body a theme background) and add the `.light` / `.dark`
+  classes (`--primary` and friends cannot resolve without that class on the root, and the stroke would fall back to gray). Also:
+  if the window's own script crashes, it calls `screenshot_failed` to hide itself rather than leaving an unclickable gray
+  layer in front of the user.
+- `src/lib/native.ts`, `src/modules/i18n/messages.ts`: `screenshot_begin` no longer returns the captured image; `screenshot_pending` /
+  `screenshot_pixels` are deleted (neither the preview file nor shipping pixels over IPC is needed any more); the completion
+  copy is in a more formal tone (no more "it is in the clipboard too", and the Rust-side error strings changed with it).
+- `src-tauri/capabilities/screenshot.json`: showing and focusing are done by Rust now, so the overlay window's permissions
+  shrink to "listen to events only".
+- `scripts/dev/probes/`: the acceptance probes follow — `screenshot-arm-timing-*` (measures "message received to first
+  frame"), `capture-desktop.ps1` (captures the whole screen as evidence; `CopyFromScreen` and the window's own CDP screenshot
+  are not the same thing), `screenshot-begin-timing.js` (measures only "click to gray wash appearing").
+
+**Area screenshot: capture, select, save and clipboard all inside the app**
+
+- `src-tauri/src/modules/screenshot/` (a new module, four files):
+  - `capture.rs`: Windows captures the whole virtual desktop with GDI. GDI returns BGRA with garbage alpha, which is
+    filled in as opaque RGBA — without that, the saved PNG and the clipboard image are semi-transparent; other platforms
+    refuse honestly instead of pretending to work.
+  - `geom.rs`: selection snapping (dragging back and dragging off-screen are handled correctly), cropping by selection, file
+    names and local timestamps. All pure functions with unit tests.
+  - `encode.rs`: PNG encoding via the `image` crate already in the dependency tree, with only the `png` feature enabled.
+  - `mod.rs`: screenshot state and commands (`begin` shows the overlay window / `finish` hides the window, captures, crops,
+    writes to disk, puts it on the clipboard / `cancel` / `failed`). Cropping uses the raw captured pixels: feeding the whole
+    screen to the asset protocol and cropping on a canvas would taint it cross-origin and make `toBlob` throw. Cropping is in
+    the backend and selection in the frontend, so the backend snaps the selection once more.
+- `src-tauri/src/modules/mod.rs`, `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`: register the module, state and commands;
+  windows-sys gains `Win32_UI_WindowsAndMessaging` (for `GetSystemMetrics` and the virtual screen constants).
+- `src-tauri/capabilities/screenshot.json` (new): the overlay window gets its own **minimal** capability — events only, with
+  show and focus done by Rust, and none of the store / dialog / opener permissions it does not need.
+- `screenshot.html`, `src/screenshot/main.tsx`, `vite.config.ts`: the frontend entry of the second window (a transparent
+  window), one more entry in the multi-page build.
+- `src/modules/screenshot/ScreenshotOverlay.tsx` (new): light gray wash, drag a box (with a physical-pixel size hint),
+  movable and resizable after release, corner-radius slider, save / cancel icon buttons, Enter to save, Esc to cancel; no
+  screen freeze — the screen stays live.
+- `src/modules/screenshot/lib/selection.ts` (new): CSS pixel ↔ physical pixel conversion — at 125% display scaling the two
+  differ by a devicePixelRatio and sending CSS coordinates directly crops off target; rounding is "one column too many rather
+  than one too few". With unit tests.
+- `src/modules/header/Header.tsx`: a "screenshot" entry appears to the left of the Git button at the top right.
+- `src/app/App.tsx`, `src/lib/native.ts`, `src/modules/i18n/messages.ts`: the completion toast (stating where it was saved
+  and whether the clipboard worked, reported separately) and "insert path" — clicking it inserts the path into the current
+  terminal input line with bracketed paste, so spaces in the path are fine, with no automatic insert and no Enter; on tabs
+  that are not a terminal the button is not offered at all (there would be nowhere to insert it).
+- `scripts/dev/cdp-input.mjs` (new) plus `scripts/dev/probes/` (the probes for this area and `capture-desktop.ps1`):
+  send real input to a **specific** window and capture evidence for acceptance. `cdp-key.mjs` only ever finds the first
+  page and the overlay window is the second, and mouse dragging also needs a full press/move/release (synthesizing a
+  PointerEvent in the DOM will not do: `setPointerCapture` only honors real pointers).
+
+**Pi session list: show the latest session name**
+
+- `src-tauri/src/modules/agent_sessions/pi.rs`: the session name is no longer looked for only in the first 8 MB of the file
+  (in a long session the rename line can be tens of MB in; when it was not found the first user message was used); it now
+  searches backwards from the end of the file in blocks for `session_info`, takes the last name and reads that whole line at
+  the match. The header window drops from 8 MB to 1 MB.
+
+**Markdown preview: small images without a size are no longer stretched into a full-width banner**
+
+- `src/modules/markdown/MarkdownImage.tsx`: images without a height used to be pinned to `height: 260px` (with `object-fit: contain`),
+  so a 116×20 badge was blown up into a full-column banner; they now reserve 260px before load and go back to their own size
+  once loaded (260px is only a cap). The sizing decision is extracted into a pure function `previewImageStyle`.
+- `src/modules/markdown/MarkdownImage.test.ts`: new, covering the four branches.
+
+**Markdown preview: inline images sit on one line again**
+
+- `src/modules/markdown/MarkdownImage.tsx`: image `display` changes from `block` to `inline-block` (with `mr-2 last:mr-0`), so
+  several images in one line display side by side with spacing between them.
+
+**Fonts: pick an installed font from a dropdown (terminal and editor share one font)**
+
+- `src-tauri/src/modules/fonts.rs`: new, lists installed font families (Windows GDI `EnumFontFamiliesExW` / Linux `fc-list` /
+  macOS `system_profiler`); new command `fonts_list`.
+- `src/lib/fontOptions.ts`, `src/settings/components/FontPicker.tsx`, `src/settings/lib/useInstalledFonts.ts`: new; the options are
+  "auto-detect" plus installed fonts (the current value is listed and marked even when it is not installed), searchable.
+- `src/settings/sections/GeneralSection.tsx`, `src/modules/i18n/messages.ts`: the font row becomes a dropdown, and the
+  description states that the terminal and the editor share it.
+- `src/modules/settings/store.ts`: the default for `terminalFontFamily` changes from empty to `Cascadia Code` (stored values
+  are untouched).
+- `src/lib/fonts.ts`: the terminal font stack is "selected font → auto-detected Nerd Font (icons) → fallback chain".
+- `src/modules/editor/lib/useApplyEditorFontFamily.ts`, `src/modules/editor/lib/extensions.ts`: the editor font goes through the
+  `--editor-font-family` variable.
+- `src-tauri/Cargo.toml`: `windows-sys` gains the `Win32_Graphics_Gdi` feature.
+
+**GitHub: account and sign-in**
+
+- `src-tauri/src/modules/github/auth.rs`: new. Parses `gh auth status --json hosts` (picks the active account, splits scopes,
+  does not crash on missing fields), and rejects obviously wrong pasted tokens locally.
+- `src-tauri/src/modules/github/gh.rs`: extracts `command()` (arguments passed one by one, interactive prompts off, proxy applied,
+  console hidden — all prepared centrally); new `spawn` / `pump` / `run_with_stdin` (a pasted PAT can only come in over stdin);
+  new `AUTH_TOKEN_TIMEOUT_SECS` / `AUTH_WEB_TIMEOUT_SECS`.
+- `src-tauri/src/modules/github/types.rs`: new `AuthStatusPayload` / `AuthActionPayload` / `AuthLoginProgress`.
+- `src-tauri/src/modules/github/commands.rs`, `mod.rs`, `src-tauri/src/lib.rs`: new `github_auth_status` /
+  `github_auth_login_token` / `github_auth_login_web` (streams the one-time code gh prints to the UI in real time, cancellable) /
+  `github_auth_login_web_cancel` / `github_auth_logout`, plus `AuthLoginState`.
+- `src/lib/native.ts`: new wrappers and wire types for those five.
+- `src/modules/remotes/lib/auth.ts`: new. Folds the sign-in state into what the UI needs, detects a missing
+  `delete_repo` authorization, and pre-checks a pasted token locally.
+- `src/modules/remotes/AuthDialog.tsx`: new. Current state / browser authorization (live output of the one-time code,
+  cancellable) / paste a PAT (the input is cleared immediately on submit) / sign out (the confirmation states the
+  consequences first).
+- `src/modules/remotes/RemoteReposView.tsx`: the account in the page header becomes an entry point; a prompt block for "not signed
+  in / gh not installed" gains an entry point too; the list is re-read when the panel closes.
+- `src/modules/i18n/messages.ts`: Chinese and English copy for the UI above.
+- `scripts/dev/probes/auth-acceptance.mjs`: new; acceptance script for the account panel (the `--isolated` run exercises
+  the "not signed in" flow in a temporary `GH_CONFIG_DIR` without touching the real sign-in state).
+
+**GitHub: repository management (edit description / switch visibility / delete repository) and clone locally**
+
+- `src-tauri/src/modules/github/repo_admin.rs`: new. Reads `gh repo view --json description,visibility,viewerPermission`;
+  descriptions over 350 characters are rejected locally; recognizes the recoverable "gh lacks the delete_repo authorization"
+  failure.
+- `src-tauri/src/modules/github/permission.rs`: new `admin_allowed` (only `ADMIN` counts as administrator; an unknown or
+  unresolvable level counts as allowed to change).
+- `src-tauri/src/modules/github/types.rs`: new `RepoSettingsPayload` (`can_admin` is still true on failure) and
+  `RepoActionResult`.
+- `src-tauri/src/modules/github/commands.rs`, `gh.rs`, `mod.rs`, `src-tauri/src/lib.rs`: new `github_repo_settings` /
+  `github_repo_set_description` / `github_repo_set_visibility` / `github_repo_delete` (60 second timeout; after the delete request
+  it re-queries `gh api repos/{slug}` and only a 404 counts as success; when the delete_repo authorization is missing, the command
+  to run is included in the error text).
+- `src/lib/native.ts`: new `githubRepoSettings` / `githubRepoSetDescription` / `githubRepoSetVisibility` / `githubRepoDelete`
+  and wire types.
+- `src/modules/remotes/lib/repoAdmin.ts`: new. `canAdmin` (unresolved / unfetchable counts as allowed to change), the read-only
+  prompt key, `isPrivateVisibility`, the "type the full name" check for deleting a repository, the description length, and the
+  adjacent-path guess for a clone target directory.
+- `src/modules/remotes/RepoAdminDialog.tsx`: new. Description saving, visibility switching (each of public / private gets its own
+  consequence confirmation) and a danger zone (the delete button only appears once the full repository name is typed; after
+  deletion the result is reported back so the list can drop that row); none of the three entry points render for non-admins.
+- `src/modules/remotes/RemoteReposView.tsx`: the row menu gains "clone locally…" and "repository settings…"; a successful description /
+  visibility change updates only that row; the clone and settings dialogs are wired in. Also fixed: the menu content is portalled to
+  the body by Radix, but React events still bubble along the component tree, so clicking a menu item also triggered the row click
+  (and "repository settings…" therefore also opened the runs panel) — intercepted on the menu content.
+- `src/modules/remotes/RunListDialog.tsx`: fixed: the confirmation dialog (AlertDialog) is another Radix layer, and clicking it was
+  taken by the layer above as "clicked outside the panel", closing the panel too; it no longer closes while the confirmation is open.
+- `src/modules/projects/CloneRepoDialog.tsx`: optional prefilling of the URL and target directory (used when entering from a remote
+  repository row).
+- `src/modules/i18n/messages.ts`: Chinese and English copy for the UI above.
+- `scripts/dev/probes/repo-admin-acceptance.mjs`: new; acceptance script for repository management and cloning.
+
+**GitHub: permission gate**
+
+- `src-tauri/src/modules/github/permission.rs`: new. Reads `gh repo view --json viewerPermission`, treating `TRIAGE` / `READ` as
+  not writable; an unknown or unresolvable level counts as writable (the button is still offered and GitHub gets to refuse).
+- `src-tauri/src/modules/github/types.rs`: new `RepoPermissionPayload`; `can_write` is still true on failure.
+- `src-tauri/src/modules/github/commands.rs`, `gh.rs`, `mod.rs`, `src-tauri/src/lib.rs`: new `github_repo_permission` command
+  (30 second timeout) and its registration.
+- `src/lib/native.ts`: new `githubRepoPermission` and `WireRepoPermissionPayload`.
+- `src/modules/remotes/lib/permission.ts`: new. `canWrite` (unresolved / unfetchable counts as writable) and the read-only prompt key.
+- `src/modules/remotes/RunListDialog.tsx`: checks that repository's permission once on open; when not writable it does not render
+  rerun / cancel / delete and adds a read-only note.
+- `src/modules/i18n/messages.ts`: Chinese and English copy for the read-only note.
+- `scripts/dev/probes/permission-acceptance.mjs`: new; acceptance script for the permission gate.
+
+**GitHub: releases and asset downloads**
+
+- `src-tauri/src/modules/github/releases.rs`: new. Parses the release list, pre-checks asset file names on disk, thresholds progress
+  coalescing, renames `<name>.verta-part` only on success (on failure only the temporary file is deleted), and keeps a per-id cancel flag.
+- `src-tauri/src/modules/github/types.rs`: new `RepoRelease` / `RepoReleaseAsset` / `RepoReleasesPayload` / `ReleaseDownloadProgress` /
+  `ReleaseDownloadResult`.
+- `src-tauri/src/modules/github/commands.rs`: new `github_releases`; new `github_release_download` (streams gh output, 45 second stall and
+  30 minute total timeout, a byte count that does not match the asset size counts as failure, progress emitted over
+  `verta://github-download`) and `github_release_download_cancel`.
+- `src-tauri/src/modules/github/mod.rs`, `src-tauri/src/lib.rs`: register the new module, the three commands and `DownloadState`.
+- `src-tauri/Cargo.toml`, `src-tauri/capabilities/default.json`, `package.json`, `pnpm-lock.yaml`, `src-tauri/Cargo.lock`: add
+  `tauri-plugin-dialog` and `@tauri-apps/plugin-dialog`, with only the `dialog:allow-open` permission granted.
+- `src/lib/native.ts`: new `githubReleases` / `githubReleaseDownload` / `githubReleaseDownloadCancel` and wire types.
+- `src/modules/remotes/lib/releases.ts`: new. List mapping, size and speed copy, percentages, progress smoothing.
+- `src/modules/remotes/lib/pickDownloadDir.ts`: new. Directory picking, defaulting to the system downloads folder and falling back to
+  the home directory.
+- `src/modules/remotes/ReleasesDialog.tsx`: new. List → detail, with progress events claimed by download id.
+- `src/modules/remotes/ReleaseDetail.tsx`: new. Asset rows with download / progress / speed / cancel / open containing folder, and the
+  body rendered with a lazily loaded Markdown renderer.
+- `src/modules/remotes/RemoteReposView.tsx`: the row menu gains "releases…".
+- `src/modules/i18n/messages.ts`: Chinese and English copy for the UI above.
+- `README.md`: the feature table gains releases and asset downloads.
+- `scripts/dev/probes/releases-acceptance.mjs`: new; acceptance script for releases and asset downloads.
+
+**Documentation reconciliation**
+
+- `VERTA.md`: removed the section on the built-in agent, which no longer exists; the module list gains `launcher` / `projects` / `remotes` / `i18n`,
+  the Rust command list gains `agent_sessions` / `projects` / `github`; tab kinds gain `projects` / `remotes`; the Git panel is now
+  documented as the right panel, with the sidebar keeping only sessions and files; references to the removed performance scripts are gone;
+  added unsaved draft backups, terminal session images, Markdown image sizing and release downloads; the gate command is now `cargo test --lib`;
+  two statements that no longer matched the code (image authentication, secret deny-list) are removed.
 
 </details>
 
 <details>
 <summary><strong>2026-10-20</strong></summary>
 
-**GitHub：CI 徽标跟运行面板走，去掉重复的入口**
+**GitHub: the CI badge follows the runs panel, duplicate entry point removed**
 
-- `src/modules/remotes/lib/runs.ts`：新增 `ciFromRuns`（把运行列表折成那一行 CI 徽标该显示的东西：
-  最新那条就是徽标；列表空了就是查清楚的「没有运行记录」；查不动就原样透传）；带单测。行菜单里那句
-  「检查 CI」和「运行记录…」本来就是一个事实的两种说法——徽标按行缓存，删掉旧运行之后它可能还挂着
-  旧结论，与面板自相矛盾。现在面板是唯一来源。
-- `src/modules/remotes/RunListDialog.tsx`：新增 `onLoaded`，每次读到运行列表（含删除后的重新对账）
-  回传一次。
-- `src/modules/remotes/RemoteReposView.tsx`：接上 `onLoaded`，面板一读完就用它最新那条更新该行徽标；
-  行菜单里重复的「检查 CI」删除（悬停自动查、徽标没结果时点它现查这两条仍在）。
+- `src/modules/remotes/lib/runs.ts`: new `ciFromRuns` (folds the runs list into what that one CI badge should show:
+  the newest run is the badge; an empty list is a confirmed "no runs"; a failed query is passed through as is); with unit tests.
+  The "check CI" item in the row menu and "runs…" were two ways of saying one thing — the badge is cached per row, so after an
+  old run was deleted it could keep an outdated verdict and contradict the panel. The panel is now the single source.
+- `src/modules/remotes/RunListDialog.tsx`: new `onLoaded`, called once each time the runs list is fetched (including the
+  reconciliation after a delete).
+- `src/modules/remotes/RemoteReposView.tsx`: wired to `onLoaded`, so a freshly loaded panel updates that row's badge with its newest
+  run; the duplicate "check CI" item in the row menu is removed (hover auto-query and clicking the badge to query on demand both stay).
 
-**GitHub：删除运行记录；点击不再跳浏览器**
+**GitHub: delete a run; clicks no longer jump to the browser**
 
-- `src-tauri/src/modules/github/commands.rs`、`src-tauri/src/lib.rs`：`RunAction` 多一个 `Delete`，新增
-  `github_run_delete`（`gh run delete <id> --repo <slug>`）。重跑 / 取消 / 删除共用同一条通道，预检、
-  失败分类、原文透传都一样。**删除后回查一次那条运行还在不在**（`repos/{o}/{r}/actions/runs/{id}`）：
-  只有明确 404 才报成功，还在就如实说「可能没删掉」，说不清（限流 / 代理抽风 / 权限）把原因带出去——
-  光看 `gh run delete` 的退出码不够，那条路上任何一环骗我们一次，界面就会把一条其实还在 GitHub 上的
-  记录永久藏起来（行被拿掉、刷新又被滤掉）。
-- `src-tauri/src/modules/github/actions.rs`：新增 `classify_run_probe`（回查结论：没了 / 还在 / 说不清）
-  与 `RunProbe`，带单测。
-- `src/modules/remotes/RunListDialog.tsx`：行内新增「删除」，只在跑完了的运行上给（GitHub 不允许删
-  正在跑的那条）；二次确认写明「日志与结果一起删掉、不可恢复」，失败把 gh 原话留在确认框里。删除
-  **经后端回查确认**后，界面立刻拿掉那一行，再在后台刷新对账——之前是先弹浮层、再等两三秒的刷新，
-  浮层与面板短暂对不上，用户当场看到了；刚删掉的 id 也记下来、刷新时滤掉，免得 GitHub 慢一拍又把
-  行弹回来（只滤「已确认删掉」的那些，失败的一律留在列表里）。
-- `src/modules/remotes/RemoteReposView.tsx`：仓库行点击与 CI 徽标点击都改成在软件内打开该仓库的运行面板
-  （「在浏览器打开」只留在行菜单里）。到此，GitHub 面板里所有「点一下就跳浏览器」的路都没了。
-- `src/modules/remotes/lib/runs.ts`：新增 `canDelete`（跑完了才能删）与 `withoutRun`（按 id 拿掉一行）；带单测。
+- `src-tauri/src/modules/github/commands.rs`, `src-tauri/src/lib.rs`: `RunAction` gains a `Delete`, plus a new
+  `github_run_delete` (`gh run delete <id> --repo <slug>`). Rerun / cancel / delete share one path, with the same pre-checks,
+  failure classification and raw-text pass-through. **After deleting, whether that run still exists is re-checked**
+  (`repos/{o}/{r}/actions/runs/{id}`): only an explicit 404 reports success, a run still there is reported honestly as
+  "possibly not deleted", and anything unclear (rate limiting / a flaky proxy / permissions) carries its reason out —
+  the exit code of `gh run delete` alone is not enough, and if any link in that chain misleads us once, the UI permanently
+  hides a record that is actually still on GitHub (the row is removed and filtered out again on refresh).
+- `src-tauri/src/modules/github/actions.rs`: new `classify_run_probe` (the re-check verdict: gone / still there / unclear)
+  and `RunProbe`, with unit tests.
+- `src/modules/remotes/RunListDialog.tsx`: a "delete" item in the row, offered only for finished runs (GitHub does not allow
+  deleting a running one); the confirmation states that logs and results are deleted with it and cannot be restored, and on failure
+  keeps gh's own wording in the confirmation. After the delete is **confirmed by the backend re-check**, the UI drops that row
+  immediately and reconciles in the background — previously it showed a toast first and waited two or three seconds for the refresh,
+  so the toast and the panel disagreed briefly and the user saw it; freshly deleted ids are also recorded and filtered out on refresh so
+  GitHub lagging a beat does not bring the row back (only "confirmed deleted" ids are filtered; failed deletes always stay in the list).
+- `src/modules/remotes/RemoteReposView.tsx`: clicking a repository row and clicking the CI badge both open that repository's runs panel
+  inside the app ("open in browser" stays only in the row menu). With that, every "one click jumps to the browser" path in the GitHub panel is gone.
+- `src/modules/remotes/lib/runs.ts`: new `canDelete` (only finished runs can be deleted) and `withoutRun` (drop a row by id); with unit tests.
 
-**GitHub：运行详情在软件内（job / step / 日志）**
+**GitHub: run detail inside the app (jobs / steps / logs)**
 
-- `src-tauri/src/modules/github/actions.rs`：新增 `parse_jobs`（读 `actions/runs/{id}/jobs`，含步骤树）、
-  `parse_log`（拆 `job\tstep\t<时间> 正文` 三段；认不出前缀的行原样留着，绝不丢行；第一行时间戳前的 BOM
-  剥掉）、`cap_lines`（日志只留最后 `MAX_LOG_LINES = 2000` 行）。带 7 个单测。
-- `src-tauri/src/modules/github/types.rs`：新增 `RepoRunJob` / `RepoRunStep` / `RepoRunJobsPayload` /
-  `RepoRunLogLine` / `RepoRunLogPayload`。日志的两种截断分开报：`clipped`（我们只留了尾部）与 `capped`
-  （撞上一次能取的上限、拿到的是开头），界面上说法不同。
-- `src-tauri/src/modules/github/gh.rs`：`GhOutput` 带上 `stdout_truncated`，并从 `run` 里拆出
-  `run_with_cap`；日志单独给 90 秒与 8 MB 的上限（`LOG_TIMEOUT_SECS` / `LOG_STDOUT_CAP`）。
-- `src-tauri/src/modules/github/commands.rs`、`src-tauri/src/lib.rs`：新增 `github_run_jobs` 与
-  `github_run_log`（`failed_only` 走 `gh run view --log-failed`）。
-- `src/modules/remotes/RunDetail.tsx`：新增。软件内的运行详情：job 与步骤树（每步一个状态）、日志窗格
-  （时间 + 步骤只在变化时显示 + 按 `##[error]` / `##[warning]` 上色）、「只看失败」开关、两种截断各自的
-  提示；「在 GitHub 打开」降为次要出口——只有日志被截断时才真需要它。
-- `src/modules/remotes/RunListDialog.tsx`：行内「打开浏览器」换成「详情」，在同一个弹窗里切视图
-  （不叠弹窗）。
-- `src/modules/remotes/lib/runs.ts`：新增 `logLineTone`（错误/警告/分组/普通）与 `logClock`；带单测。
-- `src/lib/native.ts`、`src/modules/i18n/messages.ts`：命令包装与中英文案。
+- `src-tauri/src/modules/github/actions.rs`: new `parse_jobs` (reads `actions/runs/{id}/jobs`, including the step tree),
+  `parse_log` (splits `job\tstep\t<time> body` into three parts; lines whose prefix is not recognized are kept as is, lines are never
+  dropped; the BOM before the first line's timestamp is stripped), `cap_lines` (only the last `MAX_LOG_LINES = 2000` log lines are kept).
+  With 7 unit tests.
+- `src-tauri/src/modules/github/types.rs`: new `RepoRunJob` / `RepoRunStep` / `RepoRunJobsPayload` /
+  `RepoRunLogLine` / `RepoRunLogPayload`. The two kinds of log truncation are reported separately: `clipped` (only the tail was kept) and
+  `capped` (a per-request limit was hit and the beginning was received), and the UI words them differently.
+- `src-tauri/src/modules/github/gh.rs`: `GhOutput` carries `stdout_truncated`, and `run_with_cap` is split out of
+  `run`; logs get their own 90 second and 8 MB limits (`LOG_TIMEOUT_SECS` / `LOG_STDOUT_CAP`).
+- `src-tauri/src/modules/github/commands.rs`, `src-tauri/src/lib.rs`: new `github_run_jobs` and
+  `github_run_log` (`failed_only` goes through `gh run view --log-failed`).
+- `src/modules/remotes/RunDetail.tsx`: new. In-app run detail: job and step tree (a status per step), a log pane
+  (time + step shown only when it changes + coloring by `##[error]` / `##[warning]`), a "failures only" toggle, and a
+  separate notice per truncation kind; "open on GitHub" drops to a secondary exit — it is only really needed when the log was truncated.
+- `src/modules/remotes/RunListDialog.tsx`: the row's "open browser" becomes "detail", switching views inside the same dialog
+  (no stacked dialogs).
+- `src/modules/remotes/lib/runs.ts`: new `logLineTone` (error / warning / group / normal) and `logClock`; with unit tests.
+- `src/lib/native.ts`, `src/modules/i18n/messages.ts`: command wrappers and Chinese / English copy.
 
-**布局：左右两条缝等宽**
+**Layout: both gutters are the same width**
 
-- `src/app/App.tsx`：中间区域的内边距从 `pl-0.5 pr-2` 改成 `pl-0.5 pr-0.5`。之前侧栏↔终端是 0.5+0.5、
-  终端↔Git 是 2+0.5，右边看着宽一倍多；现在两条缝都是 2px + 分隔条 4px + 2px = 7.58px，
-  窗口两侧的外边距仍由侧栏 `pl-2` 与右栏 `pr-2` 各给 8px。
+- `src/app/App.tsx`: the middle area's padding changes from `pl-0.5 pr-2` to `pl-0.5 pr-0.5`. Before, sidebar↔terminal was 0.5+0.5 and
+  terminal↔Git was 2+0.5, so the right one looked more than twice as wide; both gutters are now 2px + 4px separator + 2px = 7.58px,
+  and the outer margin on both sides of the window still comes from the sidebar's `pl-2` and the right panel's `pr-2`, 8px each.
 
-**GitHub：运行列表（含重跑 / 取消）**
+**GitHub: runs list (with rerun / cancel)**
 
-- `src-tauri/src/modules/github/actions.rs`：新增。解析运行列表 `repos/{owner}/{repo}/actions/runs?per_page=N`。
-  逐条容错（缺 id / status / html_url 的条目丢掉，其余字段缺了按空处理）；但「返回里本来有条目、最后一条都
-  没留下」按解析失败如实报，不报成「没有运行记录」。带 7 个单测。
-- `src-tauri/src/modules/github/types.rs`：新增 `RepoActionRun` / `RepoActionRunsPayload` /
-  `RepoRunActionResult`，空列表归 `none`（与 CI 那条同一套 kind）；`failed` 的「不返回空错误」收成一个
-  小助手，CI 那条也改用它。
-- `src-tauri/src/modules/github/commands.rs`：新增 `github_repo_runs`（一次一个仓库，条数夹到 1..=50，
-  默认 20）、`github_run_rerun`、`github_run_cancel`（内部走 `gh run rerun/cancel <id> --repo <slug>`）。
-  运行 id 是整数、拼不出选项注入；0 在本地就拒收。
-- `src-tauri/src/lib.rs`、`gh.rs`、`mod.rs`：注册三条命令与 `RUN_ACTION_TIMEOUT_SECS`。
-- `src/modules/remotes/RunListDialog.tsx`：新增。列出最近 20 条运行：状态徽标、workflow · 分支 · #号、
-  事件、原始 conclusion、相对时间，附「打开」跳转。重跑与取消都要二次确认；失败把 gh 原文留在确认框里
-  （成功先收框再刷新，刷新出问题不该让框看起来像失败）。
-- `src/modules/remotes/lib/runs.ts`：新增。一行的视图规则（跑完了才能重跑、没跑完才谈得上取消）与时间解析；
-  带 4 个单测。
-- `src/modules/remotes/lib/ci.ts`：把 `runState` / `runDetail` / `TONE_CLASS` 抽出来给 CI 列与运行列表共用；
-  顺带修掉一处不一致——`timed_out` 原本是红色徽标却写「已结束」，现在按失败说。
-- `src/modules/remotes/RemoteReposView.tsx`：行菜单加「运行记录…」。
-- `src/lib/native.ts`、`src/modules/i18n/messages.ts`：命令包装与中英文案。
+- `src-tauri/src/modules/github/actions.rs`: new. Parses the runs list `repos/{owner}/{repo}/actions/runs?per_page=N`.
+  Tolerant per entry (entries missing id / status / html_url are dropped, other missing fields are treated as empty); but "the response had
+  entries and none of them survived" is reported honestly as a parse failure, not as "no runs". With 7 unit tests.
+- `src-tauri/src/modules/github/types.rs`: new `RepoActionRun` / `RepoActionRunsPayload` /
+  `RepoRunActionResult`, an empty list maps to `none` (the same kind set as the CI call); the `failed` "never return an empty error" rule is folded into
+  a small helper, which the CI call uses too.
+- `src-tauri/src/modules/github/commands.rs`: new `github_repo_runs` (one repository at a time, count clamped to 1..=50,
+  default 20), `github_run_rerun`, `github_run_cancel` (internally `gh run rerun/cancel <id> --repo <slug>`).
+  The run id is an integer so no option injection can be built from it; 0 is rejected locally.
+- `src-tauri/src/lib.rs`, `gh.rs`, `mod.rs`: register the three commands and `RUN_ACTION_TIMEOUT_SECS`.
+- `src/modules/remotes/RunListDialog.tsx`: new. Lists the latest 20 runs: status badge, workflow · branch · #number,
+  event, raw conclusion, relative time, plus an "open" link. Rerun and cancel both need confirmation; on failure gh's own wording stays in
+  the confirmation (on success the dialog closes first and then refreshes, since a refresh problem should not make it look like a failure).
+- `src/modules/remotes/lib/runs.ts`: new. The per-row view rules (only finished runs can be rerun; cancel only applies before that) and time
+  parsing; with 4 unit tests.
+- `src/modules/remotes/lib/ci.ts`: `runState` / `runDetail` / `TONE_CLASS` are extracted for the CI column and the runs list to share;
+  one inconsistency fixed along the way — `timed_out` had a red badge but read "finished", and now reads as a failure.
+- `src/modules/remotes/RemoteReposView.tsx`: the row menu gains "runs…".
+- `src/lib/native.ts`, `src/modules/i18n/messages.ts`: command wrappers and Chinese / English copy.
 
-**界面文案：补上没适配中文的输入提示词**
+**UI copy: input placeholders that never adapted to Chinese**
 
-- `src/modules/command-palette/CommandPalette.tsx`：命令面板的四个提示词（默认 / 主题 / 文件内容 / 命令历史）
-  改成走 i18n，之前是硬编码英文。
-- `src/modules/header/SearchInline.tsx`：头部搜索框的「Search」与「Git search」改成走 i18n（快捷键后缀照旧拼）。
-- `src/modules/explorer/FileExplorer.tsx`、`src/modules/explorer/TreeRow.tsx`：新建文件 / 新建文件夹的行内
-  占位词改用 `explorer.newFile` / `explorer.newFolder` —— 这两个键早就存在，只是一直没被用上。
+- `src/modules/command-palette/CommandPalette.tsx`: the command palette's four placeholders (default / theme / file contents / command history)
+  now go through i18n; they were hardcoded English.
+- `src/modules/header/SearchInline.tsx`: "Search" and "Git search" in the header search box now go through i18n (the shortcut suffix is still
+  concatenated as before).
+- `src/modules/explorer/FileExplorer.tsx`, `src/modules/explorer/TreeRow.tsx`: the inline placeholders for new file / new folder
+  now use `explorer.newFile` / `explorer.newFolder` — both keys existed already but were never used.
 
-**GitHub：CI 状态列（远程仓库列表）**
+**GitHub: CI status column (remote repository list)**
 
-- `src-tauri/src/modules/github/ci.rs`：新增。解析 `repos/{owner}/{repo}/actions/runs?per_page=1` 的最近一次运行；
-  以及 `owner/repo` 的预检（空值、`-` 开头、没有斜杠、多段、字符集外的值一律本地拒收，不让它们走到 gh）。
-- `src-tauri/src/modules/github/types.rs`：新增 `RepoCiRun` / `RepoCiPayload`，并多一个 `none`：
-  「查清楚了没有运行记录」与失败分开，失败绝不伪装成没有 CI。
-- `src-tauri/src/modules/github/commands.rs`、`gh.rs`、`mod.rs`、`src-tauri/src/lib.rs`：新增 `github_repo_ci`
-  命令（一次一个仓库，30 秒超时），沿用仓库列表那套「没装 gh / 没登录 / 其它失败」的分类与原文透传。
-- `src/modules/remotes/RemoteReposView.tsx`：仓库列表加 CI 列。鼠标停到哪一行才查哪一行（不批量查整份列表，
-  免得烧掉 API 配额），行菜单里另有「检查 CI」用于强制重查；徽标点开是这次运行的地址。
-- `src/modules/remotes/lib/ci.ts`：新增，把 status/conclusion 折成「说什么、什么颜色、点哪里」；带 7 个单测。
-- `src/lib/native.ts`、`src/modules/i18n/messages.ts`：命令包装与中英文案。
+- `src-tauri/src/modules/github/ci.rs`: new. Parses the latest run of `repos/{owner}/{repo}/actions/runs?per_page=1`;
+  plus a pre-check on `owner/repo` (empty values, a leading `-`, no slash, multiple segments, out-of-charset values are all rejected locally
+  so they never reach gh).
+- `src-tauri/src/modules/github/types.rs`: new `RepoCiRun` / `RepoCiPayload`, and one more kind, `none`:
+  "confirmed there are no runs" is kept apart from a failure, so a failure never masquerades as no CI.
+- `src-tauri/src/modules/github/commands.rs`, `gh.rs`, `mod.rs`, `src-tauri/src/lib.rs`: new `github_repo_ci`
+  command (one repository at a time, 30 second timeout), reusing the repository list's "gh not installed / not signed in / other failure" classification
+  and raw-text pass-through.
+- `src/modules/remotes/RemoteReposView.tsx`: the repository list gains a CI column. Only the row the pointer is on gets queried (not the whole list in bulk,
+  to avoid burning the API quota); the row menu also has a "check CI" that forces a re-query; clicking the badge opens this run's URL.
+- `src/modules/remotes/lib/ci.ts`: new, folds status/conclusion into "what to say, what color, where it links"; with 7 unit tests.
+- `src/lib/native.ts`, `src/modules/i18n/messages.ts`: command wrappers and Chinese / English copy.
 
-**Git 面板：分支增删改、worktree、提交级操作**
+**Git panel: branch create / rename / delete, worktrees, commit-level actions**
 
-- `src-tauri/src/modules/git/types.rs`：`MAX_TIMEOUT_SECS` 提到 900 秒，克隆走单独的
-  `CLONE_TIMEOUT_SECS`——克隆要从头传完整个历史，120 秒不够。
-- `src-tauri/src/modules/git/errors.rs`：新增 `InvalidRefName`；空名字与 `-` 开头的名字在这里被挡掉，
-  报错把值加引号显示，空值也看得见。
-- `src-tauri/src/modules/git/operations.rs`：新增分支增删改、worktree 增删、拣选、还原、软撤回、
-  中止拣选/还原、克隆仓库。名字、修订号、克隆地址先过预检（挡空值与 `-` 开头的参数注入），其余合法性
-  交给 git；新建目录的上一级必须先存在，并被登记为已授权（用户手打的路径就是授权依据）。
-- `src-tauri/src/modules/git/commands.rs`、`src-tauri/src/lib.rs`：注册对应的十条命令。
-- `src/lib/native.ts`：新增这些命令的包装。
-- `src/modules/source-control/SourceControlPanel.tsx`：分支行与 worktree 行改成子菜单（切换 / 重命名 /
-  删除，打开 / 移除），并加了「新建分支」「新建 worktree」两个入口。
-- `src/modules/source-control/BranchDialogs.tsx`：新增五个弹窗。删分支、移除 worktree 都先按普通方式做，
-  git 拒绝时把原文留在弹窗里，再给出「强制删除（-D）」「强制移除」。
-- `src/modules/git-history/CommitActions.tsx`：新增，提交详情里的拣选 / 还原 / 软撤回。成功先收弹窗再刷新
-  （刷新出问题不该让弹窗看起来像失败）；失败把 git 原文留在弹窗里，并允许直接中止卡住的这一步。
-- `src/modules/git-history/GitHistoryPane.tsx`：接上这三个动作，操作后重读提交列表。
-- `src/modules/i18n/messages.ts`：上面这些界面的中英文文案。
+- `src-tauri/src/modules/git/types.rs`: `MAX_TIMEOUT_SECS` goes up to 900 seconds, and cloning uses its own
+  `CLONE_TIMEOUT_SECS` — a clone transfers the whole history from scratch and 120 seconds is not enough.
+- `src-tauri/src/modules/git/errors.rs`: new `InvalidRefName`; empty names and names starting with `-` are rejected here, and
+  errors show the value quoted so an empty value is visible too.
+- `src-tauri/src/modules/git/operations.rs`: new branch create / rename / delete, worktree add / remove, cherry-pick, revert, soft reset,
+  abort cherry-pick/revert, and repository clone. Names, revisions and clone URLs are pre-checked (blocking empty values and `-`-leading argument
+  injection), with the rest of validity left to git; a new directory's parent must exist first and be registered as authorized (the path the user
+  typed is itself the authorization).
+- `src-tauri/src/modules/git/commands.rs`, `src-tauri/src/lib.rs`: register the corresponding ten commands.
+- `src/lib/native.ts`: wrappers for those commands.
+- `src/modules/source-control/SourceControlPanel.tsx`: branch rows and worktree rows become submenus (switch / rename /
+  delete, open / remove), plus two entry points, "new branch" and "new worktree".
+- `src/modules/source-control/BranchDialogs.tsx`: five new dialogs. Deleting a branch and removing a worktree are first attempted the normal way;
+  when git refuses, its wording stays in the dialog and a "force delete (-D)" / "force remove" is offered.
+- `src/modules/git-history/CommitActions.tsx`: new, cherry-pick / revert / soft reset in the commit detail. On success the dialog closes first and then refreshes
+  (a refresh problem should not make the dialog look like a failure); on failure git's wording stays in the dialog and the stuck step can be aborted directly.
+- `src/modules/git-history/GitHistoryPane.tsx`: wired to those three actions, re-reading the commit list afterwards.
+- `src/modules/i18n/messages.ts`: Chinese and English copy for the UI above.
 
-**项目页：克隆仓库**
+**Projects page: clone a repository**
 
-- `src/modules/projects/CloneRepoDialog.tsx`：新增，填仓库地址与目标目录，克隆完顺手加进项目清单。
-- `src/modules/projects/ProjectsView.tsx`：项目页新增「克隆仓库…」入口。
+- `src/modules/projects/CloneRepoDialog.tsx`: new; enter a repository URL and a target directory, and the clone is added to the project list afterwards.
+- `src/modules/projects/ProjectsView.tsx`: the projects page gains a "clone repository…" entry point.
 
-**编辑器：未保存内容备份（编辑中断后内容不丢）**
+**Editor: backup of unsaved content (nothing is lost when editing is interrupted)**
 
-- `src/modules/editor/lib/drafts.ts`：新增。改动之后把缓冲区镜像进 `verta-drafts.json`：
-  单份上限 1 MB、最多 8 份、合计 4 MB，超了丢最旧的；键按路径归一化分隔符但**不**折叠大小写
-  （WSL 里只差大小写的两个文件不能被当成一个）。带 11 个单测。
-- `src/modules/editor/lib/useDocument.ts`：打字停下 1.5 秒才镜像一次（免得每敲一下过一次 IPC）；
-  保存成功或用户选择丢弃时才删草稿；关标签（卸载）、窗口失焦、关窗口都会立刻冲刷一次。
-  打开文件时（含崩溃后恢复的标签）若磁盘内容与草稿不同，就把「恢复 / 丢弃」交给界面。
-- `src/modules/editor/EditorPane.tsx`：编辑器顶部加一条恢复提示，带上中断时刻；不挡编辑，
-  也不自动改文件——恢复只是把内容放回缓冲区，保存与否由用户决定。
-- `src/modules/i18n/messages.ts`：这条提示的中英文案。
+- `src/modules/editor/lib/drafts.ts`: new. After changes, the buffer is mirrored into `verta-drafts.json`:
+  1 MB per draft, at most 8 drafts, 4 MB total, the oldest dropped when exceeded; keys normalize path separators but do **not** fold
+  case (two files in WSL that differ only by case must not be treated as one). With 11 unit tests.
+- `src/modules/editor/lib/useDocument.ts`: the mirror runs only once typing has stopped for 1.5 seconds (so it is not one IPC call per
+  keystroke); the draft is deleted only on a successful save or when the user chooses to discard; closing a tab (unmount), the window
+  losing focus and closing the window all flush immediately. When a file is opened (including tabs restored after a crash) and the disk
+  content differs from the draft, "restore / discard" is handed to the UI.
+- `src/modules/editor/EditorPane.tsx`: a restore notice with the interruption time at the top of the editor; it does not block editing
+  and does not change the file automatically — restoring only puts the content back into the buffer, and saving is up to the user.
+- `src/modules/i18n/messages.ts`: Chinese and English copy for this notice.
 
-**测试**
+**Tests**
 
-- `src/modules/terminal/ghostty/AdaptedGhosttyGpu.test.ts`：十万次更新的压力用例给 60 秒超时；机器忙起来
-  它比默认 5 秒久，这个用例量的是行为不是速度。
+- `src/modules/terminal/ghostty/AdaptedGhosttyGpu.test.ts`: the hundred-thousand-update stress case gets a 60 second timeout; on a busy machine
+  it takes longer than the 5 second default, and this case measures behavior, not speed.
 
-**验收脚本**
+**Acceptance scripts**
 
-- `scripts/dev/probes/click-remotes.js`：删除，远程仓库面板的旧探针，用完即弃。
+- `scripts/dev/probes/click-remotes.js`: deleted, an old probe for the remote repository panel, used once and discarded.
 
 </details>
 
 <details>
 <summary><strong>2026-10-19</strong></summary>
 
-**Git 面板：储藏（stash）**
+**Git panel: stash**
 
-- `src-tauri/src/modules/git/types.rs`：新增 `GitStashEntry`，带上引用、序号、说明与分支。
-- `src-tauri/src/modules/git/parser.rs`：新增 `parse_stash_list`，解析 `git stash list` 的
-  NUL 分隔输出；说明里解析不出分支时留空，不编造。带三个单测。
-- `src-tauri/src/modules/git/operations.rs`：新增 `stash_list`、`stash_push`（可选说明与
-  `--include-untracked`）、`stash_apply`、`stash_pop`、`stash_drop`，都走既有的授权与超时封装。
-- `src-tauri/src/modules/git/commands.rs`、`src-tauri/src/lib.rs`：注册对应的五条命令。
-- `src/lib/native.ts`：新增 `GitStashEntry` 类型与 `gitStashList` / `gitStashPush` /
-  `gitStashApply` / `gitStashPop` / `gitStashDrop`。
-- `src/modules/source-control/StashSection.tsx`：新增，Git 面板底部的储藏区。默认收起，展开才读；
-  可写说明、可选带上未跟踪文件；每条储藏的菜单有应用、应用并删除、丢弃。丢弃要先确认。
-- `src/modules/source-control/SourceControlPanel.tsx`：把储藏区接在文件列表下方，操作后刷新面板。
-- `src/modules/i18n/messages.ts`：储藏区的中英文文案。
+- `src-tauri/src/modules/git/types.rs`: new `GitStashEntry`, carrying the reference, index, message and branch.
+- `src-tauri/src/modules/git/parser.rs`: new `parse_stash_list`, parsing the NUL-separated output of
+  `git stash list`; when no branch can be parsed out of the message it is left empty rather than invented. With three unit tests.
+- `src-tauri/src/modules/git/operations.rs`: new `stash_list`, `stash_push` (optional message and
+  `--include-untracked`), `stash_apply`, `stash_pop`, `stash_drop`, all through the existing authorization and timeout wrappers.
+- `src-tauri/src/modules/git/commands.rs`, `src-tauri/src/lib.rs`: register the corresponding five commands.
+- `src/lib/native.ts`: new `GitStashEntry` type and `gitStashList` / `gitStashPush` /
+  `gitStashApply` / `gitStashPop` / `gitStashDrop`.
+- `src/modules/source-control/StashSection.tsx`: new, the stash area at the bottom of the Git panel. Collapsed by default and only read when
+  expanded; a message can be entered and untracked files optionally included; each stash's menu offers apply, apply and drop, and drop.
+  Dropping needs confirmation first.
+- `src/modules/source-control/SourceControlPanel.tsx`: the stash area is wired in below the file list, and the panel refreshes after an operation.
+- `src/modules/i18n/messages.ts`: Chinese and English copy for the stash area.
 
-**安装包文案**
+**Installer copy**
 
-- `src-tauri/tauri.conf.json`：`shortDescription` 与 `longDescription` 还是上游文案（写着 AI 原生终端、
-  语音输入、AI agent，这些功能都已删除），改成现在的实际定位；NSIS 增加简体中文并打开语言选择，
-  此前安装器只有英文。
+- `src-tauri/tauri.conf.json`: `shortDescription` and `longDescription` were still upstream copy (mentioning an AI-native terminal,
+  voice input and AI agents, all of which have been removed) and now describe what the product actually is; NSIS gains Simplified Chinese and
+  the language selection is enabled, where the installer previously only had English.
 
 </details>
 
 <details>
 <summary><strong>2026-10-18</strong></summary>
 
-**应用图标（品牌资源）**
+**App icon (brand assets)**
 
-- `assets/icon-stroke.svg`：新增，手绘矢量应用图标（深色圆角底 + 白色 V），替换上游图标。
-- `src-tauri/icons/**`：整套平台图标（`.ico`/`.icns`、Windows Store 各档、Android/iOS）由上面的
-  矢量图经 `pnpm tauri icon` 重新生成，替换上游 artwork。
-- `public/logo.png`：换成同一条矢量的 256px 渲染，页面 head、关于页与终端水印都用它。
+- `assets/icon-stroke.svg`: new, a hand-drawn vector app icon (dark rounded base + white V), replacing the upstream icon.
+- `src-tauri/icons/**`: the full platform icon set (`.ico`/`.icns`, the Windows Store variants, Android/iOS) regenerated
+  from that vector with `pnpm tauri icon`, replacing the upstream artwork.
+- `public/logo.png`: replaced with a 256px render of the same vector, used by the page head, the about page and the terminal watermark.
 
-**远程仓库面板（新功能）**
+**Remote repository panel (new feature)**
 
-- `src-tauri/src/modules/github/**`：新增，一条 `github_repos` 命令，经本机已登录的 `gh` 读取
-  账号可访问的仓库（分页、解析、失败分类为纯函数并有单测）。
-- `src-tauri/src/modules/proxy.rs`：新增，给外部程序准备代理地址（显式传入 > 环境变量 > 系统
-  注册表），并清掉继承的代理变量后注入子进程；`gh` 已用上，git 的 fetch/push/clone 以后可复用。
-- `src-tauri/Cargo.toml`：给 `windows-sys` 打开 `Win32_System_Registry` feature。
-- `src-tauri/src/modules/mod.rs`、`src-tauri/src/lib.rs`：注册新模块与命令。
-- `src/modules/remotes/**`：新增，远程仓库标签页（行映射、筛选、四态提示与单测）。
-- `src/lib/native.ts`：新增 `githubRepos` 及线格式类型。
-- `src/modules/tabs/**`：新增 `remotes` 标签类型与 `planRemoteReposOpen`，标签栏图标。
-- `src/modules/header/Header.tsx`：右上角新增远程仓库入口。
-- `src/modules/command-palette/commands.ts`：新增「打开远程仓库列表」一条。
-- `src/app/App.tsx`、`src/app/components/WorkspaceSurface.tsx`：接线到中间区域标签页。
+- `src-tauri/src/modules/github/**`: new, one `github_repos` command reading the repositories the account can access through
+  the locally signed-in `gh` (pagination, parsing and failure classification as pure functions with unit tests).
+- `src-tauri/src/modules/proxy.rs`: new, prepares a proxy address for external programs (explicit argument > environment
+  variable > system registry) and injects it into child processes after clearing inherited proxy variables; `gh` already uses it, and
+  git's fetch/push/clone can reuse it later.
+- `src-tauri/Cargo.toml`: enables the `Win32_System_Registry` feature on `windows-sys`.
+- `src-tauri/src/modules/mod.rs`, `src-tauri/src/lib.rs`: register the new module and command.
+- `src/modules/remotes/**`: new, the remote repositories tab (row mapping, filtering, four-state notices with unit tests).
+- `src/lib/native.ts`: new `githubRepos` and wire types.
+- `src/modules/tabs/**`: new `remotes` tab type and `planRemoteReposOpen`, plus the tab bar icon.
+- `src/modules/header/Header.tsx`: a remote repositories entry point at the top right.
+- `src/modules/command-palette/commands.ts`: one new command, "open remote repositories list".
+- `src/app/App.tsx`, `src/app/components/WorkspaceSurface.tsx`: wired to the middle-area tabs.
 
-**会话恢复环境**
+**Environment for resuming a session**
 
-- `src/modules/launcher/lib/openSession.ts`：新增，环境与恢复命令一起算，本机会话不再落到发行版终端。
-- `src/modules/launcher/index.ts`、`src/app/App.tsx`：改用上面这个纯函数。
+- `src/modules/launcher/lib/openSession.ts`: new, computes the environment together with the resume command, so a host session no longer
+  lands in a distro terminal.
+- `src/modules/launcher/index.ts`, `src/app/App.tsx`: switched to that pure function.
 
-**右侧 Git 面板与项目入口**
+**Git panel on the right and the projects entry point**
 
-- `src/modules/sidebar/**`：侧栏去掉 Git 视图（`SidebarViewId` 只留会话与文件），新增
-  `useRightPanel` 管理右侧面板宽度与收起态。
-- `src/modules/source-control/**`：面板可见性判断由「侧栏选中 Git」改为「右栏是否展开」。
-- `src/modules/header/Header.tsx`：右上角新增右栏开关，并接过改动数徽标。
-- `src/modules/projects/**`、`src-tauri/src/modules/projects/**`：项目列表标签页、扫描与状态查询。
-- `src/modules/tabs/lib/useTabs.ts`：新增 `projects` 标签类型与 `planProjectsOpen`。
-- `src/modules/i18n/messages.ts`：补齐上述界面的中英文文案。
+- `src/modules/sidebar/**`: the Git view is removed from the sidebar (`SidebarViewId` keeps only sessions and files), and a new
+  `useRightPanel` manages the right panel's width and collapsed state.
+- `src/modules/source-control/**`: panel visibility is decided by "is the right panel expanded" instead of "is Git selected in the sidebar".
+- `src/modules/header/Header.tsx`: a right panel toggle at the top right, which also takes over the change-count badge.
+- `src/modules/projects/**`, `src-tauri/src/modules/projects/**`: the project list tab, scanning and status queries.
+- `src/modules/tabs/lib/useTabs.ts`: new `projects` tab type and `planProjectsOpen`.
+- `src/modules/i18n/messages.ts`: Chinese and English copy for the UI above.
 
-**仓库整理与品牌**
+**Repository cleanup and branding**
 
-- `LICENSE`：保留上游原文（Apache-2.0），未改动正文；合规所需的版权行见本目录另一处修订。
-- 上游 artwork 的本地草稿（根目录的图标 png）与指向上游的 remote 已移除。
-- `src-tauri/src/modules/agent_sessions/opencode.rs`、`src/modules/launcher/lib/resumeCommand.test.ts`：
-  测试样例换成中性路径与标题，不再引用上游作者的项目目录。
-- `scripts/dev/shot-window.ps1`：注释不再点名本机安装的另一个应用。
+- `LICENSE`: the upstream text (Apache-2.0) is kept, with the body unchanged; the copyright lines required for compliance are in another
+  revision in this directory.
+- The local draft of the upstream artwork (an icon png in the repository root) and the remote pointing at upstream have been removed.
+- `src-tauri/src/modules/agent_sessions/opencode.rs`, `src/modules/launcher/lib/resumeCommand.test.ts`:
+  test fixtures replaced with neutral paths and titles that no longer reference the upstream author's project directory.
+- `scripts/dev/shot-window.ps1`: the comment no longer names another application installed on this machine.
 
-**功能收缩（自带 agent 移除）**
+**Feature reduction (built-in agent removed)**
 
-- `src/modules/ai/**`、`src/modules/agents/**`、`src/components/ai-elements/**`：整个模块删除，
-  上游内置的 AI 助手界面、子代理运行器与通知不再存在。终端里的代码块渲染保留。
-- `src-tauri/src/modules/agent.rs`、`src-tauri/src/modules/ai_sessions.rs`、
-  `src-tauri/src/modules/pty/agent_detect.rs`：随之上游 Rust 侧 agent 会话存储与探测被删除。
-- `src/settings/sections/**`、`src/settings/components/**`：与内置 agent、登录启动项相关的设置项被删除。
-- `src/modules/editor/**`、`src/modules/markdown/**`、`src/modules/launcher/**`、
-  `src/modules/statusbar/**`：删掉引用内置 agent 的分支，其余保留。
-- 登录时自动启动（launch at login）选项删除。
+- `src/modules/ai/**`, `src/modules/agents/**`, `src/components/ai-elements/**`: the whole modules are deleted, so upstream's
+  built-in AI assistant UI, sub-agent runner and notifications no longer exist. Code block rendering in the terminal is kept.
+- `src-tauri/src/modules/agent.rs`, `src-tauri/src/modules/ai_sessions.rs`,
+  `src-tauri/src/modules/pty/agent_detect.rs`: upstream's Rust-side agent session storage and detection are deleted with them.
+- `src/settings/sections/**`, `src/settings/components/**`: the settings related to the built-in agent and the launch-at-login item are removed.
+- `src/modules/editor/**`, `src/modules/markdown/**`, `src/modules/launcher/**`,
+  `src/modules/statusbar/**`: branches referencing the built-in agent are removed, the rest stays.
+- The launch-at-login option is removed.
 
-**上游元数据**
+**Upstream metadata**
 
-- `TERAX.md`：更名为 `VERTA.md` 并改写为 Verta 的工程说明（保留上游两个不可改的 wasm 标识说明）。
-- `.github/**`（CI、发布、issue 模板、dependabot、CODEOWNERS）、`CLAUDE.md`、`AGENTS.md`：
-  上游的项目治理文件随基线清理移除。
-- `docs/**`：上游文档全部移除（目录已空，不进版本库）。
-- `CODE_OF_CONDUCT.md`：随基线清理移除。
-- `CONTRIBUTING.md`、`ROADMAP.md`、`SECURITY.md`：上游的贡献指南、路线图与安全说明不再随仓库
-  分发（内容仍描述 Terax 的功能面），文件原样留在本机、由 `.gitignore` 忽略；Verta 自己的工程说明
-  在 `VERTA.md`。
-- `.coderabbit.yaml`：上游的评审配置不进版本库（`.gitignore` 已忽略）。
-- `package.json`：包名改为 `verta`，去掉上游的发布与文档脚本。
-- `src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`：产品名、crate 名、应用标识改为 Verta。
-- `index.html`、`src/main.tsx`、`vite.config.ts`、`biome.json`：名称与路径引用改为 Verta。
-- `.gitignore`：去掉上游的本地草稿与文档忽略项，改为忽略 `.superpowers/`。
-- `.gitattributes`：调整换行规则，保证工作树 LF。
+- `TERAX.md`: renamed to `VERTA.md` and rewritten as Verta's engineering notes (keeping the two upstream wasm identifier notes that cannot be changed).
+- `.github/**` (CI, release, issue templates, dependabot, CODEOWNERS), `CLAUDE.md`, `AGENTS.md`:
+  upstream's project governance files are removed in the baseline cleanup.
+- `docs/**`: all upstream documentation removed (the directory is empty and not in version control).
+- `CODE_OF_CONDUCT.md`: removed in the baseline cleanup.
+- `CONTRIBUTING.md`, `ROADMAP.md`, `SECURITY.md`: upstream's contributing guide, roadmap and security notes are no longer distributed
+  with the repository (their content still describes Terax's feature set); the files stay on this machine as they are and are ignored by
+  `.gitignore`; Verta's own engineering notes live in `VERTA.md`.
+- `.coderabbit.yaml`: upstream's review configuration is not in version control (`.gitignore` already ignores it).
+- `package.json`: the package name becomes `verta`, and upstream's release and documentation scripts are removed.
+- `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`: product name, crate name and app identifier changed to Verta.
+- `index.html`, `src/main.tsx`, `vite.config.ts`, `biome.json`: name and path references changed to Verta.
+- `.gitignore`: upstream's local draft and documentation entries removed, replaced by ignoring `.superpowers/`.
+- `.gitattributes`: line-ending rules adjusted to keep the working tree LF.
 
-**许可证与改动记录**
+**License and change log**
 
-- `LICENSE`：Apache-2.0 正文保持上游原文；顶部补两行版权，分别是本项目（Zomcxj）与上游 Crynta。
-- `README.md`：补版权说明与致谢，指向 Terax AI 并说明差异记录在 `CHANGES.md`。
-- `CHANGES.md`：新建，记录本项目与上游的全部差异，按日期倒序。
-- `AGENTS.md`：本机的工作约定，说明每次改动都要同步本文件（不进版本库）。
-- `README.md`：改写为上游 README 的排版（居中标题、徽章、分节功能表、技术栈、许可），内容换成
-  Verta 自己的功能；删去「工作记录」一节，工作区信息归 `AGENTS.md` 管。
-- `docs/**`：上游文档与截图从本机删除（目录连同内容），`.gitignore` 里对应的路径规则一并移除。
-- 上游遗留文件的清理：`.github/**`（CI、发布流程、issue 模板、dependabot、CODEOWNERS）、
-  `.coderabbit.yaml`、`CONTRIBUTING.md`、`ROADMAP.md`、`SECURITY.md`、`flake.nix`、`flake.lock`、
-  `nix/`、`scripts/dev/upstream-drift.sh` 从本机删除，`.gitignore` 里对应的死规则一并清掉。
+- `LICENSE`: the Apache-2.0 body stays as upstream wrote it; two copyright lines are added at the top, for this project (Zomcxj) and for upstream Crynta.
+- `README.md`: copyright notice and acknowledgements added, pointing at Terax AI and stating that the differences are recorded in `CHANGES.md`.
+- `CHANGES.md`: new, recording every difference between this project and upstream, in reverse chronological order.
+- `AGENTS.md`: the local working conventions, stating that this file is updated with every change (not in version control).
+- `README.md`: rewritten in the layout of the upstream README (centered title, badges, sectioned feature table, tech stack, license), with the content
+  replaced by Verta's own features; the "work log" section is dropped and workspace information is left to `AGENTS.md`.
+- `docs/**`: upstream documentation and screenshots deleted from this machine (directory and contents), and the corresponding path rules removed
+  from `.gitignore`.
+- Cleanup of files left over from upstream: `.github/**` (CI, release workflow, issue templates, dependabot, CODEOWNERS),
+  `.coderabbit.yaml`, `CONTRIBUTING.md`, `ROADMAP.md`, `SECURITY.md`, `flake.nix`, `flake.lock`,
+  `nix/` and `scripts/dev/upstream-drift.sh` are deleted from this machine, and the corresponding dead rules are cleared from `.gitignore`.
 
-**内置 AI 功能的收尾清理（功能已删，脚手架还在）**
+**Wrap-up cleanup of the built-in AI feature (feature gone, scaffolding left)**
 
-- `src/modules/editor/AiDiffPane.tsx`、`AiDiffStack.tsx`、`AiDiffStackLazy.tsx`：删除，随内置 AI 的
-  改动对比界面一起作废。
-- `src/modules/tabs/lib/useTabs.ts`：删除 `AiDiffTab` 与 `AiDiffStatus` 类型、`openAiDiffTab`、
-  `setAiDiffStatus`、`closeAiDiffTab`（导出了但没有任何调用方）。
-- `src/modules/tabs/index.ts`、`src/modules/tabs/lib/tabLabel.ts`、`src/modules/tabs/TabBar.tsx`：
-  删掉 `ai-diff` 的转发、标题分支与标签图标。
-- `src/modules/editor/useEditorFileSync.ts`：删掉「AI 改动被批准后重载编辑器」的那段监听。
-- `src/components/chat-code.tsx`：去掉无人使用的 `ChatStreamingProvider` 导出（文件本身仍用于终端
-  与 Markdown 的代码块渲染）。
-- `src/app/feature-loading.test.tsx`：去掉对已删组件的加载测试。
-- `src/lib/usePresence.ts`：删除，无任何引用的死文件。
-- `knip.json`：去掉对已删除的 `src/components/ai-elements/**` 的忽略，以及只给已删脚本用的
-  `swiftc` 忽略。
+- `src/modules/editor/AiDiffPane.tsx`, `AiDiffStack.tsx`, `AiDiffStackLazy.tsx`: deleted, void along with the built-in AI's
+  diff view.
+- `src/modules/tabs/lib/useTabs.ts`: the `AiDiffTab` and `AiDiffStatus` types, `openAiDiffTab`,
+  `setAiDiffStatus` and `closeAiDiffTab` are deleted (exported, but with no callers).
+- `src/modules/tabs/index.ts`, `src/modules/tabs/lib/tabLabel.ts`, `src/modules/tabs/TabBar.tsx`:
+  the `ai-diff` re-export, title branch and tab icon are removed.
+- `src/modules/editor/useEditorFileSync.ts`: the listener that reloaded the editor after an approved AI change is removed.
+- `src/components/chat-code.tsx`: the unused `ChatStreamingProvider` export is removed (the file itself is still used for code block
+  rendering in the terminal and Markdown).
+- `src/app/feature-loading.test.tsx`: the loading test for the deleted component is removed.
+- `src/lib/usePresence.ts`: deleted, a dead file with no references.
+- `knip.json`: the ignore for the deleted `src/components/ai-elements/**` and the `swiftc` ignore that only the deleted
+  scripts needed are removed.
 
-**上游性能与视觉工具的清理**
+**Cleanup of upstream performance and visual tooling**
 
-- `scripts/ipc-profile/`、`scripts/renderer-profile/`、`scripts/pty-smoke/`、`scripts/terminal-visual/`、
-  `scripts/ghostty-profile.*`、`scripts/ghostty-soak.*`、`scripts/ghostty-webkit-memory*`：删除，
-  连同 `package.json` 里指向它们的脚本（`test:ipc:macos`、`profile:ghostty`、`soak:ghostty`、
-  `profile:renderer:*`）。其中 `scripts/ipc-profile/smoke.ts` 引用的正是已删的内置 AI 模块，本来就跑不通。
-- 保留 `scripts/dev/**`（本项目的验收工具）、`scripts/build-cli.mjs`、`scripts/dist-graph.*` 与
-  `scripts/eager-graph.*`（体积预算测试直接 import 它们）、`scripts/app-lab/**`（`src/bench` 的驱动，
-  而 `src/bench` 被 `src/main.tsx` 与 `src/app/App.tsx` 引用）。
-- `src/modules/sidebar/useRightPanel.ts`：`shouldPersistRightWidth` 去掉导出（无调用方）。
-- `src/app/dist-budget.test.ts`：给那条要跑两次完整构建的用例单独设超时，默认 5 秒在并发下会假红。
+- `scripts/ipc-profile/`, `scripts/renderer-profile/`, `scripts/pty-smoke/`, `scripts/terminal-visual/`,
+  `scripts/ghostty-profile.*`, `scripts/ghostty-soak.*`, `scripts/ghostty-webkit-memory*`: deleted, together with the
+  `package.json` scripts pointing at them (`test:ipc:macos`, `profile:ghostty`, `soak:ghostty`,
+  `profile:renderer:*`). `scripts/ipc-profile/smoke.ts` imported exactly the deleted built-in AI modules and could not have run anyway.
+- Kept: `scripts/dev/**` (this project's acceptance tooling), `scripts/build-cli.mjs`, `scripts/dist-graph.*` and
+  `scripts/eager-graph.*` (imported directly by the bundle-size budget tests), `scripts/app-lab/**` (the driver for `src/bench`,
+  and `src/bench` is referenced by `src/main.tsx` and `src/app/App.tsx`).
+- `src/modules/sidebar/useRightPanel.ts`: `shouldPersistRightWidth` is no longer exported (no callers).
+- `src/app/dist-budget.test.ts`: the case that runs two full builds gets its own timeout, since the 5 second default goes red falsely under concurrency.
 
-**依赖清理（内置 AI 与相关功能删除后留下的空依赖）**
-- `package.json`：移除 `ai`、`@ai-sdk/*` 共 9 个包，以及 `zod`、`@radix-ui/react-use-controllable-state`、
-  `use-stick-to-bottom`、`@tauri-apps/plugin-autostart`、`@tauri-apps/plugin-notification` 与开发依赖
-  `react-compiler-healthcheck`。这些包在源码里没有任何 import，只作为字符串留在体积预算测试的黑名单里。
-- `src-tauri/Cargo.toml`、`src-tauri/src/lib.rs`、`src-tauri/capabilities/default.json`：移除
-  `tauri-plugin-notification` 的依赖、注册与权限。发通知的代码随内置 AI 模块一起删掉了，插件成了
-  只注册不使用的空壳；`@tauri-apps/plugin-autostart` 更是只剩前端包，Rust 侧从未注册。
-- `pnpm-lock.yaml`、`src-tauri/Cargo.lock` 随之更新，`node_modules` 里这些包的实体一并清掉。
+**Dependency cleanup (empty dependencies left after the built-in AI and related features were removed)**
+- `package.json`: `ai` and `@ai-sdk/*` (9 packages in total) are removed, along with `zod`, `@radix-ui/react-use-controllable-state`,
+  `use-stick-to-bottom`, `@tauri-apps/plugin-autostart`, `@tauri-apps/plugin-notification` and the dev dependency
+  `react-compiler-healthcheck`. Nothing in the source imports these packages; they only survived as strings in the bundle-size test's deny list.
+- `src-tauri/Cargo.toml`, `src-tauri/src/lib.rs`, `src-tauri/capabilities/default.json`: the dependency, registration and permissions of
+  `tauri-plugin-notification` are removed. The notification code was deleted with the built-in AI module, leaving the plugin as an
+  empty shell that was registered but never used; `@tauri-apps/plugin-autostart` was only ever a frontend package, never registered on the Rust side.
+- `pnpm-lock.yaml` and `src-tauri/Cargo.lock` are updated accordingly, and the packages themselves are removed from `node_modules`.
 
 </details>
 
 <details>
 <summary><strong>2026-10-17</strong></summary>
 
-**会话面板（新功能）**
+**Session panel (new feature)**
 
-- `src-tauri/src/modules/agent_sessions/**`：新增，读取本机 opencode（`session_v2`）与 pi（项目内
-  jsonl）的真实会话，发行版里的会话在发行版内读取；删除会话经各自 CLI 或文件操作完成。
-- `src/modules/launcher/**`：新增，会话列表、恢复命令、子代理过滤、选择与删除的纯函数及界面。
-- `src/modules/i18n/**`：新增，中英文界面文案与语言切换。
-- `src/app/App.tsx`、`src/modules/sidebar/**`：接线到侧栏，打开即见会话面板。
-- `src-tauri/src/lib.rs`、`src-tauri/src/modules/mod.rs`：注册新命令。
+- `src-tauri/src/modules/agent_sessions/**`: new, reads real sessions of the local opencode (`session_v2`) and pi (jsonl
+  inside the project), reading sessions inside a distro from within that distro; deleting a session goes through the respective CLI or a file operation.
+- `src/modules/launcher/**`: new, the pure functions and UI for the session list, the resume command, sub-agent filtering, selection and deletion.
+- `src/modules/i18n/**`: new, Chinese and English UI copy plus language switching.
+- `src/app/App.tsx`, `src/modules/sidebar/**`: wired into the sidebar, so the session panel is there as soon as the app opens.
+- `src-tauri/src/lib.rs`, `src-tauri/src/modules/mod.rs`: register the new commands.
 
-**环境跟随**
+**Environment following**
 
-- `src/modules/workspace/**`：环境改由路径推断（`envForPath`），开终端先备好环境再落地。
-- `src-tauri/src/modules/workspace.rs`、`src-tauri/src/modules/pty/**`：按叶子自带环境启动对应 shell。
+- `src/modules/workspace/**`: the environment is now inferred from the path (`envForPath`), and opening a terminal prepares the environment before landing.
+- `src-tauri/src/modules/workspace.rs`, `src-tauri/src/modules/pty/**`: start the matching shell per the environment the leaf carries.
 
-**基础改造**
+**Foundational changes**
 
-- `src-tauri/tauri.conf.json`：应用标识改为 Verta 自己的。
-- `.gitattributes`：保证工作树 LF，让前端 lint 门禁在 Windows 上可用。
-- `scripts/dev/**`：新增验收用的截图与探针脚本（不参与打包）。
+- `src-tauri/tauri.conf.json`: the app identifier changed to Verta's own.
+- `.gitattributes`: keeps the working tree LF so the frontend lint gate works on Windows.
+- `scripts/dev/**`: new screenshot and probe scripts for acceptance (not part of packaging).
 
 </details>
 

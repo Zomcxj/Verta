@@ -1,4 +1,4 @@
-// 设置页当前的外观模式与选中的主题（读界面状态，不改任何东西）。
+// The settings page's current appearance mode and selected theme (reads UI state, changes nothing).
 (() => {
   const pick = (re) => {
     const out = [];

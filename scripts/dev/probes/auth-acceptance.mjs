@@ -1,24 +1,25 @@
-// 登录态面板的真机验收。
+// End-to-end acceptance for the auth status panel.
 //
-// 两轮，因为「已登录」和「没登录」是两份完全不同的界面：
+// Two passes, because "signed in" and "signed out" are two completely different screens:
 //
-//   1. 默认这轮（应用照常跑，用你真实的 gh 登录态）：账号面板把账号 / 主机 / 令牌来源 /
-//      协议 / 已授权 scopes 都列出来；登出只验到确认框为止（**不真的登出**，那会把你的账号
-//      从 gh 里摘掉）。
-//   2. `--isolated` 那轮：控制台那边另起一个 dev，`GH_CONFIG_DIR` 指到临时目录，
-//      于是 gh 认为「这台机器没登录」，而**你真实的登录态一点不受影响**。这一轮验：
-//      没登录时的提示、浏览器授权（真去 GitHub 要一次性码、显示出来、然后中止）、
-//      以及粘贴一个假 token 被 gh 拒掉时错误有没有如实显示。
-//      注意：假 token 这步绝不能落在真实配置上，所以必须跑在 --isolated 这轮里。
+//   1. The default pass (the app runs normally, against your real gh login): the account panel lists
+//      account / host / token source / protocol / granted scopes; logout is verified only up to the confirm
+//      dialog (**without really logging out**, which would drop your account from gh).
+//   2. The `--isolated` pass: a second dev instance is started elsewhere with `GH_CONFIG_DIR` pointing at a
+//      temp directory, so gh believes this machine is not logged in while **your real login is untouched**.
+//      This pass verifies: the signed-out hint, browser authorization (really asks GitHub for a one-time
+//      code, displays it, then aborts), and whether an error is shown honestly when a fake token is
+//      rejected by gh.
+//      Note: the fake-token step must never land on the real config, so it only ever runs in `--isolated`.
 //
-// 用法：node scripts/dev/probes/auth-acceptance.mjs [--isolated] [--port=9222]
+// Usage: node scripts/dev/probes/auth-acceptance.mjs [--isolated] [--port=9222]
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 
 const ISOLATED = process.argv.includes("--isolated");
 const port =
   process.argv.find((a) => a.startsWith("--port="))?.slice(7) ?? "9222";
 const SHOTS = ".superpowers/shots";
-/** 一个格式合法、但 GitHub 一定不认的 token（只在 --isolated 那轮用）。 */
+/** A well-formed token GitHub is guaranteed to reject (only used in the --isolated pass). */
 const BOGUS_TOKEN = "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 const report = {};
@@ -105,7 +106,7 @@ const realClick = async (x, y) => {
     y,
     button: "none",
   });
-  // `buttons` 不能省：WebView2 少了它就不合成真正的 click。
+  // `buttons` is required: without it WebView2 never synthesizes a real click.
   await send("Input.dispatchMouseEvent", {
     type: "mousePressed",
     x,
@@ -172,7 +173,7 @@ const fillInput = (index, value) =>
     return true;
   })()`);
 
-/** 打开账号面板：远程仓库标签页 → 页头那个账号按钮。 */
+/** Open the account panel: remote repositories tab → the account button in the header. */
 const openAuthPanel = async () => {
   const remotesButton = await waitFor(
     `[...document.querySelectorAll("button")].find((b) => /远程仓库|Remote repositories/.test(b.getAttribute("title") || ""))`,
@@ -187,7 +188,7 @@ const openAuthPanel = async () => {
   await realClick(accountButton.x, accountButton.y);
   const dialog = await waitFor(authDialogOpen(), 30000);
   if (!dialog) fail("账号面板没打开");
-  // 打开时先写「正在读取登录态…」，等它读完（gh 要起一次进程）。
+  // The panel shows "reading auth status..." first; wait for the read to finish (gh has to spawn once).
   const read = await (async () => {
     const deadline = Date.now() + 40000;
     while (Date.now() < deadline) {
@@ -225,15 +226,15 @@ try {
   report.panelText = text.slice(0, 400);
 
   if (ISOLATED) {
-    // ---- 没登录那轮 ----
+    // ---- Signed-out pass ----
     if (!/这台机器还没登录 GitHub/.test(text))
       fail(`没登录时该给出提示：${text.slice(0, 200)}`);
-    // 「令牌来源 / 已授权」这些只在登着的时候画，没登录时不该有。
+    // "token source / granted" only render when signed in, so they must be absent here.
     if (/令牌来源|已授权/.test(text)) fail(`没登录时不该列出账号信息：${text.slice(0, 200)}`);
     report.notLoggedInHint = true;
     await shot("auth-not-logged-in.png");
 
-    // 浏览器授权：真去 GitHub 要一次性码，显示出来，然后中止。
+    // Browser authorization: really ask GitHub for a one-time code, show it, then abort.
     if (!(await clickButton("用浏览器授权"))) fail("没有「用浏览器授权」按钮");
     const streaming = await (async () => {
       const deadline = Date.now() + 90000;
@@ -245,7 +246,7 @@ try {
           ),
         );
         last = texts.join("\n");
-        // 输出框一开始是占位文案，等到真有一次性码为止。
+        // The output box starts with placeholder text; wait for a real one-time code.
         if (/[A-Z0-9]{4}-[A-Z0-9]{4}/.test(last)) return last;
         await sleep(500);
       }
@@ -253,7 +254,7 @@ try {
     })();
     report.webStream = streaming.slice(0, 400);
     if (!streaming.trim()) fail("浏览器授权没有任何输出流出来");
-    // GitHub 的一次性码形如 XXXX-XXXX。
+    // GitHub's one-time codes look like XXXX-XXXX.
     if (!/[A-Z0-9]{4}-[A-Z0-9]{4}/.test(streaming))
       fail(`流出来的内容里没有一次性码：${streaming.slice(0, 200)}`);
     await shot("auth-web-login.png");
@@ -262,7 +263,7 @@ try {
     const afterCancel = await dialogText();
     report.afterCancel = afterCancel.slice(0, 200);
 
-    // 粘贴假 token：本地拦太短，够长了交给 gh，gh 拒掉要如实显示。
+    // Paste a fake token: too-short input is caught locally, anything long enough goes to gh and a rejection must be shown honestly.
     if (!(await fillInput(0, "ghp_short"))) fail("找不到 token 输入框");
     await sleep(300);
     const shortDisabled = await evaluate(
@@ -275,7 +276,7 @@ try {
     await sleep(300);
     if (!(await clickButton("用 token 登录"))) fail("没有「用 token 登录」按钮");
     const rejected = await (async () => {
-      // 这台机器上 gh 验 token 要打一次 GitHub API，慢的时候一分钟往上，给宽一点。
+      // On this machine gh hits the GitHub API to validate the token, which can take over a minute when slow; be generous.
       const deadline = Date.now() + 150000;
       let last = "";
       while (Date.now() < deadline) {
@@ -289,7 +290,7 @@ try {
     if (!/没接受这个 token/.test(rejected))
       fail(`假 token 被拒时没有如实显示：${rejected.slice(-200)}`);
     await shot("auth-token-rejected.png");
-    // 输入框提交完要清掉：应用里不留这串东西。
+    // The input must be cleared after submitting: the app keeps no trace of this string.
     const cleared = await evaluate(
       `(() => { const i = [...document.querySelectorAll('[role="dialog"] input')][0]; return i ? i.value : null; })()`,
     );
@@ -301,7 +302,7 @@ try {
     process.exit(0);
   }
 
-  // ---- 已登录那轮 ----
+  // ---- Signed-in pass ----
   if (/这台机器还没登录 GitHub|没装 gh CLI/.test(text))
     fail(`这台机器应该已经登录：${text.slice(0, 200)}`);
   if (!/账号/.test(text) || !/令牌来源/.test(text) || !/已授权/.test(text))
@@ -315,16 +316,16 @@ try {
   );
   report.scopes = scopes;
   if (!scopes.includes("repo")) fail(`scopes 里没有 repo：${JSON.stringify(scopes)}`);
-  // 这台机器的 token 有 delete_repo，所以不该出「缺授权」那条提示。
+  // This machine's token has delete_repo, so the "missing scope" hint must not appear.
   const missingScopeHint = /缺 delete_repo 授权/.test(text);
   report.missingScopeHint = missingScopeHint;
   if (missingScopeHint) fail("这个账号有 delete_repo，不该提示缺授权");
-  // token 本身永远不该出现在界面上。
+  // The token itself must never show up in the UI.
   if (/ghp_[A-Za-z0-9]/.test(text) || /github_pat_/.test(text))
     fail("面板上出现了 token 本身");
   await shot("auth-logged-in.png");
 
-  // 登出：只验确认框里的后果说明，不真的点确认（那会把账号从 gh 里摘掉）。
+  // Logout: verify only the consequences described in the confirm dialog, never click confirm (that would drop the account from gh).
   if (!(await clickButton("登出"))) fail("没有「登出」按钮");
   const confirm = await waitFor(
     `[...document.querySelectorAll('[role="alertdialog"]')].find((d) => /登出/.test(d.innerText || ""))`,
@@ -336,7 +337,7 @@ try {
   if (!/钥匙串|重新登录/.test(confirmText))
     fail(`登出确认框没说清后果：${confirmText.slice(0, 200)}`);
   await shot("auth-logout-confirm.png");
-  // 取消掉，别真登出。
+  // Cancel it: do not actually log out.
   if (!(await clickButton("取消"))) fail("确认框里没有「取消」");
   await sleep(800);
   report.logoutCancelled = true;

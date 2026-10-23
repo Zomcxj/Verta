@@ -1,4 +1,5 @@
-// 直接点右上角 Git 面板按钮（绕开 CDP 输入投递），并用布局宽度回报效果。
+// Click the Git panel button in the top right directly (bypassing CDP input delivery) and report the effect as
+// layout widths.
 (() => {
   const button = document.querySelector("button[title='显示/隐藏 Git 面板']");
   if (!button) return JSON.stringify({ clicked: false, reason: "按钮不在" });

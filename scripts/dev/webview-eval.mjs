@@ -1,12 +1,14 @@
-// 在 dev 实例的 WebView2 里执行一段 JS 并打印结果，用于验收需要交互的界面。
-// 用法：
+// Run a piece of JS inside the dev instance's WebView2 and print the result, for acceptance runs that need
+// to interact with the UI.
+// Usage:
 //   1) WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 pnpm tauri dev
 //   2) node scripts/dev/webview-eval.mjs scripts/dev/probes/xxx.js
-//      可选 --reload：先让页面重载（HMR 失败时用它把新代码跑起来）。
-//      可选 --match=<片段>：按 URL 或标题挑页面（设置窗口是新开的一个 page，默认会挑到主窗口）。
-//      可选 --shot=<路径>：顺手用 CDP 截一张页面图（含菜单、浮层），不碰窗口焦点，
-//      所以不会像 PrintWindow 那样把刚打开的菜单弄没。
-// 比按像素点击可靠：直接读 DOM 的矩形与文本，也能在 DOM 上触发真实点击。
+//      Optional --reload: reload the page first (gets the new code running when HMR failed).
+//      Optional --match=<fragment>: pick the page by URL or title (the settings window is its own page, and
+//      the default picks the main window).
+//      Optional --shot=<path>: also take a CDP screenshot of the page (menus and popovers included); it does
+//      not touch window focus, so it does not dismiss a freshly opened menu the way PrintWindow does.
+// More reliable than clicking by pixel: it reads DOM rects and text directly and can also fire real clicks on the DOM.
 import { readFileSync, writeFileSync } from "node:fs";
 
 const [, , file, ...rest] = process.argv;
@@ -21,8 +23,8 @@ if (!file) {
 
 const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
 const pages = targets.filter((target) => target.type === "page");
-// 先按 URL 全等找：设置窗口的 URL 是 `http://localhost:1420/settings.html`，
-// 它也会命中 `localhost:1420/` 这个片段，只按片段找会挑错窗口。
+// Match the exact URL first: the settings window lives at `http://localhost:1420/settings.html`, which also
+// contains the `localhost:1420/` fragment, so substring matching alone picks the wrong window.
 const page = match
   ? (pages.find((target) => target.url === match) ??
     pages.find(
@@ -58,7 +60,7 @@ socket.addEventListener("message", (event) => {
   entry(message);
 });
 
-/** 发一条 CDP 命令并等它的应答（id 自己数，多条命令之间不会串）。 */
+/** Send one CDP command and wait for its reply (ids are counted here so concurrent commands never cross). */
 async function send(method, params) {
   await opened;
   const id = nextId++;
@@ -74,7 +76,7 @@ async function send(method, params) {
 }
 
 if (reload) {
-  // HMR 报过 reload 失败时，靠它把改后的前端代码真正跑起来。
+  // When HMR reported a failed reload, this is what actually gets the patched frontend code running.
   await send("Page.reload", { ignoreCache: true });
   await new Promise((resolve) => setTimeout(resolve, 5000));
 }

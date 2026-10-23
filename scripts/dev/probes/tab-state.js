@@ -1,5 +1,6 @@
-// 标签页现状 + 当前焦点是不是在终端里。用于「按键到底有没有关掉终端标签」这类验收：
-// 得先确认焦点真在终端上，那次按键才算数。
+// Current tab state plus whether focus is inside a terminal. Used for acceptance like "did that key press really
+// close the terminal tab":
+// the focus has to be confirmed to be in the terminal first, or the key press proves nothing.
 (() => {
   const tabs = [...document.querySelectorAll("[data-tab-id]")].map((el) => ({
     id: el.getAttribute("data-tab-id"),

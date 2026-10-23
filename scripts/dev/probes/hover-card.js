@@ -1,4 +1,4 @@
-// 读悬停浮层（Radix hover card）里的文本：按文案找，别依赖内部属性名。
+// Read the text inside the hover popover (a Radix hover card): find it by its copy, not by internal attribute names.
 (() => {
   const MARKER = "这个项目的会话";
   const node = [...document.querySelectorAll("div")].find(

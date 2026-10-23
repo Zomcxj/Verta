@@ -1,4 +1,4 @@
-// 把所有跟窗口透明有关的变量与实际生效的背景一次性打出来。
+// Dump every window-transparency-related variable and the backgrounds that actually take effect, in one go.
 (() => {
   const root = document.documentElement;
   const style = getComputedStyle(root);

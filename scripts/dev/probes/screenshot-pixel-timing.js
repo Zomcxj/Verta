@@ -1,7 +1,8 @@
-// 区域截图验收：量一下「整屏像素走 IPC 拿过来 + 铺到画布上」要多久。
+// Region-screenshot acceptance: time "fetch the full-screen pixels over IPC + paint them onto the canvas".
 //
-// 这是「咔嚓一下冻住」里除了抓屏之外全部的开销。旧路径是写十几 MB 预览文件再让 asset 协议读了
-// 解码，这里量出来的就是那趟被省掉的钱。
+// That is every cost of the frozen "click" frame except the screen grab itself. The old path wrote a preview
+// file of a dozen MB and had the asset protocol read and decode it; what is measured here is the trip that was
+// removed.
 (async () => {
   const started = performance.now();
   const buffer = await window.__TAURI_INTERNALS__.invoke("screenshot_pixels");

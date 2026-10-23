@@ -1,7 +1,8 @@
-// 区域截图验收（1/3）：在**主窗口**里找右上角那个「截图」按钮。
+// Region-screenshot acceptance (1/3): find the "screenshot" button in the top right of the **main window**.
 //
-// 交回它的中心坐标（给 cdp-input.mjs 发真点击）与 devicePixelRatio（算物理像素要用），
-// 顺带把同一排的按钮标题列出来，确认它就挨着 Git 面板那个按钮。
+// Hand back its centre coordinates (for cdp-input.mjs to click for real) and the devicePixelRatio (needed for
+// physical pixel maths), plus the titles of the buttons in the same row to confirm it sits next to the Git panel
+// button.
 (() => {
   const wanted = ["截图", "Screenshot"];
   const buttons = [...document.querySelectorAll("button")];

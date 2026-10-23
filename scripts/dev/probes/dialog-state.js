@@ -1,4 +1,5 @@
-// 浮层/对话框现状：用来判「某个快捷键到底有没有触发」（比如 Ctrl+P 开命令面板）。
+// Current popover / dialog state: used to tell whether a shortcut fired at all (Ctrl+P opening the command
+// palette, say).
 (() => {
   const dialogs = [...document.querySelectorAll('[role="dialog"], [role="menu"]')].map(
     (el) => ({

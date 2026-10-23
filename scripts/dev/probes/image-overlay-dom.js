@@ -1,4 +1,5 @@
-// 诊断：列出文档里所有 data: 图片与位图按钮的位置，并附上最近一次扫描摘要。
+// Diagnostics: list the position of every data: image and bitmap button in the document, plus a summary of the
+// most recent scan.
 (async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(1000);

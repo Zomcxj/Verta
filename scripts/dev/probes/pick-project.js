@@ -1,4 +1,5 @@
-// 列出项目行里「项目名」按钮的文本与坐标，供 cdp-key.mjs 悬停或点击。
+// List the text and coordinates of the "project name" buttons in the project rows, so cdp-key.mjs can hover or
+// click them.
 (() =>
   JSON.stringify(
     [...document.querySelectorAll("table tbody tr button")].map((node) => {
