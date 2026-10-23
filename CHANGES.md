@@ -15,6 +15,13 @@
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**会话标签：画对应智能体的图标，不再一律画终端图标**
+
+- `src/modules/tabs/lib/useTabs.ts`：终端标签多记一个 `agent`（这个标签是为哪个智能体开的），建会话标签的两条入口都收下它。
+- `src/app/App.tsx`：打开会话时把会话自己的工具传进去，项目行「用某个智能体打开」同理。
+- `src/modules/tabs/TabBar.tsx`：标签图标在该标签记了 `agent` 时画那个智能体的品牌标，没记的（普通终端、命令块、私有终端）照旧画终端图标。
+- `src/modules/tabs/lib/serialize.ts`：`agent` 跟着标签一起落盘与还原，重启后标签上的图标不掉。
+
 **新加的三个主题的说明：原来各有旁白，改成与其他主题一样的一句话**
 
 - `src/modules/theme/themes/verta.ts`、`src/modules/theme/themes/acrylic.ts`、`src/modules/theme/themes/pattern-base.ts`：三段说明原来都是长句（带冒号或分号，还写了材质怎么实现 —— 模糊、噪声、面板是不是实心）。主题列表里其他每一条都是一句交代观感的短话，这三条夹在中间格外显眼，现在照它们写。

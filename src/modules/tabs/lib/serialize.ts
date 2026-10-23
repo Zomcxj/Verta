@@ -10,6 +10,7 @@ import type {
   Tab,
   TerminalTab,
 } from "@/modules/tabs/lib/useTabs";
+import type { AgentTool } from "@/modules/launcher/lib/types";
 import type { WorkspaceEnv } from "@/modules/workspace";
 import { envForPath } from "@/modules/workspace";
 
@@ -31,6 +32,7 @@ export type SerializedTab =
       tree: SerializedNode;
       blocks?: boolean;
       customTitle?: string;
+      agent?: AgentTool;
     }
   | { kind: "editor"; path: string }
   | { kind: "preview"; url: string }
@@ -88,6 +90,7 @@ function serializeTab(tab: Tab): SerializedTab | null {
         tree: serializeNode(tab.paneTree, tab.activeLeafId),
         ...(tab.blocks && { blocks: true }),
         ...(tab.customTitle !== undefined && { customTitle: tab.customTitle }),
+        ...(tab.agent !== undefined && { agent: tab.agent }),
       };
     case "editor":
       return { kind: "editor", path: tab.path };
@@ -199,6 +202,7 @@ function hydrateTab(
         activeLeafId,
         ...(s.blocks && { blocks: true }),
         ...(s.customTitle !== undefined && { customTitle: s.customTitle }),
+        ...(s.agent !== undefined && { agent: s.agent }),
       } satisfies TerminalTab;
     }
     case "editor":

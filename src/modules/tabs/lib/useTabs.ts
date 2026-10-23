@@ -1,6 +1,7 @@
 import { isMarkdownPath } from "@/lib/utils";
 import { type PaneCount, createPanePlan } from "./panePlan";
 import { useT } from "@/modules/i18n";
+import type { AgentTool } from "@/modules/launcher/lib/types";
 import type { WorkspaceEnv } from "@/modules/workspace";
 import {
   findLeafCwd,
@@ -46,6 +47,12 @@ export type TerminalTab = TabBase & {
   private?: boolean;
   /** User-set label that overrides the cwd-derived name. Survives cd. */
   customTitle?: string;
+  /**
+   * Agent this tab was opened for (a resumed session, or a project row's
+   * "open with"). Only used to pick the tab's mark: it is the agent the tab
+   * started with, not a statement about what runs in it now.
+   */
+  agent?: AgentTool;
 };
 
 export type EditorTab = TabBase & {
@@ -637,6 +644,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       title: string,
       instances: PaneCount,
       workspace?: WorkspaceEnv,
+      agent?: AgentTool,
     ) => {
       const tabId = nextIdRef.current++;
       const { paneTree, leafIds: agentLeafIds } = createPanePlan(
@@ -655,6 +663,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
           cwd,
           paneTree,
           activeLeafId: agentLeafIds[0],
+          ...(agent !== undefined && { agent }),
         },
       ]);
       setActiveId(tabId);
@@ -664,12 +673,18 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   );
 
   const newAgentTab = useCallback(
-    (cwd: string | undefined, title: string, workspace?: WorkspaceEnv) => {
+    (
+      cwd: string | undefined,
+      title: string,
+      workspace?: WorkspaceEnv,
+      agent?: AgentTool,
+    ) => {
       const { tabId, leafIds: agentLeafIds } = newAgentGroupTab(
         cwd,
         title,
         1,
         workspace,
+        agent,
       );
       return { tabId, leafId: agentLeafIds[0] };
     },

@@ -21,6 +21,7 @@ import {
 import { resolveDisplayName } from "@/modules/editor/lib/languageResolver";
 import { FileIcon } from "@/modules/explorer/FileIcon";
 import { useT } from "@/modules/i18n";
+import { AgentIcon } from "@/modules/launcher";
 import {
   ArrowRight01Icon,
   Cancel01Icon,
@@ -606,7 +607,12 @@ function DropIndicator() {
   );
 }
 
-function TerminalTabIcon(_props: { tab: TerminalTab }) {
+function TerminalTabIcon({ tab }: { tab: TerminalTab }) {
+  // A tab opened for an agent (a resumed session, or a project row's "open
+  // with") keeps that agent's mark instead of the plain terminal one.
+  if (tab.agent) {
+    return <AgentIcon agent={tab.agent} size={14} className="shrink-0" />;
+  }
   return (
     <HugeiconsIcon
       icon={ComputerTerminal02Icon}

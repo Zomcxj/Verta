@@ -566,7 +566,12 @@ export default function App() {
         console.error("[verta] refusing to build a resume command", session.id);
         return;
       }
-      const { leafId } = newAgentTab(plan.cwd, session.title, plan.workspace);
+      const { leafId } = newAgentTab(
+        plan.cwd,
+        session.title,
+        plan.workspace,
+        session.tool,
+      );
       setActiveSessionId(session.id);
       void (async () => {
         await whenSessionReady(leafId);
@@ -587,6 +592,7 @@ export default function App() {
         entry.path,
         projectBasename(entry.path),
         entry.workspace,
+        tool,
       );
       void (async () => {
         await whenSessionReady(leafId);
