@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveFontFamily } from "./fonts";
+import { FALLBACK_CHAIN, resolveFontFamily } from "./fonts";
 
-const FALLBACK = '"JetBrains Mono", SFMono-Regular, Menlo, monospace';
+// Read the chain from the module instead of copying it: the CJK tail is part of
+// the contract, and a copy here would let the two drift apart silently.
+const FALLBACK = FALLBACK_CHAIN;
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -89,6 +91,32 @@ describe("resolveFontFamily", () => {
   it("falls back to the mono chain for empty input", () => {
     expect(resolveFontFamily("")).toBe(FALLBACK);
     expect(resolveFontFamily("   ")).toBe(FALLBACK);
+  });
+});
+
+describe("the CJK tail", () => {
+  // The fonts people pick for code carry no Han glyphs. Without a CJK entry the
+  // browser's own fallback takes over, and then changing the font moves the
+  // Latin text while the Chinese stays where it was — the complaint this chain
+  // exists to answer.
+  it("names Han faces after the Latin ones, for every stack we build", () => {
+    for (const stack of [
+      resolveFontFamily("Cascadia Mono"),
+      resolveFontFamily(""),
+    ]) {
+      expect(stack).toContain("Microsoft YaHei");
+      expect(stack).toContain("PingFang SC");
+      expect(stack).toContain("Noto Sans CJK SC");
+      // Still ends in the generic family, so an unusual character has somewhere to go.
+      expect(stack.trimEnd().endsWith("monospace")).toBe(true);
+    }
+  });
+
+  it("puts the Latin pick before the CJK faces, so Latin keeps its font", () => {
+    const stack = resolveFontFamily("Cascadia Mono");
+    expect(stack.indexOf("Cascadia Mono")).toBeLessThan(
+      stack.indexOf("Microsoft YaHei"),
+    );
   });
 });
 

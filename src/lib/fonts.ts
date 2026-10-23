@@ -16,7 +16,39 @@ const NERD_FONT_CANDIDATES = [
   "Hasklug Nerd Font",
 ];
 
-const FALLBACK_CHAIN = '"JetBrains Mono", SFMono-Regular, Menlo, monospace';
+/**
+ * The CJK tail of every stack.
+ *
+ * The fonts people pick for code (Cascadia Mono, JetBrains Mono, Fira Code) carry
+ * Latin, Greek and Cyrillic only — not one Han glyph. Without an explicit CJK
+ * entry the browser falls through to whatever the system offers for those
+ * characters, which is usually a proportional UI face: the Latin text changes
+ * when the font changes and the Chinese does not, and mixed lines stop lining
+ * up. Naming the CJK faces in order keeps the Chinese stable and stays
+ * monospaced, whichever Latin font is chosen above.
+ *
+ * Order: Windows first (YaHei is on every install, DengXian is the newer, more
+ * even one), then macOS, then the common Linux packages.
+ */
+export const CJK_CHAIN = [
+  // Windows
+  '"Microsoft YaHei UI"',
+  '"Microsoft YaHei"',
+  '"DengXian"',
+  '"Sarasa Mono SC"', // monospaced CJK, when the user has installed it
+  // macOS
+  '"PingFang SC"',
+  '"Hiragino Sans GB"',
+  // Linux
+  '"Noto Sans CJK SC"',
+  '"Noto Sans Mono CJK SC"',
+  '"Source Han Sans SC"',
+  '"WenQuanYi Micro Hei"',
+  // Last resort for Han and for everything else the above miss
+  "monospace",
+].join(", ");
+
+export const FALLBACK_CHAIN = `"JetBrains Mono", SFMono-Regular, Menlo, ${CJK_CHAIN}`;
 
 /** The resolved stack (with quoting and the fallback chain); the public API stays as it was. */
 let detected: string | null = null;

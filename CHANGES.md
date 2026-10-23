@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**Chinese text keeps its own font when the font changes**
+
+- `src/lib/fonts.ts`: the fallback chain ends in an explicit CJK run before the generic `monospace` — Windows (Microsoft YaHei UI / YaHei / DengXian / Sarasa Mono SC), macOS (PingFang SC / Hiragino Sans GB), Linux (Noto Sans CJK SC / Noto Sans Mono CJK SC / Source Han Sans SC / WenQuanYi Micro Hei). Code fonts such as Cascadia Mono carry no Han glyphs, so without that run the browser chose a system face for Chinese by itself: changing the font moved the Latin text and left the Chinese untouched, and mixed lines stopped lining up. The terminal stack and the editor family are both built from this one chain.
+- `src/lib/fonts.test.ts`: reads the chain from the module instead of keeping a copy, and asserts the CJK faces are named and come after the Latin pick.
+
 **Explorer drag: Ctrl copies, and the pane header accepts drops**
 
 - `src/modules/explorer/lib/useExplorerDnd.ts`: the modifier is read while the pointer moves (so the ghost can say which mode is armed) and read again at drop time; `Ctrl` / `Cmd` copies through a new `onCopy` callback, a plain drag still moves.
