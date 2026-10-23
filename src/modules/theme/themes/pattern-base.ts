@@ -160,10 +160,16 @@ export const carbonWeave: Theme = {
       },
       surface: {
         background: "#f4f5f5",
-        image: hexGrid("#ffffff", 0.32),
+        // 浅色这边反过来：深色墨线配 `multiply`。原来是白线配 `multiply` ——
+        // 白是 multiply 的单位元，那层纹理不管怎么调都不会显出来。
+        //
+        // 两层不透明度跟深色那侧对齐过：深色是白线 0.32 × 0.3（soft-light 提亮），
+        // 每通道抬约 22；这边是墨线 0.5 × 0.14（multiply 压暗），每通道压约 15 ——
+        // 深色底本来就比浅色底"吃"得住对比，浅色这边得再收一点才不抢眼。
+        image: hexGrid("#22262a", 0.5),
         repeat: "repeat",
         size: "14px 24.25px",
-        opacity: 0.12,
+        opacity: 0.14,
         blend: "multiply",
       },
       // 同上：实心面板，不透明。

@@ -15,6 +15,11 @@
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**浅色外观：Carbon Fiber 的蜂窝纹理显出来了，Verta 仍然是黑的**
+
+- `src/modules/theme/themes/pattern-base.ts`：浅色那侧的纹理原来是**白线配 `multiply`** —— 白是 `multiply` 的单位元，再怎么调不透明度那层纹理也不会显出来；改成深色墨线配 `multiply`，强度按深色那侧定（深色白线每通道抬约 22，浅色墨线压约 15）。
+- `src/modules/theme/themes/verta.ts`：这套配色来自图标的黑底，却跟着外观在浅色下翻成白底黑字。深浅两套外观现在共用同一套近黑配色，编辑器也留在深色 —— 选中它就是黑的，与外观无关。
+
 **会话标签：画对应智能体的图标，不再一律画终端图标**
 
 - `src/modules/tabs/lib/useTabs.ts`：终端标签多记一个 `agent`（这个标签是为哪个智能体开的），建会话标签的两条入口都收下它。
