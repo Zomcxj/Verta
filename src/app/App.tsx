@@ -145,7 +145,7 @@ const BenchBridge = __VERTA_BENCH__
   ? lazy(() => import("@/bench/BenchBridge"))
   : null;
 
-/** 会话打开过渡：等「agent 的界面画出来了」再撤，判据是进程起来 + 又画了几 KB 输出。 */
+/** 会话开启过渡：等「agent 的界面画出来了」再撤，判据是进程起来 + 又画了几 KB 输出。 */
 const AGENT_UI_POLL_MS = 120;
 /**
  * 界面画出来的门槛：一整屏 TUI 是几 KB，而被 shell 回显的那行命令只有几十字节。
@@ -598,7 +598,7 @@ export default function App() {
   }, [newBlockTab, inheritedCwdForNewTab]);
 
   /**
-   * 点开会话时盖的那层过渡（见 `SessionOpeningOverlay`）。恢复会话要往终端里写一条
+   * 开启会话时盖的那层过渡（见 `SessionOpeningOverlay`）。恢复会话要往终端里写一条
    * 命令，写进去的瞬间那行命令就画在终端上；这层盖住那一幕，命令照写。
    * 定时器是兜底 —— 会话一时准备不好，也不能一直挡着不让用。
    */

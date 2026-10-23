@@ -98,7 +98,7 @@ export const EDITOR_THEME_LABELS: Record<EditorThemeId, string> = {
   "xcode-light": "Xcode Light",
 };
 
-/** 会话打开时那层过渡用哪种动画（设置 → 主题页里可选）。 */
+/** 会话开启时那层过渡用哪种动画（设置 → 主题页里可选）。 */
 export type SessionTransitionId =
   | "ripples"
   | "pulse"
@@ -528,7 +528,7 @@ export async function setEditorTheme(value: EditorThemePref): Promise<void> {
   await writePref(KEY_EDITOR_THEME, value);
 }
 
-/** 会话打开过渡用哪种动画。 */
+/** 会话开启过渡用哪种动画。 */
 export async function setSessionTransition(
   value: SessionTransitionId,
 ): Promise<void> {

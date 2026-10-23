@@ -873,9 +873,9 @@ const zh = {
   "settings.themes.editorTheme.description":
     "代码编辑器的语法配色。自动则跟随应用主题。",
   "settings.themes.editorTheme.auto": "自动（跟随应用主题）",
-  "settings.themes.transition.title": "会话打开过渡",
+  "settings.themes.transition.title": "会话开启过渡",
   "settings.themes.transition.description":
-    "点开会话时盖住终端的那段动画。选「不要」就照旧：命令写进终端的瞬间看得见。",
+    "开启会话时盖住终端的那段动画。选「不要」就照旧：命令写进终端的瞬间看得见。",
   "settings.themes.transition.ripples": "波纹扩散",
   "settings.themes.transition.pulse": "同心脉冲",
   "settings.themes.transition.orbit": "光环绕行",
@@ -2127,9 +2127,9 @@ const en: Record<MessageKey, string> = {
   "settings.themes.editorTheme.description":
     "Syntax colors for the code editor. Auto follows the app theme.",
   "settings.themes.editorTheme.auto": "Auto (match app theme)",
-  "settings.themes.transition.title": "Session transition",
+  "settings.themes.transition.title": "Session start transition",
   "settings.themes.transition.description":
-    "The animation that covers the terminal while a session opens. “None” keeps the old behaviour: the command shows as it is typed.",
+    "The animation that covers the terminal while a session starts. “None” keeps the old behaviour: the command shows as it is typed.",
   "settings.themes.transition.ripples": "Ripples",
   "settings.themes.transition.pulse": "Pulse",
   "settings.themes.transition.orbit": "Orbit",

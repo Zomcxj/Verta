@@ -38,7 +38,7 @@ type Props = {
   onOpenProjectSession: (session: AgentSession) => void;
   onOpenProjectTerminal: (entry: ProjectEntry) => void;
   onNewProjectSession: (entry: ProjectEntry, tool: AgentTool) => void;
-  /** 点开会话时的过渡：只画在终端那块（见 `SessionOpeningOverlay`）。 */
+  /** 会话开启时的过渡：只画在终端那块（见 `SessionOpeningOverlay`）。 */
   sessionOpening: boolean;
 };
 

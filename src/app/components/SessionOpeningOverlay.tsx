@@ -1,7 +1,7 @@
 import { usePreferencesStore } from "@/modules/settings/preferences";
 
 /**
- * 点开会话之后的过渡，**只盖终端那一块**（由 `WorkspaceSurface` 画在终端层里，
+ * 会话开启时的过渡，**只盖终端那一块**（由 `WorkspaceSurface` 画在终端层里，
  * 不是铺满全屏）：要挡住的只是「命令被写进终端」那一幕，侧栏、标签栏、状态栏照常可见。
  *
  * 恢复一条会话要往终端里写命令，写进去的瞬间那行命令就画在终端上 —— 看到的就是
