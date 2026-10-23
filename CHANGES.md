@@ -17,6 +17,13 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**A keyboard shortcut for the screenshot**
+
+- `src/modules/shortcuts/shortcuts.ts`, `src/app/App.tsx`: `Alt+A` grabs a region, next to the header button. It sits in the General group, so it appears in Settings, Shortcuts, General with the others, and Alt is a chord the shell never claims, so it also works from a focused terminal.
+- `src/modules/i18n/messages.ts`: one string, Chinese and English.
+- `src/modules/shortcuts/shortcuts.test.ts`: asserts the binding is Alt+A.
+- `src/app/App.tsx`: `startScreenshot` moved above the shortcut table. The binding is wired there, and a declaration further down the component is used before it is initialized.
+
 **English mode stopped leaking Chinese in the source-control and remotes panels**
 
 - `src/modules/source-control/SourceControlPanel.tsx`: the repository and branch label was built in a `useMemo` whose dependency list left out `t`, under a comment claiming those three strings do not depend on the language. Two of them are translations, so the label kept the previous language until something else happened to change. `t` is a dependency now.

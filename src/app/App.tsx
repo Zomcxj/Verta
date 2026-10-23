@@ -998,6 +998,17 @@ export default function App() {
 
   const [zenMode, setZenMode] = useState(false);
 
+  /** Region capture: the backend grabs the screen and opens the overlay; on
+   * selection it crops, saves, and copies to the clipboard.
+   *
+   * Declared above the shortcut table on purpose: the Alt+A binding is wired
+   * there, and a later declaration would be used before it is initialized. */
+  const startScreenshot = useCallback(() => {
+    void native.screenshotBegin().catch((e) => {
+      toast.error(t("screenshot.failed", { error: String(e) }));
+    });
+  }, [t]);
+
   const shortcutHandlers = useMemo<ShortcutHandlers>(
     () => ({
       "commandPalette.open": () => openCommandPalette("commands"),
@@ -1031,6 +1042,7 @@ export default function App() {
         else searchInlineRef.current?.focus();
       },
       "settings.open": () => void openSettingsWindow(),
+      "screenshot.capture": startScreenshot,
       "sidebar.toggle": toggleSidebar,
       "explorer.focus": toggleExplorerFocus,
       "explorer.toggleHidden": toggleHiddenFiles,
@@ -1066,6 +1078,7 @@ export default function App() {
       zoomIn,
       zoomOut,
       zoomReset,
+      startScreenshot,
     ],
   );
 
@@ -1340,14 +1353,6 @@ export default function App() {
         : null,
     [isTerminalTab, activeLeafId],
   );
-
-  /** Region capture: the backend grabs the screen and opens the overlay; on
-   * selection it crops, saves, and copies to the clipboard. */
-  const startScreenshot = useCallback(() => {
-    void native.screenshotBegin().catch((e) => {
-      toast.error(t("screenshot.failed", { error: String(e) }));
-    });
-  }, [t]);
 
   /**
    * Follow-up toast once the screenshot is saved.

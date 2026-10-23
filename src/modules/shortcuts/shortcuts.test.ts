@@ -153,6 +153,14 @@ describe("SHORTCUTS registry", () => {
     );
   });
 
+  it("binds Alt+A to the screenshot, a chord the shell never claims", () => {
+    const bindings = defaultBindingsOf("screenshot.capture");
+    expect(bindings).toEqual([{ alt: true, key: "a" }]);
+    expect(matchBinding(event({ key: "a", altKey: true }), bindings[0])).toBe(
+      true,
+    );
+  });
+
   it("closes a tab with a shifted chord too, which the terminal cannot eat", () => {
     // A focused terminal turns the plain chord into ^W ("delete the previous
     // word") before the app ever sees it, so closing a terminal tab needs a

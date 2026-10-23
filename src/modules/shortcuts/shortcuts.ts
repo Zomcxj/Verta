@@ -38,6 +38,7 @@ export type ShortcutId =
   | "view.zoomReset"
   | "view.zenMode"
   | "settings.open"
+  | "screenshot.capture"
   | "sidebar.toggle"
   | "editor.undo"
   | "editor.redo"
@@ -88,6 +89,14 @@ export const SHORTCUTS: Shortcut[] = [
     label: "shortcut.openSettings",
     group: "General",
     defaultBindings: [{ [MOD_PROP]: true, key: "," }],
+  },
+  {
+    id: "screenshot.capture",
+    label: "shortcut.screenshot",
+    group: "General",
+    // Alt on its own keeps this out of the way of the shell: the terminal never
+    // claims it, so grabbing a screenshot works from a focused prompt too.
+    defaultBindings: [{ alt: true, key: "a" }],
   },
   {
     id: "tab.new",
