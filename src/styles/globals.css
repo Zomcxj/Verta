@@ -354,9 +354,14 @@ html:not([data-theme-surface]) [data-theme-surface-fill] {
 :root:has(#settings-root)[data-theme-surface] #settings-root {
   background: transparent;
 }
-/* Its card and header sit on the textured body, so they read as glass too. */
+/* Its card and header sit on the textured body, so they read as glass too.
+ * Same parameter as the main window's frame (`--frame`): with vibrancy on that
+ * is 55% card, so the texture (and the desktop) shows through the whole
+ * settings page just as it does through the main window's gutters -- and with
+ * vibrancy off both go opaque together. A separate 82% here made the settings
+ * page's texture weaker than the main window's, i.e. the two did not match. */
 :root:has(#settings-root)[data-theme-surface] .settings-shell {
-  background: color-mix(in oklab, var(--background) 82%, transparent);
+  background: var(--frame);
 }
 /* Window drag (macOS WebKit): while `data-live-resize` is set (see
  * modules/theme/livePageResize) the document is given an invisible size rounded

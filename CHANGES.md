@@ -15,6 +15,10 @@
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**设置窗口的纹理与主窗口同参数，铺满整页**
+
+- `src/styles/globals.css`：设置窗口的 `.settings-shell` 原来自己写死 82% 的底色，比主窗口的框架（`--frame`，开了 Mica 时是 55%）厚，同一张纹理落到设置窗口只剩三分之一（实拍：设置窗口边距每通道波动约 3，主窗口状态栏约 11）。改成直接取 `--frame`：两处同参数，纹理铺满整个设置页，卡片与开关本身照旧实心可读；Mica 关掉时两边一起变实心。
+
 **浅色外观：Carbon Fiber 的蜂窝纹理显出来了，Verta 仍然是黑的**
 
 - `src/modules/theme/themes/pattern-base.ts`：浅色那侧的纹理原来是**白线配 `multiply`** —— 白是 `multiply` 的单位元，再怎么调不透明度那层纹理也不会显出来；改成深色墨线配 `multiply`，强度按深色那侧定（深色白线每通道抬约 22，浅色墨线压约 15）。
