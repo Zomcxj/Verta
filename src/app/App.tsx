@@ -36,6 +36,8 @@ import {
 import { setLspNavigator } from "@/modules/lsp";
 import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
+import { useAgentAttentionFlash } from "@/app/hooks/useAgentAttentionFlash";
+import { useTaskbarPresence } from "@/app/hooks/useTaskbarPresence";
 import { useT } from "@/modules/i18n";
 import {
   basename as projectBasename,
@@ -393,6 +395,12 @@ export default function App() {
   );
 
   useWindowTitle(activeTab, explorerRoot);
+
+  useTaskbarPresence();
+  const taskbarAttentionFlash = usePreferencesStore(
+    (s) => s.taskbarAttentionFlash,
+  );
+  useAgentAttentionFlash({ tabs, enabled: taskbarAttentionFlash });
 
   useEffect(() => {
     setActiveSearchAddon(

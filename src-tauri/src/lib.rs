@@ -438,6 +438,8 @@ pub fn run() {
             vibrancy::window_backdrop_kind,
             vibrancy::window_active_backdrop,
             vibrancy::window_set_backdrop,
+            modules::taskbar::window_set_taskbar_visible,
+            modules::taskbar::window_flash_taskbar,
             modules::window_presentation::window_presentation_state,
             screenshot::screenshot_begin,
             screenshot::screenshot_finish,

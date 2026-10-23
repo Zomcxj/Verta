@@ -20,6 +20,7 @@ pub mod runtime;
 pub mod screenshot;
 pub mod secrets;
 pub mod shell;
+pub mod taskbar;
 pub mod vibrancy;
 pub mod window_presentation;
 pub mod workspace;

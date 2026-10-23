@@ -19,6 +19,8 @@ import {
   setExplorerGitDecorations,
   setRestoreWindowState,
   setShowHidden,
+  setTaskbarAlwaysVisible,
+  setTaskbarAttentionFlash,
   setWslEnabled,
   setWslShutdownOnDisable,
   setTerminalCursorBlink,
@@ -115,6 +117,12 @@ export function GeneralSection() {
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
   );
+  const taskbarAlwaysVisible = usePreferencesStore(
+    (s) => s.taskbarAlwaysVisible,
+  );
+  const taskbarAttentionFlash = usePreferencesStore(
+    (s) => s.taskbarAttentionFlash,
+  );
   const terminalRenderer = usePreferencesStore((s) => s.terminalRenderer);
   const terminalScreenReader = usePreferencesStore(
     (s) => s.terminalScreenReader,
@@ -203,6 +211,32 @@ export function GeneralSection() {
           />
         </div>
       </div>
+
+      {/* Both switches drive Windows' taskbar only; elsewhere they would be dead
+          controls, so the group is not shown at all. */}
+      {IS_WINDOWS ? (
+        <div className="flex flex-col gap-2">
+          <Label>{t("settings.taskbar")}</Label>
+          <SettingRow
+            title={t("settings.taskbarVisible.title")}
+            description={t("settings.taskbarVisible.description")}
+          >
+            <Switch
+              checked={taskbarAlwaysVisible}
+              onCheckedChange={(v) => void setTaskbarAlwaysVisible(v)}
+            />
+          </SettingRow>
+          <SettingRow
+            title={t("settings.taskbarFlash.title")}
+            description={t("settings.taskbarFlash.description")}
+          >
+            <Switch
+              checked={taskbarAttentionFlash}
+              onCheckedChange={(v) => void setTaskbarAttentionFlash(v)}
+            />
+          </SettingRow>
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-2">
         <Label>{t("settings.explorer")}</Label>

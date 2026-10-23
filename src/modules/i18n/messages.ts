@@ -795,6 +795,13 @@ const zh = {
   "settings.gitDecorations.title": "Git 标记",
   "settings.gitDecorations.description":
     "在文件树中给已修改的文件着色，并淡化被 gitignore 的条目。",
+  "settings.taskbar": "任务栏",
+  "settings.taskbarVisible.title": "常驻任务栏",
+  "settings.taskbarVisible.description":
+    "在系统任务栏始终保留 Verta 的按钮，与其他应用一样。",
+  "settings.taskbarFlash.title": "任务栏提醒",
+  "settings.taskbarFlash.description":
+    "智能体等待你回答或完成任务时，让任务栏按钮闪烁。",
   "settings.terminal": "终端",
   "settings.terminalRenderer.title": "终端渲染器",
   "settings.terminalRenderer.description":
@@ -2069,6 +2076,13 @@ const en: Record<MessageKey, string> = {
   "settings.gitDecorations.title": "Git decorations",
   "settings.gitDecorations.description":
     "Tint changed files and dim gitignored entries in the file explorer.",
+  "settings.taskbar": "Taskbar",
+  "settings.taskbarVisible.title": "Keep a taskbar button",
+  "settings.taskbarVisible.description":
+    "Keep Verta in the system taskbar at all times, like any other app.",
+  "settings.taskbarFlash.title": "Taskbar reminders",
+  "settings.taskbarFlash.description":
+    "Flash the taskbar button when an agent is waiting for an answer or has finished.",
   "settings.terminal": "Terminal",
   "settings.terminalRenderer.title": "Terminal renderer",
   "settings.terminalRenderer.description":

@@ -17,6 +17,15 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**Taskbar: a permanent button, and a flash when an agent needs you**
+
+- `src-tauri/src/modules/taskbar.rs` (new): two commands. One asks the shell for a taskbar button or deletes it (the window-style bits the shell reads, plus the taskbar's own add / delete tab call), the other flashes that button — until the window comes to the front for "an agent is asking", a fixed handful of times for "finished".
+- `src-tauri/src/modules/mod.rs`, `src-tauri/src/lib.rs`: the module and its two commands registered.
+- `src/modules/terminal/lib/agentAttention.ts` (new): decides "waiting for an answer" and "finished" from the two things visible outside an agent's full-screen UI — the leaf's cumulative output bytes and whether the shell still has a child process. The CLI repaints while it works, so four seconds of silence with the child alive is a wait; the child disappearing is a finish. None of the CLIs announce this themselves.
+- `src/app/hooks/useAgentAttentionFlash.ts` (new): samples the tabs that were opened for an agent, once a second, and flashes the taskbar button. `src/app/hooks/useTaskbarPresence.ts` (new): applies the button preference to the main window and re-applies it when the preference changes, since which windows get a button is the shell's call.
+- `src/modules/settings/store.ts`, `src/settings/sections/GeneralSection.tsx`: two preferences — keep a taskbar button (on by default; a frameless window is not guaranteed one) and flash on agent attention. The group is only shown on Windows, where both do something.
+- `src/modules/i18n/messages.ts`: their labels, one copy in Chinese and one in English.
+
 **Chinese text keeps its own font when the font changes**
 
 - `src/lib/fonts.ts`: the fallback chain ends in an explicit CJK run before the generic `monospace` — Windows (Microsoft YaHei UI / YaHei / DengXian / Sarasa Mono SC), macOS (PingFang SC / Hiragino Sans GB), Linux (Noto Sans CJK SC / Noto Sans Mono CJK SC / Source Han Sans SC / WenQuanYi Micro Hei). Code fonts such as Cascadia Mono carry no Han glyphs, so without that run the browser chose a system face for Chinese by itself: changing the font moved the Latin text and left the Chinese untouched, and mixed lines stopped lining up. The terminal stack and the editor family are both built from this one chain.

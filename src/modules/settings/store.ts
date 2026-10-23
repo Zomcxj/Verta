@@ -139,6 +139,14 @@ export type Preferences = {
   editorWordWrapColumn: number;
   showHidden: boolean;
   explorerGitDecorations: boolean;
+  /**
+   * Keep a button for Verta in the taskbar at all times (Windows). On by
+   * default: a frameless window is not guaranteed one, and an app you drive
+   * agents from should be reachable from the taskbar.
+   */
+  taskbarAlwaysVisible: boolean;
+  /** Flash that button when an agent asks for input or finishes. */
+  taskbarAttentionFlash: boolean;
   terminalRenderer: "auto" | "webgl";
   terminalScreenReader: boolean;
   terminalCursorBlink: boolean;
@@ -228,6 +236,8 @@ const LEGACY_KEY_SHOW_HIDDEN_DIRS = "showHiddenDirectories";
 const KEY_WSL_ENABLED = "wslEnabled";
 const KEY_WSL_SHUTDOWN_ON_DISABLE = "wslShutdownOnDisable";
 const KEY_EXPLORER_GIT_DECORATIONS = "explorerGitDecorations";
+const KEY_TASKBAR_ALWAYS_VISIBLE = "taskbarAlwaysVisible";
+const KEY_TASKBAR_ATTENTION_FLASH = "taskbarAttentionFlash";
 const KEY_TERMINAL_RENDERER = "terminalRenderer";
 const KEY_TERMINAL_SCREEN_READER = "terminalScreenReader";
 const KEY_TERMINAL_CURSOR_BLINK = "terminalCursorBlink";
@@ -301,6 +311,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   editorWordWrapColumn: EDITOR_WORD_WRAP_COLUMN_DEFAULT,
   showHidden: false,
   explorerGitDecorations: true,
+  taskbarAlwaysVisible: true,
+  taskbarAttentionFlash: true,
   terminalRenderer: "auto",
   terminalScreenReader: false,
   terminalCursorBlink: false,
@@ -394,6 +406,12 @@ export async function loadPreferences(): Promise<Preferences> {
     explorerGitDecorations:
       get<boolean>(KEY_EXPLORER_GIT_DECORATIONS) ??
       DEFAULT_PREFERENCES.explorerGitDecorations,
+    taskbarAlwaysVisible:
+      get<boolean>(KEY_TASKBAR_ALWAYS_VISIBLE) ??
+      DEFAULT_PREFERENCES.taskbarAlwaysVisible,
+    taskbarAttentionFlash:
+      get<boolean>(KEY_TASKBAR_ATTENTION_FLASH) ??
+      DEFAULT_PREFERENCES.taskbarAttentionFlash,
     terminalRenderer:
       get<string>(KEY_TERMINAL_RENDERER) === "webgl" ? "webgl" : "auto",
     terminalScreenReader: get<boolean>(KEY_TERMINAL_SCREEN_READER) === true,
@@ -589,6 +607,14 @@ export async function setExplorerGitDecorations(value: boolean): Promise<void> {
   await writePref(KEY_EXPLORER_GIT_DECORATIONS, value);
 }
 
+export async function setTaskbarAlwaysVisible(value: boolean): Promise<void> {
+  await writePref(KEY_TASKBAR_ALWAYS_VISIBLE, value);
+}
+
+export async function setTaskbarAttentionFlash(value: boolean): Promise<void> {
+  await writePref(KEY_TASKBAR_ATTENTION_FLASH, value);
+}
+
 export async function setWslEnabled(value: boolean): Promise<void> {
   await writePref(KEY_WSL_ENABLED, value);
 }
@@ -763,6 +789,8 @@ export async function onPreferencesChange(
     [KEY_WSL_ENABLED]: "wslEnabled",
     [KEY_WSL_SHUTDOWN_ON_DISABLE]: "wslShutdownOnDisable",
     [KEY_EXPLORER_GIT_DECORATIONS]: "explorerGitDecorations",
+    [KEY_TASKBAR_ALWAYS_VISIBLE]: "taskbarAlwaysVisible",
+    [KEY_TASKBAR_ATTENTION_FLASH]: "taskbarAttentionFlash",
     [KEY_TERMINAL_RENDERER]: "terminalRenderer",
     [KEY_TERMINAL_SCREEN_READER]: "terminalScreenReader",
     [KEY_TERMINAL_CURSOR_BLINK]: "terminalCursorBlink",
