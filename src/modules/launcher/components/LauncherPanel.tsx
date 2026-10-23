@@ -37,11 +37,14 @@ import { SessionList } from "./SessionList";
 
 const TOOLS: AgentTool[] = AGENT_TOOLS;
 
-/** 复制到剪贴板，成不成都要说一声：菜单点完什么都不发生最让人心里没底。 */
-function copyText(text: string): void {
+/**
+ * Copy to the clipboard, and say something either way: a menu item that does
+ * nothing at all is the most unsettling outcome there is.
+ */
+function copyText(text: string, copied: string): void {
   void navigator.clipboard
     .writeText(text)
-    .then(() => toast.success("已复制"))
+    .then(() => toast.success(copied))
     .catch((error) => toast.error(String(error)));
 }
 
@@ -375,15 +378,15 @@ export function LauncherPanel({
                       selectable={managing}
                       actions={{
                         onOpen: onOpenSession,
-                        onCopyAbsolute: (session) => copyText(session.cwd),
+                        onCopyAbsolute: (session) => copyText(session.cwd, t("launcher.copied")),
                         onCopyRelative: (session) => {
                           const relative = relativeToRoot(
                             workspaceRoot,
                             session.cwd,
                           );
-                          if (relative) copyText(relative);
+                          if (relative) copyText(relative, t("launcher.copied"));
                         },
-                        onCopyId: (session) => copyText(session.id),
+                        onCopyId: (session) => copyText(session.id, t("launcher.copied")),
                         onStartRename: (session) =>
                           setRenaming(sessionKey(session)),
                         canCopyRelative:

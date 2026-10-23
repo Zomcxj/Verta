@@ -1,3 +1,6 @@
+import type { Language } from "@/modules/i18n/language";
+import { translate } from "@/modules/i18n/messages";
+
 /**
  * 会话列表那一行上的三个数字：轮数、tokens、最后对话时间（到日）。
  *
@@ -17,9 +20,12 @@ const HOUR = 3_600_000;
 const DAY = 86_400_000;
 
 /** 轮数：`12 轮`；不知道就是 `—`。 */
-export function turnsLabel(turns: number | null | undefined): string {
+export function turnsLabel(
+  turns: number | null | undefined,
+  language: Language = "zh",
+): string {
   if (turns === null || turns === undefined || turns < 0) return "—";
-  return `${turns} 轮`;
+  return translate(language, "stats.turns", { count: turns });
 }
 
 /**
@@ -27,15 +33,23 @@ export function turnsLabel(turns: number | null | undefined): string {
  *
  * 会话动辄几十万 tokens，原样写一长串没人读得出来量级。
  */
-export function tokensLabel(tokens: number | null | undefined): string {
+export function tokensLabel(
+  tokens: number | null | undefined,
+  language: Language = "zh",
+): string {
   if (tokens === null || tokens === undefined || tokens < 0) return "—";
-  if (tokens < 10_000) return `${tokens} tokens`;
+  if (tokens < 10_000)
+    return translate(language, "stats.tokens", { count: tokens });
   if (tokens < 1_000_000) {
     const wan = tokens / 10_000;
-    return `${wan >= 100 ? Math.round(wan) : wan.toFixed(1)} 万 tokens`;
+    return translate(language, "stats.tokensTenThousand", {
+      value: wan >= 100 ? Math.round(wan) : wan.toFixed(1),
+    });
   }
   const million = tokens / 1_000_000;
-  return `${million >= 100 ? Math.round(million) : million.toFixed(1)} M tokens`;
+  return translate(language, "stats.tokensMillion", {
+    value: million >= 100 ? Math.round(million) : million.toFixed(1),
+  });
 }
 
 /**
@@ -47,11 +61,15 @@ export function tokensLabel(tokens: number | null | undefined): string {
  *
  * `nowMs` 与 `ms` 都按本地时间算日界；未来时间（时钟被改过）按「刚刚」说，不显示负数。
  */
-export function lastTalkedDayLabel(nowMs: number, ms: number | null | undefined): string {
+export function lastTalkedDayLabel(
+  nowMs: number,
+  ms: number | null | undefined,
+  language: Language = "zh",
+): string {
   if (!ms || ms <= 0) return "—";
   const elapsed = nowMs - ms;
   // 时钟漂移或未来时间：当作刚刚，不显示「-3 小时前」。
-  if (elapsed < MINUTE) return "刚刚";
+  if (elapsed < MINUTE) return translate(language, "time.justNow");
 
   const day = (value: number) => {
     const date = new Date(value);
@@ -62,11 +80,16 @@ export function lastTalkedDayLabel(nowMs: number, ms: number | null | undefined)
   // 今天之内：小时取最近的一档（1/2/3/6/12），让同一屏里的数字好比较。
   if (diffDays <= 0) {
     const hours = Math.floor(elapsed / HOUR);
-    if (hours < 1) return `${Math.floor(elapsed / MINUTE)} 分钟前`;
-    return `${nearestHourStep(hours)} 小时前`;
+    if (hours < 1)
+      return translate(language, "time.minutesAgo", {
+        count: Math.floor(elapsed / MINUTE),
+      });
+    return translate(language, "time.hoursAgoStep", {
+      count: nearestHourStep(hours),
+    });
   }
-  if (diffDays === 1) return "昨天";
-  if (diffDays === 2) return "前天";
+  if (diffDays === 1) return translate(language, "time.yesterday");
+  if (diffDays === 2) return translate(language, "time.dayBeforeYesterday");
   const date = new Date(ms);
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;

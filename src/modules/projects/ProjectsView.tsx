@@ -31,7 +31,7 @@ import {
 import { CloneRepoDialog } from "./CloneRepoDialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { useT, type MessageKey } from "@/modules/i18n";
+import { useLanguage, useT, type MessageKey } from "@/modules/i18n";
 import {
   AGENT_TOOLS,
   AgentIcon,
@@ -103,6 +103,7 @@ export function ProjectsView({
   onNewSession,
 }: Props) {
   const t = useT();
+  const language = useLanguage();
 
   const [paths, setPaths] = useState<string[] | null>(null);
   const [sessions, setSessions] = useState<AgentSession[]>([]);
@@ -320,7 +321,7 @@ export function ProjectsView({
         {checkedAt ? (
           <span className="text-xs text-muted-foreground">
             {t("projects.checkedAt")}
-            {relativeTime(Date.now(), checkedAt)}
+            {relativeTime(Date.now(), checkedAt, language)}
           </span>
         ) : null}
         <span className="grow" />
@@ -766,6 +767,7 @@ function SessionHoverBody({
   onNewSession: (entry: ProjectEntry, tool: AgentTool) => void;
 }) {
   const t = useT();
+  const language = useLanguage();
   const usable = row.status === null || row.status.kind !== "missing";
 
   return (
@@ -784,7 +786,7 @@ function SessionHoverBody({
             >
               <span className="truncate">{session.title || session.id}</span>
               <span className="shrink-0 text-muted-foreground">
-                {relativeTime(Date.now(), session.updatedAtMs)}
+                {relativeTime(Date.now(), session.updatedAtMs, language)}
               </span>
             </button>
           ))}

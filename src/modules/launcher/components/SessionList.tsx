@@ -6,6 +6,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
+import { useLanguage, useT } from "@/modules/i18n";
 import { AgentIcon } from "../lib/agentIcon";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { useEffect, useRef, useState } from "react";
@@ -55,10 +56,11 @@ export function SessionList({
   onToggle,
   actions,
 }: Props) {
+  const t = useT();
   if (sessions.length === 0) {
     return (
       <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-        {selectable ? "没有可管理的会话" : "没有会话记录"}
+        {selectable ? t("launcher.emptySelectable") : t("launcher.empty")}
       </div>
     );
   }
@@ -94,6 +96,8 @@ function SessionButton({
   selectable: boolean;
   checked: boolean;
 } & Pick<Props, "onOpen" | "onToggle" | "actions">) {
+  const t = useT();
+  const language = useLanguage();
   const stats = statsOf(session);
   const renaming = actions?.renameId === session.id;
   const row = (
@@ -145,19 +149,19 @@ function SessionButton({
           )}
           {session.parentId !== null ? (
             <span className="shrink-0 rounded border border-border/60 px-1 text-[9px] leading-4 text-muted-foreground">
-              子代理
+              {t("launcher.subagent")}
             </span>
           ) : null}
         </span>
         {/* 路径不再显示：换成这个会话「聊了多少、多大、什么时候」——
             这三样比路径更能帮人认出是哪一场。 */}
         <span className="flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
-          <span className="shrink-0">{turnsLabel(stats.turns)}</span>
+          <span className="shrink-0">{turnsLabel(stats.turns, language)}</span>
           <span aria-hidden>·</span>
-          <span className="shrink-0">{tokensLabel(stats.tokens)}</span>
+          <span className="shrink-0">{tokensLabel(stats.tokens, language)}</span>
           <span aria-hidden>·</span>
           <span className="truncate">
-            {lastTalkedDayLabel(Date.now(), stats.lastAtMs)}
+            {lastTalkedDayLabel(Date.now(), stats.lastAtMs, language)}
           </span>
         </span>
       </span>
@@ -171,24 +175,24 @@ function SessionButton({
       <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
       <ContextMenuContent className="min-w-44">
         <ContextMenuItem onSelect={() => actions.onOpen(session)}>
-          打开
+          {t("launcher.open")}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => actions.onCopyAbsolute(session)}>
-          复制绝对路径
+          {t("launcher.copyAbsPath")}
         </ContextMenuItem>
         <ContextMenuItem
           disabled={!actions.canCopyRelative}
           onSelect={() => actions.onCopyRelative(session)}
         >
-          复制相对路径
+          {t("launcher.copyRelPath")}
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => actions.onCopyId(session)}>
-          复制会话 id
+          {t("launcher.copySessionId")}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => actions.onStartRename(session)}>
-          改会话名…
+          {t("launcher.renameSession")}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
