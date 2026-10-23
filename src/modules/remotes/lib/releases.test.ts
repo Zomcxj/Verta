@@ -125,7 +125,7 @@ describe("nextDownloadProgress", () => {
 
 describe("releaseRows", () => {
   it("maps a release and its assets for the list", () => {
-    const rows = releaseRows(payload(), NOW);
+    const rows = releaseRows(payload(), NOW, "zh");
     expect(rows).toHaveLength(1);
     expect(rows[0].tagName).toBe("v1.2.0");
     expect(rows[0].name).toBe("Release 1.2.0");
@@ -147,8 +147,14 @@ describe("releaseRows", () => {
   });
 
   it("falls back to the tag when the release has no name", () => {
-    const rows = releaseRows(payload({ releases: [release({ name: "" })] }), NOW);
+    const rows = releaseRows(payload({ releases: [release({ name: "" })] }), NOW, "zh");
     expect(rows[0].name).toBe("v1.2.0");
+  });
+
+  // The release time follows the UI language: an English UI must not get Chinese.
+  it("words the release time in English when asked for English", () => {
+    const rows = releaseRows(payload(), NOW, "en");
+    expect(rows[0].when).toBe("23 h ago");
   });
 
   it("uses the publish time and leaves it null when neither date parses", () => {
@@ -164,6 +170,7 @@ describe("releaseRows", () => {
         ],
       }),
       NOW,
+      "zh",
     );
     expect(rows[0].when).toBe("23 小时前");
     expect(rows[1].when).toBeNull();
@@ -173,6 +180,7 @@ describe("releaseRows", () => {
     const rows = releaseRows(
       payload({ releases: [release({ draft: true, prerelease: true })] }),
       NOW,
+      "zh",
     );
     expect(rows[0].draft).toBe(true);
     expect(rows[0].prerelease).toBe(true);

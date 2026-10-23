@@ -12,7 +12,7 @@ import {
   type WireReleasesPayload,
 } from "@/lib/native";
 import { cn } from "@/lib/utils";
-import { type MessageKey, useT } from "@/modules/i18n";
+import { type MessageKey, useLanguage, useT } from "@/modules/i18n";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -46,6 +46,7 @@ const DOWNLOAD_EVENT = "verta://github-download";
  */
 export function ReleasesDialog({ repo, onOpenChange }: Props) {
   const t = useT();
+  const language = useLanguage();
   const [payload, setPayload] = useState<WireReleasesPayload | null>(null);
   const [reading, setReading] = useState(false);
   /** Raw message when the command itself failed (no `kind` at all); kept apart from
@@ -244,8 +245,8 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
   );
 
   const rows = useMemo(
-    () => (payload ? releaseRows(payload, Date.now()) : []),
-    [payload],
+    () => (payload ? releaseRows(payload, Date.now(), language) : []),
+    [payload, language],
   );
   const notice = payload ? releaseNotice(payload) : null;
 

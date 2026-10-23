@@ -23,7 +23,7 @@ import {
   type WireRepoPermissionPayload,
 } from "@/lib/native";
 import { cn } from "@/lib/utils";
-import { useT } from "@/modules/i18n";
+import { useLanguage, useT } from "@/modules/i18n";
 import {
   useCallback,
   useEffect,
@@ -80,6 +80,7 @@ type Pending = {
  */
 export function IssuesDialog({ repo, onOpenChange }: Props) {
   const t = useT();
+  const language = useLanguage();
   const [payload, setPayload] = useState<WireIssueListPayload | null>(null);
   const [reading, setReading] = useState(false);
   /** Raw message when the command itself failed (no `kind` at all). */
@@ -223,8 +224,9 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
           error: null,
         },
         Date.now(),
+        language,
       ),
-    [payload, repo],
+    [payload, repo, language],
   );
   const filters = useMemo<IssueFilters>(
     () => ({ kind, state, keyword }),

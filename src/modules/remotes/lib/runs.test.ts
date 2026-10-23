@@ -27,7 +27,7 @@ function run(over: Partial<WireRepoActionRun> = {}): WireRepoActionRun {
 
 describe("runRowView", () => {
   it("跑完了才能重跑，这时候不该给取消", () => {
-    const view = runRowView(run(), Date.now());
+    const view = runRowView(run(), Date.now(), "zh");
     expect(view.canRerun).toBe(true);
     expect(view.canCancel).toBe(false);
     // Same reason as delete: GitHub refuses to remove a running one, so it only appears once finished.
@@ -36,7 +36,7 @@ describe("runRowView", () => {
 
   it("正在跑或排队时只能取消，不该给重跑或删除", () => {
     for (const status of ["in_progress", "queued", "waiting", "requested", "pending"]) {
-      const view = runRowView(run({ status, conclusion: null }), Date.now());
+      const view = runRowView(run({ status, conclusion: null }), Date.now(), "zh");
       expect(view.canCancel, status).toBe(true);
       expect(view.canRerun, status).toBe(false);
       expect(view.canDelete, status).toBe(false);
@@ -47,20 +47,32 @@ describe("runRowView", () => {
     const failed = runRowView(
       run({ conclusion: "failure", runNumber: 48, headBranch: "release/1.2" }),
       Date.now(),
+      "zh",
     );
     expect(failed.key).toBe("remotes.ci.failure");
     expect(failed.tone).toBe("fail");
     expect(failed.detail).toBe("CI · release/1.2 · #48");
 
-    const going = runRowView(run({ status: "in_progress", conclusion: null }), Date.now());
+    const going = runRowView(run({ status: "in_progress", conclusion: null }), Date.now(), "zh");
     expect(going.key).toBe("remotes.ci.running");
     expect(going.tone).toBe("running");
   });
 
   it("时间解不出来时不装作有时间", () => {
-    expect(runRowView(run({ updatedAt: "不是时间" }), Date.now()).when).toBeNull();
-    expect(runRowView(run({ updatedAt: null }), Date.now()).when).toBeNull();
-    expect(runRowView(run(), Date.now()).when).not.toBeNull();
+    expect(runRowView(run({ updatedAt: "不是时间" }), Date.now(), "zh").when).toBeNull();
+    expect(runRowView(run({ updatedAt: null }), Date.now(), "zh").when).toBeNull();
+    expect(runRowView(run(), Date.now(), "zh").when).not.toBeNull();
+  });
+
+  // The row time follows the UI language: an English UI must not get Chinese.
+  it("words the run time in English when asked for English", () => {
+    const now = Date.parse("2026-10-20T10:05:00Z");
+    const view = runRowView(
+      run({ updatedAt: "2026-10-20T10:00:00Z" }),
+      now,
+      "en",
+    );
+    expect(view.when).toBe("5 min ago");
   });
 });
 
@@ -79,9 +91,16 @@ describe("withoutRun", () => {
 
 describe("timeLabel", () => {
   it("只认能解析的 ISO8601", () => {
-    expect(timeLabel(null, Date.now())).toBeNull();
-    expect(timeLabel("", Date.now())).toBeNull();
-    expect(timeLabel("2026-10-20T10:00:00Z", Date.parse("2026-10-20T10:05:00Z"))).toBeTruthy();
+    expect(timeLabel(null, Date.now(), "zh")).toBeNull();
+    expect(timeLabel("", Date.now(), "zh")).toBeNull();
+    expect(timeLabel("2026-10-20T10:00:00Z", Date.parse("2026-10-20T10:05:00Z"), "zh")).toBeTruthy();
+  });
+
+  // The label follows the UI language: an English UI must not get Chinese.
+  it("words the clock in English when asked for English", () => {
+    expect(
+      timeLabel("2026-10-20T10:00:00Z", Date.parse("2026-10-20T10:05:00Z"), "en"),
+    ).toBe("5 min ago");
   });
 });
 

@@ -17,6 +17,14 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**English mode stopped leaking Chinese in the source-control and remotes panels**
+
+- `src/modules/source-control/SourceControlPanel.tsx`: the repository and branch label was built in a `useMemo` whose dependency list left out `t`, under a comment claiming those three strings do not depend on the language. Two of them are translations, so the label kept the previous language until something else happened to change. `t` is a dependency now.
+- `src/modules/launcher/lib/relativeTime.ts`, `src/modules/remotes/lib/rows.ts`, `issues.ts`, `releases.ts`, `runs.ts`: `relativeTime` took an optional language that defaulted to Chinese, and the remotes row builders never passed it, so every time column (remote repositories, issues and pull requests, releases, CI runs) stayed Chinese in an English UI. The argument is required now, so a caller that forgets it fails to compile instead of quietly rendering the wrong language.
+- `src/modules/remotes/RemoteReposView.tsx`, `IssuesDialog.tsx`, `ReleasesDialog.tsx`, `RunListDialog.tsx`, `RunDetail.tsx`: they read the language from `useLanguage()` and pass it into those builders.
+- Six new tests assert the English wording of each builder. The existing assertions are unchanged apart from the extra argument.
+- Verified on the running app with the interface set to English: the source-control selector reads Source Control, and the repository list shows English wording and dates. The only Chinese left on screen is repository descriptions, which is text from GitHub rather than interface copy.
+
 **PR review: approve and request changes**
 
 - `src-tauri/src/modules/github/commands.rs`, `issues.rs`, `lib.rs`: a new `github_pr_review` command posts a review through `gh api --method POST repos/{slug}/pulls/{n}/reviews`, with `approve` / `request_changes` mapped to GitHub's `APPROVE` / `REQUEST_CHANGES` and an optional comment. The verb is validated locally the way the merge path validates its method, and any failure carries what `gh` said. Two unit tests cover the mapping and the payload (a blank comment is left off the payload rather than sent as an empty string).

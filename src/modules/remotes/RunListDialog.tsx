@@ -21,7 +21,7 @@ import {
   type WireRepoPermissionPayload,
 } from "@/lib/native";
 import { cn } from "@/lib/utils";
-import { useT, type MessageKey } from "@/modules/i18n";
+import { useLanguage, useT, type MessageKey } from "@/modules/i18n";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { TONE_CLASS } from "./lib/ci";
@@ -84,6 +84,7 @@ const ACTION_TEXT: Record<
  */
 export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
   const t = useT();
+  const language = useLanguage();
   const [payload, setPayload] = useState<WireRepoActionRunsPayload | null>(null);
   const [reading, setReading] = useState(false);
   /** Raw message when the command itself failed (no `kind` at all). */
@@ -226,7 +227,7 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
     }
   };
 
-  const job = pending ? runRowView(pending.run, Date.now()) : null;
+  const job = pending ? runRowView(pending.run, Date.now(), language) : null;
   // Hide just-deleted runs: GitHub may still list them in a refresh.
   const visibleRuns = (payload?.runs ?? []).filter(
     (item) => !deletedIds.includes(item.id),
@@ -286,7 +287,7 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
               <table className="w-full table-fixed border-collapse text-xs">
                 <tbody>
                   {visibleRuns.map((item) => {
-                    const view = runRowView(item, Date.now());
+                    const view = runRowView(item, Date.now(), language);
                     return (
                       <tr
                         key={item.id}

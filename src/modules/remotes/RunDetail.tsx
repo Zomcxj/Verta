@@ -6,7 +6,7 @@ import {
   type WireRepoRunLogPayload,
 } from "@/lib/native";
 import { cn } from "@/lib/utils";
-import { useT } from "@/modules/i18n";
+import { useLanguage, useT } from "@/modules/i18n";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useState } from "react";
 import { TONE_CLASS, runState } from "./lib/ci";
@@ -34,6 +34,7 @@ const LOG_TONE_CLASS: Record<ReturnType<typeof logLineTone>, string> = {
  */
 export function RunDetail({ repo, run, onBack }: Props) {
   const t = useT();
+  const language = useLanguage();
   const [jobs, setJobs] = useState<WireRepoRunJobsPayload | null>(null);
   const [log, setLog] = useState<WireRepoRunLogPayload | null>(null);
   const [reading, setReading] = useState(false);
@@ -110,7 +111,7 @@ export function RunDetail({ repo, run, onBack }: Props) {
           {run.name} · #{run.runNumber}
         </span>
         <span className="truncate text-xs text-muted-foreground">
-          {[run.headBranch, run.event, timeLabel(run.updatedAt, now)]
+          {[run.headBranch, run.event, timeLabel(run.updatedAt, now, language)]
             .filter(Boolean)
             .join(" · ")}
         </span>
@@ -163,7 +164,7 @@ export function RunDetail({ repo, run, onBack }: Props) {
                     {job.name}
                   </span>
                   <span className="truncate text-[11px] text-muted-foreground">
-                    {[job.runner, timeLabel(job.startedAt, now)]
+                    {[job.runner, timeLabel(job.startedAt, now, language)]
                       .filter(Boolean)
                       .join(" · ")}
                   </span>

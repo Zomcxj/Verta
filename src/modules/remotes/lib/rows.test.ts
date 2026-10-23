@@ -47,19 +47,24 @@ describe("cloneUrlOf", () => {
 
 describe("pushedLabel", () => {
   it("folds GitHub's ISO timestamps into the panel's relative wording", () => {
-    expect(pushedLabel("2026-10-18T09:00:00Z", NOW)).toBe("3 小时前");
-    expect(pushedLabel("2026-08-01T00:00:00Z", NOW)).toBe("2026-08-01");
+    expect(pushedLabel("2026-10-18T09:00:00Z", NOW, "zh")).toBe("3 小时前");
+    expect(pushedLabel("2026-08-01T00:00:00Z", NOW, "zh")).toBe("2026-08-01");
   });
 
   it("returns null when there is no usable timestamp", () => {
-    expect(pushedLabel(null, NOW)).toBeNull();
-    expect(pushedLabel("not a date", NOW)).toBeNull();
+    expect(pushedLabel(null, NOW, "zh")).toBeNull();
+    expect(pushedLabel("not a date", NOW, "zh")).toBeNull();
+  });
+
+  // The label follows the UI language: English must not fall back to Chinese.
+  it("words the push time in English when asked for English", () => {
+    expect(pushedLabel("2026-10-18T09:00:00Z", NOW, "en")).toBe("3 h ago");
   });
 });
 
 describe("toRows", () => {
   it("carries the wire fields over and derives the clone address", () => {
-    const [row] = toRows(payload({ repos: [repo()] }), NOW);
+    const [row] = toRows(payload({ repos: [repo()] }), NOW, "zh");
     expect(row).toEqual({
       fullName: "Zomcxj/verta",
       owner: "Zomcxj",
@@ -79,6 +84,7 @@ describe("toRows", () => {
     const [row] = toRows(
       payload({ repos: [repo({ language: null, description: null })] }),
       NOW,
+      "zh",
     );
     expect(row.language).toBeNull();
     expect(row.description).toBeNull();
@@ -102,6 +108,7 @@ describe("filterRows", () => {
       ],
     }),
     NOW,
+    "zh",
   );
 
   it("matches the full name, the description and the language, case-insensitively", () => {
@@ -127,7 +134,7 @@ describe("filterRows", () => {
 
 describe("copyTextOf", () => {
   it("copies the repository name or the clone address", () => {
-    const [row] = toRows(payload({ repos: [repo()] }), NOW);
+    const [row] = toRows(payload({ repos: [repo()] }), NOW, "zh");
     expect(copyTextOf(row, "name")).toBe("Zomcxj/verta");
     expect(copyTextOf(row, "clone")).toBe("https://github.com/Zomcxj/verta.git");
   });

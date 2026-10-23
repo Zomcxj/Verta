@@ -10,14 +10,14 @@ const ABSOLUTE_AFTER_DAYS = 30;
  * How long ago something happened, in words for the first day and as a date
  * after that.
  *
- * `language` is optional so the pure formatting stays callable from places
- * that have no preferences store (tests, fixtures); the UI always passes the
- * language it renders in.
+ * `language` is required: this is user-facing copy, so a caller that forgets
+ * it has to fail while compiling instead of quietly rendering Chinese to an
+ * English user.
  */
 export function relativeTime(
   nowMs: number,
   updatedAtMs: number,
-  language: Language = "zh",
+  language: Language,
 ): string {
   if (!updatedAtMs || updatedAtMs <= 0) return translate(language, "time.unknown");
   const age = nowMs - updatedAtMs;

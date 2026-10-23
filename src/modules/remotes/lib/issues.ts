@@ -4,6 +4,7 @@ import type {
   WirePullRequestInfo,
 } from "@/lib/native";
 import type { MessageKey } from "@/modules/i18n";
+import type { Language } from "@/modules/i18n/language";
 import { relativeTime } from "@/modules/launcher";
 
 /** An issue / PR as shown in the UI: the wire fields plus a display-ready time label. */
@@ -60,7 +61,11 @@ export type IssueNotice = {
 };
 
 /** Convert one wire entry into a UI row. */
-export function toRow(issue: WireIssueSummary, nowMs: number): IssueRow {
+export function toRow(
+  issue: WireIssueSummary,
+  nowMs: number,
+  language: Language,
+): IssueRow {
   const ms = issue.createdAt ? Date.parse(issue.createdAt) : Number.NaN;
   return {
     number: issue.number,
@@ -70,7 +75,7 @@ export function toRow(issue: WireIssueSummary, nowMs: number): IssueRow {
     isDraft: issue.isDraft,
     merged: issue.merged,
     author: issue.author,
-    when: Number.isFinite(ms) ? relativeTime(nowMs, ms) : null,
+    when: Number.isFinite(ms) ? relativeTime(nowMs, ms, language) : null,
     comments: issue.comments,
     labels: issue.labels,
     assignees: issue.assignees,
@@ -83,8 +88,9 @@ export function toRow(issue: WireIssueSummary, nowMs: number): IssueRow {
 export function toRows(
   payload: WireIssueListPayload,
   nowMs: number,
+  language: Language,
 ): IssueRow[] {
-  return payload.issues.map((issue) => toRow(issue, nowMs));
+  return payload.issues.map((issue) => toRow(issue, nowMs, language));
 }
 
 /**

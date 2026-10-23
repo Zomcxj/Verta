@@ -1,4 +1,5 @@
 import type { MessageKey } from "@/modules/i18n";
+import type { Language } from "@/modules/i18n/language";
 import { relativeTime } from "@/modules/launcher";
 import type {
   WireRepoActionRun,
@@ -37,13 +38,17 @@ const UNFINISHED: readonly string[] = [
   "pending",
 ];
 
-export function runRowView(run: WireRepoActionRun, nowMs: number): RunRowView {
+export function runRowView(
+  run: WireRepoActionRun,
+  nowMs: number,
+  language: Language,
+): RunRowView {
   const state = runState(run);
   return {
     key: state.key,
     tone: state.tone,
     detail: runDetail(run),
-    when: timeLabel(run.updatedAt, nowMs),
+    when: timeLabel(run.updatedAt, nowMs, language),
     canRerun: run.status === "completed",
     canCancel: UNFINISHED.includes(run.status),
     canDelete: run.status === "completed",
@@ -51,10 +56,14 @@ export function runRowView(run: WireRepoActionRun, nowMs: number): RunRowView {
 }
 
 /** GitHub supplies ISO8601; when it cannot be parsed we do not pretend there is a time. */
-export function timeLabel(iso: string | null, nowMs: number): string | null {
+export function timeLabel(
+  iso: string | null,
+  nowMs: number,
+  language: Language,
+): string | null {
   if (!iso) return null;
   const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? relativeTime(nowMs, ms) : null;
+  return Number.isFinite(ms) ? relativeTime(nowMs, ms, language) : null;
 }
 
 /**

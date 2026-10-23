@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { useT, type MessageKey } from "@/modules/i18n";
+import { useLanguage, useT, type MessageKey } from "@/modules/i18n";
 import {
   loadProjectPaths,
   mergeProjectPaths,
@@ -42,6 +42,7 @@ type Props = {
  */
 export function RemoteReposView({ active }: Props) {
   const t = useT();
+  const language = useLanguage();
 
   const [payload, setPayload] = useState<WireRemoteReposPayload | null>(null);
   const [reading, setReading] = useState(false);
@@ -133,8 +134,8 @@ export function RemoteReposView({ active }: Props) {
   }, [active, payload, read]);
 
   const rows = useMemo(
-    () => (payload ? toRows(payload, Date.now()) : []),
-    [payload],
+    () => (payload ? toRows(payload, Date.now(), language) : []),
+    [payload, language],
   );
   const visible = useMemo(() => filterRows(rows, filter), [rows, filter]);
   const notice = payload ? noticeOf(payload, visible.length, filter) : null;

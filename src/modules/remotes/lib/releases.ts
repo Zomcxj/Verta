@@ -1,4 +1,5 @@
 import type { WireReleasesPayload } from "@/lib/native";
+import type { Language } from "@/modules/i18n/language";
 import { relativeTime } from "@/modules/launcher";
 
 /** A release as shown in the UI: the wire fields plus display-ready time and size labels. */
@@ -144,6 +145,7 @@ export function nextDownloadProgress(
 export function releaseRows(
   payload: WireReleasesPayload,
   nowMs: number,
+  language: Language,
 ): ReleaseRow[] {
   return payload.releases.map((release) => {
     const stamp = release.publishedAt ?? release.createdAt;
@@ -155,7 +157,7 @@ export function releaseRows(
       body: release.body,
       draft: release.draft,
       prerelease: release.prerelease,
-      when: Number.isFinite(ms) ? relativeTime(nowMs, ms) : null,
+      when: Number.isFinite(ms) ? relativeTime(nowMs, ms, language) : null,
       htmlUrl: release.htmlUrl,
       assets: release.assets.map((asset) => ({
         id: asset.id,

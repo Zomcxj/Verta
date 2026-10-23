@@ -509,12 +509,14 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   });
   const panelState = fixedTargetPending ? "loading" : scm.panelState;
   const isRefreshing = panelState === "loading";
-  // biome-ignore lint/correctness/useExhaustiveDependencies: adding t would recompute the repo label on every language switch, which these three strings do not depend on
+  // `t` has to be a dependency: two of the three strings below are translations, so a
+  // language switch must recompute the label. Because it was left out, the selector kept
+  // showing the previous language until something else changed.
   const repoLabel = useMemo(() => {
     if (fixedTargetPending) return t("scm.loadingRepo");
     if (!scm.status) return t("scm.sourceControl");
     return scm.status.isDetached ? t("scm.detached") : scm.status.branch;
-  }, [fixedTargetPending, scm.status]);
+  }, [fixedTargetPending, scm.status, t]);
 
   const commitShortcut = IS_MAC ? "⌘↩" : "Ctrl+Enter";
   const canCommit =

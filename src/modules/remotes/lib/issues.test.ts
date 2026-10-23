@@ -80,7 +80,7 @@ function pull(
 
 describe("issue rows", () => {
   it("keeps the wire fields and renders the time", () => {
-    const row = toRow(issue(), NOW);
+    const row = toRow(issue(), NOW, "zh");
     expect(row.number).toBe(1);
     expect(row.title).toBe("登录页在弱网下白屏");
     expect(row.comments).toBe(2);
@@ -89,14 +89,20 @@ describe("issue rows", () => {
   });
 
   it("has no time when the date cannot be read", () => {
-    const row = toRow(issue({ createdAt: null }), NOW);
+    const row = toRow(issue({ createdAt: null }), NOW, "zh");
     expect(row.when).toBeNull();
   });
 
   it("maps a whole page", () => {
-    const rows = toRows(payload(), NOW);
+    const rows = toRows(payload(), NOW, "zh");
     expect(rows).toHaveLength(1);
     expect(rows[0].number).toBe(1);
+  });
+
+  // The row's time follows the UI language: an English UI must not get Chinese.
+  it("words the time in English when asked for English", () => {
+    const row = toRow(issue(), NOW, "en");
+    expect(row.when).toBe("1 d ago");
   });
 });
 
@@ -122,6 +128,7 @@ describe("filters", () => {
       ],
     }),
     NOW,
+    "zh",
   );
 
   it("keeps both kinds when no kind filter is on", () => {

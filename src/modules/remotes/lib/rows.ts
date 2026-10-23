@@ -1,4 +1,5 @@
 import type { WireRemoteReposPayload } from "@/lib/native";
+import type { Language } from "@/modules/i18n/language";
 import { relativeTime } from "@/modules/launcher";
 import type { RemoteReposKind, RemotesNotice, RemoteRepoRow } from "./types";
 
@@ -14,16 +15,18 @@ export function cloneUrlOf(webUrl: string): string {
 export function pushedLabel(
   pushedAt: string | null,
   nowMs: number,
+  language: Language,
 ): string | null {
   if (!pushedAt) return null;
   const ms = Date.parse(pushedAt);
   if (!Number.isFinite(ms)) return null;
-  return relativeTime(nowMs, ms);
+  return relativeTime(nowMs, ms, language);
 }
 
 export function toRows(
   payload: WireRemoteReposPayload,
   nowMs: number,
+  language: Language,
 ): RemoteRepoRow[] {
   return payload.repos.map((repo) => ({
     fullName: repo.fullName,
@@ -33,7 +36,7 @@ export function toRows(
     isFork: repo.isFork,
     isArchived: repo.isArchived,
     language: repo.language,
-    pushed: pushedLabel(repo.pushedAt, nowMs),
+    pushed: pushedLabel(repo.pushedAt, nowMs, language),
     description: repo.description,
     webUrl: repo.webUrl,
     cloneUrl: cloneUrlOf(repo.webUrl),
