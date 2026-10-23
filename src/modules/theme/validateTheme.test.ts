@@ -14,7 +14,7 @@ describe("validateTheme", () => {
   it("rejects a non-object payload", () => {
     expect(validateTheme("nope")).toEqual({
       ok: false,
-      error: "Theme must be a JSON object",
+      error: { key: "theme.validate.notObject" },
     });
   });
 
@@ -35,7 +35,7 @@ describe("validateTheme", () => {
     expect(validateTheme(baseTheme({ variants: undefined })).ok).toBe(false);
     expect(validateTheme(baseTheme({ variants: {} }))).toEqual({
       ok: false,
-      error: "variants must contain at least one of: light, dark",
+      error: { key: "theme.validate.variantsNeeded" },
     });
   });
 
@@ -54,7 +54,10 @@ describe("validateTheme", () => {
     );
     expect(result).toEqual({
       ok: false,
-      error: "variants.dark.colors.nope is not a recognized color key",
+      error: {
+        key: "theme.validate.unknownColorKey",
+        values: { path: "variants.dark.colors.nope" },
+      },
     });
   });
 
@@ -71,7 +74,10 @@ describe("validateTheme", () => {
     );
     expect(result).toEqual({
       ok: false,
-      error: "variants.dark.terminal.ansi must be an array of 16 strings",
+      error: {
+        key: "theme.validate.ansiArray",
+        values: { path: "variants.dark.terminal.ansi" },
+      },
     });
   });
 
@@ -108,7 +114,10 @@ describe("validateTheme", () => {
       ),
     ).toEqual({
       ok: false,
-      error: "variants.dark.terminal.fontFamily must be a non-empty string",
+      error: {
+        key: "theme.validate.nonEmptyString",
+        values: { path: "variants.dark.terminal.fontFamily" },
+      },
     });
     expect(
       validateTheme(
@@ -118,8 +127,10 @@ describe("validateTheme", () => {
       ),
     ).toEqual({
       ok: false,
-      error:
-        "variants.dark.terminal.fontWeight must be normal, bold, or a weight from 100 to 900",
+      error: {
+        key: "theme.validate.fontWeight",
+        values: { path: "variants.dark.terminal.fontWeight" },
+      },
     });
     expect(
       validateTheme(
@@ -129,7 +140,14 @@ describe("validateTheme", () => {
       ),
     ).toEqual({
       ok: false,
-      error: "variants.dark.terminal.fontSize must be an integer from 8 to 32",
+      error: {
+        key: "theme.validate.fontSize",
+        values: {
+          path: "variants.dark.terminal.fontSize",
+          min: 8,
+          max: 32,
+        },
+      },
     });
   });
 

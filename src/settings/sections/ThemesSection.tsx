@@ -127,7 +127,7 @@ export function ThemesSection() {
           setImportError(
             t("settings.themes.importFailed", {
               file: file.name,
-              message: result.error,
+              message: t(result.error.key, result.error.values),
             }),
           );
           return;

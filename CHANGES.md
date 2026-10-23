@@ -17,6 +17,15 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-23</strong></summary>
 
+**Theme validation messages come from the message tables**
+
+- `src/modules/theme/validateTheme.ts`: the validator returned whole English sentences, so a bad theme file showed English whatever the interface language was. It returns a message key plus its values now (`ValidationFailure`), and the path building, the accepted ranges and the order in which fields are checked are unchanged.
+- `src/modules/theme/themeFiles.ts`: the invalid-JSON case returns the key too, while a parser message is still passed through verbatim, since that is runtime data rather than copy.
+- `src/settings/sections/ThemesSection.tsx`: the import error resolves the key when it renders, so it follows the language.
+- `src/modules/theme/validateTheme.test.ts`: the assertions that pinned the sentences now pin the keys.
+- `src/modules/i18n/messages.ts`: fifteen new strings, one in Chinese and one in English each.
+- Verified on the running app by feeding a broken theme file straight to the import input: the dialog shows the localized message for an id that is not kebab-case, with no English left in it.
+
 **Window titles and one tooltip follow the language**
 
 - `settings.html`, `screenshot.html`: the static titles joined `Verta` to `Settings` / `Screenshot` with an em-dash, which `VERTA.md` forbids, and were English either way. They carry the neutral app name now, and the settings window sets its own title from the message table at runtime so it follows the language (`capabilities/default.json` covers that window with `allow-set-title`). The screenshot overlay cannot do the same (`capabilities/screenshot.json` gives it events only, and the window is frameless, out of the taskbar and invisible in practice), so it keeps the title Rust gives it in `src-tauri/src/modules/screenshot/mod.rs`.

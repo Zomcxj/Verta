@@ -1,3 +1,4 @@
+import type { MessageKey } from "@/modules/i18n";
 import { currentWorkspaceEnv } from "@/modules/workspace";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -57,10 +58,11 @@ export function parseThemeFile(text: string): ValidationResult {
   try {
     parsed = JSON.parse(text);
   } catch (e) {
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "invalid JSON",
-    };
+    // The parser's message is runtime text with no key of its own. The lookup
+    // falls back to the key verbatim, so the message is carried as one.
+    const key: MessageKey =
+      e instanceof Error ? (e.message as MessageKey) : "theme.validate.invalidJson";
+    return { ok: false, error: { key } };
   }
   return validateTheme(parsed);
 }
