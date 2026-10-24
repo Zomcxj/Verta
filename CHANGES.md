@@ -63,6 +63,11 @@ swap in the new date, and drop the `open` from the day before.
 
 - `src/modules/git-history/GitHistoryPane.tsx`, `src/modules/editor/GitDiffPane.tsx`: neither page paints `bg-background` on its own root any more, so in a glass theme the acrylic shows through them the way it does through the explorer, the source-control panel and the editor. They were the last two pages keeping an opaque sheet over their pane's own tint, which is what made the commit history read as solid while every panel around it was glass. The pane already supplies the colour (`--background` when the theme is opaque, its tint when the theme asks for glass), so nothing changes for an opaque theme.
 
+**A pane reporting the same state again no longer rewrites the tab list**
+
+- `src/modules/tabs/lib/useTabs.ts`: `updateTab` applies its patch through a new `applyTabPatch`, which hands the same tab back when the patch changes nothing, so the tab list keeps its identity; `focusPane` and `focusNextPaneInTab` take the same rule, because clicking a pane that already holds focus is routine. The tab list is what the whole window renders from and React re-renders on identity, so a pane reporting the same title, path or unsaved flag on every prompt re-rendered every open tab along with it. `setLeafCwd` already carried this rule, for the same reason.
+- `src/modules/tabs/lib/applyTabPatch.test.ts` (new): a patch that changes nothing, one that changes a field, the terminal custom-title reset, the auto-pin when a preview editor turns dirty, and a preview tab's title derived from its url.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 

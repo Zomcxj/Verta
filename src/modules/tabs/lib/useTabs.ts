@@ -278,6 +278,87 @@ function titleFromUrl(url: string, fallback: string): string {
   }
 }
 
+/** The tab a patch would produce, with no decision about identity yet. */
+function patchedTab(x: Tab, patch: TabPatch, previewLabel: string): Tab {
+  if (x.kind === "terminal") {
+    return {
+      ...x,
+      ...(patch.title !== undefined && { title: patch.title }),
+      ...(patch.cwd !== undefined && { cwd: patch.cwd }),
+      ...(patch.customTitle !== undefined && {
+        customTitle: patch.customTitle === "" ? undefined : patch.customTitle,
+      }),
+    };
+  }
+  if (x.kind === "preview") {
+    return {
+      ...x,
+      ...(patch.title !== undefined && { title: patch.title }),
+      ...(patch.url !== undefined && {
+        url: patch.url,
+        title: patch.title ?? titleFromUrl(patch.url, previewLabel),
+      }),
+    };
+  }
+  if (x.kind === "markdown") {
+    return {
+      ...x,
+      ...(patch.title !== undefined && { title: patch.title }),
+      ...(patch.path !== undefined && { path: patch.path }),
+    };
+  }
+  // editor tab: auto-promote from preview the moment the file becomes dirty.
+  const autoPin =
+    patch.dirty === true && (x as EditorTab).preview ? { preview: false } : {};
+  return {
+    ...x,
+    ...autoPin,
+    ...(patch.title !== undefined && { title: patch.title }),
+    ...(patch.dirty !== undefined && { dirty: patch.dirty }),
+    ...(patch.path !== undefined && { path: patch.path }),
+    ...(patch.overrideLanguage !== undefined && {
+      overrideLanguage: patch.overrideLanguage,
+    }),
+  };
+}
+
+/** The fields a patch can touch, which are the ones worth comparing for identity. */
+const PATCHED_FIELDS = [
+  "title",
+  "cwd",
+  "customTitle",
+  "url",
+  "dirty",
+  "path",
+  "overrideLanguage",
+  "preview",
+] as const;
+
+/**
+ * Apply a patch to one tab, or hand the same tab back when the patch changes nothing.
+ *
+ * The tab list is what the whole window renders from, so a call that changes nothing must not
+ * produce a new array: React re-renders on identity, and a pane reporting the same title, the same
+ * path or the same unsaved flag as before would re-render every open tab along with it. Same rule as
+ * `setLeafCwd`, which carries the same reason.
+ */
+export function applyTabPatch(
+  tab: Tab,
+  patch: TabPatch,
+  previewLabel: string,
+): Tab {
+  const next = patchedTab(tab, patch, previewLabel);
+  for (const field of PATCHED_FIELDS) {
+    if (
+      (next as Record<string, unknown>)[field] !==
+      (tab as Record<string, unknown>)[field]
+    ) {
+      return next;
+    }
+  }
+  return tab;
+}
+
 // Next active after close. null = the closing tab is the last one, which
 // callers treat as "refuse to close".
 export function nextActiveTab(tabs: Tab[], closingId: number): number | null {
@@ -951,56 +1032,21 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [],
   );
 
-  const updateTab = useCallback((id: number, patch: TabPatch) => {
-    setTabs((t) =>
-      t.map((x) => {
-        if (x.id !== id) return x;
-        if (x.kind === "terminal") {
-          return {
-            ...x,
-            ...(patch.title !== undefined && { title: patch.title }),
-            ...(patch.cwd !== undefined && { cwd: patch.cwd }),
-            ...(patch.customTitle !== undefined && {
-              customTitle:
-                patch.customTitle === "" ? undefined : patch.customTitle,
-            }),
-          };
-        }
-        if (x.kind === "preview") {
-          return {
-            ...x,
-            ...(patch.title !== undefined && { title: patch.title }),
-            ...(patch.url !== undefined && {
-              url: patch.url,
-              title: patch.title ?? titleFromUrl(patch.url, previewLabel),
-            }),
-          };
-        }
-        if (x.kind === "markdown") {
-          return {
-            ...x,
-            ...(patch.title !== undefined && { title: patch.title }),
-            ...(patch.path !== undefined && { path: patch.path }),
-          };
-        }
-        // editor tab: auto-promote from preview the moment the file becomes dirty.
-        const autoPin =
-          patch.dirty === true && (x as EditorTab).preview
-            ? { preview: false }
-            : {};
-        return {
-          ...x,
-          ...autoPin,
-          ...(patch.title !== undefined && { title: patch.title }),
-          ...(patch.dirty !== undefined && { dirty: patch.dirty }),
-          ...(patch.path !== undefined && { path: patch.path }),
-          ...(patch.overrideLanguage !== undefined && {
-            overrideLanguage: patch.overrideLanguage,
-          }),
-        };
-      }),
-    );
-  }, [previewLabel]);
+  const updateTab = useCallback(
+    (id: number, patch: TabPatch) => {
+      setTabs((tabs) => {
+        let changed = false;
+        const next = tabs.map((tab) => {
+          if (tab.id !== id) return tab;
+          const applied = applyTabPatch(tab, patch, previewLabel);
+          if (applied !== tab) changed = true;
+          return applied;
+        });
+        return changed ? next : tabs;
+      });
+    },
+    [previewLabel],
+  );
 
   const selectByIndex = useCallback(
     (idx: number) => {
@@ -1031,32 +1077,45 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     });
   }, []);
 
+  /** Focusing the pane that is already focused is not a change: see `updateTab` for why the array
+   *  must keep its identity then. Clicking a pane that already has focus is routine, and a rebuilt
+   *  array re-renders every open tab with it. */
   const focusPane = useCallback((tabId: number, leafId: number) => {
-    setTabs((curr) =>
-      curr.map((t) => {
+    setTabs((curr) => {
+      let changed = false;
+      const next = curr.map((t) => {
         if (t.id !== tabId || t.kind !== "terminal") return t;
         if (!hasLeaf(t.paneTree, leafId)) return t;
         if (t.activeLeafId === leafId) return t;
+        changed = true;
         const cwd = findLeafCwd(t.paneTree, leafId);
         return {
           ...t,
           activeLeafId: leafId,
           ...(cwd !== undefined && { cwd }),
         };
-      }),
-    );
+      });
+      return changed ? next : curr;
+    });
   }, []);
 
   const focusNextPaneInTab = useCallback((tabId: number, delta: 1 | -1) => {
-    setTabs((curr) =>
-      curr.map((t) => {
+    setTabs((curr) => {
+      let changed = false;
+      const next = curr.map((t) => {
         if (t.id !== tabId || t.kind !== "terminal") return t;
-        const next = nextLeafId(t.paneTree, t.activeLeafId, delta);
-        if (next === t.activeLeafId) return t;
-        const cwd = findLeafCwd(t.paneTree, next);
-        return { ...t, activeLeafId: next, ...(cwd !== undefined && { cwd }) };
-      }),
-    );
+        const nextLeaf = nextLeafId(t.paneTree, t.activeLeafId, delta);
+        if (nextLeaf === t.activeLeafId) return t;
+        changed = true;
+        const cwd = findLeafCwd(t.paneTree, nextLeaf);
+        return {
+          ...t,
+          activeLeafId: nextLeaf,
+          ...(cwd !== undefined && { cwd }),
+        };
+      });
+      return changed ? next : curr;
+    });
   }, []);
 
   const swapActivePaneInDirection = useCallback(
