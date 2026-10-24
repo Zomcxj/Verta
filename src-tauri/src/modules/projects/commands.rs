@@ -7,10 +7,11 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 use crate::modules::git::operations;
-use crate::modules::workspace::{resolve_path, WorkspaceRegistry};
+use crate::modules::workspace::{resolve_path, WorkspaceEnv, WorkspaceRegistry};
 
+use super::pull::pull_blocker;
 use super::scan::discover_git_repos;
-use super::types::{ProjectStatus, ProjectTarget};
+use super::types::{ProjectPullOutcome, ProjectStatus, ProjectTarget};
 
 /// Status checks spawn git processes, run 4-way concurrently: 15 repositories do not
 /// degenerate into ten-plus seconds, and the machine is not saturated.
@@ -34,14 +35,22 @@ pub async fn projects_scan(root: String, max_depth: Option<usize>) -> Result<Vec
 /// Fetch statuses in bulk. Each row succeeds or fails on its own: one unreadable project
 /// does not affect the others, and the reason lands in that row's `error` (per the spec:
 /// never fail silently).
+///
+/// `fetch` true makes each row run `git fetch --prune` before reading its status, so
+/// `ahead`/`behind` compare with the remote's current state rather than with the last time
+/// anything fetched. A fetch only moves remote-tracking refs; it never touches a working
+/// tree. When it fails that is carried in the row's `fetch_error`, and the status is still
+/// read: an offline machine should still show what the local repository looks like.
 #[tauri::command]
 pub async fn projects_status(
     app: AppHandle,
     items: Vec<ProjectTarget>,
+    fetch: Option<bool>,
 ) -> Result<Vec<ProjectStatus>, String> {
     crate::modules::fs::blocking(move || {
         let registry = app.state::<WorkspaceRegistry>();
         let registry: &WorkspaceRegistry = &registry;
+        let fetch = fetch.unwrap_or(false);
 
         let slots: Mutex<Vec<(usize, ProjectStatus)>> = Mutex::new(Vec::with_capacity(items.len()));
         let next = AtomicUsize::new(0);
@@ -54,7 +63,7 @@ pub async fn projects_status(
                     let Some(target) = items.get(index) else {
                         break;
                     };
-                    let row = status_for(registry, target);
+                    let row = status_for(registry, target, fetch);
                     slots
                         .lock()
                         .expect("projects status slots poisoned")
@@ -70,7 +79,51 @@ pub async fn projects_status(
     .await
 }
 
-fn status_for(registry: &WorkspaceRegistry, target: &ProjectTarget) -> ProjectStatus {
+/// Pull one project: fetch plus a fast-forward-only merge of its upstream branch.
+///
+/// Refused when the upstream branch is named differently from the current branch, because
+/// `git pull` would then merge that other branch into this one (see `pull.rs`). The refusal
+/// is the command's error, so the reason reaches the user word for word; --ff-only means a
+/// pull that cannot fast-forward fails instead of inventing a merge commit.
+#[tauri::command]
+pub async fn projects_pull(
+    app: AppHandle,
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+) -> Result<ProjectPullOutcome, String> {
+    crate::modules::fs::blocking(move || {
+        let registry = app.state::<WorkspaceRegistry>();
+        let registry: &WorkspaceRegistry = &registry;
+        let workspace = WorkspaceEnv::from_option(workspace);
+        pull_project(registry, &path, &workspace)
+    })
+    .await
+}
+
+fn pull_project(
+    registry: &WorkspaceRegistry,
+    path: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<ProjectPullOutcome, String> {
+    let Some(repo) = operations::resolve_repo(registry, path, workspace)? else {
+        return Err(format!("不是 Git 仓库，不能拉取：{path}"));
+    };
+    let snapshot = operations::status(registry, &repo.repo_root, workspace)?;
+    if let Some(reason) = pull_blocker(
+        Some(snapshot.branch.as_str()),
+        snapshot.upstream.as_deref(),
+        snapshot.is_detached,
+    ) {
+        return Err(reason);
+    }
+    operations::pull_ff_only(registry, &repo.repo_root, workspace)?;
+    Ok(ProjectPullOutcome {
+        path: path.to_string(),
+        branch: snapshot.branch,
+    })
+}
+
+fn status_for(registry: &WorkspaceRegistry, target: &ProjectTarget, fetch: bool) -> ProjectStatus {
     let name = basename(&target.path);
     let workspace = target.workspace.clone();
 
@@ -80,6 +133,13 @@ fn status_for(registry: &WorkspaceRegistry, target: &ProjectTarget) -> ProjectSt
             row.branch = Some(repo.branch.clone());
             row.upstream = repo.upstream.clone();
             row.detached = repo.is_detached;
+            if fetch {
+                // Before the read, so the comparison is with the remote as it is now.
+                // A failure here is recorded and the read goes on regardless.
+                row.fetch_error = operations::fetch(registry, &repo.repo_root, &workspace)
+                    .err()
+                    .map(|e| e.to_string());
+            }
             match operations::status(registry, &repo.repo_root, &workspace) {
                 Ok(snapshot) => {
                     row.branch = Some(snapshot.branch);

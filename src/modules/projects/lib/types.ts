@@ -30,6 +30,9 @@ export type ProjectStatus = {
   dirty: number;
   stashed: number;
   error: string | null;
+  /** Why the fetch this check was asked for failed; null when it worked or was not asked
+   * for. `ahead`/`behind` stay readable either way, but they may be out of date. */
+  fetchError: string | null;
 };
 
 /** How a row looks in the UI: the list entry plus the status from this check (which may

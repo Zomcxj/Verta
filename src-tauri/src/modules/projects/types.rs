@@ -39,6 +39,11 @@ pub struct ProjectStatus {
     /// Number of stash entries.
     pub stashed: u32,
     pub error: Option<String>,
+    /// Why the fetch this check was asked to run failed; None when it succeeded or was not
+    /// asked for. A failed fetch is **not** a failed status: `ahead`/`behind` stay what the
+    /// local remote-tracking refs say, and this field is how the row admits they may be
+    /// out of date instead of passing a stale comparison off as current.
+    pub fetch_error: Option<String>,
 }
 
 impl ProjectStatus {
@@ -56,6 +61,16 @@ impl ProjectStatus {
             dirty: 0,
             stashed: 0,
             error: None,
+            fetch_error: None,
         }
     }
+}
+
+/// What one pull from the project list did. The row re-reads its status afterwards, so the
+/// branch is all that needs reporting here.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPullOutcome {
+    pub path: String,
+    pub branch: String,
 }

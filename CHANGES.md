@@ -43,6 +43,17 @@ swap in the new date, and drop the `open` from the day before.
 - `src/styles/globals.css`: the near-opaque background rule for the transition layer is gone, replaced by the reason it must not be there.
 - `src/modules/preview/PreviewPane.tsx`: the preview pane stops laying down opaque backgrounds of its own (the pane, and the sheet behind a loaded page), the same fix and reason the side preview column and the markdown preview already carry: a surface that fills a pane has to let the pane's tint show, or a glass theme shows a slab.
 
+**The local project list: pick a folder, fetch when checking, and pull one row**
+
+- `src-tauri/src/modules/projects/pull.rs` (new): the refusal rule for a pull, with its tests. A branch is only pulled when its upstream carries the same name, and both the command and the frontend ask that one question, so a row that went stale in the list still cannot merge another branch into this one; a differently named upstream is refused by naming both branches.
+- `src-tauri/src/modules/projects/commands.rs`, `src-tauri/src/modules/projects/types.rs`, `src-tauri/src/modules/projects/mod.rs`, `src-tauri/src/lib.rs`: `projects_status` takes `fetch` and runs a fetch per row first, recording a failure in the new `fetch_error` field rather than passing off a comparison with whatever the refs said last time, and `projects_pull` fast-forwards one project and answers with the branch it pulled.
+- `src/modules/projects/lib/pull.ts` (new), `src/modules/projects/lib/pull.test.ts` (new): the same rule in the frontend in message-key form, so a row can disable its button and say why.
+- `src/modules/projects/lib/pickDir.ts` (new): the native folder picker, imported lazily so the dialog plugin stays out of the start-up path.
+- `src/modules/projects/ProjectsView.tsx`: the two paste-a-path inputs become one Choose folder button, a check fetches first, and every row carries a pull button that names what it would pull, a mark when that row's fetch failed, and a disabled state with the reason when the branch cannot be pulled.
+- `src/modules/projects/lib/types.ts`, `src/lib/native.ts`: the wire gains `fetchError` and `projectsPull`, and `projectsStatus` takes the fetch flag.
+- `src/modules/i18n/messages.ts`: the pull strings, the fetch warning, the folder picker and the reworded empty hint, Chinese and English, and the paste-a-path strings they replace.
+- `scripts/dev/probes/projects-pull-acceptance.mjs` (new): a lab repository behind its own bare remote, checking that the row reports being behind once the check has fetched, that a differently named upstream is refused both in the interface and by the command, and that the per-row pull then leaves the row clean.
+
 </details>
 
 

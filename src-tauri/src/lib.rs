@@ -360,6 +360,7 @@ pub fn run() {
             git::commands::git_resolve_repo,
             projects::commands::projects_scan,
             projects::commands::projects_status,
+            projects::commands::projects_pull,
             github::commands::github_repos,
             github::commands::github_repo_ci,
             github::commands::github_repo_permission,

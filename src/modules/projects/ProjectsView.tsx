@@ -63,6 +63,8 @@ import {
   type SortState,
 } from "./lib/rows";
 import { loadProjectPaths, saveProjectPaths } from "./lib/store";
+import { pickProjectDir } from "./lib/pickDir";
+import { pullBlocker } from "./lib/pull";
 import type { ProjectEntry, ProjectRow, ProjectStatus } from "./lib/types";
 
 /** Scan depth. Two levels cover the "workspace directory → individual repos" layout. */
@@ -117,11 +119,11 @@ export function ProjectsView({
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortState>(null);
-  const [draft, setDraft] = useState("");
-  const [scanRoot, setScanRoot] = useState("");
   const [scanning, setScanning] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<ProjectEntry | null>(null);
   const [cloneOpen, setCloneOpen] = useState(false);
+  /** Normalized path of the project being pulled right now; null when idle. */
+  const [pulling, setPulling] = useState<string | null>(null);
 
   // The list is read once and every later change is written back to the same file.
   useEffect(() => {
@@ -192,7 +194,10 @@ export function ProjectsView({
         path: entry.path,
         workspace: entry.workspace,
       }));
-      const rows = await native.projectsStatus(items);
+      // Checking fetches first: only remote-tracking refs move, no working tree is
+      // touched, and "behind 3" then means 3 commits behind the remote as it is now.
+      // A row whose fetch failed says so instead of passing off a stale comparison.
+      const rows = await native.projectsStatus(items, true);
       const next: Record<string, ProjectStatus> = {};
       for (const row of rows) next[normalizePath(row.path)] = row;
       setStatuses(next);
@@ -242,16 +247,6 @@ export function ProjectsView({
     [paths, writePaths],
   );
 
-  const handleAdd = useCallback(() => {
-    const path = normalizePath(draft);
-    if (!path) return;
-    if (!addPaths([path])) {
-      toast.message(t("projects.add.exists"));
-      return;
-    }
-    setDraft("");
-  }, [addPaths, draft, t]);
-
   const handleCloned = useCallback(
     (path: string) => {
       // refresh re-runs on its own when the list changes (it depends on `entries`),
@@ -262,12 +257,23 @@ export function ProjectsView({
     [addPaths, t],
   );
 
-  const handleScan = useCallback(async () => {
-    const root = normalizePath(scanRoot);
-    if (!root || scanning) return;
+  const handlePick = useCallback(async () => {
+    if (scanning) return;
+    let picked: string | null = null;
+    try {
+      picked = await pickProjectDir(t("projects.pick.title"));
+    } catch (e) {
+      toast.error(String(e));
+      return;
+    }
+    // A cancelled dialog is not a failure: it just leaves the list alone.
+    if (!picked) return;
+    const root = normalizePath(picked);
     setScanning(true);
     try {
       await native.workspaceAuthorize(root).catch(() => null);
+      // One picker covers both cases: a repository is found at the root itself, and a
+      // plain directory is searched two levels down (see `projects_scan`).
       const found = await native.projectsScan(root, SCAN_DEPTH);
       if (found.length === 0) {
         toast.message(t("projects.scan.none"));
@@ -286,7 +292,35 @@ export function ProjectsView({
     } finally {
       setScanning(false);
     }
-  }, [addPaths, paths, scanRoot, scanning, t]);
+  }, [addPaths, paths, scanning, t]);
+
+  /**
+   * Pull one project: the explicit step the user takes after the check shows it is behind.
+   *
+   * Only a branch whose upstream carries the same name is pulled (see `lib/pull.ts`), and
+   * the backend enforces the same rule, so a click that slips past a stale row still cannot
+   * merge another branch into this one. Failures keep git's and the backend's own words; the
+   * row is re-read either way, since a pull that could not fast-forward still fetched.
+   */
+  const handlePull = useCallback(
+    async (entry: ProjectEntry) => {
+      if (pulling) return;
+      setPulling(normalizePath(entry.path));
+      try {
+        await native
+          .workspaceAuthorize(entry.path, entry.workspace)
+          .catch(() => null);
+        const outcome = await native.projectsPull(entry.path, entry.workspace);
+        toast.success(t("projects.pull.done", { branch: outcome.branch }));
+      } catch (e) {
+        toast.error(String(e));
+      } finally {
+        setPulling(null);
+        await refresh().catch(() => null);
+      }
+    },
+    [pulling, refresh, t],
+  );
 
   const handleRemove = useCallback(async () => {
     if (!pendingRemove) return;
@@ -334,22 +368,14 @@ export function ProjectsView({
           </span>
         ) : null}
         <span className="grow" />
-        <Input
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") handleAdd();
-          }}
-          placeholder={t("projects.add.placeholder")}
-          className="h-7 w-64 text-xs"
-        />
         <Button
           variant="ghost"
           size="sm"
           className="h-7 text-xs"
-          onClick={handleAdd}
+          onClick={() => void handlePick()}
+          disabled={scanning}
         >
-          {t("projects.add")}
+          {scanning ? t("projects.scanning") : t("projects.pick")}
         </Button>
         <Button
           variant="ghost"
@@ -358,24 +384,6 @@ export function ProjectsView({
           onClick={() => setCloneOpen(true)}
         >
           {t("projects.clone")}
-        </Button>
-        <Input
-          value={scanRoot}
-          onChange={(event) => setScanRoot(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") void handleScan();
-          }}
-          placeholder={t("projects.scan.placeholder")}
-          className="h-7 w-64 text-xs"
-        />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={() => void handleScan()}
-          disabled={scanning}
-        >
-          {scanning ? t("projects.scanning") : t("projects.scan")}
         </Button>
       </div>
 
@@ -456,6 +464,8 @@ export function ProjectsView({
                     row.managed ? () => setPendingRemove(row) : undefined
                   }
                   onRefresh={() => void refresh()}
+                  onPull={() => void handlePull(row)}
+                  pulling={pulling === normalizePath(row.path)}
                 />
               ))}
             </tbody>
@@ -540,6 +550,8 @@ function ProjectRowView({
   onNewSession,
   onRemove,
   onRefresh,
+  onPull,
+  pulling,
 }: {
   row: ProjectRow;
   sessions: AgentSession[];
@@ -549,12 +561,16 @@ function ProjectRowView({
   onNewSession: (entry: ProjectEntry, tool: AgentTool) => void;
   onRemove?: () => void;
   onRefresh: () => void;
+  onPull: () => void;
+  pulling: boolean;
 }) {
   const t = useT();
   const state = stateOf(row.status);
   const name = row.status?.name ?? basename(row.path);
   const usable = row.status === null || row.status.kind !== "missing";
   const distro = row.workspace.kind === "wsl" ? row.workspace.distro : null;
+  // The rule is the backend's too; this only decides how the button looks.
+  const pullBlocked = pullBlocker(row.status);
 
   const copyPath = () => {
     void navigator.clipboard
@@ -656,6 +672,17 @@ function ProjectRowView({
             <span title={row.status?.error ?? undefined}>
               {t(state.key as MessageKey, state.params)}
             </span>
+            {row.status?.fetchError ? (
+              // A stale comparison must not look like a current one.
+              <span
+                className="ml-1 text-amber-500"
+                title={t("projects.fetch.failed", {
+                  error: row.status.fetchError,
+                })}
+              >
+                ⚠
+              </span>
+            ) : null}
           </td>
           <td className="px-2 py-1 text-right text-muted-foreground">
             {row.status?.dirty ? row.status.dirty : ""}
@@ -675,6 +702,26 @@ function ProjectRowView({
                 onClick={onRefresh}
               >
                 ⟳
+              </button>
+              <button
+                type="button"
+                title={
+                  pullBlocked
+                    ? t(pullBlocked.key, pullBlocked.params)
+                    : t("projects.pull.one", {
+                        branch: row.status?.branch ?? "",
+                      })
+                }
+                className={cn(
+                  "rounded px-1",
+                  pullBlocked
+                    ? "cursor-not-allowed text-muted-foreground/40"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+                disabled={pullBlocked !== null || pulling}
+                onClick={onPull}
+              >
+                {pulling ? t("projects.pull.running") : "⇣"}
               </button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

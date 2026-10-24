@@ -75,6 +75,14 @@ export type WireProjectStatus = {
   dirty: number;
   stashed: number;
   error: string | null;
+  /** Why the fetch this check asked for failed; null when it worked or was not asked for. */
+  fetchError: string | null;
+};
+
+/** What one pull from the project list did (the row re-reads its status afterwards). */
+export type WireProjectPullOutcome = {
+  path: string;
+  branch: string;
 };
 
 /** Remote repos: wire format for a single repository. */
@@ -739,9 +747,18 @@ export const native = {
       maxDepth: depth ?? null,
     }),
   /** Batch project status; each row succeeds or fails on its own, with the
-   * reason in its `error`. */
-  projectsStatus: (items: WireProjectTarget[]) =>
-    invoke<WireProjectStatus[]>("projects_status", { items }),
+   * reason in its `error`. `fetch` also runs `git fetch` per row first, so
+   * ahead/behind compares with the remote as it is now (remote-tracking refs
+   * only, never a working tree). */
+  projectsStatus: (items: WireProjectTarget[], fetch?: boolean) =>
+    invoke<WireProjectStatus[]>("projects_status", {
+      items,
+      fetch: fetch ?? null,
+    }),
+  /** Pull one project (fetch plus fast-forward only). Refused by the backend when
+   * the upstream branch is named differently from the current branch. */
+  projectsPull: (path: string, workspace: WorkspaceEnv) =>
+    invoke<WireProjectPullOutcome>("projects_pull", { path, workspace }),
   /**
    * Remote repos the local gh can see (owned + collaborator + org), an
    * account-level query independent of the current workspace. Conditions like

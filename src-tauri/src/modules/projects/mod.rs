@@ -2,5 +2,6 @@
 //! query.
 
 pub mod commands;
+pub mod pull;
 pub mod scan;
 pub mod types;
