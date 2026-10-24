@@ -311,6 +311,27 @@ html[data-theme-glass] .verta-pane > * {
   position: relative;
   z-index: 1;
 }
+/*
+ * Floating layers (menus, popovers, dialogs, the command palette) follow the glass theme the way a
+ * pane does. They used to paint `--popover` at full opacity, which read as a solid slab in a window
+ * where every pane is tinted: the path breadcrumb's menu and the command palette were the two that
+ * showed it most. The tint is `--popover` rather than `--background`, since a menu sits above the
+ * interface rather than being part of it, and it is the same fraction the panes use, so the theme's
+ * pane opacity moves both together.
+ *
+ * Deliberately no blurred layer: the compositing budget (VERTA.md) keeps a backdrop filter out of
+ * anything the shell mounts by default, and a menu is mounted every time one opens. Alpha blending
+ * costs no backing store, a blur costs one, and WebKit reallocates a blurred layer's store on every
+ * window resize step. The pane's own blur lives on the root element and blurs the desktop, not the
+ * app's content, so nothing here can reuse it either way.
+ */
+html[data-theme-glass] .verta-float {
+  background-color: color-mix(
+    in oklab,
+    var(--popover) calc(var(--theme-pane-opacity, 1) * 100%),
+    transparent
+  );
+}
 /* The frame (gaps between panes, header, status bar) lets the texture (or the
  * desktop, for a native material) through, but never all the way: the webview's
  * own default is white and would flood the interface. Its opacity comes from the

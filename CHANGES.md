@@ -23,6 +23,12 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/terminal/ghostty/input/inputPlacement.test.ts` (new): the cursor's own cell, a cursor off the grid, a fractional cursor and a nonsense one, and a grid that has no cells yet.
 - `src/modules/terminal/ghostty/webgl/WebGlTerminalSurface.ts`, `src/modules/terminal/ghostty/gpu/WebGpuTerminalSurface.ts`: both surfaces move the hidden input onto the cursor cell on every frame, and write the style only when the cell changed. The GPU surface also subtracts the shift the drawn grid carries while a resize gesture is in flight, so the input follows what is drawn rather than the layout position. The input used to stay pinned to the pane's top-left corner, and since every input method opens its candidate list next to the focused element, that corner is where the candidates opened while the user typed in the middle of a session.
 
+**A layer that floats over the interface is tinted glass, like a pane**
+
+- `src/styles/globals.css`: the `verta-float` rule: the tint is `--popover` at the theme's pane opacity, so a menu reads as a tinted layer rather than a solid slab and the theme's opacity setting moves panes and menus together. Deliberately no blurred layer: the compositing budget keeps a backdrop filter out of what the shell mounts by default, and a menu is mounted on every open. Alpha blending costs no backing store, a blur costs one and is reallocated on every window-resize step.
+- `src/components/ui/dialog.tsx`, `src/components/ui/popover.tsx`, `src/components/ui/dropdown-menu.tsx`, `src/components/ui/command.tsx`: the class on the layers that float, both dropdown menu content variants included. They used to paint `--popover` at full opacity, which reads as a solid slab in a window where every pane is tinted; the path breadcrumb's menu and the command palette were the two that showed it most.
+- `VERTA.md`: the compositing budget bullet names the floating layers' tint as the exception to opaque popovers, with the reason the exception stops short of a blur.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 
