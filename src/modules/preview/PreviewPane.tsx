@@ -79,7 +79,12 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
 
     return (
       <div
-        className="flex h-full w-full flex-col overflow-hidden bg-background"
+        // No base color of its own: this view fills the tab's pane, which provides it.
+        // There used to be a `bg-background` here, invisible on opaque themes but a slab
+        // on glass themes (the pane tints 0.28 while this painted the color solid), so an
+        // open preview looked like a different surface than the rest of the window. Same
+        // fix and reason as the side preview column.
+        className="flex h-full w-full flex-col overflow-hidden"
         style={{
           visibility: visible ? "visible" : "hidden",
           pointerEvents: visible ? "auto" : "none",
@@ -146,9 +151,10 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
           </div>
         ) : null}
         <div
-          // Themed, not white: a previewed page keeps its own colours, but the
-          // sheet behind it must not flash a light rectangle into a dark theme.
-          className="relative min-h-0 flex-1 bg-background"
+          // Themed, not white: a previewed page keeps its own colours, but the sheet
+          // behind it must not flash a light rectangle into a dark theme. Left to the
+          // pane rather than painted here, so a glass theme keeps showing through it.
+          className="relative min-h-0 flex-1"
         >
           {url ? (
             loaded ? (

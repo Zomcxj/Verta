@@ -32,7 +32,19 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/terminal/lib/osc-handlers.ts`: the OSC 7 report puts back the drive letter the URI authority swallowed (`file://HOSTF:/dir`), which is where those paths came from.
 - `src/modules/terminal/lib/osc-handlers.test.ts`: the two glued-drive cases.
 
+**The session-start transition belongs to its tab, and it paints no slab**
+
+- `src/app/components/sessionOpening.ts` (new): the transition is up only while the leaf it was opened for still sits in the tab on screen, so clicking a session and closing that tab straight away lifts it instead of spinning over whatever terminal is there by then.
+- `src/app/components/sessionOpening.test.ts` (new): that rule, including the tab closed right after clicking.
+- `src/app/App.tsx`: the transition is held as the leaf it was opened for plus a generation token rather than a bare flag with a blind fallback timer, and the wait ends on the renderer's own painted frame (`whenLeafPaints`) rather than on output bytes, because bytes move before the frame does.
+- `src/modules/terminal/lib/terminalSessionApi.ts`, `src/modules/terminal/index.ts`: `whenLeafPaints` reports when a leaf's surface has presented a frame, with a cap so a stalled renderer cannot hold the transition up for ever.
+- `src/app/components/SessionOpeningOverlay.tsx`: `sessionTransitionEnabled` is exported, and the layer paints no background of its own, so the middle of a glass window shows the pane surface instead of a slab.
+- `src/app/components/WorkspaceSurface.tsx`, `src/modules/terminal/TerminalStack.tsx`: the panes are hidden with `opacity: 0` while the transition covers them, which is what leaves the pane surface visible. `visibility` was wrong twice over: a pane declares its own, which overrode it from above, and hiding it that way unmounted the renderer's canvas, so the pane came back blank at the moment the transition lifted.
+- `src/styles/globals.css`: the near-opaque background rule for the transition layer is gone, replaced by the reason it must not be there.
+- `src/modules/preview/PreviewPane.tsx`: the preview pane stops laying down opaque backgrounds of its own (the pane, and the sheet behind a loaded page), the same fix and reason the side preview column and the markdown preview already carry: a surface that fills a pane has to let the pane's tint show, or a glass theme shows a slab.
+
 </details>
+
 
 <details>
 <summary><strong>2026-10-23</strong></summary>

@@ -95,6 +95,7 @@ import {
   type TerminalPaneHandle,
   useAgentActivityStore,
   useTerminalFileDrop,
+  whenLeafPaints,
   whenSessionReady,
   writeToSession,
 } from "@/modules/terminal";
@@ -135,6 +136,7 @@ import {
 import { CloseDialogs } from "./components/CloseDialogs";
 import { WorkspaceInputBar } from "./components/WorkspaceInputBar";
 import { WorkspaceSurface } from "./components/WorkspaceSurface";
+import { sessionOpeningVisible } from "./components/sessionOpening";
 import { hasOpenPathTab, renamedPath } from "./hooks/tabCloseGuards";
 import { useAppCloseGuard } from "./hooks/useAppCloseGuard";
 import { useTray } from "./hooks/useTray";
@@ -178,6 +180,12 @@ function delay(ms: number): Promise<void> {
  * the cumulative byte count **before** writing the command, so the echo cannot
  * account for 900 bytes but a full-screen TUI can. On timeout (8s) we lift
  * anyway: the overlay must not block the user forever.
+ *
+ * The byte count is only what says when to look; what says the frame is there is the
+ * renderer's own report (`whenLeafPaints`). Bytes move before the frame does, so lifting on
+ * the count alone can land on a pane that has not been painted since the TUI cleared it.
+ * Both agents are covered by that step because it comes from the terminal renderer rather
+ * than from anything either agent prints.
  */
 async function waitForAgentUi(leafId: number, base: number): Promise<void> {
   const deadline = Date.now() + AGENT_UI_TIMEOUT_MS;
@@ -185,6 +193,7 @@ async function waitForAgentUi(leafId: number, base: number): Promise<void> {
   while (Date.now() < deadline) {
     if (!processUp) processUp = await leafHasForegroundProcess(leafId);
     if (processUp && leafOutputBytes(leafId) - base >= AGENT_UI_PAINT_BYTES) {
+      await whenLeafPaints(leafId);
       return;
     }
     await delay(AGENT_UI_POLL_MS);
@@ -630,40 +639,69 @@ export default function App() {
    * The transition layer shown while a session opens (see
    * `SessionOpeningOverlay`). Resuming a session writes a command into the
    * terminal and the line shows up the instant it lands; this layer covers that
-   * moment while the write goes through. The timer is a fallback: a slow session
-   * must not block the UI indefinitely.
+   * moment while the write goes through.
+   *
+   * Held as the leaf it was opened for rather than a bare flag: the layer belongs to
+   * one tab, and it must lift the moment that tab is gone or the user has moved to
+   * another one. Closing a session the instant it starts used to leave the animation
+   * spinning over an unrelated terminal until the fallback timer ran out. Each start
+   * also takes a token, so a slower earlier start cannot lift a newer one's layer.
    */
-  const [sessionOpening, setSessionOpening] = useState(false);
+  const [sessionOpeningLeaf, setSessionOpeningLeaf] = useState<number | null>(null);
+  /** Set by every start, so a slower earlier start cannot lift a newer one's layer. */
+  const sessionOpeningToken = useRef(0);
   const sessionOpeningTimer = useRef<number | null>(null);
-  const scheduleHideSessionOpening = useCallback((ms: number) => {
-    if (sessionOpeningTimer.current !== null) {
-      window.clearTimeout(sessionOpeningTimer.current);
-    }
-    sessionOpeningTimer.current = window.setTimeout(() => {
-      sessionOpeningTimer.current = null;
-      setSessionOpening(false);
-    }, ms);
-  }, []);
-  const showSessionOpening = useCallback(() => {
-    setSessionOpening(true);
-    scheduleHideSessionOpening(SESSION_OPENING_FALLBACK_MS);
-  }, [scheduleHideSessionOpening]);
-  /** Lift the transition layer. */
-  const hideSessionOpening = useCallback(() => {
+  const clearSessionOpeningTimer = useCallback(() => {
     if (sessionOpeningTimer.current !== null) {
       window.clearTimeout(sessionOpeningTimer.current);
       sessionOpeningTimer.current = null;
     }
-    setSessionOpening(false);
   }, []);
-  useEffect(
-    () => () => {
-      if (sessionOpeningTimer.current !== null) {
-        window.clearTimeout(sessionOpeningTimer.current);
-      }
+  const showSessionOpening = useCallback(
+    (leafId: number): number => {
+      const token = ++sessionOpeningToken.current;
+      setSessionOpeningLeaf(leafId);
+      // The timer is the last resort: a session that never reports its UI up must not
+      // cover a terminal indefinitely.
+      clearSessionOpeningTimer();
+      sessionOpeningTimer.current = window.setTimeout(() => {
+        sessionOpeningTimer.current = null;
+        if (token !== sessionOpeningToken.current) return;
+        setSessionOpeningLeaf(null);
+      }, SESSION_OPENING_FALLBACK_MS);
+      return token;
     },
-    [],
+    [clearSessionOpeningTimer],
   );
+  /** Lift the transition layer, but only if this start is still the current one. */
+  const hideSessionOpening = useCallback(
+    (token: number) => {
+      if (token !== sessionOpeningToken.current) return;
+      clearSessionOpeningTimer();
+      setSessionOpeningLeaf(null);
+    },
+    [clearSessionOpeningTimer],
+  );
+  useEffect(() => clearSessionOpeningTimer, [clearSessionOpeningTimer]);
+  /**
+   * Whether the layer belongs to the tab on screen right now (`sessionOpeningVisible`):
+   * a leaf lives in exactly one tab, and a session start is not tied to what the user is
+   * looking at afterwards.
+   */
+  const sessionOpening = sessionOpeningVisible(
+    tabs,
+    activeId,
+    sessionOpeningLeaf,
+  );
+  /**
+   * The layer ends with the session it was opened for. Leaving that tab (closing it, or
+   * switching to another one) means the user has moved on, so the animation goes with it
+   * instead of hanging over whatever terminal is on screen by then.
+   */
+  useEffect(() => {
+    if (sessionOpeningLeaf === null || sessionOpening) return;
+    hideSessionOpening(sessionOpeningToken.current);
+  }, [sessionOpening, sessionOpeningLeaf, hideSessionOpening]);
 
   const handleOpenSession = useCallback(
     (session: AgentSession) => {
@@ -684,7 +722,7 @@ export default function App() {
       setActiveSessionId(session.id);
       // Cover the moment the command lands in the terminal (see
       // SessionOpeningOverlay).
-      showSessionOpening();
+      const opening = showSessionOpening(leafId);
       void (async () => {
         await whenSessionReady(leafId);
         // Snapshot the output counter before writing: later growth is what got
@@ -692,13 +730,13 @@ export default function App() {
         const baseBytes = leafOutputBytes(leafId);
         if (!writeToSession(leafId, `${plan.command}\r`)) {
           console.error(`[verta] terminal ${leafId} closed before resume`);
-          hideSessionOpening();
+          hideSessionOpening(opening);
           return;
         }
         // Wait for the agent's UI before lifting: lifting early exposes a terminal
         // with the command just typed into it.
         await waitForAgentUi(leafId, baseBytes);
-        hideSessionOpening();
+        hideSessionOpening(opening);
       })();
     },
     [newAgentTab, showSessionOpening, hideSessionOpening],
@@ -715,7 +753,7 @@ export default function App() {
         entry.workspace,
         tool,
       );
-      showSessionOpening();
+      const opening = showSessionOpening(leafId);
       void (async () => {
         await whenSessionReady(leafId);
         const baseBytes = leafOutputBytes(leafId);
@@ -723,11 +761,11 @@ export default function App() {
           console.error(
             `[verta] terminal ${leafId} closed before starting ${tool}`,
           );
-          hideSessionOpening();
+          hideSessionOpening(opening);
           return;
         }
         await waitForAgentUi(leafId, baseBytes);
-        hideSessionOpening();
+        hideSessionOpening(opening);
       })();
     },
     [newAgentTab, showSessionOpening, hideSessionOpening],

@@ -18,6 +18,7 @@ export {
   leafOutputBytes,
   navigateFocusedBlocks,
   ptyIdForLeaf,
+  whenLeafPaints,
   whenSessionReady,
   writeToSession,
 } from "./lib/terminalSessionApi";

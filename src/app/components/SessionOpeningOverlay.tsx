@@ -17,15 +17,26 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
  * gradients rather than blur. Always `pointer-events-none`, since the transition must
  * not block input either.
  */
+/**
+ * Whether this transition is drawn at all. `none` means the pane is left alone: the caller
+ * must not hide the terminal behind it either, or the pane would go blank instead of
+ * showing the terminal while the session starts.
+ */
+export function sessionTransitionEnabled(variant: string): boolean {
+  return variant !== "none";
+}
+
 export function SessionOpeningOverlay({ open }: { open: boolean }) {
   const variant = usePreferencesStore((s) => s.sessionTransition);
-  if (!open || variant === "none") return null;
+  if (!open || !sessionTransitionEnabled(variant)) return null;
   return (
     <div
       data-session-opening
       data-session-opening-variant={variant}
       aria-hidden="true"
-      className="verta-session-opening pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
+      // No background of its own: the pane behind provides the surface (see the note in
+      // globals.css), and the terminal is hidden while this is up.
+      className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
     >
       {variant === "ripples" ? (
         <>

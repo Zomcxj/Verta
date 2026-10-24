@@ -784,12 +784,13 @@ html[data-window-inactive] *::after {
  * so they read as continuously expanding; the iteration count is fixed (no infinite
  * loop) because this layer only lives a second or two, and the global motion budget
  * only lets infinite animations use stepped timing. */
-.verta-session-opening {
-  /* This only hides the moment the command lands in the terminal: that line has to
-   * be truly invisible, hence the near-opaque layer, but using the theme's own base
-   * color rather than a hard-coded gray. */
-  background: color-mix(in oklab, var(--background) 97%, transparent);
-}
+/* The session transition paints no base color of its own: it sits inside the tab's pane,
+ * which provides the surface, and the terminal panes behind it hide themselves while it is
+ * up (see `TerminalStack`'s `covered`). It used to lay a near-opaque `--background` over the
+ * terminal to hide the resume command being typed, which on a glass theme dropped a solid
+ * slab into the middle of the window while every surrounding pane stayed see-through. The
+ * command is still not visible, and everything else in the middle is: the frame, the pane's
+ * tint and the material behind them, all just as they are next to the transition. */
 
 .verta-session-opening-ripple {
   position: absolute;

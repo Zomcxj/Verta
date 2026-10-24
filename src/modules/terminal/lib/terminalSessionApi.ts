@@ -13,6 +13,7 @@ import {
   hasGhosttySession,
   interruptGhosttySession,
   pasteIntoGhosttySession,
+  subscribeGhosttyFrame,
   submitToGhosttySession,
   whenGhosttySessionReady,
   writeToGhosttySession,
@@ -166,6 +167,32 @@ export async function leafHasForegroundProcess(
  */
 export function leafOutputBytes(leafId: number): number {
   return ghosttyLeafOutputBytes(leafId);
+}
+
+/**
+ * Resolve once this leaf has presented a frame, or after `timeoutMs`.
+ *
+ * A presented frame is the renderer's own report that what the pty wrote is on screen.
+ * The two do not move together: bytes arrive, and the frame follows on the renderer's
+ * cadence, so a caller that lifts a cover on the byte count alone can lift onto a pane
+ * that has not been painted since. Waiting on the renderer keeps the two in step for any
+ * agent, since it is the renderer that reports this and not the agent's output.
+ *
+ * The timeout is the caller's protection, not a schedule: it resolves either way.
+ */
+export function whenLeafPaints(leafId: number, timeoutMs = 1_500): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      unsubscribe();
+      clearTimeout(timer);
+      resolve();
+    };
+    const unsubscribe = subscribeGhosttyFrame(leafId, finish);
+    const timer = setTimeout(finish, timeoutMs);
+  });
 }
 
 export function disposeSession(leafId: number): void {

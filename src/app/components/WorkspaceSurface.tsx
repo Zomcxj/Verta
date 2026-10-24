@@ -10,7 +10,11 @@ import { PreviewStack } from "@/modules/preview";
 import type { Tab } from "@/modules/tabs";
 import { TerminalStack } from "@/modules/terminal";
 import type { ComponentProps } from "react";
-import { SessionOpeningOverlay } from "./SessionOpeningOverlay";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import {
+  SessionOpeningOverlay,
+  sessionTransitionEnabled,
+} from "./SessionOpeningOverlay";
 
 type TerminalStackProps = ComponentProps<typeof TerminalStack>;
 type EditorStackProps = ComponentProps<typeof EditorStack>;
@@ -85,6 +89,14 @@ export function WorkspaceSurface({
   const isGitHistoryTab = kind === "git-history";
   const isProjectsTab = kind === "projects";
   const isRemotesTab = kind === "remotes";
+  const transitionVariant = usePreferencesStore((s) => s.sessionTransition);
+  /**
+   * Whether the transition is covering the pane right now. Only then are the panes hidden:
+   * with the animation set to `none` the terminal has to stay visible while the session
+   * starts, or the middle of the window would just be blank.
+   */
+  const sessionCovered =
+    sessionOpening && sessionTransitionEnabled(transitionVariant);
 
   return (
     <div className="relative h-full min-h-0">
@@ -96,17 +108,20 @@ export function WorkspaceSurface({
         )}
         aria-hidden={!isTerminalTab}
       >
+        {/* Covers the terminal area only, not the full screen: the only moment to hide
+            is the command landing in the terminal. The layer carries no colour of its own
+            and the panes below hide themselves while it is up, so the middle of the window
+            shows the same pane surface as everywhere else (the acrylic, on a glass theme). */}
         <TerminalStack
           tabs={tabs}
           activeId={activeId}
+          covered={sessionCovered}
           registerHandle={registerTerminalHandle}
           onSearchReady={onSearchReady}
           onCwd={onCwd}
           onExit={onExit}
           onFocusLeaf={onFocusLeaf}
         />
-        {/* Covers the terminal area only, not the full screen: the only moment to hide
-            is the command landing in the terminal. */}
         <SessionOpeningOverlay open={sessionOpening} />
       </div>
       <div

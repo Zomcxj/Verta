@@ -9,6 +9,16 @@ import type { TerminalPaneHandle } from "./TerminalPane";
 type Props = {
   tabs: Tab[];
   activeId: number;
+  /**
+   * A layer is covering the pane (the session-start transition). The pixels are painted at
+   * zero opacity rather than hidden: `visibility` cannot be used from up here, since a pane
+   * declares its own (see `TerminalPane`), and hiding it that way also unmounts the
+   * renderer's canvas, which leaves the pane blank at the moment the transition lifts
+   * instead of showing the session that is already there. Opacity multiplies down the
+   * subtree and nothing inside can undo it, so the panes keep rendering while invisible and
+   * the reader keeps seeing the pane's own surface (the acrylic, on a glass theme).
+   */
+  covered?: boolean;
   /** Register/unregister handle by leaf id (not tab id). */
   registerHandle: (leafId: number, handle: TerminalPaneHandle | null) => void;
   onSearchReady: (leafId: number, addon: TerminalSearchController) => void;
@@ -27,6 +37,7 @@ type Bundle = {
 export function TerminalStack({
   tabs,
   activeId,
+  covered = false,
   registerHandle,
   onSearchReady,
   onCwd,
@@ -97,6 +108,8 @@ export function TerminalStack({
             className="absolute inset-0"
             style={{
               visibility: tabVisible ? "visible" : "hidden",
+              // The transition layer covers the pane: keep painting, show nothing.
+              opacity: covered ? 0 : 1,
               pointerEvents: tabVisible ? "auto" : "none",
             }}
             aria-hidden={!tabVisible}
