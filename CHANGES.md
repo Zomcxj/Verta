@@ -109,6 +109,12 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/remotes/lib/listStore.test.ts` (new): only a `ready` payload is remembered, a state of this machine is never written to disk, and the same object handed to the store twice is written once.
 - `src/modules/remotes/RemoteReposView.tsx`: the list is drawn from what it remembers and the gh read runs right after it; a read that came back saying something about the machine, or that failed outright, is reported above the rows it already has rather than replacing them.
 
+**The grid is drawn where the host's CSS space starts**
+
+- `src/modules/terminal/ghostty/gpu/TerminalFit.ts`: `gridViewportRect` states where a renderer's grid sits inside its own canvas. WebGL measures a viewport's origin from the canvas' bottom-left, and the backing store keeps a canvas bigger than the grid on purpose, so handing it `0` for the origin left the grid at the bottom of that surplus instead of at the top.
+- `src/modules/terminal/ghostty/gpu/TerminalFit.test.ts`: the surplus stays below the grid, an exactly-sized canvas and a smaller one both keep the grid at the top, and the origin lands on whole device pixels.
+- `src/modules/terminal/ghostty/webgl/WebGlCellRenderer.ts`: the viewport is the grid's own rectangle, placed at the canvas' top-left. The earlier fix in this file made the cells keep the font's pitch, but the grid was drawn as much as the surplus lower than the CSS space the pane, the selection and the inline-image overlay all use, so a prompt started several rows down and a picture landed away from the mosaic printed for it.
+
 </details>
 
 

@@ -11,7 +11,7 @@ import {
   CanvasBackingStore,
   type GestureGrowth,
 } from "../gpu/CanvasBackingStore";
-import { gridDeviceSize } from "../gpu/TerminalFit";
+import { gridDeviceSize, gridViewportRect } from "../gpu/TerminalFit";
 import type {
   TerminalFontMetrics,
   TerminalGpuTheme,
@@ -279,8 +279,19 @@ export class WebGlCellRenderer {
     if (backingStoreChanged) this.backingStoreResizeCount += 1;
     if (backingStoreChanged || this.viewportDirty) {
       // The grid fills its own rectangle, not the whole backing store: the surplus stays the
-      // cleared background, and the cells keep the font's pitch.
-      this.gl.viewport(0, 0, this.gridWidth, this.gridHeight);
+      // cleared background, and the cells keep the font's pitch. That rectangle sits at the
+      // canvas' top-left, which is where the host's CSS space starts (see `gridViewportRect`).
+      const viewport = gridViewportRect(
+        this.canvas.height,
+        this.gridWidth,
+        this.gridHeight,
+      );
+      this.gl.viewport(
+        viewport.x,
+        viewport.y,
+        viewport.width,
+        viewport.height,
+      );
       this.viewportDirty = false;
       this.forceFullRedraw = true;
     }

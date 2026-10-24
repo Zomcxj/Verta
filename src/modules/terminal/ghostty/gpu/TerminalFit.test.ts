@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   fitTerminalViewport,
   gridDeviceSize,
+  gridViewportRect,
   snapOffsetCss,
 } from "./TerminalFit";
 import { deriveFontMetrics, type TerminalFontMetrics } from "./terminalVisuals";
@@ -130,6 +131,41 @@ describe("gridDeviceSize", () => {
     for (const cols of [2, 3, 90, 118, 512]) {
       const grid = gridDeviceSize(cols, 1, metrics);
       expect(grid.width / cols).toBe(metrics.deviceCellWidth);
+    }
+  });
+});
+
+describe("gridViewportRect", () => {
+  it("leaves the backing store's surplus below the grid, never above it", () => {
+    // WebGL counts y from the bottom of the canvas, so a surplus canvas would otherwise push the
+    // cells down by that surplus and the pane's text would start rows below where CSS says it does.
+    expect(gridViewportRect(896, 630, 800)).toEqual({
+      x: 0,
+      y: 96,
+      width: 630,
+      height: 800,
+    });
+  });
+
+  it("keeps the grid at the top when the canvas is exactly the grid", () => {
+    expect(gridViewportRect(800, 630, 800).y).toBe(0);
+  });
+
+  it("never leaves the render target when the canvas is the smaller one", () => {
+    expect(gridViewportRect(700, 630, 800).y).toBe(0);
+  });
+
+  it("lands on whole device pixels so the grid stays sharp", () => {
+    const cases: ReadonlyArray<readonly [number, number]> = [
+      [896.4, 800.6],
+      [896.6, 800.4],
+      [901, 800.5],
+    ];
+    for (const [canvas, grid] of cases) {
+      const rect = gridViewportRect(canvas, 630, grid);
+      expect(Number.isInteger(rect.y)).toBe(true);
+      expect(rect.y).toBe(Math.round(canvas) - Math.round(grid));
+      expect(rect.y + Math.round(grid)).toBe(Math.round(canvas));
     }
   });
 });

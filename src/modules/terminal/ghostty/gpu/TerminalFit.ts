@@ -102,6 +102,33 @@ export function gridDeviceSize(
 }
 
 /**
+ * The viewport rectangle a renderer's grid owns inside its own canvas.
+ *
+ * WebGL measures a viewport's origin from the bottom-left of the canvas, and the backing store
+ * keeps a canvas bigger than the grid on purpose. Handing it `0` for `y` would leave the grid at
+ * the bottom of that surplus instead of where the host puts it, so the cells would be drawn lower
+ * than the CSS space the rest of the app positions text, selection and pictures in (the pane's
+ * top-left). The grid belongs at the canvas' top-left, whatever the surplus.
+ */
+export function gridViewportRect(
+  canvasHeight: number,
+  gridWidth: number,
+  gridHeight: number,
+): {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+} {
+  return {
+    x: 0,
+    y: Math.max(0, Math.round(canvasHeight) - Math.round(gridHeight)),
+    width: gridWidth,
+    height: gridHeight,
+  };
+}
+
+/**
  * CSS translation that moves an element whose layout origin is `left`/`top`
  * onto the nearest device pixel boundary. Zero when already aligned.
  */
