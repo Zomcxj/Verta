@@ -31,6 +31,10 @@ const ALLOWED: Record<string, { allows: string[]; why: string }> = {
     allows: ["backdrop filter"],
     why: "modal scrim, mounted only while open",
   },
+  "components/ui/dropdown-menu.tsx": {
+    allows: ["backdrop filter"],
+    why: "menu scrim, mounted only while a menu is open",
+  },
   "components/ui/alert-dialog.tsx": {
     allows: ["backdrop filter"],
     why: "modal scrim, mounted only while open",

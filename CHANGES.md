@@ -37,6 +37,12 @@ swap in the new date, and drop the `open` from the day before.
 
 - `src/modules/remotes/RepoAdminDialog.tsx`: the rename and description fields take the height and text size the dialog's other fields and its sibling dialogs already use. They were the only two left at the shared input default, so the dialog showed three fields in two heights (36px, 36px, 28px) with the odd ones out at the top.
 
+**A menu opens over a blurred layer, like the command palette**
+
+- `src/components/ui/dropdown-menu.tsx`: every menu opens over the same layer the dialog overlay gives the command palette, a third of black with an 8px blur, with the layer up only while a menu is open. It sits one step below the menu and above the interface: `z-40`, because the root element is `position: static` while Radix's popper wrapper is `position: fixed` at `z-index: 50`, which is also what keeps the menu itself crisp under a layer that blurs everything behind it. Pointer events pass through, since Radix already blocks the page behind an open menu, and the layer follows the menu's own open state, uncontrolled menus included.
+- `src/styles/compositingBudget.test.ts`: the file joins the allowlist, with the reason the blurred layer is mounted only while a menu is open.
+- `VERTA.md`: the compositing budget bullet records that a menu's scrim is a layer for as long as that menu is up.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 
