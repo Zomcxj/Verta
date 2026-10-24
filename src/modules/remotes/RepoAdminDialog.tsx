@@ -290,7 +290,7 @@ export function RepoAdminDialog({
                 </div>
                 <Input
                   value={nameDraft}
-                  className="font-mono"
+                  className="h-7 font-mono text-xs"
                   disabled={!writable || busy !== null}
                   onChange={(event) => setNameDraft(event.target.value)}
                   onKeyDown={(event) => {
@@ -342,6 +342,7 @@ export function RepoAdminDialog({
                 </div>
                 <Input
                   value={draft}
+                  className="h-7 text-xs"
                   disabled={!writable || busy !== null}
                   onChange={(event) => setDraft(event.target.value)}
                   onKeyDown={(event) => {

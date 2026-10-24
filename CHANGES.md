@@ -33,6 +33,10 @@ swap in the new date, and drop the `open` from the day before.
 
 - `src/modules/editor/EditorPane.tsx`: the picture viewer watches the room it has with a `ResizeObserver` and hands the fitted size to the picture itself, so fitting fills the pane in both directions instead of stopping at the picture's own size. Capped that way, the two modes drew the same pixels whenever the pane was the larger of the two, and only the line above the picture said which one was on. The fitted rectangle is floored and clamped to that room, so a rounding error cannot push the picture past the pane and raise a scrollbar, and the checkerboard stays inside the picture rather than covering the pane around it.
 
+**The repository settings dialog's fields are all the same height**
+
+- `src/modules/remotes/RepoAdminDialog.tsx`: the rename and description fields take the height and text size the dialog's other fields and its sibling dialogs already use. They were the only two left at the shared input default, so the dialog showed three fields in two heights (36px, 36px, 28px) with the odd ones out at the top.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 
