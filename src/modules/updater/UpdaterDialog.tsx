@@ -10,7 +10,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { useT } from "@/modules/i18n";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useUpdater } from "./useUpdater";
 
 type DistroKey = "arch" | "debian" | "fedora";
@@ -38,7 +38,7 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function UpdaterDialog() {
+export const UpdaterDialog = memo(function UpdaterDialog() {
   const { status, install, dismiss } = useUpdater();
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -177,4 +177,4 @@ export function UpdaterDialog() {
       </DialogContent>
     </Dialog>
   );
-}
+});

@@ -43,6 +43,14 @@ swap in the new date, and drop the `open` from the day before.
 - `src/styles/compositingBudget.test.ts`: the file joins the allowlist, with the reason the blurred layer is mounted only while a menu is open.
 - `VERTA.md`: the compositing budget bullet records that a menu's scrim is a layer for as long as that menu is up.
 
+**A tab switch no longer re-renders the parts of the window that did not change**
+
+- `src/modules/launcher/components/LauncherPanelLazy.tsx`: the session panel is memoised at its lazy boundary. The window re-renders whenever the active tab changes, and nothing in the session list depends on that, so the list and its rows are left alone now.
+- `src/modules/launcher/components/SessionList.tsx`: the list and each row are memoised. A row carries a context menu, a tooltip and the popper layers behind them, which is a dozen Radix components per row, so one render of the list costs a dozen per session on screen.
+- `src/modules/launcher/components/LauncherPanel.tsx`: the row-actions object, the row toggle and the rename callback are stable values now, since a fresh object on every render is what a memoised row compares against. The rename callback moved below the refresh it uses.
+- `src/components/ui/sonner.tsx`: the toaster is memoised. It is not part of a tab change, and sonner reads the document direction with `getComputedStyle` on every render of its own component, which forces a style recalculation of the whole document.
+- `src/modules/command-palette/CommandPalette.tsx`, `src/modules/updater/UpdaterDialog.tsx`: memoised for the same reason, since both are mounted whether or not they are open and both render a dialog's worth of Radix layers when they render.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 

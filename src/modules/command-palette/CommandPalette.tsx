@@ -27,7 +27,7 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { COMMAND_GROUPS } from "./commands";
 import { useCommandHistory } from "./hooks/useCommandHistory";
 import {
@@ -52,7 +52,7 @@ type Props = {
 const SHORTCUTS_BY_ID = new Map(SHORTCUTS.map((s) => [s.id, s]));
 const THEME_PREVIEW_DELAY_MS = 140;
 
-export function CommandPalette({
+export const CommandPalette = memo(function CommandPalette({
   open,
   onOpenChange,
   initialMode,
@@ -388,7 +388,7 @@ export function CommandPalette({
       </Command>
     </CommandDialog>
   );
-}
+});
 
 function rankCommands(
   items: PaletteItem[],

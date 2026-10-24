@@ -33,7 +33,7 @@ import type { AgentSession, AgentTool, SessionTarget } from "../lib/types";
 import { topLevelSessions } from "../lib/visibleSessions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useWorkspaceEnvStore } from "@/modules/workspace";
-import { SessionList } from "./SessionList";
+import { SessionList, type SessionRowActions } from "./SessionList";
 
 const TOOLS: AgentTool[] = AGENT_TOOLS;
 
@@ -84,21 +84,6 @@ export function LauncherPanel({
   /** Default is one block sorted by time; `tool` splits it into per-agent sections. */
   const [groupBy, setGroupBy] = useState<SessionGroupBy>("all");
 
-  /**
-   * Rename a session. Nothing but the name changes: opencode rewrites the row in
-   * its database and pi appends a `session_info` line, and the backend re-reads
-   * the list afterwards so the UI shows the name as actually stored.
-   */
-  const renameSession = async (session: AgentSession, name: string) => {
-    const next = name.trim();
-    if (!next || next === session.title) return;
-    try {
-      await renameAgentSession(session, next);
-      await refresh({ silent: true });
-    } catch (error) {
-      toast.error(String(error));
-    }
-  };
   /**
    * Reading the list while the user picks rows for deletion makes the list jump
    * as sessions re-sort, and a mis-tick on a destructive action is not
@@ -163,6 +148,55 @@ export function LauncherPanel({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  /**
+   * Rename a session. Nothing but the name changes: opencode rewrites the row in
+   * its database and pi appends a `session_info` line, and the backend re-reads
+   * the list afterwards so the UI shows the name as actually stored.
+   */
+  const renameSession = useCallback(
+    async (session: AgentSession, name: string) => {
+      const next = name.trim();
+      if (!next || next === session.title) return;
+      try {
+        await renameAgentSession(session, next);
+        await refresh({ silent: true });
+      } catch (error) {
+        toast.error(String(error));
+      }
+    },
+    [refresh],
+  );
+
+  /**
+   * Everything a row's context menu needs, in one object: the rows are memoised, and an object built
+   * inline would be a new one on every render, which would re-render every row in the list. The
+   * callbacks that go into it are stable for the same reason.
+   */
+  const rowActions = useMemo<SessionRowActions>(
+    () => ({
+      onOpen: onOpenSession,
+      onCopyAbsolute: (session) => copyText(session.cwd, t("launcher.copied")),
+      onCopyRelative: (session) => {
+        const relative = relativeToRoot(workspaceRoot, session.cwd);
+        if (relative) copyText(relative, t("launcher.copied"));
+      },
+      onCopyId: (session) => copyText(session.id, t("launcher.copied")),
+      onStartRename: (session) => setRenaming(sessionKey(session)),
+      canCopyRelative: relativeToRoot(workspaceRoot, "") !== null,
+      renameId: renaming,
+      onRenameSubmit: (session, name) => {
+        setRenaming(null);
+        void renameSession(session, name);
+      },
+      onRenameCancel: () => setRenaming(null),
+    }),
+    [onOpenSession, t, workspaceRoot, renaming, renameSession],
+  );
+
+  const toggleRow = useCallback((session: AgentSession) => {
+    setSelected((was) => toggleSelection(was, sessionKey(session)));
+  }, []);
 
   // The backend watches both session stores and reports a change once per
   // burst. That is what makes a session started in a terminal appear here
@@ -383,34 +417,9 @@ export function LauncherPanel({
                       activeId={activeSessionId}
                       onOpen={onOpenSession}
                       selectable={managing}
-                      actions={{
-                        onOpen: onOpenSession,
-                        onCopyAbsolute: (session) => copyText(session.cwd, t("launcher.copied")),
-                        onCopyRelative: (session) => {
-                          const relative = relativeToRoot(
-                            workspaceRoot,
-                            session.cwd,
-                          );
-                          if (relative) copyText(relative, t("launcher.copied"));
-                        },
-                        onCopyId: (session) => copyText(session.id, t("launcher.copied")),
-                        onStartRename: (session) =>
-                          setRenaming(sessionKey(session)),
-                        canCopyRelative:
-                          relativeToRoot(workspaceRoot, "") !== null,
-                        renameId: renaming,
-                        onRenameSubmit: (session, name) => {
-                          setRenaming(null);
-                          void renameSession(session, name);
-                        },
-                        onRenameCancel: () => setRenaming(null),
-                      }}
+                      actions={rowActions}
                       selected={selected}
-                      onToggle={(session) =>
-                        setSelected((was) =>
-                          toggleSelection(was, sessionKey(session)),
-                        )
-                      }
+                      onToggle={toggleRow}
                     />
                   </div>
                 ))}

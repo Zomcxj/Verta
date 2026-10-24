@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { useLanguage, useT } from "@/modules/i18n";
 import { AgentIcon } from "../lib/agentIcon";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { sessionKey } from "../lib/selection";
 import {
@@ -48,7 +48,13 @@ type Props = {
   actions?: SessionRowActions;
 };
 
-export function SessionList({
+/**
+ * One row per session. The list is memoised together with the row: a session row carries a context
+ * menu, a tooltip and their popper layers, which is a dozen Radix components per row, and the panel
+ * around this list re-renders for reasons that have nothing to do with the rows (a tab switch, the
+ * query box, managing mode). `LauncherPanel` keeps the props it hands down stable so this holds.
+ */
+export const SessionList = memo(function SessionList({
   sessions,
   activeId,
   onOpen,
@@ -81,9 +87,9 @@ export function SessionList({
       ))}
     </div>
   );
-}
+});
 
-function SessionButton({
+const SessionButton = memo(function SessionButton({
   session,
   active,
   onOpen,
@@ -199,7 +205,7 @@ function SessionButton({
       </ContextMenuContent>
     </ContextMenu>
   );
-}
+});
 
 /** In-place rename: Enter commits, Esc cancels, and blur also commits (the same feel
  * as renaming a file). */
