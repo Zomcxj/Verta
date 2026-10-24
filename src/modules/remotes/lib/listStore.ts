@@ -2,17 +2,16 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 import type { WireRemoteReposPayload } from "@/lib/native";
 
 /**
- * The repository list as it was last read, kept in memory for this window and on disk for
- * the next one.
+ * The repository list as it was last read, kept in `verta-remotes.json` for the next window.
  *
- * Opening the panel used to mean waiting for `gh repo list` before anything could be drawn.
- * The list is now drawn from what was read last, and the read that runs right after settles
- * it, which is why the snapshot outlives the panel and the window.
+ * Opening the panel used to mean waiting for `gh repo list` before anything could be drawn. The
+ * list is now drawn from what it read last and the read that runs right after settles it. A tab
+ * that is closed and opened again needs nothing from here, since `WorkspaceSurface` keeps both
+ * lists in fixed layers and never unmounts them; what this store covers is the next window.
  *
- * A result that is not `ready` describes the machine at that moment (gh missing, nobody
- * logged in) rather than the account's repositories, so it is held in memory for this
- * window only and never written to disk: the next window should still open on the last real
- * list, and then find out for itself what the account looks like now.
+ * A result that is not `ready` describes the machine at that moment (gh missing, nobody logged in)
+ * rather than the account's repositories, so it is never written: the next window should still
+ * open on the last real list, and then find out for itself what the account looks like now.
  */
 const STORE_PATH = "verta-remotes.json";
 const KEY_PAYLOAD = "payload";
@@ -25,25 +24,15 @@ export type RepoSnapshot = {
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 500 });
 
-let remembered: RepoSnapshot | null = null;
-
-/** The snapshot this window already holds, for the panel's first paint. */
-export function readRepoSnapshotMemory(): RepoSnapshot | null {
-  return remembered;
-}
-
 /** The last `ready` list, from the window before this one. */
 export async function readRepoSnapshot(): Promise<RepoSnapshot | null> {
   const raw = await store.get<unknown>(KEY_PAYLOAD).catch(() => null);
   return parseRepoSnapshot(raw);
 }
 
+/** Keep a list for the next window. Only a `ready` one says anything about the account. */
 export function rememberRepoSnapshot(snapshot: RepoSnapshot): void {
-  const samePayload = remembered?.payload === snapshot.payload;
-  remembered = snapshot;
-  // The panel calls this whenever its payload changes, including right after seeding from
-  // memory, and that same list is already on disk.
-  if (samePayload || snapshot.payload.kind !== "ready") return;
+  if (snapshot.payload.kind !== "ready") return;
   void store
     .set(KEY_PAYLOAD, snapshot)
     .then(() => store.save())
@@ -59,9 +48,4 @@ export function parseRepoSnapshot(raw: unknown): RepoSnapshot | null {
   const candidate = payload as WireRemoteReposPayload;
   if (candidate.kind !== "ready" || !Array.isArray(candidate.repos)) return null;
   return { at, payload: candidate };
-}
-
-/** Forget the memory copy. Disk state stays, so tests can read it back. */
-export function resetRepoStore(): void {
-  remembered = null;
 }

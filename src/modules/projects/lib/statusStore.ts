@@ -2,17 +2,16 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 import type { WireProjectStatus } from "@/lib/native";
 
 /**
- * The statuses of the last check, kept in memory for this window and on disk for the next
- * one.
+ * The statuses of the last check, kept in `verta-projects.json` so the next window can draw them.
  *
- * Every visit to the panel used to start from nothing: the rows read "not checked" until a
- * batch of git reads came back, even when nothing had changed since the visit before. The
- * panel now draws what it remembers and checks right after that, which is why the snapshot
- * has to outlive the panel (the memory copy, for a tab that was closed and opened again)
- * and the window (the disk copy, for a restart).
+ * Opening the panel used to mean every row read "not checked" until a batch of git reads came
+ * back. The panel now draws what it remembers and checks right after. What a closed and reopened
+ * tab needs is already there: `WorkspaceSurface` keeps both lists in fixed layers and never
+ * unmounts them, so the panel's own state outlives its tab and this store has one layer, the file,
+ * which is read when the panel comes to the front.
  *
- * Only the statuses are remembered. The list itself belongs to the user, and it sits in its
- * own key of the same file.
+ * Only the statuses are remembered. The list itself belongs to the user, and it sits in its own
+ * key of the same file.
  */
 const STORE_PATH = "verta-projects.json";
 const KEY_STATUSES = "statuses";
@@ -26,16 +25,9 @@ export type StatusSnapshot = {
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 500 });
 
-let remembered: StatusSnapshot | null = null;
-
-/** The snapshot this window already holds, for the panel's first paint. */
-export function readStatusSnapshotMemory(): StatusSnapshot | null {
-  return remembered;
-}
-
 /**
- * The snapshot from the last window. A hand-edited or half-written file is not worth an
- * error: it becomes "nothing remembered", and the check that runs anyway corrects it.
+ * The snapshot from the last window. A hand-edited or half-written file is not worth an error:
+ * it becomes "nothing remembered", and the check that runs anyway corrects it.
  */
 export async function readStatusSnapshot(): Promise<StatusSnapshot | null> {
   const raw = await store.get<unknown>(KEY_STATUSES).catch(() => null);
@@ -43,18 +35,11 @@ export async function readStatusSnapshot(): Promise<StatusSnapshot | null> {
 }
 
 /**
- * Keep a snapshot: in memory right away, and on disk without waiting. The disk write is
- * deliberately not awaited, since it is on the path to the next paint, and a failure here
- * costs the next window's head start rather than anything the user asked for.
+ * Keep a snapshot for the next window. The write is deliberately not awaited, since it is on the
+ * path to the next paint, and a failure here costs the next window's head start rather than
+ * anything the user asked for.
  */
 export function rememberStatuses(snapshot: StatusSnapshot): void {
-  const unchanged =
-    remembered?.at === snapshot.at &&
-    remembered.statuses === snapshot.statuses;
-  // The panel calls this whenever its state changes, including the first render after it
-  // seeded itself from memory: writing that one again would rewrite the same bytes.
-  remembered = snapshot;
-  if (unchanged) return;
   void store
     .set(KEY_STATUSES, snapshot)
     .then(() => store.save())
@@ -62,11 +47,18 @@ export function rememberStatuses(snapshot: StatusSnapshot): void {
 }
 
 /** Drop the statuses of projects that are no longer on the list. */
-export function forgetStatuses(paths: readonly string[]): void {
-  if (!remembered || paths.length === 0) return;
-  const statuses = { ...remembered.statuses };
-  for (const path of paths) delete statuses[path];
-  rememberStatuses({ at: remembered.at, statuses });
+export async function forgetStatuses(paths: readonly string[]): Promise<void> {
+  if (paths.length === 0) return;
+  const held = await readStatusSnapshot().catch(() => null);
+  if (!held) return;
+  const statuses = { ...held.statuses };
+  let dropped = false;
+  for (const path of paths) {
+    if (!(path in statuses)) continue;
+    delete statuses[path];
+    dropped = true;
+  }
+  if (dropped) rememberStatuses({ at: held.at, statuses });
 }
 
 /** Pure validation of what the store holds, so a bad file cannot reach the panel. */
@@ -84,9 +76,4 @@ export function parseStatusSnapshot(raw: unknown): StatusSnapshot | null {
     kept[path] = status;
   }
   return { at, statuses: kept };
-}
-
-/** Forget the memory copy. Disk state stays, so tests can read it back. */
-export function resetStatusStore(): void {
-  remembered = null;
 }

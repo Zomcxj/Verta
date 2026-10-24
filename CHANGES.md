@@ -115,6 +115,13 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/terminal/ghostty/gpu/TerminalFit.test.ts`: the surplus stays below the grid, an exactly-sized canvas and a smaller one both keep the grid at the top, and the origin lands on whole device pixels.
 - `src/modules/terminal/ghostty/webgl/WebGlCellRenderer.ts`: the viewport is the grid's own rectangle, placed at the canvas' top-left. The earlier fix in this file made the cells keep the font's pitch, but the grid was drawn as much as the surplus lower than the CSS space the pane, the selection and the inline-image overlay all use, so a prompt started several rows down and a picture landed away from the mosaic printed for it.
 
+**The remembered statuses live in the file only**
+
+- `src/modules/projects/lib/statusStore.ts`, `src/modules/remotes/lib/listStore.ts`: one layer, the file. The memory copy was dead weight: `WorkspaceSurface` keeps both lists in fixed layers and never unmounts them, so a tab that was closed and opened again still has the panel's own state, and a mount only ever happens with an empty module (the next window), which is exactly what the file is for. `forgetStatuses` reads the file, drops the entry and writes it back, since there is no memory copy to edit.
+- `src/modules/projects/ProjectsView.tsx`, `src/modules/remotes/RemoteReposView.tsx`: a snapshot is written when a read comes back rather than by an effect watching the state, so seeding the rows from the file no longer writes the same bytes back. A project list that has not been read yet still counts as "nothing to say", so it cannot wipe the file with an empty snapshot.
+- `src/modules/projects/lib/statusStore.test.ts`, `src/modules/remotes/lib/listStore.test.ts`: the same round trips without the memory assertions: what was kept comes back, a missing file reads as nothing remembered, only a `ready` list is ever written, and a project that left the list is dropped on disk as well.
+- `scripts/dev/probes/panel-state-restore.mjs`: the acceptance reads the file instead of a memory copy, and its proof is the store's own copy being on screen in the tick where a check is still out (measured on the running app: on screen at 2.7s against a check that came back at 28s), with the store put back afterwards.
+
 </details>
 
 

@@ -4,14 +4,14 @@
 // opened panel shows the rows as they were instead of showing every one of them as unchecked
 // until a batch of git reads comes back. This proves it on the running app.
 //
-// A check and the state it replaces are usually identical, so content alone cannot tell which
-// one is on screen. This puts a marker in the store instead: a snapshot whose only difference
-// from the real one is one project's branch, stamped now, which makes it newer than whatever
-// the panel holds. If the panel reads what it remembered, the marker shows up in a row; a check
-// would put the real branch back. Seeing the marker *while the check is still out* is the whole
-// claim, so the sampling runs inside the page every 5ms and starts with the tab closed.
+// A check and the state it replaces are usually identical, so content alone cannot tell which one
+// is on screen. This puts a marker in the store instead: a snapshot whose only difference from the
+// real one is one project's branch, stamped now, which makes it newer than what the panel holds.
+// If the panel draws what it remembered, the marker shows up in a row; a check would put the real
+// branch back. Seeing the marker *while the check is still out* is the whole claim, so the
+// sampling runs inside the page every 5ms and starts with the tab closed.
 //
-//   node scripts/dev/probes/panel-state-restore.mjs [--port=9222]
+//   node scripts/dev/probes/panel-state-restore.mjs [--port=9222] [--debug]
 import { readFileSync } from "node:fs";
 
 const port = process.argv.find((a) => a.startsWith("--port="))?.slice(7) ?? "9222";
@@ -150,17 +150,29 @@ const focusProjectsTab = async () => {
 
 /** Close the panel's tab. The view itself stays in the document (see the note in the report). */
 const closePanel = async () => {
-  if (!(await focusProjectsTab())) fail("the projects tab is not on screen, so there is nothing to close");
-  const was = await activeTab();
-  await clickInPage(ACTIVE_TAB_CLOSE, "the tab's close button");
-  for (let i = 0; i < 60; i++) {
-    if ((await activeTab()) !== was) return;
-    await sleep(30);
+  for (let attempt = 0; attempt < 6; attempt++) {
+    if (!(await focusProjectsTab())) fail("the projects tab is not on screen, so there is nothing to close");
+    const was = await activeTab();
+    const clicked = await evaluate(
+      `(() => { const b = ${ACTIVE_TAB_CLOSE}; if (!b) return false; b.click(); return true; })()`,
+    );
+    if (clicked) {
+      for (let i = 0; i < 40; i++) {
+        if ((await activeTab()) !== was) return;
+        await sleep(50);
+      }
+    }
+    // The traffic moved under us (the panel lost the front, or the chip was mid-animation).
+    await sleep(300);
   }
-  fail(`the tab did not close (still "${was}")`);
+  fail("the projects tab did not close");
 };
 
-/** The rows on screen, as the first cell's text (the project or repository name) and the whole row. */
+/**
+ * The rows on screen, as the first cell's text (the project or repository name) and the whole row.
+ * Only tables that are really rendered count: the inactive half of the panel and the tabs behind
+ * the active one are still in the document.
+ */
 const visibleRows = () =>
   evaluate(`JSON.stringify((() => {
     const out = [];
@@ -216,35 +228,9 @@ const waitForRows = async (ms, requireIdle = true, stableFor = 600) => {
   return null;
 };
 
-const memoryAt = (modulePath, reader) =>
-  evaluate(`(async () => {
-    const mod = await import(${JSON.stringify(modulePath)});
-    const held = mod.${reader}();
-    return held ? held.at : null;
-  })()`);
-
-const storeFile = (path) => {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    return null;
-  }
-};
-
-/** Wait for the store's disk write to land, since it is deliberately not awaited. */
-const awaitOnDisk = async (path, at, ms) => {
-  const started = Date.now();
-  while (Date.now() - started < ms) {
-    const file = storeFile(path);
-    if (file?.statuses?.at === at) return true;
-    await sleep(50);
-  }
-  return false;
-};
-
 /**
- * The sampler, serialized into the page. It is stringified and evaluated there, so it may only
- * use its own options and page globals.
+ * The sampler, serialized into the page. It is stringified and evaluated there, so it may only use
+ * its own options and page globals.
  *
  * `busyLabel` is the word the refresh button shows while a read is out, which is how the sampler
  * knows when that read came back. `uncheckedWord` is what a row says when it has no status yet.
@@ -255,9 +241,8 @@ const awaitOnDisk = async (path, at, ms) => {
  * `innerText` on a whole table forces a layout on every tick.
  */
 const sampler = function (options) {
-  const { modulePath, memoryReader, busyLabel, uncheckedWord, markerWord } = options;
+  const { busyLabel, uncheckedWord, markerWord } = options;
   return (async () => {
-    const store = await import(modulePath);
     const probe = {
       t0: performance.now(),
       stop: false,
@@ -267,10 +252,10 @@ const sampler = function (options) {
       firstRowTotal: null,
       firstRowStatused: null,
       firstRowText: null,
-      memAtFirstRow: null,
       statusedTs: null,
       markerTs: null,
       markerRow: null,
+      busyAtMarker: null,
       uncheckedSeen: false,
       busyTs: null,
       doneTs: null,
@@ -291,8 +276,7 @@ const sampler = function (options) {
       return out;
     };
     const textOf = (el) => (el.textContent || "").replace(/\s+/g, " ").trim();
-    const filled = (all) =>
-      all.filter((tr) => !textOf(tr).includes(uncheckedWord));
+    const filled = (all) => all.filter((tr) => !textOf(tr).includes(uncheckedWord));
     const busy = () =>
       [...document.querySelectorAll("button")].some((b) =>
         (b.innerText || "").trim().startsWith(busyLabel),
@@ -309,9 +293,6 @@ const sampler = function (options) {
             probe.firstRowTotal = all.length;
             probe.firstRowStatused = good.length;
             probe.firstRowText = textOf(all[0]).slice(0, 70);
-            // Read in the same tick as the row, so the stamp belongs to what is on screen.
-            const held = store[memoryReader]();
-            probe.memAtFirstRow = held ? held.at : null;
           }
           if (probe.statusedTs === null && good.length > 0) probe.statusedTs = ticked - probe.t0;
           if (good.length < all.length) probe.uncheckedSeen = true;
@@ -320,6 +301,9 @@ const sampler = function (options) {
             if (marked) {
               probe.markerTs = ticked - probe.t0;
               probe.markerRow = textOf(marked).slice(0, 80);
+              // Read in the same tick: a check that is still out cannot have drawn this row, so
+              // the store's copy is what did.
+              probe.busyAtMarker = busy();
             }
           }
         }
@@ -358,14 +342,32 @@ const sampleUntilDone = async (ms) => {
   return readSampler();
 };
 
-/** Put a marked snapshot in the store: newer than anything the panel holds, one branch renamed. */
-const writeMarker = async (branchOfFirstRow) =>
+const storeFile = (path) => {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+};
+
+/** Wait for the store's disk write to land, since it is deliberately not awaited. */
+const awaitOnDisk = async (path, at, ms) => {
+  const started = Date.now();
+  while (Date.now() - started < ms) {
+    if (storeFile(path)?.statuses?.at === at) return true;
+    await sleep(50);
+  }
+  return false;
+};
+
+/** Put a marked snapshot in the file: newer than anything the panel holds, one branch renamed. */
+const writeMarker = async (firstRowName) =>
   evaluate(`(async () => {
     const mod = await import(${JSON.stringify(PROJECTS_STATUS_MODULE)});
-    const held = mod.readStatusSnapshotMemory();
-    if (!held) return { ok: false, why: "no memory snapshot to mark" };
+    const held = await mod.readStatusSnapshot();
+    if (!held) return { ok: false, why: "the file holds no snapshot to mark" };
     const statuses = { ...held.statuses };
-    const key = Object.keys(statuses).find((k) => k.split(/[\\\\/]/).pop() === ${JSON.stringify(branchOfFirstRow)});
+    const key = Object.keys(statuses).find((k) => k.split(/[\\\\/]/).pop() === ${JSON.stringify(firstRowName)});
     if (!key) return { ok: false, why: "no status for the first row", keys: Object.keys(statuses).length };
     const real = statuses[key];
     statuses[key] = { ...real, branch: ${JSON.stringify(MARKER)} };
@@ -375,20 +377,17 @@ const writeMarker = async (branchOfFirstRow) =>
   })()`);
 
 /**
- * Write the marker and make sure it survives. A check that was already out when the marker
- * landed writes a newer stamp a moment later, which would let the mark lose the comparison the
- * panel makes against it; when that happens the panel is left to settle and the mark is redone.
+ * Write the marker and make sure the file still holds it. A check that was already out when the
+ * marker landed writes a newer stamp a moment later, which would let the mark lose the comparison
+ * the panel makes against it; when that happens the panel is left to settle and the mark is redone.
  */
 const markWithCheck = async (name) => {
   for (let attempt = 0; attempt < 6; attempt++) {
     const marked = await writeMarker(name);
     if (!marked.ok) return marked;
-    await sleep(800);
-    if ((await memoryAt(PROJECTS_STATUS_MODULE, "readStatusSnapshotMemory")) === marked.at) {
-      return marked;
-    }
-    // A check that was already out wrote a newer stamp on top of it. Wait for that one to land
-    // and mark again, since the next write is the one that decides.
+    await awaitOnDisk(PROJECTS_FILE, marked.at, 4000);
+    await sleep(900);
+    if (storeFile(PROJECTS_FILE)?.statuses?.at === marked.at) return marked;
     await sleep(2000);
   }
   return { ok: false, why: "a check kept overwriting the marked snapshot" };
@@ -432,26 +431,21 @@ try {
     unchecked: warmRows.filter((r) => r.text.includes("未检查")).length,
     file: { statuses: Object.keys(original.statuses ?? {}).length, at: original.at },
   };
-  if (!warmRows.length) fail("no row in the projects panel");
   if (report.projectsWarm.unchecked > 0) fail("a row is still unchecked after a full check");
   if (!report.projectsWarm.file.statuses) fail("verta-projects.json holds no statuses");
-  // The first cell of the first row is the folder name, which is how the marked status is found.
   const firstRowName = warmRows[0].first;
 
   // ---- 2. The store's copy is what an opened panel draws ----
   const marked = await markWithCheck(firstRowName);
   report.marker = marked;
   if (!marked.ok) fail(`could not write the marker: ${marked.why}`);
-  if (!(await awaitOnDisk(PROJECTS_FILE, marked.at, 4000))) {
-    fail("the marked snapshot never reached verta-projects.json");
-  }
   let run = null;
   try {
     await trace("before close");
     await closePanel();
     await trace("after close");
-    // What a closed panel leaves behind: it is still mounted, which is why its own state (not
-    // the store) is what survives a close and an open.
+    // What a closed panel leaves behind: it is still mounted, which is why its own state (not the
+    // store) is what survives a close and an open.
     report.closedPanel = JSON.parse(
       await evaluate(`JSON.stringify({
         panels: document.querySelectorAll('[data-sub-value="projects"]').length,
@@ -460,8 +454,6 @@ try {
       })`),
     );
     await startSampler({
-      modulePath: PROJECTS_STATUS_MODULE,
-      memoryReader: "readStatusSnapshotMemory",
       busyLabel: "检查中",
       uncheckedWord: "未检查",
       markerWord: MARKER,
@@ -477,17 +469,19 @@ try {
     if (run.markerTs === null) {
       throw new Error("the reopened panel never drew the store's own copy, so it did not read what it remembered");
     }
-    // A check that never came back during the sampling window is not a failure: the store's copy
-    // was on screen for as long as the sampling ran, which is the claim.
-    if (run.doneTs !== null && run.markerTs >= run.doneTs) {
+    // A check that never came back during the sampling window is not a failure: the store's copy was
+    // on screen for as long as the sampling ran, which is the claim. What has to hold is that the
+    // row could not have come from the check: either the check was still out in the same tick the
+    // row appeared, or it had not been seen at all, or it came back later.
+    const drawingCheck = run.busyAtMarker === true;
+    if (!drawingCheck && run.busyTs !== null && run.doneTs !== null && run.markerTs >= run.doneTs) {
       throw new Error(
-        `the store's copy appeared at ${Math.round(run.markerTs)}ms but the check returned at ` +
-          `${Math.round(run.doneTs)}ms, so it was the check that drew it`,
+        `the store's copy appeared at ${Math.round(run.markerTs)}ms, after the check returned at ` +
+          `${Math.round(run.doneTs)}ms, so it was the check that drew the row`,
       );
     }
   } finally {
-    // The marked snapshot is a lab fixture: it goes back, whether the sampling above worked or
-    // not. The panel's own check settles the rows either way.
+    // The marked snapshot is a lab fixture: it goes back, whether the sampling above worked or not.
     report.restore = { markerCleared: await restore(original) };
   }
 
@@ -534,16 +528,10 @@ try {
       const held = await mod.readRepoSnapshot();
       return held ? { at: held.at, kind: held.payload?.kind ?? null, rows: (held.payload?.repos || []).length } : null;
     })()`),
-    memory: await evaluate(`(async () => {
-      const mod = await import(${JSON.stringify(REMOTES_LIST_MODULE)});
-      const held = mod.readRepoSnapshotMemory();
-      return held ? held.at : null;
-    })()`),
   };
   if (!remotesFile) fail("verta-remotes.json was never written, so a fresh window has nothing to draw");
   if (!report.remotes.readBack) fail("the repository list's store read back nothing for a fresh window");
-  // The stamp is when the view wrote it, which its own payload change moves; what a fresh window
-  // draws is the payload itself.
+  // The stamp is when the read behind the list finished; what a fresh window draws is the payload.
   if (report.remotes.readBack.kind !== report.remotes.file.kind) {
     fail("the store read back a different payload than the file holds");
   }
@@ -551,12 +539,14 @@ try {
     fail("the store read back a different number of repositories than the file holds");
   }
 
+  // ---- Leave the panel where it was ----
   await clickInPage(PROJECTS_STOP, "the local projects stop");
   report.ok = true;
   console.log(JSON.stringify(report, null, 2));
   console.log(
-    `PASS: the store's copy was on screen ${Math.round(run.markerTs)}ms after the tab was opened, ` +
-      `while the check was still out (${run.doneTs === null ? "it had not come back when the sampling stopped" : `it came back at ${Math.round(run.doneTs)}ms`}); ` +
+    `PASS: the store's copy was on screen ${Math.round(run.markerTs)}ms after the tab was opened ` +
+      `(a check was ${run.busyAtMarker === true ? "still out" : run.busyAtMarker === false ? "not running" : "never seen"} at that moment; it came back at ` +
+      `${run.doneTs === null ? "neither before the sampling stopped" : `${Math.round(run.doneTs)}ms`}); ` +
       `the file was put back and holds no marker; the repository list's file holds ` +
       `${report.remotes.file.rows} repositories (kind ${report.remotes.file.kind}) that a fresh window reads back`,
   );

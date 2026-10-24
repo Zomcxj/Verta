@@ -67,7 +67,6 @@ import { loadProjectPaths, saveProjectPaths } from "./lib/store";
 import {
   forgetStatuses,
   readStatusSnapshot,
-  readStatusSnapshotMemory,
   rememberStatuses,
 } from "./lib/statusStore";
 import { pickProjectDir } from "./lib/pickDir";
@@ -121,19 +120,15 @@ export function ProjectsView({
   const [paths, setPaths] = useState<string[] | null>(null);
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   /**
-   * The last check, from memory for the first paint and then from disk (see
-   * `statusStore`): opening the panel shows the rows as they were instead of showing every
-   * one of them as unchecked until the batch of git reads comes back. The check that runs
-   * right after is what settles anything that moved since.
+   * The last check, read from the file when the panel comes to the front (see `statusStore`):
+   * opening it shows the rows as they were instead of showing every one of them as unchecked
+   * until the batch of git reads comes back. The check that runs right after is what settles
+   * anything that moved since.
    */
-  const [statuses, setStatuses] = useState<Record<string, ProjectStatus>>(
-    () => readStatusSnapshotMemory()?.statuses ?? {},
-  );
-  const [checkedAt, setCheckedAt] = useState<number | null>(
-    () => readStatusSnapshotMemory()?.at ?? null,
-  );
+  const [statuses, setStatuses] = useState<Record<string, ProjectStatus>>({});
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
   /** Which check the statuses on screen came from, to let a slower read lose the race. */
-  const snapshotAt = useRef(readStatusSnapshotMemory()?.at ?? 0);
+  const snapshotAt = useRef(0);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [account, setAccount] = useState<Account>(null);
@@ -201,9 +196,9 @@ export function ProjectsView({
     };
   }, [active, accountRead]);
 
-  // The remembered statuses are already in memory; the file is still worth a look, since it
-  // can be newer than the memory copy. A read that lands after a check has already run loses
-  // on `snapshotAt`.
+  // The file is what this window starts from, so it is read when the panel comes to the front.
+  // The snapshot in it can be older than a check that has already run in this window, which is
+  // what `snapshotAt` settles: a read that lands late does not undo what is on screen.
   useEffect(() => {
     if (!active) return;
     let alive = true;
@@ -222,12 +217,6 @@ export function ProjectsView({
     };
   }, [active]);
 
-  // Every finished check is kept for the next visit, in this window and in the next one.
-  useEffect(() => {
-    if (checkedAt === null) return;
-    rememberStatuses({ at: checkedAt, statuses });
-  }, [checkedAt, statuses]);
-
   const managed = useMemo(
     () => (paths ? entriesFromPaths(paths) : []),
     [paths],
@@ -243,15 +232,16 @@ export function ProjectsView({
 
   const refresh = useCallback(async () => {
     if (!active) return;
-    // The list has not been read yet, so there is nothing to check and nothing to say about
-    // it: the remembered rows stay on screen, and the effect runs again once the entries
-    // land (it depends on them). Treating "not loaded yet" as "no projects" would wipe the
-    // remembered statuses, on screen and in the file.
+    // The list has not been read yet, so there is nothing to check and nothing to say about it:
+    // the rows on screen stay as they are, and this runs again once the entries land (it depends
+    // on them). Treating "not loaded yet" as "no projects" would write an empty snapshot into
+    // the file and wipe what the next window was going to open on.
     if (paths === null) return;
     if (entries.length === 0) {
       setStatuses({});
       snapshotAt.current = Date.now();
       setCheckedAt(snapshotAt.current);
+      rememberStatuses({ at: snapshotAt.current, statuses: {} });
       return;
     }
     setChecking(true);
@@ -278,6 +268,9 @@ export function ProjectsView({
       snapshotAt.current = Date.now();
       setStatuses(next);
       setCheckedAt(snapshotAt.current);
+      // Kept for the next window. A failed check writes nothing: what the file holds is the
+      // last thing that was true.
+      rememberStatuses({ at: snapshotAt.current, statuses: next });
     } catch (e) {
       // A whole-batch failure (backend crash, say) is reported honestly instead of
       // pretending everything is clean.
@@ -407,7 +400,7 @@ export function ProjectsView({
     const next = removeProjectPath(paths ?? [], pendingRemove.path);
     setPendingRemove(null);
     // The status of a project that is gone is not worth remembering either.
-    forgetStatuses([normalizePath(pendingRemove.path)]);
+    void forgetStatuses([normalizePath(pendingRemove.path)]);
     await writePaths(next);
   }, [paths, pendingRemove, writePaths]);
 

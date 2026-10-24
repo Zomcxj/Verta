@@ -83,30 +83,18 @@ describe("parseStatusSnapshot", () => {
 });
 
 describe("statusStore", () => {
-  it("hands back what was remembered, from memory and then from disk", async () => {
+  it("hands back what was kept for the next window", async () => {
     const store = await import("./statusStore");
     store.rememberStatuses({ at: 7, statuses: { "C:/work/verta": STATUS } });
-    const held = store.readStatusSnapshotMemory();
-    expect(held?.statuses["C:/work/verta"]).toBe(STATUS);
-
-    // A window that starts fresh has only the file.
-    store.resetStatusStore();
-    expect(store.readStatusSnapshotMemory()).toBeNull();
     const loaded = await store.readStatusSnapshot();
     expect(loaded?.at).toBe(7);
     expect(loaded?.statuses["C:/work/verta"]).toEqual(STATUS);
   });
 
-  it("does not write the same statuses and timestamp again", async () => {
+  it("reads as nothing remembered when the file is not there", async () => {
     const store = await import("./statusStore");
-    const statuses = { "C:/work/verta": STATUS };
-    store.rememberStatuses({ at: 7, statuses });
-    expect(state.writes).toEqual(["verta-projects.json:statuses"]);
-    store.rememberStatuses({ at: 7, statuses });
-    expect(state.writes).toEqual(["verta-projects.json:statuses"]);
-    // A later check does get written.
-    store.rememberStatuses({ at: 8, statuses });
-    expect(state.writes.length).toBe(2);
+    expect(await store.readStatusSnapshot()).toBeNull();
+    expect(state.writes).toEqual([]);
   });
 
   it("forgets a project that left the list, on disk as well", async () => {
@@ -115,15 +103,15 @@ describe("statusStore", () => {
       at: 7,
       statuses: { "C:/work/verta": STATUS, "C:/work/gone": STATUS },
     });
-    store.forgetStatuses(["C:/work/gone"]);
+    await store.forgetStatuses(["C:/work/gone"]);
     const keys = Object.keys((await store.readStatusSnapshot())?.statuses ?? {});
     expect(keys).toEqual(["C:/work/verta"]);
   });
 
   it("says nothing when there is nothing to forget", async () => {
     const store = await import("./statusStore");
-    store.forgetStatuses(["C:/work/verta"]);
+    await store.forgetStatuses(["C:/work/verta"]);
+    await store.forgetStatuses([]);
     expect(state.writes).toEqual([]);
-    expect(store.readStatusSnapshotMemory()).toBeNull();
   });
 });

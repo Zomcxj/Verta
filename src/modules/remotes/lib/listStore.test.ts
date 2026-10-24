@@ -94,32 +94,20 @@ describe("parseRepoSnapshot", () => {
 });
 
 describe("listStore", () => {
-  it("keeps a ready list in memory and on disk", async () => {
+  it("keeps a ready list for the next window", async () => {
     const store = await import("./listStore");
     store.rememberRepoSnapshot({ at: 3, payload: READY });
-    expect(store.readRepoSnapshotMemory()?.payload).toBe(READY);
-
-    store.resetRepoStore();
     const loaded = await store.readRepoSnapshot();
     expect(loaded?.at).toBe(3);
     expect(loaded?.payload.login).toBe("me");
+    expect(loaded?.payload.repos.length).toBe(1);
   });
 
-  it("holds a state of this machine in memory only", async () => {
+  it("never writes a state of this machine", async () => {
     const store = await import("./listStore");
     store.rememberRepoSnapshot({ at: 4, payload: LOGGED_OUT });
-    // The panel may show what it just saw ...
-    expect(store.readRepoSnapshotMemory()?.payload.kind).toBe("notLoggedIn");
     expect(state.writes).toEqual([]);
-    // ... but the next window still opens on the last real list.
-    store.resetRepoStore();
+    // The next window still opens on the last real list.
     expect(await store.readRepoSnapshot()).toBeNull();
-  });
-
-  it("writes a list once, however often the panel hands it the same object", async () => {
-    const store = await import("./listStore");
-    store.rememberRepoSnapshot({ at: 3, payload: READY });
-    store.rememberRepoSnapshot({ at: 5, payload: READY });
-    expect(state.writes).toEqual(["verta-remotes.json:payload"]);
   });
 });

@@ -41,7 +41,6 @@ import { cloneDestFromProjects } from "./lib/repoAdmin";
 import { ciFromRuns } from "./lib/runs";
 import {
   readRepoSnapshot,
-  readRepoSnapshotMemory,
   rememberRepoSnapshot,
 } from "./lib/listStore";
 import {
@@ -74,9 +73,7 @@ export function RemoteReposView({ active }: Props) {
   const t = useT();
   const language = useLanguage();
 
-  const [payload, setPayload] = useState<WireRemoteReposPayload | null>(
-    () => readRepoSnapshotMemory()?.payload ?? null,
-  );
+  const [payload, setPayload] = useState<WireRemoteReposPayload | null>(null);
   /**
    * What the latest read had to say when it would not replace the rows on screen. Kept
    * apart from `payload` so the rows stay and the reason shows above them.
@@ -176,6 +173,8 @@ export function RemoteReposView({ active }: Props) {
       if (fresh.kind === "ready" || !held || held.kind !== "ready") {
         setPayload(fresh);
         setNoticePayload(null);
+        // Kept for the next window; a list that only describes this machine is not written.
+        rememberRepoSnapshot({ at: Date.now(), payload: fresh });
       } else {
         // The rows stay: what came back describes the machine, not the account, so it is
         // said above the list instead of replacing it.
@@ -217,12 +216,6 @@ export function RemoteReposView({ active }: Props) {
       alive = false;
     };
   }, [active]);
-
-  // What is on screen is what the next visit starts from.
-  useEffect(() => {
-    if (!payload) return;
-    rememberRepoSnapshot({ at: Date.now(), payload });
-  }, [payload]);
 
   const rows = useMemo(
     () => (payload ? toRows(payload, Date.now(), language) : []),
