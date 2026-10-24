@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { fitTerminalViewport, snapOffsetCss } from "./TerminalFit";
+import {
+  fitTerminalViewport,
+  gridDeviceSize,
+  snapOffsetCss,
+} from "./TerminalFit";
 import { deriveFontMetrics, type TerminalFontMetrics } from "./terminalVisuals";
 
 const FONT = {
@@ -87,6 +91,46 @@ describe("fitTerminalViewport", () => {
       pixelWidth: 512 * metrics.deviceCellWidth,
       pixelHeight: 256 * metrics.deviceCellHeight,
     });
+  });
+});
+
+describe("gridDeviceSize", () => {
+  // The grid rectangle is the font's cells alone, so it can be smaller than the canvas the
+  // renderer draws into: the backing store reuses a nearby larger canvas, and drawing the
+  // grid across that canvas would make the pitch follow the pane size.
+  const CELLS = { cols: 90, rows: 56 };
+  const metrics = deriveFontMetrics(
+    { ...FONT, size: 13 },
+    1,
+    { advance: 6.4, ascent: 11, descent: 3 },
+  );
+
+  it("is the cells' own rectangle, never the canvas'", () => {
+    expect(metrics.deviceCellWidth).toBe(7);
+    expect(metrics.deviceCellHeight).toBe(16);
+    const grid = gridDeviceSize(CELLS.cols, CELLS.rows, metrics);
+    expect(grid).toEqual({ width: 630, height: 896 });
+    // A canvas the backing store rounded up to for these cells: the grid stays 630 wide.
+    expect(grid.width).not.toBe(640);
+  });
+
+  it("agrees with the viewport fit the surface sizes the pane with", () => {
+    const fit = fitTerminalViewport(
+      (CELLS.cols * metrics.deviceCellWidth) / metrics.scale,
+      (CELLS.rows * metrics.deviceCellHeight) / metrics.scale,
+      metrics,
+    );
+    expect(fit).toMatchObject(CELLS);
+    const grid = gridDeviceSize(fit?.cols ?? 0, fit?.rows ?? 0, metrics);
+    expect(grid.width).toBe(fit?.pixelWidth);
+    expect(grid.height).toBe(fit?.pixelHeight);
+  });
+
+  it("keeps the cell pitch a whole device pixel per column", () => {
+    for (const cols of [2, 3, 90, 118, 512]) {
+      const grid = gridDeviceSize(cols, 1, metrics);
+      expect(grid.width / cols).toBe(metrics.deviceCellWidth);
+    }
   });
 });
 

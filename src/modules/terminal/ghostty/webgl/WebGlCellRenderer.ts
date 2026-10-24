@@ -11,6 +11,7 @@ import {
   CanvasBackingStore,
   type GestureGrowth,
 } from "../gpu/CanvasBackingStore";
+import { gridDeviceSize } from "../gpu/TerminalFit";
 import type {
   TerminalFontMetrics,
   TerminalGpuTheme,
@@ -141,6 +142,13 @@ export class WebGlCellRenderer {
   private rowCapacity = 0;
   private cols = 0;
   private rows = 0;
+  /**
+   * Device pixels of the cell grid inside the canvas. The canvas can be bigger (see
+   * `gridDeviceSize`); every shader input is expressed against this rectangle, so the cell
+   * pitch is the font's whatever size the backing store happens to hold.
+   */
+  private gridWidth = 1;
+  private gridHeight = 1;
   private forceFullRedraw = true;
   private contextLost = false;
   private viewportDirty = true;
@@ -232,8 +240,12 @@ export class WebGlCellRenderer {
     const changed = cols !== this.cols || rows !== this.rows;
     this.cols = cols;
     this.rows = rows;
-    const width = Math.max(1, cols * this.profile.metrics.deviceCellWidth);
-    const height = Math.max(1, rows * this.profile.metrics.deviceCellHeight);
+    const { width, height } = gridDeviceSize(cols, rows, this.profile.metrics);
+    if (width !== this.gridWidth || height !== this.gridHeight) {
+      this.gridWidth = width;
+      this.gridHeight = height;
+      this.viewportDirty = true;
+    }
     const backingStoreChanged = this.backingStore.stage(
       width,
       height,
@@ -266,7 +278,9 @@ export class WebGlCellRenderer {
     const backingStoreChanged = this.backingStore.commit();
     if (backingStoreChanged) this.backingStoreResizeCount += 1;
     if (backingStoreChanged || this.viewportDirty) {
-      this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      // The grid fills its own rectangle, not the whole backing store: the surplus stays the
+      // cleared background, and the cells keep the font's pitch.
+      this.gl.viewport(0, 0, this.gridWidth, this.gridHeight);
       this.viewportDirty = false;
       this.forceFullRedraw = true;
     }
@@ -467,8 +481,8 @@ export class WebGlCellRenderer {
     let rectanglesChanged = false;
     const first = Math.max(0, firstRow);
     const last = Math.min(this.rows - 1, lastRow);
-    const canvasWidth = this.canvas.width;
-    const canvasHeight = this.canvas.height;
+    const gridWidth = this.gridWidth;
+    const gridHeight = this.gridHeight;
     const viewportOrigin = frame.model.viewportOriginLine();
 
     for (let row = first; row <= last; row += 1) {
@@ -554,8 +568,8 @@ export class WebGlCellRenderer {
             ((flags & CellFlags.FAINT) !== 0 ? 0.5 : 1) *
               ((flags & CellFlags.BLINK) !== 0 ? -1 : 1),
             previousBackground !== background,
-            canvasWidth,
-            canvasHeight,
+            gridWidth,
+            gridHeight,
           );
         }
         previousBackground = background;
@@ -577,8 +591,8 @@ export class WebGlCellRenderer {
     foreground: number,
     alpha: number,
     clipLeft: boolean,
-    canvasWidth: number,
-    canvasHeight: number,
+    gridWidth: number,
+    gridHeight: number,
   ): void {
     let offsetX = glyph.originOffsetX;
     let width = glyph.width;
@@ -602,8 +616,8 @@ export class WebGlCellRenderer {
 
     this.glyphAttributes[index] = offsetX;
     this.glyphAttributes[index + 1] = glyph.originOffsetY;
-    this.glyphAttributes[index + 2] = width / canvasWidth;
-    this.glyphAttributes[index + 3] = glyph.height / canvasHeight;
+    this.glyphAttributes[index + 2] = width / gridWidth;
+    this.glyphAttributes[index + 3] = glyph.height / gridHeight;
     this.glyphAttributes[index + 4] = uvMinX;
     this.glyphAttributes[index + 5] = glyph.uvMinY;
     this.glyphAttributes[index + 6] = uvMaxX - uvMinX;
@@ -908,10 +922,12 @@ export class WebGlCellRenderer {
       false,
       PROJECTION_MATRIX,
     );
+    // The grid fraction from a_cellpos is 0..1 across the grid rectangle, so the resolution
+    // used for the pixel-valued offset and size attributes has to be that same rectangle.
     gl.uniform2f(
       resources.glyphProgram.resolution,
-      this.canvas.width,
-      this.canvas.height,
+      this.gridWidth,
+      this.gridHeight,
     );
     atlas.bindAndUpload();
     gl.uniform1i(resources.glyphProgram.atlas, 0);

@@ -15,6 +15,18 @@ swap in the new date, and drop the `open` from the day before.
 ---
 
 <details open>
+<summary><strong>2026-10-24</strong></summary>
+
+**The terminal cell pitch follows the font, not the pane**
+
+- `src/modules/terminal/ghostty/gpu/TerminalFit.ts`: `gridDeviceSize` states the device-pixel rectangle a grid of cells covers, and the viewport fit now takes its pixel size from the same function, so what the surface reports to the shell and what the renderer draws into cannot drift apart.
+- `src/modules/terminal/ghostty/gpu/TerminalFit.test.ts`: the rectangle is the cells' own and never the canvas', it agrees with the viewport fit the surface sizes the pane with, and it stays a whole number of device pixels per column.
+- `src/modules/terminal/ghostty/webgl/WebGlCellRenderer.ts`: the WebGL renderer draws the grid into its own rectangle instead of the whole canvas, so the GL viewport, the glyph offset and size attributes and the resolution uniform all use the grid. The backing store keeps a nearby bigger canvas on purpose, and spreading the grid across that canvas tied the cell pitch to the canvas width, which follows the pane width: letter spacing and row height moved while a divider was dragged. Hit testing, selection and the block overlays were already in font cells, so this is also what lines them up with what is drawn.
+- `scripts/dev/probes/terminal-cell-pitch.mjs` (new): measures the spacing of a ruler of strokes in a screenshot, once with the sidebar shown and once hidden, and fails when the two pitches differ.
+
+</details>
+
+<details>
 <summary><strong>2026-10-23</strong></summary>
 
 **A notification-area icon keeps the app reachable, and closing the window can hide it there**

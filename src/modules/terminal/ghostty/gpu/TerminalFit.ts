@@ -65,8 +65,11 @@ export function fitTerminalViewport(
     MIN_ROWS,
     MAX_ROWS,
   );
-  const pixelWidth = cols * deviceCellWidth;
-  const pixelHeight = rows * deviceCellHeight;
+  const { width: pixelWidth, height: pixelHeight } = gridDeviceSize(
+    cols,
+    rows,
+    metrics,
+  );
   return {
     cols,
     rows,
@@ -74,6 +77,27 @@ export function fitTerminalViewport(
     cssHeight: pixelHeight / scale,
     pixelWidth,
     pixelHeight,
+  };
+}
+
+/**
+ * Device-pixel rectangle a cell grid covers, the area a renderer draws its cells across.
+ *
+ * A renderer's canvas is often larger than this: the backing store reuses a nearby bigger
+ * canvas instead of reallocating the swapchain on every resize step, and the surplus is
+ * cleared to the background and clipped by the host. The cells still belong in exactly this
+ * rectangle. Spreading the grid over the whole canvas would tie the cell pitch to the canvas
+ * size, and the canvas size follows the pane size, so letter spacing and row height would
+ * change as a pane is dragged apart.
+ */
+export function gridDeviceSize(
+  cols: number,
+  rows: number,
+  metrics: Pick<TerminalFontMetrics, "deviceCellWidth" | "deviceCellHeight">,
+): { readonly width: number; readonly height: number } {
+  return {
+    width: Math.max(1, cols * metrics.deviceCellWidth),
+    height: Math.max(1, rows * metrics.deviceCellHeight),
   };
 }
 
