@@ -760,7 +760,15 @@ function ImagePreview({
           {fit ? t("editor.image.originalSize") : t("editor.image.fitToWindow")}
         </button>
       </div>
-      <div className="flex min-h-0 w-full flex-1 items-center justify-center overflow-auto">
+      {/* This is the scrollport. Centring is `safe`: plain centring aligns an overflowing
+          picture in the middle of its own box, which pushes its leading edge outside the
+          scrollable range so the left of a picture wider than the pane can never be
+          reached. `safe` centres while the picture fits and starts it at the edge when it
+          does not, so every part of it is scrollable to. */}
+      <div
+        className="flex min-h-0 w-full flex-1 overflow-auto"
+        style={{ alignItems: "safe center", justifyContent: "safe center" }}
+      >
         <img
           src={src}
           alt={name}
@@ -773,9 +781,12 @@ function ImagePreview({
           }
           onError={() => setFailed(true)}
           className={
+            // The base layer caps every image at its container's width, so a picture wider
+            // than the pane would be drawn at exactly the same size in both modes unless
+            // original size says `max-w-none`.
             fit
               ? "max-h-full max-w-full rounded-md border border-border object-contain shadow-sm"
-              : "rounded-md border border-border shadow-sm"
+              : "max-w-none rounded-md border border-border shadow-sm"
           }
           style={{
             backgroundImage:

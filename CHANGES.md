@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-24</strong></summary>
 
+**A picture opened in the editor really does show its own pixels**
+
+- `src/modules/editor/EditorPane.tsx`: original size says `max-w-none`, because the base layer caps every image at its container's width and a picture wider than the pane was therefore drawn at the same size in both modes. The scrollport that holds the picture centres with `safe center`: plain centring aligns an overflowing picture in the middle of its own box, which leaves its leading edge outside the scrollable range, so the left of a wide picture could not be scrolled to. Measured on the running app: a 1079 x 811 picture was 844 x 635 in both modes before, and is 844 x 635 fitted and 973 x 732 at original size after, with both edges reachable in the scrollport.
+
 **The terminal cell pitch follows the font, not the pane**
 
 - `src/modules/terminal/ghostty/gpu/TerminalFit.ts`: `gridDeviceSize` states the device-pixel rectangle a grid of cells covers, and the viewport fit now takes its pixel size from the same function, so what the surface reports to the shell and what the renderer draws into cannot drift apart.
