@@ -1,3 +1,4 @@
+import type { Ownership } from "@/lib/ownership";
 import type { WorkspaceEnv } from "@/modules/workspace";
 
 /** One project in the list. */
@@ -40,4 +41,6 @@ export type ProjectStatus = {
 export type ProjectRow = ProjectEntry & {
   status: ProjectStatus | null;
   checking: boolean;
+  /** Whether this project looks like one of the signed-in account's own repositories. */
+  ownership: Ownership;
 };

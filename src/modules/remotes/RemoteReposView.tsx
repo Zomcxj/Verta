@@ -7,8 +7,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { native, type WireRemoteReposPayload, type WireRepoCiPayload } from "@/lib/native";
+import { SortHeader } from "@/components/ui/sort-header";
+import { ownershipLabelKey } from "@/lib/ownership";
 import { cn } from "@/lib/utils";
+import { native, type WireRemoteReposPayload, type WireRepoCiPayload } from "@/lib/native";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -27,7 +29,13 @@ import { IssuesDialog } from "./IssuesDialog";
 import { TONE_CLASS, ciView, type CiView } from "./lib/ci";
 import { cloneDestFromProjects } from "./lib/repoAdmin";
 import { ciFromRuns } from "./lib/runs";
-import { copyTextOf, filterRows, noticeOf, toRows } from "./lib/rows";
+import {
+  copyTextOf,
+  filterRows,
+  noticeOf,
+  sortRows,
+  toRows,
+} from "./lib/rows";
 import type { RemoteRepoRow } from "./lib/types";
 
 type Props = {
@@ -50,6 +58,7 @@ export function RemoteReposView({ active }: Props) {
    * from errors that gh reported. */
   const [failure, setFailure] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [sort, setSort] = useState<RemoteSortState>(null);
   /** CI results already checked, keyed by `owner/name`; cached so they are not
    * re-checked automatically. */
   const [ci, setCi] = useState<Record<string, WireRepoCiPayload>>({});
@@ -137,7 +146,10 @@ export function RemoteReposView({ active }: Props) {
     () => (payload ? toRows(payload, Date.now(), language) : []),
     [payload, language],
   );
-  const visible = useMemo(() => filterRows(rows, filter), [rows, filter]);
+  const visible = useMemo(
+    () => sortRows(filterRows(rows, filter), sort),
+    [rows, filter, sort],
+  );
   const notice = payload ? noticeOf(payload, visible.length, filter) : null;
 
   const copy = useCallback((value: string) => {
@@ -333,24 +345,51 @@ export function RemoteReposView({ active }: Props) {
           <table className="w-full table-fixed border-collapse text-xs">
             <thead className="sticky top-0 z-10 bg-background">
               <tr className="text-left text-muted-foreground">
-                <th className="w-[32%] py-1 font-medium">
-                  {t("remotes.col.repo")}
-                </th>
-                <th className="w-[10%] py-1 font-medium">
-                  {t("remotes.col.visibility")}
-                </th>
-                <th className="w-[12%] py-1 font-medium">
-                  {t("remotes.col.language")}
-                </th>
-                <th className="w-[14%] py-1 font-medium">
-                  {t("remotes.col.pushed")}
-                </th>
+                <SortHeader
+                  label={t("remotes.col.repo")}
+                  column="repo"
+                  sort={sort}
+                  onSort={setSort}
+                  className="w-[28%] px-0"
+                />
+                <SortHeader
+                  label={t("remotes.col.owner")}
+                  column="owner"
+                  sort={sort}
+                  onSort={setSort}
+                  className="w-[8%] px-0"
+                />
+                <SortHeader
+                  label={t("remotes.col.visibility")}
+                  column="visibility"
+                  sort={sort}
+                  onSort={setSort}
+                  className="w-[10%] px-0"
+                />
+                <SortHeader
+                  label={t("remotes.col.language")}
+                  column="language"
+                  sort={sort}
+                  onSort={setSort}
+                  className="w-[12%] px-0"
+                />
+                <SortHeader
+                  label={t("remotes.col.pushed")}
+                  column="pushed"
+                  sort={sort}
+                  onSort={setSort}
+                  className="w-[14%] px-0"
+                />
                 <th className="w-[10%] py-1 font-medium">
                   {t("remotes.col.ci")}
                 </th>
-                <th className="py-1 font-medium">
-                  {t("remotes.col.description")}
-                </th>
+                <SortHeader
+                  label={t("remotes.col.description")}
+                  column="description"
+                  sort={sort}
+                  onSort={setSort}
+                  className="px-0"
+                />
                 <th className="w-[4%] py-1" />
               </tr>
             </thead>
@@ -493,6 +532,7 @@ function RepoRow({
         {row.isPrivate
           ? t("remotes.visibility.private")
           : t("remotes.visibility.public")}
+        {t(ownershipLabelKey(row.ownership))}
       </td>
       <td className="truncate py-1.5 pr-2 text-muted-foreground">
         {row.language ?? t("remotes.unknown")}

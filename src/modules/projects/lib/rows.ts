@@ -1,3 +1,13 @@
+import {
+  cycleSort as cycleSortShared,
+  type SortState as SharedSortState,
+} from "@/components/ui/sort-header";
+import {
+  type Account,
+  type Ownership,
+  ownershipOfFolder,
+  ownershipRank,
+} from "@/lib/ownership";
 import type { AgentSession } from "@/modules/launcher";
 import { samePath } from "./paths";
 import type { ProjectRow, ProjectStatus } from "./types";
@@ -81,6 +91,7 @@ const SEVERITY: Record<StateTone, number> = {
 
 export type SortKey =
   | "name"
+  | "owner"
   | "branch"
   | "state"
   | "dirty"
@@ -88,18 +99,10 @@ export type SortKey =
   | "stashed"
   | "checked";
 
-export type SortState = { key: SortKey; ascending: boolean } | null;
+/** The shared shape, narrowed to the columns of this table. */
+export type SortState = SharedSortState<SortKey>;
 
-/**
- * Three-state cycle on a column header: first click ascending, second descending,
- * third clears the sort (back to the list's own order). Clicking another column
- * restarts from ascending for that column.
- */
-export function cycleSort(current: SortState, key: SortKey): SortState {
-  if (current?.key !== key) return { key, ascending: true };
-  if (current.ascending) return { key, ascending: false };
-  return null;
-}
+export const cycleSort = cycleSortShared;
 
 export function sortRows(rows: ProjectRow[], sort: SortState): ProjectRow[] {
   if (!sort) return rows;
@@ -108,6 +111,8 @@ export function sortRows(rows: ProjectRow[], sort: SortState): ProjectRow[] {
     switch (sort.key) {
       case "name":
         return row.status?.name.toLowerCase() ?? "";
+      case "owner":
+        return ownershipRank(row.ownership);
       case "branch":
         return row.status?.branch?.toLowerCase() ?? "";
       case "state":
@@ -131,6 +136,21 @@ export function sortRows(rows: ProjectRow[], sort: SortState): ProjectRow[] {
     if (left === right) return 0;
     return (left < right ? -1 : 1) * direction;
   });
+}
+
+/**
+ * The project's ownership, from the account read elsewhere.
+ *
+ * The name compared against the account is the folder name the backend already reports,
+ * and only a repository has one worth comparing: a folder that is not a repository, or
+ * one whose status has not come back yet, gets no owner rather than a guess.
+ */
+export function ownershipOfRow(
+  status: ProjectStatus | null,
+  account: Account,
+): Ownership {
+  if (status?.kind !== "repo") return "unknown";
+  return ownershipOfFolder(status.name, account);
 }
 
 /** Filter by a path keyword (the full path, so a drive or parent directory works as

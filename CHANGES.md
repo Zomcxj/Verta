@@ -54,6 +54,14 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/i18n/messages.ts`: the pull strings, the fetch warning, the folder picker and the reworded empty hint, Chinese and English, and the paste-a-path strings they replace.
 - `scripts/dev/probes/projects-pull-acceptance.mjs` (new): a lab repository behind its own bare remote, checking that the row reports being behind once the check has fetched, that a differently named upstream is refused both in the interface and by the command, and that the per-row pull then leaves the row clean.
 
+**Both lists gain an owner column, and their columns can be sorted**
+
+- `src/lib/ownership.ts` (new), `src/lib/ownership.test.ts` (new): whether a row belongs to the signed-in account, read from the account name and the repository slug or the folder name. A name that cannot be told apart answers unknown rather than claiming it belongs to somebody else.
+- `src/components/ui/sort-header.tsx` (new): the sortable header cell and the sort state both tables cycle, taken out of the project list so the two lists share one.
+- `src/modules/projects/lib/rows.ts`, `src/modules/remotes/lib/rows.ts`, with their tests and types: the owner column, and sorting by repository, owner, visibility, language, pushed and description. Pushed sorts on the raw timestamp, because the label on screen is a relative string that orders the wrong way, and visibility sorts public first rather than on the translated label.
+- `src/modules/projects/ProjectsView.tsx`, `src/modules/remotes/RemoteReposView.tsx`: the shared header cells and the owner cells in both tables. The project list reads the account once per panel visit, since that costs a `gh repo list`.
+- `src/modules/i18n/messages.ts`: the owner labels and the two column headers, Chinese and English.
+
 </details>
 
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   cycleSort,
   filterRows,
+  ownershipOfRow,
   sessionBelongsToProject,
   sessionsForProject,
   sortRows,
@@ -28,6 +29,8 @@ function status(over: Partial<ProjectStatus>): ProjectStatus {
     dirty: 0,
     stashed: 0,
     error: null,
+    // The check asks for a fetch; a row in these tests is one whose fetch worked.
+    fetchError: null,
     ...over,
   };
 }
@@ -39,6 +42,7 @@ function row(over: Partial<ProjectRow>): ProjectRow {
     managed: true,
     status: status({}),
     checking: false,
+    ownership: "unknown",
     ...over,
   };
 }
@@ -125,6 +129,40 @@ describe("sortRows", () => {
     expect(
       sortRows(rows2, { key: "state", ascending: true }).map((r) => r.path),
     ).toEqual(["F:\\missing", "F:\\dirty", "F:\\clean"]);
+  });
+
+  it("groups the account's own projects first when sorting by owner", () => {
+    const rows3 = [
+      row({ path: "F:\\other", ownership: "others" }),
+      row({ path: "F:\\mine", ownership: "mine" }),
+      row({ path: "F:\\unknown", ownership: "unknown" }),
+    ];
+    expect(
+      sortRows(rows3, { key: "owner", ascending: true }).map((r) => r.path),
+    ).toEqual(["F:\\mine", "F:\\other", "F:\\unknown"]);
+  });
+});
+
+describe("ownershipOfRow", () => {
+  it("matches a repository's folder name against the account", () => {
+    const account = { login: "Zomcxj", mine: ["Verta"] };
+    expect(ownershipOfRow(status({ name: "Verta" }), account)).toBe("mine");
+    expect(ownershipOfRow(status({ name: "bear_bill" }), account)).toBe(
+      "others",
+    );
+  });
+
+  // Only a repository has a name worth comparing, and a status that has not come back
+  // yet must not be read as "somebody else's".
+  it("says unknown for a folder that is not a repository, or has no status yet", () => {
+    const account = { login: "Zomcxj", mine: ["Verta"] };
+    expect(ownershipOfRow(status({ kind: "notRepo" }), account)).toBe(
+      "unknown",
+    );
+    expect(ownershipOfRow(status({ kind: "missing", name: "Verta" }), account)).toBe(
+      "unknown",
+    );
+    expect(ownershipOfRow(null, account)).toBe("unknown");
   });
 });
 

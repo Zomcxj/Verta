@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { WireRemoteRepo, WireRemoteReposPayload } from "@/lib/native";
-import { cloneUrlOf, copyTextOf, filterRows, noticeOf, pushedLabel, toRows } from "./rows";
+import {
+  cloneUrlOf,
+  copyTextOf,
+  filterRows,
+  noticeOf,
+  pushedLabel,
+  sortRows,
+  toRows,
+} from "./rows";
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 
@@ -69,11 +77,13 @@ describe("toRows", () => {
       fullName: "Zomcxj/verta",
       owner: "Zomcxj",
       name: "verta",
+      ownership: "mine",
       isPrivate: false,
       isFork: false,
       isArchived: false,
       language: "Rust",
       pushed: "3 小时前",
+      pushedMs: Date.parse("2026-10-18T09:00:00Z"),
       description: "desktop workbench",
       webUrl: "https://github.com/Zomcxj/verta",
       cloneUrl: "https://github.com/Zomcxj/verta.git",
@@ -88,6 +98,126 @@ describe("toRows", () => {
     );
     expect(row.language).toBeNull();
     expect(row.description).toBeNull();
+  });
+
+  it("has no push time to sort on when GitHub's timestamp cannot be parsed", () => {
+    const [row] = toRows(
+      payload({ repos: [repo({ pushedAt: "not a date" })] }),
+      NOW,
+      "zh",
+    );
+    expect(row.pushed).toBeNull();
+    expect(row.pushedMs).toBeNull();
+  });
+
+  // The account is only known when gh answered with one: without it every row would be
+  // labelled, and half of those labels would be wrong.
+  it("leaves ownership unknown when the listing carries no login", () => {
+    const [row] = toRows(payload({ login: null, repos: [repo()] }), NOW, "zh");
+    expect(row.ownership).toBe("unknown");
+  });
+
+  it("tells repositories owned by other accounts apart from the account's own", () => {
+    const rows = toRows(
+      payload({
+        repos: [
+          repo({ owner: "Zomcxj", fullName: "Zomcxj/verta" }),
+          repo({ owner: "V-lambow", fullName: "V-lambow/QTTD" }),
+        ],
+      }),
+      NOW,
+      "zh",
+    );
+    expect(rows.map((row) => row.ownership)).toEqual(["mine", "others"]);
+  });
+});
+
+describe("sortRows", () => {
+  const rows = toRows(
+    payload({
+      repos: [
+        repo({ fullName: "Zomcxj/beta", language: "Rust" }),
+        repo({
+          fullName: "ai-fusion/alpha",
+          owner: "ai-fusion",
+          language: null,
+          isPrivate: true,
+          pushedAt: "2026-10-18T11:00:00Z",
+          description: null,
+        }),
+        repo({
+          fullName: "Zomcxj/gamma",
+          isPrivate: false,
+          pushedAt: null,
+          description: "zebra",
+        }),
+      ],
+    }),
+    NOW,
+    "zh",
+  );
+  const names = (sorted: typeof rows) => sorted.map((row) => row.fullName);
+
+  it("keeps the read order when no column is sorted", () => {
+    expect(names(sortRows(rows, null))).toEqual(names(rows));
+  });
+
+  it("sorts by repository name in both directions", () => {
+    expect(names(sortRows(rows, { key: "repo", ascending: true }))).toEqual([
+      "ai-fusion/alpha",
+      "Zomcxj/beta",
+      "Zomcxj/gamma",
+    ]);
+    expect(names(sortRows(rows, { key: "repo", ascending: false }))).toEqual([
+      "Zomcxj/gamma",
+      "Zomcxj/beta",
+      "ai-fusion/alpha",
+    ]);
+  });
+
+  // The column shows a relative label, so a sort on it has to use the raw timestamp:
+  // "3 小时前" and "1 小时前" are strings that order the wrong way round.
+  it("sorts push time by the timestamp rather than by the label it shows", () => {
+    expect(names(sortRows(rows, { key: "pushed", ascending: false }))).toEqual([
+      "ai-fusion/alpha",
+      "Zomcxj/beta",
+      "Zomcxj/gamma",
+    ]);
+    expect(names(sortRows(rows, { key: "pushed", ascending: true }))).toEqual([
+      "Zomcxj/gamma",
+      "Zomcxj/beta",
+      "ai-fusion/alpha",
+    ]);
+  });
+
+  // The column shows one of three labels; the account's own repositories come first, then
+  // other people's, then the ones we could not tell (no account read).
+  it("sorts ownership with the account's own repositories first", () => {
+    expect(names(sortRows(rows, { key: "owner", ascending: true }))).toEqual([
+      "Zomcxj/beta",
+      "Zomcxj/gamma",
+      "ai-fusion/alpha",
+    ]);
+    expect(names(sortRows(rows, { key: "owner", ascending: false }))).toEqual([
+      "ai-fusion/alpha",
+      "Zomcxj/beta",
+      "Zomcxj/gamma",
+    ]);
+  });
+
+  it("sorts visibility with public first, and missing text sorts as empty", () => {    expect(names(sortRows(rows, { key: "visibility", ascending: true }))).toEqual([
+      "Zomcxj/beta",
+      "Zomcxj/gamma",
+      "ai-fusion/alpha",
+    ]);
+    expect(names(sortRows(rows, { key: "language", ascending: true }))).toEqual([
+      "ai-fusion/alpha",
+      "Zomcxj/beta",
+      "Zomcxj/gamma",
+    ]);
+    expect(
+      names(sortRows(rows, { key: "description", ascending: false })),
+    ).toEqual(["Zomcxj/gamma", "Zomcxj/beta", "ai-fusion/alpha"]);
   });
 });
 

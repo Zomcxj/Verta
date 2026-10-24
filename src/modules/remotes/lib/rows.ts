@@ -1,3 +1,5 @@
+import type { SortState } from "@/components/ui/sort-header";
+import { accountFrom, ownershipOfRepo, ownershipRank } from "@/lib/ownership";
 import type { WireRemoteReposPayload } from "@/lib/native";
 import type { Language } from "@/modules/i18n/language";
 import { relativeTime } from "@/modules/launcher";
@@ -10,6 +12,13 @@ export function cloneUrlOf(webUrl: string): string {
   return trimmed ? `${trimmed}.git` : "";
 }
 
+/** The raw push time, or null when GitHub gives nothing parseable. */
+function pushedMsOf(pushedAt: string | null): number | null {
+  if (!pushedAt) return null;
+  const ms = Date.parse(pushedAt);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 /** Push time: GitHub gives ISO8601, folded into the panel's relative time; when it
  * cannot be parsed we do not pretend there is a time. */
 export function pushedLabel(
@@ -17,10 +26,8 @@ export function pushedLabel(
   nowMs: number,
   language: Language,
 ): string | null {
-  if (!pushedAt) return null;
-  const ms = Date.parse(pushedAt);
-  if (!Number.isFinite(ms)) return null;
-  return relativeTime(nowMs, ms, language);
+  const ms = pushedMsOf(pushedAt);
+  return ms === null ? null : relativeTime(nowMs, ms, language);
 }
 
 export function toRows(
@@ -28,19 +35,70 @@ export function toRows(
   nowMs: number,
   language: Language,
 ): RemoteRepoRow[] {
+  const account = accountFrom(payload.login, payload.repos);
   return payload.repos.map((repo) => ({
     fullName: repo.fullName,
     owner: repo.owner,
     name: repo.name,
+    ownership: ownershipOfRepo(repo.owner, account),
     isPrivate: repo.isPrivate,
     isFork: repo.isFork,
     isArchived: repo.isArchived,
     language: repo.language,
     pushed: pushedLabel(repo.pushedAt, nowMs, language),
+    pushedMs: pushedMsOf(repo.pushedAt),
     description: repo.description,
     webUrl: repo.webUrl,
     cloneUrl: cloneUrlOf(repo.webUrl),
   }));
+}
+
+/** Columns of the remote list that can be sorted on. */
+export type RemoteSortKey =
+  | "repo"
+  | "owner"
+  | "visibility"
+  | "language"
+  | "pushed"
+  | "description";
+
+export type RemoteSortState = SortState<RemoteSortKey>;
+
+/** What one row contributes to a sorted column. Missing values sort as empty. */
+function sortValue(row: RemoteRepoRow, key: RemoteSortKey): string | number {
+  switch (key) {
+    case "repo":
+      return row.fullName.toLowerCase();
+    case "owner":
+      return ownershipRank(row.ownership);
+    case "visibility":
+      // Public then private: the displayed label is translated, so it cannot be the key.
+      return row.isPrivate ? 1 : 0;
+    case "language":
+      return row.language?.toLowerCase() ?? "";
+    case "pushed":
+      // The column shows a relative label, so the raw timestamp is what sorts.
+      return row.pushedMs ?? -1;
+    case "description":
+      return (row.description ?? "").toLowerCase();
+    default:
+      return 0;
+  }
+}
+
+/** Stable ordering for the list; a null sort keeps whatever order the read returned. */
+export function sortRows(
+  rows: RemoteRepoRow[],
+  sort: RemoteSortState,
+): RemoteRepoRow[] {
+  if (!sort) return rows;
+  const direction = sort.ascending ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const left = sortValue(a, sort.key);
+    const right = sortValue(b, sort.key);
+    if (left === right) return 0;
+    return (left < right ? -1 : 1) * direction;
+  });
 }
 
 /** Keyword matches the full name, description, and language; an empty keyword returns

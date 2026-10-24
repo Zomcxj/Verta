@@ -1,16 +1,22 @@
+import type { Ownership } from "@/lib/ownership";
 import type { WireRemoteReposPayload } from "@/lib/native";
 
-/** A remote repo as a UI row: the wire fields plus two values computed in the UI. */
+/** A remote repo as a UI row: the wire fields plus values computed in the UI. */
 export type RemoteRepoRow = {
   fullName: string;
   owner: string;
   name: string;
+  /** Whether this repository belongs to the signed-in account. */
+  ownership: Ownership;
   isPrivate: boolean;
   isFork: boolean;
   isArchived: boolean;
   language: string | null;
   /** Relative time label; null when GitHub gives no push time or one that cannot be parsed. */
   pushed: string | null;
+  /** The raw push time behind `pushed`, so the column can sort by time rather than by the
+   * label it shows. Null when GitHub gives nothing parseable. */
+  pushedMs: number | null;
   description: string | null;
   webUrl: string;
   /** URL used by `git clone`. */

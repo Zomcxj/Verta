@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/hover-card";
 import { CloneRepoDialog } from "./CloneRepoDialog";
 import { Input } from "@/components/ui/input";
+import { SortHeader } from "@/components/ui/sort-header";
 import { cn } from "@/lib/utils";
 import { useLanguage, useT, type MessageKey } from "@/modules/i18n";
 import {
@@ -42,6 +43,7 @@ import {
   topLevelSessions,
 } from "@/modules/launcher";
 import { native, type WireProjectTarget } from "@/lib/native";
+import { type Account, accountFrom, ownershipLabelKey } from "@/lib/ownership";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { discoveredEntries, entriesFromPaths } from "./lib/entries";
@@ -53,13 +55,12 @@ import {
   samePath,
 } from "./lib/paths";
 import {
-  cycleSort,
   filterRows,
+  ownershipOfRow,
   sessionsForProject,
   sortRows,
   stateOf,
   type RowState,
-  type SortKey,
   type SortState,
 } from "./lib/rows";
 import { loadProjectPaths, saveProjectPaths } from "./lib/store";
@@ -117,6 +118,8 @@ export function ProjectsView({
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [account, setAccount] = useState<Account>(null);
+  const [accountRead, setAccountRead] = useState(false);
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortState>(null);
   const [scanning, setScanning] = useState(false);
@@ -159,6 +162,26 @@ export function ProjectsView({
       alive = false;
     };
   }, [active]);
+
+  // Which projects are the account's own: read once the panel is shown, since it costs a
+  // `gh repo list`. A failed read is not remembered, so switching sub-tabs tries again.
+  useEffect(() => {
+    if (!active || accountRead) return;
+    let alive = true;
+    void native
+      .githubRepos()
+      .then((payload) => {
+        if (!alive) return;
+        setAccount(accountFrom(payload.login, payload.repos));
+        setAccountRead(true);
+      })
+      .catch(() => {
+        // No account simply leaves the column unknown; the remote list reports why.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [active, accountRead]);
 
   const managed = useMemo(
     () => (paths ? entriesFromPaths(paths) : []),
@@ -217,12 +240,16 @@ export function ProjectsView({
 
   const rows: ProjectRow[] = useMemo(
     () =>
-      entries.map((entry) => ({
-        ...entry,
-        status: statuses[normalizePath(entry.path)] ?? null,
-        checking,
-      })),
-    [entries, statuses, checking],
+      entries.map((entry) => {
+        const status = statuses[normalizePath(entry.path)] ?? null;
+        return {
+          ...entry,
+          status,
+          checking,
+          ownership: ownershipOfRow(status, account),
+        };
+      }),
+    [entries, statuses, checking, account],
   );
 
   const visible = useMemo(
@@ -408,7 +435,14 @@ export function ProjectsView({
                   column="name"
                   sort={sort}
                   onSort={setSort}
-                  className="w-[34%]"
+                  className="w-[26%]"
+                />
+                <SortHeader
+                  label={t("projects.col.owner")}
+                  column="owner"
+                  sort={sort}
+                  onSort={setSort}
+                  className="w-[8%]"
                 />
                 <SortHeader
                   label={t("projects.col.branch")}
@@ -508,37 +542,6 @@ export function ProjectsView({
 
 function samePathAny(paths: string[], target: string): boolean {
   return paths.some((path) => samePath(path, target));
-}
-
-function SortHeader({
-  label,
-  column,
-  sort,
-  onSort,
-  className,
-}: {
-  label: string;
-  column: SortKey;
-  sort: SortState;
-  onSort: (next: SortState) => void;
-  className?: string;
-}) {
-  const active = sort?.key === column;
-  return (
-    <th className={cn("px-2 py-1 font-medium", className)}>
-      <button
-        type="button"
-        className={cn(
-          "inline-flex items-center gap-1 hover:text-foreground",
-          active && "text-foreground",
-        )}
-        onClick={() => onSort(cycleSort(sort, column))}
-      >
-        {label}
-        {active ? <span>{sort?.ascending ? "▲" : "▼"}</span> : null}
-      </button>
-    </th>
-  );
 }
 
 function ProjectRowView({
@@ -662,6 +665,9 @@ function ProjectRowView({
                 />
               </HoverCardContent>
             </HoverCard>
+          </td>
+          <td className="truncate px-2 py-1 text-muted-foreground">
+            {t(ownershipLabelKey(row.ownership))}
           </td>
           <td className="truncate px-2 py-1 text-muted-foreground">
             {row.status?.detached
