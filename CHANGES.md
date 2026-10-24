@@ -17,10 +17,6 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-24</strong></summary>
 
-**A picture opened in the editor really does show its own pixels**
-
-- `src/modules/editor/EditorPane.tsx`: original size says `max-w-none`, because the base layer caps every image at its container's width and a picture wider than the pane was therefore drawn at the same size in both modes. The scrollport that holds the picture centres with `safe center`: plain centring aligns an overflowing picture in the middle of its own box, which leaves its leading edge outside the scrollable range, so the left of a wide picture could not be scrolled to. Measured on the running app: a 1079 x 811 picture was 844 x 635 in both modes before, and is 844 x 635 fitted and 973 x 732 at original size after, with both edges reachable in the scrollport.
-
 **The terminal cell pitch follows the font, not the pane**
 
 - `src/modules/terminal/ghostty/gpu/TerminalFit.ts`: `gridDeviceSize` states the device-pixel rectangle a grid of cells covers, and the viewport fit now takes its pixel size from the same function, so what the surface reports to the shell and what the renderer draws into cannot drift apart.
@@ -95,6 +91,23 @@ swap in the new date, and drop the `open` from the day before.
 **An opened image no longer lays down a slab of its own**
 
 - `src/modules/editor/EditorPane.tsx`: the viewer that fills the pane for an image, a video, an audio file or a PDF stops painting `bg-background` itself, the same fix and reason the side preview column, the markdown preview, the preview pane and the editor area already carry. A glass theme tints its panes to 0.28, so that opaque background covered the tint and the whole pane read as a different surface than the window around it; a theme that does not tint paints the same colour on the pane itself, so nothing changes there. Measured on the running app with the repository's own `opaque-surfaces.js`: the viewer was the only opaque surface large enough to cover a pane (59% of the window) and is gone.
+
+**A picture opened in the editor really does show its own pixels**
+
+- `src/modules/editor/EditorPane.tsx`: original size says `max-w-none`, because the base layer caps every image at its container's width and a picture wider than the pane was therefore drawn at the same size in both modes. The scrollport that holds the picture centres with `safe center`: plain centring aligns an overflowing picture in the middle of its own box, which leaves its leading edge outside the scrollable range, so the left of a wide picture could not be scrolled to. Measured on the running app: a 1079 x 811 picture was 844 x 635 in both modes before, and is 844 x 635 fitted and 973 x 732 at original size after, with both edges reachable in the scrollport.
+
+**The projects panel opens on the statuses it last read**
+
+- `src/modules/projects/lib/statusStore.ts` (new): the statuses of the last check, kept in memory for this window and in the `statuses` key of `verta-projects.json` for the next one, with a pure validator so a hand-edited or half-written file reads as "nothing remembered" instead of raising.
+- `src/modules/projects/lib/statusStore.test.ts` (new): the validator refuses what is not a snapshot and keeps the entries that are, the snapshot comes back from memory and then from disk, the same statuses are not written twice, and a project that left the list has its status dropped on disk as well.
+- `src/modules/projects/ProjectsView.tsx`: the panel starts from what it remembers and checks right after; the file is still read, since it can be newer than the copy in memory, and a read that lands after a check has run loses to the check's own stamp. A project that is not in the list yet does not count as "no projects", so the list loading never wipes the remembered statuses. A batch that fails keeps the rows and reports the failure above them, and a project removed from the list has its status forgotten.
+- `scripts/dev/probes/panel-state-restore.mjs` (new): proves this on the running app. A marked snapshot is put in the store, the panel's tab is closed and opened again, and the marker has to be on screen while the batch of git reads is still out; the store is then put back and the panel's own check has to settle the rows.
+
+**The repository list opens on the list it last read**
+
+- `src/modules/remotes/lib/listStore.ts` (new): the last `ready` repository list, in memory for this window and in `verta-remotes.json` for the next one. A read that describes this machine rather than the account (gh missing, nobody logged in) is held in memory only, so the next window still opens on the last real list and then finds out for itself.
+- `src/modules/remotes/lib/listStore.test.ts` (new): only a `ready` payload is remembered, a state of this machine is never written to disk, and the same object handed to the store twice is written once.
+- `src/modules/remotes/RemoteReposView.tsx`: the list is drawn from what it remembers and the gh read runs right after it; a read that came back saying something about the machine, or that failed outright, is reported above the rows it already has rather than replacing them.
 
 </details>
 

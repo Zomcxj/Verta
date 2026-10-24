@@ -20,7 +20,7 @@ import { ownershipLabelKey } from "@/lib/ownership";
 import { cn } from "@/lib/utils";
 import { native, type WireRemoteReposPayload, type WireRepoCiPayload } from "@/lib/native";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLanguage, useT, type MessageKey } from "@/modules/i18n";
 import {
@@ -39,6 +39,11 @@ import { NewRepoDialog } from "./NewRepoDialog";
 import { TONE_CLASS, ciView, type CiView } from "./lib/ci";
 import { cloneDestFromProjects } from "./lib/repoAdmin";
 import { ciFromRuns } from "./lib/runs";
+import {
+  readRepoSnapshot,
+  readRepoSnapshotMemory,
+  rememberRepoSnapshot,
+} from "./lib/listStore";
 import {
   cloneUrlOf,
   copyTextOf,
@@ -59,12 +64,25 @@ type Props = {
  * Remote repo list (account-level repos read by the local gh). A center-area tab
  * following the same pattern as Projects: there is no local state like the
  * project list, everything comes from a single query.
+ *
+ * The query is not what the panel waits for: it draws the list it read last (see
+ * `listStore`) and reads again right away, so reopening the tab is not a blank panel while
+ * gh runs. A read that comes back saying something else about the machine, or that fails
+ * outright, is reported above the rows it already has rather than replacing them.
  */
 export function RemoteReposView({ active }: Props) {
   const t = useT();
   const language = useLanguage();
 
-  const [payload, setPayload] = useState<WireRemoteReposPayload | null>(null);
+  const [payload, setPayload] = useState<WireRemoteReposPayload | null>(
+    () => readRepoSnapshotMemory()?.payload ?? null,
+  );
+  /**
+   * What the latest read had to say when it would not replace the rows on screen. Kept
+   * apart from `payload` so the rows stay and the reason shows above them.
+   */
+  const [noticePayload, setNoticePayload] =
+    useState<WireRemoteReposPayload | null>(null);
   const [reading, setReading] = useState(false);
   /** Raw message when the command itself failed (no `kind` at all); kept apart
    * from errors that gh reported. */
@@ -145,24 +163,66 @@ export function RemoteReposView({ active }: Props) {
     [ci, ciBusy],
   );
 
+  /** The rows on screen, read inside `read` without making it depend on them. */
+  const heldPayload = useRef(payload);
+  heldPayload.current = payload;
+
   const read = useCallback(async () => {
     setReading(true);
     setFailure(null);
     try {
-      setPayload(await native.githubRepos());
+      const fresh = await native.githubRepos();
+      const held = heldPayload.current;
+      if (fresh.kind === "ready" || !held || held.kind !== "ready") {
+        setPayload(fresh);
+        setNoticePayload(null);
+      } else {
+        // The rows stay: what came back describes the machine, not the account, so it is
+        // said above the list instead of replacing it.
+        setNoticePayload(fresh);
+      }
     } catch (e) {
+      // The command itself failed; the rows on screen stay and the message goes above them.
       setFailure(String(e));
     } finally {
       setReading(false);
     }
   }, []);
 
-  // Read once on first appearance; after that the refresh button is in charge,
-  // and switching tabs does not re-hit the network.
+  // An opened panel draws what it remembers and then reads once, whatever it drew. After
+  // that the refresh button is in charge, and switching sub-tabs does not re-hit the
+  // network. Closing the tab and opening it again is a new mount, so it reads again.
+  const readOnOpen = useRef(false);
   useEffect(() => {
-    if (!active || payload !== null) return;
+    if (!active || readOnOpen.current) return;
+    readOnOpen.current = true;
     void read();
-  }, [active, payload, read]);
+  }, [active, read]);
+
+  // The file is only consulted when this window has nothing to draw: what it holds has sat
+  // there since the last window closed.
+  useEffect(() => {
+    if (!active || heldPayload.current) return;
+    let alive = true;
+    void readRepoSnapshot()
+      .then((snapshot) => {
+        if (!alive || !snapshot || heldPayload.current) return;
+        heldPayload.current = snapshot.payload;
+        setPayload(snapshot.payload);
+      })
+      .catch(() => {
+        // The read that runs anyway decides what the panel shows.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [active]);
+
+  // What is on screen is what the next visit starts from.
+  useEffect(() => {
+    if (!payload) return;
+    rememberRepoSnapshot({ at: Date.now(), payload });
+  }, [payload]);
 
   const rows = useMemo(
     () => (payload ? toRows(payload, Date.now(), language) : []),
@@ -172,7 +232,10 @@ export function RemoteReposView({ active }: Props) {
     () => sortRows(filterRows(rows, filter), sort),
     [rows, filter, sort],
   );
-  const notice = payload ? noticeOf(payload, visible.length, filter) : null;
+  const noticeSource = noticePayload ?? payload;
+  const notice = noticeSource
+    ? noticeOf(noticeSource, visible.length, filter)
+    : null;
 
   const copy = useCallback((value: string) => {
     // Clipboard is best-effort: stay silent when permission is missing rather
@@ -427,7 +490,8 @@ export function RemoteReposView({ active }: Props) {
             <div className="mt-2 flex flex-wrap gap-2">
               {/* When gh is missing or logged out, the account panel is the most
                   direct next step. */}
-              {payload.kind === "notLoggedIn" || payload.kind === "notInstalled" ? (
+              {noticeSource?.kind === "notLoggedIn" ||
+              noticeSource?.kind === "notInstalled" ? (
                 <Button
                   variant="ghost"
                   size="sm"
