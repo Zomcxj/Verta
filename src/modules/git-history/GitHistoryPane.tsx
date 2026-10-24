@@ -527,7 +527,10 @@ export function GitHistoryPane({
 
   return (
     <TooltipProvider delayDuration={500} skipDelayDuration={200}>
-      <div className="flex h-full min-h-0 flex-col bg-background [contain:layout_style]">
+      {/* No `bg-background` here: it painted an opaque sheet over the pane's own tint, which is
+          what kept this page solid in a glass theme. The pane already supplies the colour
+          (`--background` when the theme is opaque, its tint when it asks for glass). */}
+      <div className="flex h-full min-h-0 flex-col [contain:layout_style]">
         {loadStatus === "initial" && commits.length === 0 ? (
           <CenterPlaceholder>
             <Spinner className="size-4" />

@@ -59,6 +59,10 @@ swap in the new date, and drop the `open` from the day before.
 - `src/styles/compositingBudget.test.ts`: the allowlist entry moves from the menu file to the shared layer file, with the reason it is mounted only while one is open.
 - `VERTA.md`: the compositing budget bullet records the scrim as a menu's and a popover's, not a menu's alone.
 
+**The commit history and commit diff pages take the pane's tint instead of a solid sheet**
+
+- `src/modules/git-history/GitHistoryPane.tsx`, `src/modules/editor/GitDiffPane.tsx`: neither page paints `bg-background` on its own root any more, so in a glass theme the acrylic shows through them the way it does through the explorer, the source-control panel and the editor. They were the last two pages keeping an opaque sheet over their pane's own tint, which is what made the commit history read as solid while every panel around it was glass. The pane already supplies the colour (`--background` when the theme is opaque, its tint when the theme asks for glass), so nothing changes for an opaque theme.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 

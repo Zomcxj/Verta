@@ -252,7 +252,10 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    // No `bg-background` here: it painted an opaque sheet over the pane's own tint, which is what
+    // kept this page solid in a glass theme. The pane already supplies the colour
+    // (`--background` when the theme is opaque, its tint when it asks for glass).
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border/60 px-3">
         <div className="flex min-w-0 items-center gap-2">
           <Badge
