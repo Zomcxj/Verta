@@ -4,11 +4,36 @@ import * as React from "react"
 import { Popover as PopoverPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { FloatingScrim } from "./floating-scrim"
 
 function Popover({
+  open: openProp,
+  defaultOpen = false,
+  onOpenChange,
+  children,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />
+  // The scrim needs to know whether the popover is open, and the popover cannot be asked from
+  // outside its own subtree, so the open state is mirrored here: uncontrolled popovers keep their
+  // state, controlled ones keep their owner's, and in both cases the owner's callback still runs.
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen)
+  const open = openProp ?? uncontrolledOpen
+  return (
+    <PopoverPrimitive.Root
+      data-slot="popover"
+      open={open}
+      onOpenChange={(next) => {
+        setUncontrolledOpen(next)
+        onOpenChange?.(next)
+      }}
+      {...props}
+    >
+      {children}
+      <PopoverPrimitive.Portal>
+        <FloatingScrim open={open} />
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
+  )
 }
 
 function PopoverTrigger({

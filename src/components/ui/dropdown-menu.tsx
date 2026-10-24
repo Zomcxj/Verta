@@ -4,48 +4,7 @@ import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
 import { cn } from "@/lib/utils"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Tick02Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons"
-
-/** How long the layer stays up after a menu starts closing, matching the menu's own fade. */
-const MENU_SCRIM_EXIT_MS = 100
-
-/**
- * The dark, blurred layer a menu sits on.
- *
- * The command palette is a dialog, so it has always opened over a scrim (`DialogOverlay`: a third of
- * black with an 8px backdrop blur). The menus had none, which made a small menu read as pasted onto
- * the interface rather than floating above it. This is the same layer with the same recipe, and it
- * is up only while a menu is open: the compositing budget keeps blurred layers out of anything the
- * shell mounts by default, and its allowlist carries that reason.
- *
- * `z-40` places it between the interface and the menu: `#root` is `position: static`, while Radix's
- * popper wrapper is `position: fixed` at `z-index: 50`. Pointer events pass through, because Radix
- * already makes an open menu modal by blocking the page behind it, and a layer that swallowed clicks
- * would break the menu's own dismissal.
- */
-function DropdownMenuScrim({ open }: { open: boolean }) {
-  const [mounted, setMounted] = React.useState(open)
-  React.useEffect(() => {
-    if (open) {
-      setMounted(true)
-      return
-    }
-    const timer = window.setTimeout(() => setMounted(false), MENU_SCRIM_EXIT_MS)
-    return () => window.clearTimeout(timer)
-  }, [open])
-  if (!mounted) return null
-  return (
-    <DropdownMenuPrimitive.Portal>
-      <div
-        data-slot="dropdown-menu-scrim"
-        aria-hidden="true"
-        className={cn(
-          "pointer-events-none fixed inset-0 isolate z-40 bg-black/30 backdrop-blur-sm duration-100",
-          open ? "animate-in fade-in-0" : "animate-out fade-out-0"
-        )}
-      />
-    </DropdownMenuPrimitive.Portal>
-  )
-}
+import { FloatingScrim } from "./floating-scrim"
 
 function DropdownMenu({
   open: openProp,
@@ -70,7 +29,9 @@ function DropdownMenu({
       {...props}
     >
       {children}
-      <DropdownMenuScrim open={open} />
+      <DropdownMenuPrimitive.Portal>
+        <FloatingScrim open={open} />
+      </DropdownMenuPrimitive.Portal>
     </DropdownMenuPrimitive.Root>
   )
 }

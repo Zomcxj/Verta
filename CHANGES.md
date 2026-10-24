@@ -51,6 +51,14 @@ swap in the new date, and drop the `open` from the day before.
 - `src/components/ui/sonner.tsx`: the toaster is memoised. It is not part of a tab change, and sonner reads the document direction with `getComputedStyle` on every render of its own component, which forces a style recalculation of the whole document.
 - `src/modules/command-palette/CommandPalette.tsx`, `src/modules/updater/UpdaterDialog.tsx`: memoised for the same reason, since both are mounted whether or not they are open and both render a dialog's worth of Radix layers when they render.
 
+**A popover opens over the same blurred layer a menu does**
+
+- `src/components/ui/floating-scrim.tsx` (new): the layer a floating surface sits on, extracted from the menu so menus and popovers share one recipe: a third of black with an 8px blur, `z-40`, pointer events passing through, and up only while the surface is.
+- `src/components/ui/popover.tsx`: every popover mounts that layer, so the commit card in the commit graph no longer reads as a small slab pasted onto the interface. Its open state is mirrored the way the menu's is, so controlled and uncontrolled popovers both drive the layer, and the layer is placed inside the popover's portal so it leaves with it.
+- `src/components/ui/dropdown-menu.tsx`: the menu's own copy of the layer is gone; it mounts the shared one.
+- `src/styles/compositingBudget.test.ts`: the allowlist entry moves from the menu file to the shared layer file, with the reason it is mounted only while one is open.
+- `VERTA.md`: the compositing budget bullet records the scrim as a menu's and a popover's, not a menu's alone.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 
