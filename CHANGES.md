@@ -73,6 +73,14 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/i18n/messages.ts`: the create, rename and description strings, Chinese and English.
 - `scripts/dev/probes/create-rename-acceptance.mjs`, `scripts/dev/probes/description-edit-acceptance.mjs`, `scripts/dev/probes/visibility-toggle-acceptance.mjs` (new): the three flows driven through the interface against the real account, with the GitHub side checked outside the scripts.
 
+**A release's title and notes can be edited from its detail**
+
+- `src-tauri/src/modules/github/releases.rs`, `src-tauri/src/modules/github/types.rs`, `src-tauri/src/modules/github/commands.rs`, `src-tauri/src/lib.rs`: `github_release_edit` sends both fields every time, so emptying one really clears it, and it goes through the REST call because `gh release edit` cannot take a body the way it arrives; the id is checked locally first.
+- `src/modules/remotes/lib/releases.ts`, `src/modules/remotes/lib/releases.test.ts`: a release's stored title is kept apart from the name shown, so an edit cannot read back a display name it invented.
+- `src/modules/remotes/ReleasesDialog.tsx`, `src/modules/remotes/ReleaseDetail.tsx`: an edit form in the detail, and the permission read that decides whether to offer it, cached per repository.
+- `src/lib/native.ts`: `githubReleaseEdit` and its result type.
+- `scripts/dev/probes/release-edit-acceptance.mjs` (new): opens a release, edits it, and checks the toast and the re-read detail.
+
 </details>
 
 

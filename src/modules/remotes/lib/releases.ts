@@ -6,7 +6,10 @@ import { relativeTime } from "@/modules/launcher";
 export type ReleaseRow = {
   id: number;
   tagName: string;
+  /** Display name: the stored title, or the tag when the title is empty. */
   name: string;
+  /** Title as GitHub actually stores it; the list shows the tag when this is empty. */
+  title: string;
   body: string;
   draft: boolean;
   prerelease: boolean;
@@ -154,6 +157,7 @@ export function releaseRows(
       id: release.id,
       tagName: release.tagName,
       name: release.name.trim() || release.tagName,
+      title: release.name,
       body: release.body,
       draft: release.draft,
       prerelease: release.prerelease,

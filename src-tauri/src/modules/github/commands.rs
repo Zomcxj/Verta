@@ -1,6 +1,7 @@
 //! Commands behind the GitHub panel: use the locally logged-in gh CLI to fetch
 //! repositories, CI status, run lists and details, and releases; plus rerun /
-//! cancel / delete a run and download release assets into a user-chosen directory.
+//! cancel / delete a run, edit a release's title and body, and download release
+//! assets into a user-chosen directory.
 //!
 //! gh is account-scoped, so it always runs in the host environment regardless of
 //! the current space / distro. Pure logic lives in `repos.rs` / `ci.rs` /
@@ -37,10 +38,10 @@ use super::repos::{
 };
 use super::types::{
     AuthActionPayload, AuthLoginProgress, AuthStatusPayload, IssueActionResult, IssueDetailPayload,
-    IssueListPayload, PullRequestCommit, ReleaseDownloadProgress, ReleaseDownloadResult, RemoteRepo,
-    RemoteReposPayload, RepoActionRunsPayload, RepoActionResult, RepoCiPayload,
-    RepoPermissionPayload, RepoReleasesPayload, RepoRunActionResult, RepoRunJobsPayload,
-    RepoRunLogPayload, RepoSettingsPayload, KIND_ERROR,
+    IssueListPayload, PullRequestCommit, ReleaseDownloadProgress, ReleaseDownloadResult,
+    ReleaseEditResult, RemoteRepo, RemoteReposPayload, RepoActionRunsPayload, RepoActionResult,
+    RepoCiPayload, RepoPermissionPayload, RepoReleasesPayload, RepoRunActionResult,
+    RepoRunJobsPayload, RepoRunLogPayload, RepoSettingsPayload, KIND_ERROR,
 };
 
 /// Repositories the current account can reach (own + collaborator + visible to
@@ -1754,6 +1755,55 @@ fn read_releases(repo: &str, limit: Option<usize>) -> RepoReleasesPayload {
             &slug,
             format!("gh 返回的 Release 列表无法解析：{error}"),
         ),
+    }
+}
+
+/// Edit a release's title and body.
+///
+/// Both fields are always sent: the edit form is prefilled from the release being
+/// edited, so an empty string means "clear this field", not "leave it alone".
+#[tauri::command]
+pub async fn github_release_edit(
+    repo: String,
+    id: u64,
+    name: String,
+    body: String,
+) -> Result<ReleaseEditResult, String> {
+    blocking(move || Ok(release_edit(&repo, id, &name, &body))).await
+}
+
+fn release_edit(repo: &str, id: u64, name: &str, body: &str) -> ReleaseEditResult {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        Err(message) => return ReleaseEditResult::failed(KIND_ERROR, repo.trim(), id, message),
+    };
+    if let Some(problem) = releases::id_problem(id) {
+        return ReleaseEditResult::failed(KIND_ERROR, &slug, id, problem);
+    }
+
+    // Only the title is trimmed; the body is sent verbatim, whitespace included.
+    let name = name.trim();
+
+    // `gh api --method PATCH` rather than `gh release edit`: the REST call takes the
+    // JSON body as-is.
+    let path = format!("repos/{slug}/releases/{id}");
+    let payload = releases::edit_payload(name, body);
+    let args = ["api", "--method", "PATCH", &path, "--input", "-"];
+    match gh::run_with_stdin(&args, &payload.to_string(), gh::ISSUE_ACTION_TIMEOUT_SECS) {
+        Ok(output) if output.is_ok() => ReleaseEditResult::ok(&slug, id),
+        Ok(output) => {
+            let text = output.failure_text();
+            ReleaseEditResult::failed(
+                classify_failure(&text).kind(),
+                &slug,
+                id,
+                error_excerpt(&text),
+            )
+        }
+        Err(GhRunError::NotInstalled) => ReleaseEditResult::not_installed(&slug, id),
+        Err(GhRunError::Io(error)) => {
+            ReleaseEditResult::failed(KIND_ERROR, &slug, id, format!("运行 gh 失败：{error}"))
+        }
     }
 }
 

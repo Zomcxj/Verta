@@ -381,6 +381,7 @@ pub fn run() {
             github::commands::github_run_jobs,
             github::commands::github_run_log,
             github::commands::github_releases,
+            github::commands::github_release_edit,
             github::commands::github_repo_create,
             github::commands::github_repo_rename,
             github::commands::github_release_download,

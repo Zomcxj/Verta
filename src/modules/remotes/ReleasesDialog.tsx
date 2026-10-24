@@ -10,6 +10,7 @@ import {
   native,
   type WireReleaseDownloadProgress,
   type WireReleasesPayload,
+  type WireRepoPermissionPayload,
 } from "@/lib/native";
 import { cn } from "@/lib/utils";
 import { type MessageKey, useLanguage, useT } from "@/modules/i18n";
@@ -17,8 +18,13 @@ import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ReleaseDetail } from "./ReleaseDetail";
-import { readListSnapshot, writeListSnapshot } from "./lib/listSnapshot";
+import {
+  PERMISSION_SNAPSHOT_TTL_MS,
+  readListSnapshot,
+  writeListSnapshot,
+} from "./lib/listSnapshot";
 import { pickDownloadDir } from "./lib/pickDownloadDir";
+import { canWrite } from "./lib/permission";
 import {
   type DownloadEntry,
   type ReleaseAssetRow,
@@ -55,9 +61,43 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
   /** Release opened in detail view; null while still on the list. */
   const [detail, setDetail] = useState<ReleaseRow | null>(null);
   const [downloads, setDownloads] = useState<Record<number, DownloadEntry>>({});
+  /** Permission on this repo: only affects whether the edit button shows; reads still
+   * work. */
+  const [permission, setPermission] =
+    useState<WireRepoPermissionPayload | null>(null);
   /** Repo already read: reopening the same one neither hits the network again nor
    * clears download progress. */
   const loadedRepo = useRef<string | null>(null);
+
+  const editable = canWrite(permission);
+
+  useEffect(() => {
+    if (!repo) {
+      setPermission(null);
+      return;
+    }
+    const key = `permission:${repo}`;
+    const cached = readListSnapshot<WireRepoPermissionPayload>(
+      key,
+      PERMISSION_SNAPSHOT_TTL_MS,
+    );
+    if (cached) {
+      setPermission(cached);
+      return;
+    }
+    setPermission(null);
+    let alive = true;
+    native
+      .githubRepoPermission(repo)
+      .then((result) => {
+        writeListSnapshot(key, result);
+        if (alive) setPermission(result);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [repo]);
 
   const load = useCallback(async () => {
     if (!repo) return;
@@ -74,6 +114,31 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
       setReading(false);
     }
   }, [repo]);
+
+  const saveRelease = useCallback(
+    async (name: string, body: string): Promise<string | null> => {
+      if (!repo || !detail) return null;
+      try {
+        // The form field is a title: leading and trailing space is a typo, and GitHub
+        // would store it verbatim.
+        const result = await native.githubReleaseEdit(
+          repo,
+          detail.id,
+          name.trim(),
+          body,
+        );
+        if (result.kind !== "ready") {
+          return result.error ?? t("remotes.ci.error");
+        }
+        toast.success(t("remotes.releases.edit.saved"));
+        await load();
+        return null;
+      } catch (error) {
+        return String(error);
+      }
+    },
+    [repo, detail, load, t],
+  );
 
   useEffect(() => {
     if (!repo || loadedRepo.current === repo) return;
@@ -250,6 +315,14 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
   );
   const notice = payload ? releaseNotice(payload) : null;
 
+  // After a reload the open detail must show the fresh text rather than the copy taken
+  // when it was opened. The row is looked up again by id.
+  useEffect(() => {
+    if (!detail) return;
+    const fresh = rows.find((row) => row.id === detail.id);
+    if (fresh && fresh !== detail) setDetail(fresh);
+  }, [rows, detail]);
+
   return (
     <Dialog
       open={repo !== null}
@@ -262,6 +335,8 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
           <ReleaseDetail
             release={detail}
             downloads={downloads}
+            editable={editable}
+            onSave={saveRelease}
             onBack={() => setDetail(null)}
             onDownload={(asset) => void startDownload(asset)}
             onCancel={cancelDownload}

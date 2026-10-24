@@ -151,6 +151,34 @@ describe("releaseRows", () => {
     expect(rows[0].name).toBe("v1.2.0");
   });
 
+  // The edit form is seeded from `title`, which is what GitHub stores: with a title
+  // saved it is also the display name, and with no title the list falls back to the
+  // tag while the form must still open empty.
+  it("keeps the stored title apart from the display name", () => {
+    const stored = releaseRows(payload(), NOW, "zh");
+    expect(stored[0].title).toBe("Release 1.2.0");
+    expect(stored[0].name).toBe("Release 1.2.0");
+
+    const untitled = releaseRows(
+      payload({ releases: [release({ name: "" })] }),
+      NOW,
+      "zh",
+    );
+    expect(untitled[0].title).toBe("");
+    expect(untitled[0].name).toBe("v1.2.0");
+  });
+
+  // Untrimmed on purpose: saving the form must not silently rewrite the stored title.
+  it("carries the stored title through without trimming it", () => {
+    const rows = releaseRows(
+      payload({ releases: [release({ name: "  Release 1.2.0  " })] }),
+      NOW,
+      "zh",
+    );
+    expect(rows[0].title).toBe("  Release 1.2.0  ");
+    expect(rows[0].name).toBe("Release 1.2.0");
+  });
+
   // The release time follows the UI language: an English UI must not get Chinese.
   it("words the release time in English when asked for English", () => {
     const rows = releaseRows(payload(), NOW, "en");

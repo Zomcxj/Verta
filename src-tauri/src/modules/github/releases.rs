@@ -116,6 +116,23 @@ fn number_field(value: &Value, key: &str) -> Option<u64> {
     raw.as_str()?.trim().parse().ok()
 }
 
+// ------------------------------------------------------------ edit release
+
+/// Message for an invalid release id. 0 can only be a bad value from the UI.
+pub fn id_problem(id: u64) -> Option<String> {
+    if id == 0 {
+        Some("Release id 不合法：0".to_string())
+    } else {
+        None
+    }
+}
+
+/// Body of the PATCH call. Both fields are always sent: the form is prefilled from the
+/// release being edited, so an empty string clears the field rather than leaving it be.
+pub fn edit_payload(name: &str, body: &str) -> serde_json::Value {
+    serde_json::json!({ "name": name, "body": body })
+}
+
 /// The asset name must join the user-chosen directory safely: only a plain file name is
 /// allowed, with no path semantics whatsoever.
 pub fn safe_file_name(raw: &str) -> Result<String, String> {
@@ -432,5 +449,25 @@ mod tests {
         state.finish("dl-1");
         state.cancel("dl-1");
         assert!(!flag.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn id_problem_rejects_zero() {
+        assert_eq!(id_problem(0).as_deref(), Some("Release id 不合法：0"));
+        assert!(id_problem(1).is_none());
+    }
+
+    #[test]
+    fn edit_payload_always_sends_both_fields() {
+        let payload = edit_payload("Release 1.2.0", "Notes");
+        assert_eq!(payload["name"], "Release 1.2.0");
+        assert_eq!(payload["body"], "Notes");
+        assert_eq!(payload.as_object().map(|fields| fields.len()), Some(2));
+
+        // An emptied field must still be sent, otherwise the old text would come back.
+        let cleared = edit_payload("", "");
+        assert_eq!(cleared["name"], "");
+        assert_eq!(cleared["body"], "");
+        assert_eq!(cleared.as_object().map(|fields| fields.len()), Some(2));
     }
 }

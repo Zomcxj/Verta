@@ -1,8 +1,10 @@
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useT } from "@/modules/i18n";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useId, useState } from "react";
 import {
   type DownloadEntry,
   type ReleaseAssetRow,
@@ -26,21 +28,56 @@ const Markdown = lazy(() =>
 type Props = {
   release: ReleaseRow;
   downloads: Record<number, DownloadEntry>;
+  /** Whether this account may write to the repo; only then is the edit button drawn. */
+  editable: boolean;
+  /** Save the drafts. Resolves with the message to show when it failed, or null when
+   * the release was updated. */
+  onSave: (name: string, body: string) => Promise<string | null>;
   onBack: () => void;
   onDownload: (asset: ReleaseAssetRow) => void;
   onCancel: (assetId: number) => void;
 };
 
 /** Detail of one release: the body plus asset rows (download / progress / cancel / show
- * in folder). */
+ * in folder). The title and notes are edited in place, in the body area. */
 export function ReleaseDetail({
   release,
   downloads,
+  editable,
+  onSave,
   onBack,
   onDownload,
   onCancel,
 }: Props) {
   const t = useT();
+  const [editing, setEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftBody, setDraftBody] = useState("");
+  const [saving, setSaving] = useState(false);
+  /** gh's own words when the save failed; cleared every time the form is entered. */
+  const [error, setError] = useState<string | null>(null);
+  // The two fields need their own ids so the visible labels point at the controls.
+  const titleFieldId = useId();
+  const bodyFieldId = useId();
+
+  const startEditing = () => {
+    // Seeded from the stored title rather than the display name: a release without a
+    // title must not open with its tag in the field.
+    setDraftTitle(release.title);
+    setDraftBody(release.body);
+    setError(null);
+    setEditing(true);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    const failure = await onSave(draftTitle, draftBody);
+    setSaving(false);
+    // A failed save keeps the form open with the drafts still in it.
+    if (failure === null) setEditing(false);
+    else setError(failure);
+  };
 
   return (
     <div className="space-y-3">
@@ -65,6 +102,16 @@ export function ReleaseDetail({
           <span className="text-[11px] text-muted-foreground">{release.when}</span>
         ) : null}
         <span className="grow" />
+        {editable && !editing ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-1.5 text-[11px] text-muted-foreground"
+            onClick={startEditing}
+          >
+            {t("remotes.releases.edit")}
+          </Button>
+        ) : null}
         <Button
           variant="ghost"
           size="sm"
@@ -75,23 +122,84 @@ export function ReleaseDetail({
         </Button>
       </div>
 
-      <div className="max-h-[42vh] overflow-auto rounded border border-border/40 px-3 py-2">
-        {release.body.trim() ? (
-          <Suspense
-            fallback={
-              <p className="text-xs text-muted-foreground">
-                {t("remotes.releases.loading")}
-              </p>
-            }
-          >
-            <Markdown content={release.body} path="" />
-          </Suspense>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            {t("remotes.releases.bodyEmpty")}
+      {editing ? (
+        <div className="max-h-[42vh] space-y-2 overflow-auto rounded border border-border/40 px-3 py-2">
+          <p className="text-xs font-medium">
+            {t("remotes.releases.editTitle")}
           </p>
-        )}
-      </div>
+          <label htmlFor={titleFieldId} className="block space-y-1">
+            <span className="text-[11px] text-muted-foreground">
+              {t("remotes.releases.edit.field.title")}
+            </span>
+            <Input
+              id={titleFieldId}
+              value={draftTitle}
+              placeholder={t("remotes.releases.edit.titlePlaceholder")}
+              className="h-7 text-xs"
+              disabled={saving}
+              onChange={(event) => setDraftTitle(event.target.value)}
+            />
+          </label>
+          <label htmlFor={bodyFieldId} className="block space-y-1">
+            <span className="text-[11px] text-muted-foreground">
+              {t("remotes.releases.edit.field.notes")}
+            </span>
+            <Textarea
+              id={bodyFieldId}
+              value={draftBody}
+              placeholder={t("remotes.releases.edit.notesPlaceholder")}
+              className="min-h-32 text-xs"
+              disabled={saving}
+              onChange={(event) => setDraftBody(event.target.value)}
+            />
+          </label>
+          <p className="text-[11px] text-muted-foreground">
+            {t("remotes.releases.edit.hint")}
+          </p>
+          {error ? (
+            <p className="whitespace-pre-wrap text-[11px] text-destructive">
+              {error}
+            </p>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-[11px]"
+              disabled={saving}
+              onClick={() => setEditing(false)}
+            >
+              {t("remotes.releases.edit.cancel")}
+            </Button>
+            <Button
+              size="sm"
+              className="h-6 text-[11px]"
+              disabled={saving}
+              onClick={() => void save()}
+            >
+              {t("remotes.releases.edit.save")}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="max-h-[42vh] overflow-auto rounded border border-border/40 px-3 py-2">
+          {release.body.trim() ? (
+            <Suspense
+              fallback={
+                <p className="text-xs text-muted-foreground">
+                  {t("remotes.releases.loading")}
+                </p>
+              }
+            >
+              <Markdown content={release.body} path="" />
+            </Suspense>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {t("remotes.releases.bodyEmpty")}
+            </p>
+          )}
+        </div>
+      )}
 
       <div>
         <div className="mb-1 text-xs font-medium">

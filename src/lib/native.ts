@@ -330,6 +330,14 @@ export type WireReleasesPayload = {
   error: string | null;
 };
 
+/** Outcome of editing the stored title and notes of one release. */
+export type WireReleaseEditResult = {
+  kind: "ready" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  id: number;
+  error: string | null;
+};
+
 /** Download progress: the backend coalesces updates at 64 KiB / 100 ms. */
 export type WireReleaseDownloadProgress = {
   id: string;
@@ -889,6 +897,14 @@ export const native = {
   /** Cancel an in-progress download (looked up by the frontend-generated id). */
   githubReleaseDownloadCancel: (id: string) =>
     invoke<void>("github_release_download_cancel", { id }),
+  /** Edit the stored title and notes of one release. */
+  githubReleaseEdit: (repo: string, id: number, name: string, body: string) =>
+    invoke<WireReleaseEditResult>("github_release_edit", {
+      repo,
+      id,
+      name,
+      body,
+    }),
   /**
    * Issue / PR list for a repo. `state` is `open` / `closed` / `all`.
    * Kind filtering (issues only, PRs only) happens in the frontend, since one

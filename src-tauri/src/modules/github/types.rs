@@ -1145,6 +1145,51 @@ impl IssueActionResult {
     }
 }
 
+/// Result of editing a release (its title / body).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseEditResult {
+    pub kind: &'static str,
+    pub repo: String,
+    /// The release id that was edited.
+    pub id: u64,
+    pub error: Option<String>,
+}
+
+impl ReleaseEditResult {
+    pub fn ok(repo: impl Into<String>, id: u64) -> Self {
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            id,
+            error: None,
+        }
+    }
+
+    pub fn failed(
+        kind: &'static str,
+        repo: impl Into<String>,
+        id: u64,
+        error: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            repo: repo.into(),
+            id,
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>, id: u64) -> Self {
+        Self::failed(
+            KIND_NOT_INSTALLED,
+            repo,
+            id,
+            "未安装 gh CLI（找不到 gh 命令）",
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1186,5 +1231,15 @@ mod tests {
         assert_eq!(payload.login.as_deref(), Some("Zomcxj"));
         assert!(payload.error.is_none());
         assert!(payload.repos.is_empty());
+    }
+
+    #[test]
+    fn a_release_edit_result_keeps_its_camel_case_keys() {
+        let json = serde_json::to_string(&ReleaseEditResult::failed(KIND_ERROR, "me/app", 0, "x"))
+            .expect("serialize");
+        assert!(json.contains("\"kind\":\"error\""), "{json}");
+        assert!(json.contains("\"repo\":\"me/app\""), "{json}");
+        assert!(json.contains("\"id\":0"), "{json}");
+        assert!(json.contains("\"error\":\"x\""), "{json}");
     }
 }
