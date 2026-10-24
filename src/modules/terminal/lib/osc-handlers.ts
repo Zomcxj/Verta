@@ -3,9 +3,19 @@ import { IS_WINDOWS } from "@/lib/platform";
 const MAX_OSC52_CLIPBOARD_BYTES = 1024 * 1024;
 
 export function parseOsc7(data: string): string | null {
-  const m = data.match(/^file:\/\/[^/]*(\/.*)$/);
+  const m = data.match(/^file:\/\/([^/]*)(\/.*)?$/);
   if (!m) return null;
-  let path = m[1];
+  let authority = m[1];
+  let path = m[2] ?? "";
+  if (!path) return null;
+  // `file://HOSTF:/dir` (a Windows path with no slash in front of the drive): the drive
+  // ends up inside the authority, and dropping it leaves `/dir`, which Windows then
+  // resolves against whatever drive the app's own process sits on.
+  const glued = authority.match(/^(.*?)([A-Za-z]:)$/);
+  if (glued) {
+    authority = glued[1];
+    path = `/${glued[2]}${path}`;
+  }
   try {
     path = decodeURIComponent(path);
   } catch {}

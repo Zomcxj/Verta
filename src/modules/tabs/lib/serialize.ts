@@ -3,6 +3,7 @@ import {
   type PaneNode,
   type SplitDir,
 } from "@/modules/terminal/lib/panes";
+import { IS_WINDOWS } from "@/lib/platform";
 import type {
   EditorTab,
   MarkdownTab,
@@ -117,7 +118,34 @@ type HydratedTree = {
   tree: PaneNode;
   activeLeafId: number;
   firstLeafCwd?: string;
+  /** The cwd as it was stored, before an unusable one is dropped; the tab is labelled
+   * from this so a restored terminal still says which directory it was. */
+  firstLeafStoredCwd?: string;
 };
+
+/**
+ * Whether this cwd can name a real directory in this env, judged by its shape alone.
+ *
+ * A **local** terminal on Windows needs a drive (`F:\work`) or a UNC share: a value like
+ * `/VibeCoding_workspace/Verta` is what a Windows path looks like after it lost its drive
+ * letter, and Windows resolves it against whichever drive the app's own process sits on.
+ * That is how a restored tab opened somewhere nobody asked for, and on a machine whose
+ * current drive lacks the path it failed outright. Distro paths are Linux paths, so they
+ * are checked for their leading slash.
+ */
+function cwdFitsEnv(cwd: string, workspace: WorkspaceEnv): boolean {
+  if (workspace.kind === "wsl") return cwd.startsWith("/");
+  if (!IS_WINDOWS) return cwd.startsWith("/");
+  return /^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith("\\\\");
+}
+
+/** The env a restored leaf belongs to: the stored one, or the one its cwd implies. */
+function leafWorkspace(
+  node: { cwd?: string; workspace?: WorkspaceEnv },
+  fallbackEnv?: WorkspaceEnv,
+): WorkspaceEnv | undefined {
+  return node.workspace ?? restoredLeafEnv(node.cwd, fallbackEnv).workspace;
+}
 
 /**
  * In old data a leaf stored only its cwd. Recovering the env from that cwd lets each
@@ -136,23 +164,31 @@ function hydrateNode(
   node: SerializedNode,
   allocId: () => number,
   acc: { activeLeafId: number | null },
+  storedCwds: Map<number, string>,
   fallbackEnv?: WorkspaceEnv,
 ): PaneNode {
   if (node.kind === "leaf") {
     const id = allocId();
     if (node.active && acc.activeLeafId === null) acc.activeLeafId = id;
+    // Keep the cwd as stored, even when it is dropped below: the tab is labelled from it.
+    if (node.cwd !== undefined) storedCwds.set(id, node.cwd);
+    const workspace = leafWorkspace(node, fallbackEnv);
+    const cwd =
+      node.cwd !== undefined &&
+      workspace !== undefined &&
+      !cwdFitsEnv(node.cwd, workspace)
+        ? undefined
+        : node.cwd;
     return {
       kind: "leaf",
       id,
-      ...(node.cwd !== undefined && { cwd: node.cwd }),
-      ...(node.workspace !== undefined
-        ? { workspace: node.workspace }
-        : restoredLeafEnv(node.cwd, fallbackEnv)),
+      ...(cwd !== undefined && { cwd }),
+      ...(workspace !== undefined && { workspace }),
       ...(node.shell !== undefined && { shell: node.shell }),
     };
   }
   const children = node.children.map((c) =>
-    hydrateNode(c, allocId, acc, fallbackEnv),
+    hydrateNode(c, allocId, acc, storedCwds, fallbackEnv),
   );
   if (children.length === 0) return { kind: "leaf", id: allocId() };
   if (children.length === 1) return children[0];
@@ -165,12 +201,17 @@ function hydrateTree(
   fallbackEnv?: WorkspaceEnv,
 ): HydratedTree {
   const acc: { activeLeafId: number | null } = { activeLeafId: null };
-  const paneTree = hydrateNode(tree, allocId, acc, fallbackEnv);
+  const storedCwds = new Map<number, string>();
+  const paneTree = hydrateNode(tree, allocId, acc, storedCwds, fallbackEnv);
   const leaves = collectLeaves(paneTree);
   const activeLeafId = acc.activeLeafId ?? leaves[0]?.id ?? allocId();
-  const firstLeafCwd =
-    leaves.find((l) => l.id === activeLeafId)?.cwd ?? leaves[0]?.cwd;
-  return { tree: paneTree, activeLeafId, firstLeafCwd };
+  const activeLeaf = leaves.find((l) => l.id === activeLeafId) ?? leaves[0];
+  return {
+    tree: paneTree,
+    activeLeafId,
+    firstLeafCwd: activeLeaf?.cwd,
+    firstLeafStoredCwd: activeLeaf?.cwd ?? storedCwds.get(activeLeaf?.id ?? -1),
+  };
 }
 
 function collectLeaves(node: PaneNode): Array<{ id: number; cwd?: string }> {
@@ -186,14 +227,14 @@ function hydrateTab(
 ): Tab | null {
   switch (s.kind) {
     case "terminal": {
-      const { tree, activeLeafId, firstLeafCwd } = hydrateTree(
-        s.tree,
-        allocId,
-        fallbackEnv,
-      );
+      const { tree, activeLeafId, firstLeafCwd, firstLeafStoredCwd } =
+        hydrateTree(s.tree, allocId, fallbackEnv);
+      // The label comes from the cwd as stored, so a terminal whose directory had to be
+      // dropped still says which one it was until the shell reports where it really is.
+      const labelCwd = firstLeafStoredCwd ?? firstLeafCwd;
       const title =
         s.customTitle ??
-        (firstLeafCwd ? basename(firstLeafCwd) : s.blocks ? "blocks" : "shell");
+        (labelCwd ? basename(labelCwd) : s.blocks ? "blocks" : "shell");
       return {
         id: allocId(),
         kind: "terminal",

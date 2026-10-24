@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use portable_pty::CommandBuilder;
 
@@ -201,9 +201,9 @@ fn apply_common(
 
     let resolved_cwd = cwd
         .map(PathBuf::from)
-        .filter(|p| p.is_dir())
-        .or_else(|| workspace::launch_cwd_snapshot().filter(|p| p.is_dir()))
-        .or_else(|| dirs::home_dir().filter(|p| p.is_dir()));
+        .filter(|p| usable_cwd(p))
+        .or_else(|| workspace::launch_cwd_snapshot().filter(|p| usable_cwd(p)))
+        .or_else(|| dirs::home_dir().filter(|p| usable_cwd(p)));
     if let Some(cwd) = resolved_cwd {
         #[cfg(windows)]
         let cwd = PathBuf::from(cwd.to_string_lossy().replace('/', "\\"));
@@ -212,6 +212,19 @@ fn apply_common(
     } else {
         log::warn!("pty cwd: no usable directory, inheriting from process");
     }
+}
+
+/// Whether a directory can be handed to the shell as the cwd, as it stands.
+///
+/// The root is not decoration. A path like `\VibeCoding_workspace\Verta` is what a
+/// Windows path looks like after it lost its drive letter, and Windows resolves it
+/// against whichever drive the app's own process happens to sit on: where that drive
+/// holds the directory the shell silently opens in a directory nobody asked for, and
+/// where it does not the spawn fails with "the system cannot find the path specified".
+/// Requiring an absolute path (a drive or UNC share on Windows, a leading `/` in a
+/// distro) keeps both from happening.
+fn usable_cwd(path: &Path) -> bool {
+    path.is_absolute() && path.is_dir()
 }
 
 #[cfg(unix)]
@@ -1111,7 +1124,7 @@ mod tests {
 
     use portable_pty::CommandBuilder;
 
-    use super::{apply_common, sanitize_shell_override, ShellControlEnv};
+    use super::{apply_common, sanitize_shell_override, usable_cwd, ShellControlEnv};
 
     #[test]
     fn rejects_non_enumerated_override() {
@@ -1126,6 +1139,25 @@ mod tests {
     fn empty_or_missing_override_is_none() {
         assert_eq!(sanitize_shell_override(Some("   ".into())), None);
         assert_eq!(sanitize_shell_override(None), None);
+    }
+
+    /// A Windows path that lost its drive letter is a real directory whenever the
+    /// process's own drive happens to hold it, which is exactly why the mistake went
+    /// unnoticed until the app was launched from another drive.
+    #[test]
+    fn usable_cwd_needs_a_root_not_only_an_existing_directory() {
+        let cwd = std::env::current_dir().expect("current dir is readable");
+        assert!(usable_cwd(&cwd), "the real cwd must be usable");
+
+        #[cfg(windows)]
+        {
+            // "F:\work\repo" -> "\work\repo", i.e. the same directory with the drive
+            // prefix taken off.
+            let text = cwd.display().to_string();
+            let drive_less = std::path::PathBuf::from(&text[2..]);
+            assert_eq!(drive_less.is_dir(), cwd.is_dir());
+            assert!(!usable_cwd(&drive_less), "a drive-less path is not a cwd");
+        }
     }
 
     #[test]

@@ -8,6 +8,15 @@ describe("terminal semantic boundaries", () => {
     ["file:///c/Users/leo/project", "C:/Users/leo/project"],
     ["file:///C:/Users/me/project", "C:/Users/me/project"],
     ["file://host/home/me/a%20b", "/home/me/a b"],
+    // A shell that reports a Windows path spells the URI as `file://HOSTF:/dir`, with no
+    // slash before the drive: the authority swallows the `F:`, and the path comes back
+    // without it. Left alone, that value is stored and later resolved against whichever
+    // drive the app happens to sit on.
+    ["file://LAPTOP/f/VibeCoding_workspace/Verta", "F:/VibeCoding_workspace/Verta"],
+    [
+      "file://LAPTOP-F:/VibeCoding_workspace/Verta",
+      "F:/VibeCoding_workspace/Verta",
+    ],
     ["https://example.com/path", null],
   ])("normalizes cwd %s", (uri, expected) =>
     expect(parseOsc7(uri)).toBe(expected),

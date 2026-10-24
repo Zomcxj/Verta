@@ -24,6 +24,14 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/terminal/ghostty/webgl/WebGlCellRenderer.ts`: the WebGL renderer draws the grid into its own rectangle instead of the whole canvas, so the GL viewport, the glyph offset and size attributes and the resolution uniform all use the grid. The backing store keeps a nearby bigger canvas on purpose, and spreading the grid across that canvas tied the cell pitch to the canvas width, which follows the pane width: letter spacing and row height moved while a divider was dragged. Hit testing, selection and the block overlays were already in font cells, so this is also what lines them up with what is drawn.
 - `scripts/dev/probes/terminal-cell-pitch.mjs` (new): measures the spacing of a ruler of strokes in a screenshot, once with the sidebar shown and once hidden, and fails when the two pitches differ.
 
+**A working directory that lost its drive letter is never used**
+
+- `src-tauri/src/modules/pty/shell_init.rs`: a working directory is only handed to the shell when it is absolute (a drive or UNC path, or a leading slash). Windows resolves a drive-less path against whichever drive the app's own process sits on, so the shell either opened somewhere else or the spawn failed with "the system cannot find the path specified".
+- `src/modules/tabs/lib/serialize.ts`: a restored tab drops a stored working directory that no longer fits its environment, and the label still comes from what was stored.
+- `src/modules/tabs/lib/serialize.test.ts` (new): drive, UNC and distro paths survive, a drive-less one is dropped, and the label is kept.
+- `src/modules/terminal/lib/osc-handlers.ts`: the OSC 7 report puts back the drive letter the URI authority swallowed (`file://HOSTF:/dir`), which is where those paths came from.
+- `src/modules/terminal/lib/osc-handlers.test.ts`: the two glued-drive cases.
+
 </details>
 
 <details>
