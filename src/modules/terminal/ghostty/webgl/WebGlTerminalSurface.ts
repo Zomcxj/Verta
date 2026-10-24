@@ -1,5 +1,6 @@
 import { terminalWindowFocused } from "@/modules/terminal/ghostty/renderScheduling";
 import { bindTerminalInteraction } from "@/modules/terminal/ghostty/input/terminalInteraction";
+import { inputPlacement } from "@/modules/terminal/ghostty/input/inputPlacement";
 import { TerminalScrollbarSync } from "@/modules/terminal/ghostty/gpu/terminalScrollbar";
 import {
   subscribeWindowPresentation,
@@ -87,6 +88,9 @@ export class WebGlTerminalSurface
   readonly backend = "ghostty-webgl" as const;
 
   private readonly input = document.createElement("textarea");
+  /** Cell the hidden input was last placed on, so a frame that did not move it writes nothing. */
+  private inputLeft = -1;
+  private inputTop = -1;
   private readonly root = document.createElement("div");
   private readonly scrollbar = document.createElement("div");
   private readonly scrollbarContent = document.createElement("div");
@@ -375,6 +379,31 @@ export class WebGlTerminalSurface
     return { width: this.metrics.cellWidth, height: this.metrics.cellHeight };
   }
 
+  /**
+   * Keep the hidden input on the cursor cell so an IME opens its candidates where the user is
+   * typing (see `inputPlacement`). Runs on every frame, so the style is only written when the cell
+   * changes.
+   */
+  private placeInput(cursor: {
+    readonly x: number;
+    readonly y: number;
+  }): void {
+    const placed = inputPlacement(
+      cursor,
+      this.cellSize(),
+      this.options.model.cols,
+      this.options.model.rows,
+    );
+    const top = placed.top - this.gridShiftY();
+    if (placed.left === this.inputLeft && top === this.inputTop) return;
+    this.inputLeft = placed.left;
+    this.inputTop = top;
+    this.input.style.left = `${placed.left}px`;
+    this.input.style.top = `${top}px`;
+    this.input.style.width = `${placed.width}px`;
+    this.input.style.height = `${placed.height}px`;
+  }
+
   /** The fallback draws its grid top-anchored during a gesture: nothing is shifted. */
   gridShiftY(): number {
     return 0;
@@ -446,6 +475,7 @@ export class WebGlTerminalSurface
       cursor.y < this.options.model.rows;
     this.cursorBlinking = cursor.blinking;
     this.armCursorBlink();
+    this.placeInput(cursor);
     const rendered = renderer.render({
       model: this.options.model,
       damage: this.options.model.consumeDamage(),

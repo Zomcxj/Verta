@@ -15,6 +15,15 @@ swap in the new date, and drop the `open` from the day before.
 ---
 
 <details open>
+<summary><strong>2026-10-25</strong></summary>
+
+**The input method's candidate window opens at the cursor**
+
+- `src/modules/terminal/ghostty/input/inputPlacement.ts` (new): which cell of the grid the terminal's hidden input belongs on, clamped to the grid and never a box with no size.
+- `src/modules/terminal/ghostty/input/inputPlacement.test.ts` (new): the cursor's own cell, a cursor off the grid, a fractional cursor and a nonsense one, and a grid that has no cells yet.
+- `src/modules/terminal/ghostty/webgl/WebGlTerminalSurface.ts`, `src/modules/terminal/ghostty/gpu/WebGpuTerminalSurface.ts`: both surfaces move the hidden input onto the cursor cell on every frame, and write the style only when the cell changed. The GPU surface also subtracts the shift the drawn grid carries while a resize gesture is in flight, so the input follows what is drawn rather than the layout position. The input used to stay pinned to the pane's top-left corner, and since every input method opens its candidate list next to the focused element, that corner is where the candidates opened while the user typed in the middle of a session.
+
+<details>
 <summary><strong>2026-10-24</strong></summary>
 
 **The terminal cell pitch follows the font, not the pane**

@@ -1,5 +1,6 @@
 import { terminalWindowFocused } from "@/modules/terminal/ghostty/renderScheduling";
 import { bindTerminalInteraction } from "@/modules/terminal/ghostty/input/terminalInteraction";
+import { inputPlacement } from "@/modules/terminal/ghostty/input/inputPlacement";
 import { isClampedScrollEcho, TerminalScrollbarSync } from "@/modules/terminal/ghostty/gpu/terminalScrollbar";
 import { terminalWindowPresentation } from "@/modules/terminal/ghostty/windowPresentation";
 import type { TerminalSurface } from "@/modules/terminal/backend/contracts";
@@ -125,6 +126,9 @@ export class WebGpuTerminalSurface
 
   private binding: PaneBinding | null = null;
   private readonly input = document.createElement("textarea");
+  /** Cell the hidden input was last placed on, so a frame that did not move it writes nothing. */
+  private inputLeft = -1;
+  private inputTop = -1;
   private readonly root = document.createElement("div");
   private readonly scrollbar = document.createElement("div");
   private readonly scrollbarContent = document.createElement("div");
@@ -442,6 +446,32 @@ export class WebGpuTerminalSurface
   }
 
   /**
+   * Keep the hidden input on the cursor cell so an IME opens its candidates where the user is
+   * typing (see `inputPlacement`). The drawn grid is shifted while a resize gesture is in flight,
+   * so the input follows that shift rather than the layout position. Runs on every frame, so the
+   * style is only written when the cell changes.
+   */
+  private placeInput(cursor: {
+    readonly x: number;
+    readonly y: number;
+  }): void {
+    const placed = inputPlacement(
+      cursor,
+      this.cellSize(),
+      this.options.model.cols,
+      this.options.model.rows,
+    );
+    const top = placed.top - this.gridShiftY();
+    if (placed.left === this.inputLeft && top === this.inputTop) return;
+    this.inputLeft = placed.left;
+    this.inputTop = top;
+    this.input.style.left = `${placed.left}px`;
+    this.input.style.top = `${top}px`;
+    this.input.style.width = `${placed.width}px`;
+    this.input.style.height = `${placed.height}px`;
+  }
+
+  /**
    * CSS pixels the drawn grid is moved up inside the pane while it waits for a resize gesture to
    * end (see `gridShift`). Hit-testing adds it to the pointer's offset, so a click lands on the
    * cell that is drawn under it.
@@ -622,6 +652,7 @@ export class WebGpuTerminalSurface
 
     const cursor = model.cursor();
     const viewportOrigin = model.viewportOriginLine();
+    this.placeInput(cursor);
     this.syncTextBlink();
     const searchChanged = this.updateSearchMask(device);
     const uniformChanged = this.updateScreenUniform(
