@@ -88,6 +88,10 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/header/Header.tsx`, `src/modules/command-palette/commands.ts`, `src/modules/command-palette/commands.test.ts`, `src/modules/i18n/messages.ts`: one header button and one palette item for the panel, with the remote list's keywords folded into it, Chinese and English.
 - `scripts/dev/probes/auth-acceptance.mjs`, `scripts/dev/probes/issues-acceptance.mjs`, `scripts/dev/probes/permission-acceptance.mjs`, `scripts/dev/probes/releases-acceptance.mjs`, `scripts/dev/probes/repo-admin-acceptance.mjs`: the header button title they look for is the new one.
 
+**An opened image no longer lays down a slab of its own**
+
+- `src/modules/editor/EditorPane.tsx`: the viewer that fills the pane for an image, a video, an audio file or a PDF stops painting `bg-background` itself, the same fix and reason the side preview column, the markdown preview, the preview pane and the editor area already carry. A glass theme tints its panes to 0.28, so that opaque background covered the tint and the whole pane read as a different surface than the window around it; a theme that does not tint paints the same colour on the pane itself, so nothing changes there. Measured on the running app with the repository's own `opaque-surfaces.js`: the viewer was the only opaque surface large enough to cover a pane (59% of the window) and is gone.
+
 </details>
 
 

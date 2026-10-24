@@ -554,7 +554,15 @@ export const EditorPane = memo(
         const assetUrl = convertFileSrc(path);
         const name = path.split(/[\\/]/).pop() ?? path;
         return (
-          <div className="flex h-full min-h-0 flex-col items-center justify-center bg-background p-4 overflow-auto">
+          <div
+            // No base colour of its own: this fills the tab's pane, which provides the
+            // surface. A `bg-background` here is invisible on opaque themes but a solid
+            // slab on glass themes (the pane tints 0.28 while this painted the colour
+            // solid), so an opened image looked like a different surface than the window
+            // around it. Same fix and reason as the side preview column, the markdown
+            // preview and the preview pane.
+            className="flex h-full min-h-0 flex-col items-center justify-center p-4 overflow-auto"
+          >
             {isImage && <ImagePreview src={assetUrl} path={path} name={name} />}
             {isVideo && (
               // biome-ignore lint/a11y/useMediaCaption: local media preview opens arbitrary files with no caption track
