@@ -730,7 +730,47 @@ function ImagePreview({
   const t = useT();
   const [fit, setFit] = useState(true);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const [box, setBox] = useState<{ w: number; h: number } | null>(null);
   const [failed, setFailed] = useState(false);
+  const viewport = useRef<HTMLDivElement | null>(null);
+
+  // The room the picture has, watched rather than measured once: dragging a divider or resizing
+  // the window changes it, and a picture that fits has to follow.
+  useEffect(() => {
+    const node = viewport.current;
+    if (!node) return;
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[entries.length - 1]?.contentRect;
+      if (!rect) return;
+      setBox((was) =>
+        was &&
+        Math.abs(was.w - rect.width) < 0.5 &&
+        Math.abs(was.h - rect.height) < 0.5
+          ? was
+          : { w: rect.width, h: rect.height },
+      );
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  /**
+   * Fit scales the picture to the pane, up as well as down. It used to be capped at the
+   * picture's own size, which made the two modes draw the same pixels whenever the pane was
+   * bigger than the picture, so the line above it was the only way to tell which one was on.
+   */
+  const scale =
+    fit && size && box && size.w > 0 && size.h > 0
+      ? Math.min(box.w / size.w, box.h / size.h)
+      : null;
+  // Floored, so a rounding error cannot push the picture past the pane and raise a scrollbar.
+  const drawn =
+    scale !== null && size !== null && box !== null
+      ? {
+          w: Math.min(Math.floor(box.w), Math.floor(size.w * scale)),
+          h: Math.min(Math.floor(box.h), Math.floor(size.h * scale)),
+        }
+      : null;
 
   if (failed) {
     return (
@@ -766,6 +806,7 @@ function ImagePreview({
           reached. `safe` centres while the picture fits and starts it at the edge when it
           does not, so every part of it is scrollable to. */}
       <div
+        ref={viewport}
         className="flex min-h-0 w-full flex-1 overflow-auto"
         style={{ alignItems: "safe center", justifyContent: "safe center" }}
       >
@@ -781,14 +822,16 @@ function ImagePreview({
           }
           onError={() => setFailed(true)}
           className={
-            // The base layer caps every image at its container's width, so a picture wider
-            // than the pane would be drawn at exactly the same size in both modes unless
-            // original size says `max-w-none`.
+            // Original size says `max-w-none`, because the base layer caps every image at its
+            // container's width: without it the pixels stay capped by the pane however wide it is.
+            // Fitting hands the size to the picture itself (see `drawn`), so the checkerboard stays
+            // inside the picture instead of covering the pane around it.
             fit
-              ? "max-h-full max-w-full rounded-md border border-border object-contain shadow-sm"
+              ? "rounded-md border border-border shadow-sm"
               : "max-w-none rounded-md border border-border shadow-sm"
           }
           style={{
+            ...(drawn ? { width: `${drawn.w}px`, height: `${drawn.h}px` } : {}),
             backgroundImage:
               "conic-gradient(var(--muted) 0.25turn, transparent 0.25turn 0.5turn, var(--muted) 0.5turn 0.75turn, transparent 0.75turn)",
             backgroundSize: "20px 20px",

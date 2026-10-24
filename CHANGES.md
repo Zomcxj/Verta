@@ -29,6 +29,10 @@ swap in the new date, and drop the `open` from the day before.
 - `src/components/ui/dialog.tsx`, `src/components/ui/popover.tsx`, `src/components/ui/dropdown-menu.tsx`, `src/components/ui/command.tsx`: the class on the layers that float, both dropdown menu content variants included. They used to paint `--popover` at full opacity, which reads as a solid slab in a window where every pane is tinted; the path breadcrumb's menu and the command palette were the two that showed it most.
 - `VERTA.md`: the compositing budget bullet names the floating layers' tint as the exception to opaque popovers, with the reason the exception stops short of a blur.
 
+**Fit to window scales the picture to the pane, up as well as down**
+
+- `src/modules/editor/EditorPane.tsx`: the picture viewer watches the room it has with a `ResizeObserver` and hands the fitted size to the picture itself, so fitting fills the pane in both directions instead of stopping at the picture's own size. Capped that way, the two modes drew the same pixels whenever the pane was the larger of the two, and only the line above the picture said which one was on. The fitted rectangle is floored and clamped to that room, so a rounding error cannot push the picture past the pane and raise a scrollbar, and the checkerboard stays inside the picture rather than covering the pane around it.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 
