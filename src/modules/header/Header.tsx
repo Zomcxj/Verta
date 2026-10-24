@@ -32,7 +32,6 @@ type Props = {
   onNewPreview: () => void;
   onNewEditor: () => void;
   onNewGitGraph: () => void;
-  onNewProjects: () => void;
   onClose: (id: number) => void;
   /** Chrome-style: close every tab to the right of the given tab. */
   onCloseTabsToRight: (id: number) => void;
@@ -48,8 +47,9 @@ type Props = {
   onToggleSidebar: () => void;
   /** Right-side Git panel: the same button as the top-left one, mirrored in position. */
   onToggleGitPanel: () => void;
-  /** Open the remote repos tab (the account-level repos read by the local gh). */
-  onOpenRemotes: () => void;
+  /** Open the projects panel: the local project list and the remote repositories read
+   * by the local gh, behind one tab. */
+  onOpenProjectsPanel: () => void;
   /** Region capture: grab the whole screen and drag out a region on the overlay. */
   onScreenshot: () => void;
   /** Uncommitted change count, shown on the top-right button (it used to sit on the Git
@@ -74,7 +74,6 @@ export function Header({
   onNewPreview,
   onNewEditor,
   onNewGitGraph,
-  onNewProjects,
   onClose,
   onCloseTabsToRight,
   onCloseOtherTabs,
@@ -84,7 +83,7 @@ export function Header({
   onOverrideLanguage,
   onToggleSidebar,
   onToggleGitPanel,
-  onOpenRemotes,
+  onOpenProjectsPanel,
   onScreenshot,
   changedCount,
   onOpenCommandPalette,
@@ -179,7 +178,6 @@ export function Header({
           onNewPreview={onNewPreview}
           onNewEditor={onNewEditor}
           onNewGitGraph={onNewGitGraph}
-          onNewProjects={onNewProjects}
           onClose={onClose}
           onCloseTabsToRight={onCloseTabsToRight}
           onCloseOtherTabs={onCloseOtherTabs}
@@ -197,8 +195,8 @@ export function Header({
       <Button
         size="icon-sm"
         variant="ghost"
-        onClick={onOpenRemotes}
-        title={t("header.remotes")}
+        onClick={onOpenProjectsPanel}
+        title={t("header.projectsPanel")}
         className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
       >
         <HugeiconsIcon icon={GithubIcon} size={18} strokeWidth={1.75} />

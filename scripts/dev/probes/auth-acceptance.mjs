@@ -176,7 +176,7 @@ const fillInput = (index, value) =>
 /** Open the account panel: remote repositories tab → the account button in the header. */
 const openAuthPanel = async () => {
   const remotesButton = await waitFor(
-    `[...document.querySelectorAll("button")].find((b) => /远程仓库|Remote repositories/.test(b.getAttribute("title") || ""))`,
+    `[...document.querySelectorAll("button")].find((b) => /本地项目与远程仓库|Remote repositories|Local projects/.test(b.getAttribute("title") || ""))`,
   );
   if (!remotesButton) fail("页头里没有远程仓库入口");
   await realClick(remotesButton.x, remotesButton.y);

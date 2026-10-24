@@ -30,7 +30,6 @@ import {
   ComputerTerminal02Icon,
   Folder01Icon,
   GitCompareIcon,
-  GithubIcon,
   Globe02Icon,
   IncognitoIcon,
   PencilEdit02Icon,
@@ -61,7 +60,6 @@ type Props = {
   onNewPreview: () => void;
   onNewEditor: () => void;
   onNewGitGraph: () => void;
-  onNewProjects: () => void;
   onClose: (id: number) => void;
   /** Chrome-style: close every tab to the right of the given tab. */
   onCloseTabsToRight: (id: number) => void;
@@ -88,7 +86,6 @@ export function TabBar({
   onNewPreview,
   onNewEditor,
   onNewGitGraph,
-  onNewProjects,
   onClose,
   onCloseTabsToRight,
   onCloseOtherTabs,
@@ -597,7 +594,6 @@ export function TabBar({
           onNewPreview={onNewPreview}
           onNewEditor={onNewEditor}
           onNewGitGraph={onNewGitGraph}
-          onNewProjects={onNewProjects}
         />
       </div>
     </div>
@@ -686,16 +682,6 @@ export function TabIcon({ tab }: { tab: Tab }) {
     return (
       <HugeiconsIcon
         icon={Folder01Icon}
-        size={14}
-        strokeWidth={2}
-        className="shrink-0"
-      />
-    );
-  }
-  if (tab.kind === "remotes") {
-    return (
-      <HugeiconsIcon
-        icon={GithubIcon}
         size={14}
         strokeWidth={2}
         className="shrink-0"

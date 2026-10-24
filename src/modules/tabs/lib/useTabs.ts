@@ -102,18 +102,14 @@ export type GitHistoryTab = TabBase & {
   repoRoot: string;
 };
 
-/** Projects tab. Only one is ever open, and it carries no state beyond the title. */
+/**
+ * The projects panel: the local project list and the remote repository list behind one
+ * tab, switched by a tab strip inside it. Only one is ever open, and it carries no
+ * state beyond the title, which names the list currently on screen.
+ */
 export type ProjectsTab = TabBase & {
   id: number;
   kind: "projects";
-  title: string;
-};
-
-/** Remote repos tab. Only one is ever open, and its content comes from one
- * account-level query. */
-export type RemoteReposTab = TabBase & {
-  id: number;
-  kind: "remotes";
   title: string;
 };
 
@@ -137,7 +133,6 @@ export type Tab =
   | GitDiffTab
   | GitHistoryTab
   | ProjectsTab
-  | RemoteReposTab
   | GitCommitFileDiffTab;
 
 export type TabPatch = Partial<{
@@ -473,7 +468,7 @@ export function planCommitHistoryOpen(
 }
 
 /**
- * Projects tab: only one. The list is shared app-wide, so a single tab is enough.
+ * Projects panel: only one. The lists are shared app-wide, so a single tab is enough.
  */
 export function planProjectsOpen(
   tabs: Tab[],
@@ -494,33 +489,6 @@ export function planProjectsOpen(
   const id = allocId();
   return {
     tabs: [...tabs, { id, kind: "projects", title } satisfies ProjectsTab],
-    targetId: id,
-  };
-}
-
-/**
- * Remote repos tab: only one. Same rules as the projects tab, since both are only ever
- * "open it", and the title follows the UI language.
- */
-export function planRemoteReposOpen(
-  tabs: Tab[],
-  title: string,
-  allocId: () => number,
-): { tabs: Tab[]; targetId: number } {
-  const existing = tabs.find((tab) => tab.kind === "remotes");
-  if (existing) {
-    if (existing.title === title) return { tabs, targetId: existing.id };
-    return {
-      tabs: tabs.map((tab) =>
-        tab.id === existing.id ? { ...existing, title } : tab,
-      ),
-      targetId: existing.id,
-    };
-  }
-
-  const id = allocId();
-  return {
-    tabs: [...tabs, { id, kind: "remotes", title } satisfies RemoteReposTab],
     targetId: id,
   };
 }
@@ -869,6 +837,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   );
 
   /** Open the projects tab; only one. */
+  /** Open the projects panel; only one. */
   const openProjectsTab = useCallback((title: string) => {
     const curr = tabsRef.current;
     const plan = planProjectsOpen(curr, title, () => nextIdRef.current++);
@@ -880,16 +849,19 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     return plan.targetId;
   }, []);
 
-  /** Open the remote repos tab; only one. */
-  const openRemoteReposTab = useCallback((title: string) => {
-    const curr = tabsRef.current;
-    const plan = planRemoteReposOpen(curr, title, () => nextIdRef.current++);
-    if (plan.tabs !== curr) {
-      tabsRef.current = plan.tabs;
-      setTabs(plan.tabs);
-    }
-    setActiveId(plan.targetId);
-    return plan.targetId;
+  /**
+   * Rename the projects panel, if it is open. The panel calls this as its own tab strip
+   * moves, so the tab chip and the window title name the list on screen rather than
+   * whichever list happened to open it.
+   */
+  const renameProjectsTab = useCallback((title: string) => {
+    setTabs((curr) =>
+      curr.map((tab) =>
+        tab.kind === "projects" && tab.title !== title
+          ? { ...tab, title }
+          : tab,
+      ),
+    );
   }, []);
 
   const openCommitFileDiffTab = useCallback(
@@ -1245,7 +1217,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     openGitDiffTab,
     openCommitHistoryTab,
     openProjectsTab,
-    openRemoteReposTab,
+    renameProjectsTab,
     openCommitFileDiffTab,
     closeTab,
     closeTabs,

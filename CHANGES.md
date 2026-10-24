@@ -81,6 +81,13 @@ swap in the new date, and drop the `open` from the day before.
 - `src/lib/native.ts`: `githubReleaseEdit` and its result type.
 - `scripts/dev/probes/release-edit-acceptance.mjs` (new): opens a release, edits it, and checks the toast and the re-read detail.
 
+**The remote repository list moves in beside the local projects**
+
+- `src/app/App.tsx`, `src/app/components/WorkspaceSurface.tsx`: the projects panel gains a two-stop strip with a measured highlight and owns both lists, and the tab is renamed to the list on screen, since the tab chip and the window title should name what is showing. The header button opens the panel on the local list, which is what its icon is for, and switching between the two lists inside the open panel is left alone.
+- `src/modules/tabs/lib/useTabs.ts`, `src/modules/tabs/TabBar.tsx`, `src/modules/tabs/lib/tabLabel.ts`, `src/modules/tabs/NewTabMenu.tsx`: the remote-repositories tab kind is gone, along with the planner that opened it, and the panel renames its own tab instead.
+- `src/modules/header/Header.tsx`, `src/modules/command-palette/commands.ts`, `src/modules/command-palette/commands.test.ts`, `src/modules/i18n/messages.ts`: one header button and one palette item for the panel, with the remote list's keywords folded into it, Chinese and English.
+- `scripts/dev/probes/auth-acceptance.mjs`, `scripts/dev/probes/issues-acceptance.mjs`, `scripts/dev/probes/permission-acceptance.mjs`, `scripts/dev/probes/releases-acceptance.mjs`, `scripts/dev/probes/repo-admin-acceptance.mjs`: the header button title they look for is the new one.
+
 </details>
 
 

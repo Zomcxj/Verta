@@ -8,7 +8,6 @@ import {
   FileEditIcon,
   FileSearchIcon,
   Folder01Icon,
-  GithubIcon,
   Globe02Icon,
   IncognitoIcon,
   KeyboardIcon,
@@ -45,7 +44,6 @@ export type CommandPaletteActionContext = {
   openNewEditor: () => void;
   openNewPreview: () => void;
   openProjects: () => void;
-  openRemotes: () => void;
   openGitGraph: () => void;
   toggleSourceControl: () => void;
   closeActiveTabOrPane: () => void;
@@ -126,17 +124,18 @@ export function createCommandItems(
       id: "tab.newProjects",
       title: "cmd.newProjects",
       group: "cmdGroup.Tabs",
-      keywords: ["projects", "repos", "repositories", "git status", "sessions"],
+      keywords: [
+        "projects",
+        "repos",
+        "repositories",
+        "git status",
+        "sessions",
+        "github",
+        "remote",
+        "account",
+      ],
       icon: Folder01Icon,
       run: ctx.openProjects,
-    },
-    {
-      id: "tab.newRemotes",
-      title: "cmd.openRemotes",
-      group: "cmdGroup.Tabs",
-      keywords: ["github", "remote", "repositories", "repos", "account"],
-      icon: GithubIcon,
-      run: ctx.openRemotes,
     },
     {
       id: "tab.newPrivate",

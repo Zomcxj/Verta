@@ -135,8 +135,11 @@ import {
 } from "react";
 import { CloseDialogs } from "./components/CloseDialogs";
 import { WorkspaceInputBar } from "./components/WorkspaceInputBar";
-import { WorkspaceSurface } from "./components/WorkspaceSurface";
 import { sessionOpeningVisible } from "./components/sessionOpening";
+import {
+  type ProjectsSub,
+  WorkspaceSurface,
+} from "./components/WorkspaceSurface";
 import { hasOpenPathTab, renamedPath } from "./hooks/tabCloseGuards";
 import { useAppCloseGuard } from "./hooks/useAppCloseGuard";
 import { useTray } from "./hooks/useTray";
@@ -224,7 +227,7 @@ export default function App() {
     openGitDiffTab,
     openCommitHistoryTab,
     openProjectsTab,
-    openRemoteReposTab,
+    renameProjectsTab,
     openCommitFileDiffTab,
     closeTab,
     closeTabs,
@@ -616,16 +619,21 @@ export default function App() {
     });
   }, [openTerminalChoice]);
 
-  /** Projects tab (center area, one per workspace). */
+  /** The projects panel (local projects and remote repositories). It always lands on
+   * the local list, which is what the header icon is for. */
   const openProjects = useCallback(() => {
     openProjectsTab(t("tabs.new.projects"));
   }, [openProjectsTab, t]);
 
-  /** Remote repos tab (center area, one per workspace, showing the account-level
-   * list read by the local gh). */
-  const openRemotes = useCallback(() => {
-    openRemoteReposTab(t("remotes.tabTitle"));
-  }, [openRemoteReposTab, t]);
+  /** Keep the tab chip and the window title naming the list on screen. */
+  const renameProjectsPanel = useCallback(
+    (sub: ProjectsSub) => {
+      renameProjectsTab(
+        sub === "remotes" ? t("remotes.tabTitle") : t("tabs.new.projects"),
+      );
+    },
+    [renameProjectsTab, t],
+  );
 
   const openNewPrivateTab = useCallback(() => {
     newPrivateTab(inheritedCwdForNewTab());
@@ -1301,7 +1309,6 @@ export default function App() {
             openNewEditor: () => setNewEditorOpen(true),
             openNewPreview: () => openPreviewTab(""),
             openProjects,
-            openRemotes,
             openGitGraph: openGitGraphFromContext,
             toggleSourceControl: toggleRightPanel,
             closeActiveTabOrPane: handleCloseTabOrPane,
@@ -1485,8 +1492,7 @@ export default function App() {
               onNewPreview={() => openPreviewTab("")}
               onNewEditor={() => setNewEditorOpen(true)}
               onNewGitGraph={openGitGraphFromContext}
-              onNewProjects={openProjects}
-              onOpenRemotes={openRemotes}
+              onOpenProjectsPanel={openProjects}
               onClose={handleClose}
               onCloseTabsToRight={handleCloseTabsToRight}
               onCloseOtherTabs={handleCloseOtherTabs}
@@ -1603,6 +1609,7 @@ export default function App() {
                         onOpenProjectSession={handleOpenSession}
                         onOpenProjectTerminal={handleOpenProjectTerminal}
                         onNewProjectSession={handleNewProjectSession}
+                        onProjectsSubChange={renameProjectsPanel}
                         sessionOpening={sessionOpening}
                       />
                     </div>

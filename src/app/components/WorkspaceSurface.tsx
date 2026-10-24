@@ -9,8 +9,16 @@ import { MarkdownStack } from "@/modules/markdown";
 import { PreviewStack } from "@/modules/preview";
 import type { Tab } from "@/modules/tabs";
 import { TerminalStack } from "@/modules/terminal";
-import type { ComponentProps } from "react";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { useT } from "@/modules/i18n";
+import {
+  type ComponentProps,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   SessionOpeningOverlay,
   sessionTransitionEnabled,
@@ -42,10 +50,16 @@ type Props = {
   onOpenProjectSession: (session: AgentSession) => void;
   onOpenProjectTerminal: (entry: ProjectEntry) => void;
   onNewProjectSession: (entry: ProjectEntry, tool: AgentTool) => void;
+  /** Which list the projects panel is showing; the app renames the tab to match, since
+   * the tab chip and the window title should name what is on screen. */
+  onProjectsSubChange: (sub: ProjectsSub) => void;
   /** The session-start transition, drawn over the terminal layer only (see
    * `SessionOpeningOverlay`). */
   sessionOpening: boolean;
 };
+
+/** The two lists behind the projects panel. */
+export type ProjectsSub = "projects" | "remotes";
 
 const LAYER = "absolute inset-0";
 
@@ -78,8 +92,10 @@ export function WorkspaceSurface({
   onOpenProjectSession,
   onOpenProjectTerminal,
   onNewProjectSession,
+  onProjectsSubChange,
   sessionOpening,
 }: Props) {
+  const t = useT();
   const kind = activeTab?.kind;
   const isTerminalTab = kind === "terminal";
   const isEditorTab = kind === "editor";
@@ -88,7 +104,6 @@ export function WorkspaceSurface({
   const isGitDiffTab = kind === "git-diff" || kind === "git-commit-file";
   const isGitHistoryTab = kind === "git-history";
   const isProjectsTab = kind === "projects";
-  const isRemotesTab = kind === "remotes";
   const transitionVariant = usePreferencesStore((s) => s.sessionTransition);
   /**
    * Whether the transition is covering the pane right now. Only then are the panes hidden:
@@ -97,6 +112,57 @@ export function WorkspaceSurface({
    */
   const sessionCovered =
     sessionOpening && sessionTransitionEnabled(transitionVariant);
+  const [projectsSub, setProjectsSub] = useState<ProjectsSub>("projects");
+  const hasProjectsTab = tabs.some((tab) => tab.kind === "projects");
+  const subStripRef = useRef<HTMLDivElement | null>(null);
+  const [subPill, setSubPill] = useState<{
+    left: number;
+    width: number;
+  } | null>(null);
+  /** The first measurement must not animate, or the pill flies in from the left. */
+  const subPillReady = useRef(false);
+
+  // Closing the panel and opening it again starts on the local list, which is what the
+  // header icon is for. Switching lists inside an open panel is left alone.
+  useEffect(() => {
+    if (hasProjectsTab) setProjectsSub("projects");
+  }, [hasProjectsTab]);
+
+  useEffect(() => {
+    onProjectsSubChange(projectsSub);
+  }, [projectsSub, onProjectsSubChange]);
+
+  // The highlight follows the selected stop, so it is measured rather than assumed: the
+  // two labels are very different lengths in English.
+  const measureSubPill = useCallback(() => {
+    const strip = subStripRef.current;
+    if (!strip) return;
+    const active = strip.querySelector<HTMLElement>(
+      `[data-sub-value="${projectsSub}"]`,
+    );
+    if (!active) return;
+    const next = { left: active.offsetLeft, width: active.offsetWidth };
+    setSubPill((previous) =>
+      previous && previous.left === next.left && previous.width === next.width
+        ? previous
+        : next,
+    );
+    subPillReady.current = true;
+  }, [projectsSub]);
+
+  useLayoutEffect(() => {
+    measureSubPill();
+  }, [measureSubPill]);
+
+  // The labels change width with the language, which changes the group's size without
+  // changing the selection, so the highlight is measured again then too.
+  useEffect(() => {
+    const strip = subStripRef.current;
+    if (!strip) return;
+    const observer = new ResizeObserver(() => measureSubPill());
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, [measureSubPill]);
 
   return (
     <div className="relative h-full min-h-0">
@@ -181,25 +247,113 @@ export function WorkspaceSurface({
       <div
         className={cn(
           LAYER,
-          "px-1 pt-1 pb-2",
+          "flex min-h-0 flex-col",
           !isProjectsTab && "invisible pointer-events-none",
         )}
         aria-hidden={!isProjectsTab}
       >
-        <ProjectsView
-          active={isProjectsTab}
-          onOpenSession={onOpenProjectSession}
-          onOpenWorkspace={onOpenProject}
-          onOpenTerminal={onOpenProjectTerminal}
-          onNewSession={onNewProjectSession}
-        />
-      </div>
-      <div
-        className={cn(LAYER, !isRemotesTab && "invisible pointer-events-none")}
-        aria-hidden={!isRemotesTab}
-      >
-        <RemoteReposView active={isRemotesTab} />
+        <div
+          ref={subStripRef}
+          className="relative mx-3 mt-1.5 inline-flex w-fit shrink-0 items-center gap-0.5 rounded-md border border-border/60 bg-card p-0.5 text-[11px] shadow-sm"
+        >
+          <span
+            aria-hidden
+            className="pointer-events-none absolute top-0.5 bottom-0.5 left-0 rounded bg-accent"
+            style={
+              subPill
+                ? {
+                    width: subPill.width,
+                    transform: `translateX(${subPill.left}px)`,
+                    transitionProperty: subPillReady.current
+                      ? "transform, width"
+                      : "none",
+                    transitionDuration: "var(--dur-base)",
+                    transitionTimingFunction: "var(--ease-premium)",
+                  }
+                : { opacity: 0 }
+            }
+          />
+          <SubStop
+            value="projects"
+            active={projectsSub === "projects"}
+            label={t("tabs.new.projects")}
+            onSelect={() => setProjectsSub("projects")}
+          />
+          <SubStop
+            value="remotes"
+            active={projectsSub === "remotes"}
+            label={t("remotes.tabTitle")}
+            onSelect={() => setProjectsSub("remotes")}
+          />
+        </div>
+        {/* Both lists stay mounted: the remote list is the one that polls, and its
+            badges and any running download must survive a switch. Only the selected one
+            is told it is active, so the other stops hitting the network, and only the
+            selected one is reachable: the faded one is inert rather than merely dim. */}
+        <div className="relative min-h-0 flex-1">
+          <div
+            className={cn(
+              "absolute inset-0 px-1 pt-1 pb-2 transition-opacity duration-[var(--dur-base)] ease-[var(--ease-premium)]",
+              projectsSub !== "projects" && "pointer-events-none opacity-0",
+            )}
+            aria-hidden={projectsSub !== "projects"}
+            inert={projectsSub !== "projects"}
+          >
+            <ProjectsView
+              active={isProjectsTab && projectsSub === "projects"}
+              onOpenSession={onOpenProjectSession}
+              onOpenWorkspace={onOpenProject}
+              onOpenTerminal={onOpenProjectTerminal}
+              onNewSession={onNewProjectSession}
+            />
+          </div>
+          <div
+            className={cn(
+              LAYER,
+              "transition-opacity duration-[var(--dur-base)] ease-[var(--ease-premium)]",
+              projectsSub !== "remotes" && "pointer-events-none opacity-0",
+            )}
+            aria-hidden={projectsSub !== "remotes"}
+            inert={projectsSub !== "remotes"}
+          >
+            <RemoteReposView
+              active={isProjectsTab && projectsSub === "remotes"}
+            />
+          </div>
+        </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * One stop of the projects panel switch. The look follows the markdown view toggle: a
+ * small framed group with the selected stop on an accent fill. The fill is drawn by the
+ * sliding pill behind it, so the stop itself only carries the text colour.
+ */
+function SubStop({
+  value,
+  active,
+  label,
+  onSelect,
+}: {
+  value: ProjectsSub;
+  active: boolean;
+  label: string;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-sub-value={value}
+      aria-pressed={active}
+      onClick={onSelect}
+      className={cn(
+        "relative z-10 rounded px-2 py-0.5 transition-colors",
+        active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {label}
+    </button>
   );
 }
