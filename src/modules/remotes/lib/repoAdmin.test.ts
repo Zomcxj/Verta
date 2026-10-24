@@ -9,6 +9,7 @@ import {
   deleteConfirmMatches,
   descriptionProblem,
   isPrivateVisibility,
+  repoNameProblem,
 } from "./repoAdmin";
 
 const payload = (
@@ -103,6 +104,41 @@ describe("descriptionProblem", () => {
 
   it("超长在本地就拦下，别白跑一趟 gh", () => {
     expect(descriptionProblem("x".repeat(351))).toBe("tooLong");
+  });
+});
+
+describe("repoNameProblem", () => {
+  it("空名字与超长当场拦下，长度按字符数算", () => {
+    expect(repoNameProblem("")).toEqual({ reason: "empty" });
+    expect(repoNameProblem("   ")).toEqual({ reason: "empty" });
+    expect(repoNameProblem("x".repeat(100))).toBeNull();
+    expect(repoNameProblem("x".repeat(101))).toEqual({
+      reason: "tooLong",
+      length: 101,
+    });
+  });
+
+  it("GitHub 不收的字符把那个字符指出来", () => {
+    expect(repoNameProblem("我的仓库")).toEqual({
+      reason: "badChar",
+      char: "我",
+    });
+    expect(repoNameProblem("has space")).toEqual({
+      reason: "badChar",
+      char: " ",
+    });
+    // A slash belongs to a slug, and this field asks for a name.
+    expect(repoNameProblem("owner/repo")).toEqual({
+      reason: "badChar",
+      char: "/",
+    });
+  });
+
+  it("GitHub 收的名字原样放行", () => {
+    expect(repoNameProblem("Verta")).toBeNull();
+    expect(repoNameProblem("verta-cli_v2.1")).toBeNull();
+    expect(repoNameProblem(".github")).toBeNull();
+    expect(repoNameProblem("  Verta  ")).toBeNull();
   });
 });
 

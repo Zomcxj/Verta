@@ -310,10 +310,89 @@ pub async fn github_repo_delete(repo: String) -> Result<RepoActionResult, String
     blocking(move || Ok(repo_admin(&repo, RepoAdmin::Delete))).await
 }
 
+/// Rename a repository. GitHub keeps redirecting the old name, so existing clones keep
+/// working; the result carries the new slug so the list can re-label the row.
+#[tauri::command]
+pub async fn github_repo_rename(
+    repo: String,
+    new_name: String,
+) -> Result<RepoActionResult, String> {
+    blocking(move || Ok(repo_admin(&repo, RepoAdmin::Rename(new_name)))).await
+}
+
+/// Create a repository on the account.
+///
+/// `gitignore` and `license` are template names gh knows (`Rust`, `mit`, ...); empty means
+/// no such file is generated. The result's `repo` is the slug GitHub really created, read
+/// from the URL gh prints, so the list can say what exists rather than what was asked for.
+#[tauri::command]
+pub async fn github_repo_create(
+    name: String,
+    private: bool,
+    description: String,
+    gitignore: Option<String>,
+    license: Option<String>,
+) -> Result<RepoActionResult, String> {
+    blocking(move || {
+        Ok(repo_create(
+            &name,
+            private,
+            &description,
+            gitignore.as_deref(),
+            license.as_deref(),
+        ))
+    })
+    .await
+}
+
 enum RepoAdmin {
     Description(String),
     Visibility(bool),
     Delete,
+    Rename(String),
+}
+
+fn repo_create(
+    name: &str,
+    private: bool,
+    description: &str,
+    gitignore: Option<&str>,
+    license: Option<&str>,
+) -> RepoActionResult {
+    let trimmed = name.trim();
+    if let Some(problem) = repo_admin::repo_name_problem(trimmed) {
+        return RepoActionResult::failed(KIND_ERROR, trimmed, problem);
+    }
+    if let Some(problem) = repo_admin::description_problem(description) {
+        return RepoActionResult::failed(KIND_ERROR, trimmed, problem);
+    }
+
+    let owned = repo_admin::create_args(trimmed, private, description, gitignore, license);
+    let args: Vec<&str> = owned.iter().map(String::as_str).collect();
+    let output = match gh::run(&args, gh::REPO_ADMIN_TIMEOUT_SECS) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return RepoActionResult::not_installed(trimmed),
+        Err(GhRunError::Io(error)) => {
+            return RepoActionResult::failed(
+                KIND_ERROR,
+                trimmed,
+                format!("运行 gh 失败：{error}"),
+            )
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return RepoActionResult::failed(
+            classify_failure(&text).kind(),
+            trimmed,
+            error_excerpt(&text),
+        );
+    }
+
+    let slug =
+        repo_admin::slug_from_create_output(&output.stdout).unwrap_or_else(|| trimmed.to_string());
+    RepoActionResult::ok(slug)
 }
 
 fn repo_admin(repo: &str, action: RepoAdmin) -> RepoActionResult {
@@ -345,6 +424,9 @@ fn repo_admin(repo: &str, action: RepoAdmin) -> RepoActionResult {
             "--accept-visibility-change-consequences",
         ],
         RepoAdmin::Delete => vec!["repo", "delete", &slug, "--yes"],
+        RepoAdmin::Rename(new_name) => {
+            vec!["repo", "rename", new_name.trim(), "--repo", &slug]
+        }
     };
 
     let output = match gh::run(&args, gh::REPO_ADMIN_TIMEOUT_SECS) {
@@ -381,6 +463,12 @@ fn repo_admin(repo: &str, action: RepoAdmin) -> RepoActionResult {
     // once a follow-up lookup confirms it is gone.
     if matches!(action, RepoAdmin::Delete) {
         return confirm_repo_gone(&slug);
+    }
+    // A rename answers with the new slug: the old one redirects on GitHub, but the list
+    // needs the name the repo now has.
+    if let RepoAdmin::Rename(new_name) = &action {
+        let owner = slug.split('/').next().unwrap_or_default();
+        return RepoActionResult::ok(format!("{owner}/{}", new_name.trim()));
     }
     RepoActionResult::ok(&slug)
 }

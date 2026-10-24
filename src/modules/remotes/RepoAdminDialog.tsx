@@ -25,6 +25,8 @@ import {
   deleteConfirmMatches,
   descriptionProblem,
   isPrivateVisibility,
+  repoNameProblem,
+  type RepoNameProblem,
 } from "./lib/repoAdmin";
 
 type Props = {
@@ -38,16 +40,24 @@ type Props = {
   ) => void;
   /** Reported after the repo is deleted, so the list row can be removed. */
   onDeleted?: (repo: string) => void;
+  /** Reported after a rename, with the new slug: GitHub keeps the old name redirecting,
+   * but the row and this dialog have to follow the new one. */
+  onRenamed?: (repo: string, newSlug: string) => void;
 };
 
 /** A change that needs confirmation before it is sent. */
 type PendingChange = { what: "visibility"; isPrivate: boolean } | { what: "delete" };
 
+/** The `name` half of an `owner/name` slug. */
+function nameOf(slug: string): string {
+  return slug.split("/").pop() ?? slug;
+}
+
 /**
- * Repo settings: edit the description, change visibility, delete the repo.
+ * Repo settings: rename, edit the description, change visibility, delete the repo.
  *
  * Settings (description, visibility, whether the account is an admin) are read
- * once on open. Editing the description and switching visibility both write
+ * once on open. A rename, a description edit and a visibility switch all write
  * straight back to GitHub on a click, so visibility lists the consequences one
  * by one first; delete goes further and requires typing the full repo name.
  * Every failure keeps GitHub's own message in the dialog instead of a bare
@@ -58,6 +68,7 @@ export function RepoAdminDialog({
   onOpenChange,
   onChanged,
   onDeleted,
+  onRenamed,
 }: Props) {
   const t = useT();
   const [payload, setPayload] = useState<WireRepoSettingsPayload | null>(null);
@@ -66,9 +77,13 @@ export function RepoAdminDialog({
   const [fatal, setFatal] = useState<string | null>(null);
   /** Description draft: filled with the current value on open, then tracks the saved value. */
   const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState<null | "description" | "visibility" | "delete">(
-    null,
-  );
+  /** Repo name draft, seeded from the current name on open. */
+  const [nameDraft, setNameDraft] = useState("");
+  /** GitHub's own words when the rename failed; kept next to the field to be fixed. */
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<
+    null | "description" | "visibility" | "rename" | "delete"
+  >(null);
   const [pending, setPending] = useState<PendingChange | null>(null);
   /** GitHub's own words when an action failed; kept in the confirm dialog. */
   const [actionError, setActionError] = useState<string | null>(null);
@@ -83,6 +98,8 @@ export function RepoAdminDialog({
       const result = await native.githubRepoSettings(repo);
       setPayload(result);
       setDraft(result.description ?? "");
+      setNameDraft(nameOf(repo));
+      setNameError(null);
     } catch (e) {
       setPayload(null);
       setFatal(String(e));
@@ -97,6 +114,8 @@ export function RepoAdminDialog({
       setPayload(null);
       setFatal(null);
       setDraft("");
+      setNameDraft("");
+      setNameError(null);
       setPending(null);
       setActionError(null);
       setTyped("");
@@ -112,6 +131,19 @@ export function RepoAdminDialog({
   const draftProblem = descriptionProblem(draft);
   const currentPrivate = isPrivateVisibility(payload?.visibility ?? null);
   const canDelete = deleteConfirmMatches(typed, repo ?? "");
+  const nameProblem = repoNameProblem(nameDraft);
+  const nameDirty = Boolean(repo) && nameDraft.trim() !== nameOf(repo ?? "");
+
+  const nameProblemText = (problem: RepoNameProblem): string => {
+    switch (problem.reason) {
+      case "empty":
+        return t("remotes.rename.empty");
+      case "tooLong":
+        return t("remotes.rename.tooLong", { length: problem.length });
+      case "badChar":
+        return t("remotes.rename.badChars", { char: problem.char });
+    }
+  };
 
   const close = (next: boolean) => {
     if (busy) return;
@@ -135,6 +167,36 @@ export function RepoAdminDialog({
       toast.success(t("remotes.admin.saved"));
     } catch (e) {
       toast.error(String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * Rename the repo.
+   *
+   * Not confirmed first: GitHub redirects the old name, so nothing breaks and the change
+   * is undone by renaming back. A refusal comes back in GitHub's own words and stays under
+   * the field, so the name can be corrected and retried.
+   */
+  const saveName = async () => {
+    if (!repo || busy || nameProblem) return;
+    setBusy("rename");
+    setNameError(null);
+    try {
+      const next = nameDraft.trim();
+      const result = await native.githubRepoRename(repo, next);
+      if (result.kind !== "ready") {
+        setNameError(result.error ?? t("remotes.ci.error"));
+        return;
+      }
+      // The slug GitHub reports is the truth: it is what the list and this dialog follow.
+      const slug = result.repo || `${repo.split("/")[0]}/${next}`;
+      setNameDraft(nameOf(slug));
+      onRenamed?.(repo, slug);
+      toast.success(t("remotes.rename.done", { repo: slug }));
+    } catch (e) {
+      setNameError(String(e));
     } finally {
       setBusy(null);
     }
@@ -215,6 +277,58 @@ export function RepoAdminDialog({
             </p>
           ) : (
             <div className="space-y-4">
+              <section className="space-y-1.5">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-xs font-medium text-foreground">
+                    {t("remotes.rename.label")}
+                  </span>
+                  {nameDirty ? (
+                    <span className="text-[11px] text-muted-foreground">
+                      {t("remotes.admin.description.dirty")}
+                    </span>
+                  ) : null}
+                </div>
+                <Input
+                  value={nameDraft}
+                  className="font-mono"
+                  disabled={!writable || busy !== null}
+                  onChange={(event) => setNameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void saveName();
+                    }
+                  }}
+                />
+                {nameProblem ? (
+                  <p className="text-[11px] text-destructive">
+                    {nameProblemText(nameProblem)}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    {t("remotes.rename.hint")}
+                  </p>
+                )}
+                {nameError ? (
+                  <p className="whitespace-pre-wrap text-[11px] text-destructive">
+                    {nameError}
+                  </p>
+                ) : null}
+                {writable ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    disabled={!nameDirty || Boolean(nameProblem) || busy !== null}
+                    onClick={() => void saveName()}
+                  >
+                    {busy === "rename"
+                      ? t("remotes.rename.running")
+                      : t("remotes.rename.button")}
+                  </Button>
+                ) : null}
+              </section>
+
               <section className="space-y-1.5">
                 <div className="flex items-baseline gap-2">
                   <span className="text-xs font-medium text-foreground">

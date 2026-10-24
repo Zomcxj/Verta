@@ -69,6 +69,94 @@ pub fn needs_delete_scope(text: &str) -> bool {
     HINTS.iter().any(|hint| lower.contains(hint))
 }
 
+/// Whether a repository name passes the rules GitHub actually enforces.
+///
+/// Checked locally because the round trip is slow and gh's own wording ("invalid name")
+/// does not say what is wrong. GitHub allows letters, digits, `.`, `_` and `-`, up to 100
+/// characters.
+pub fn repo_name_problem(name: &str) -> Option<String> {
+    const NAME_MAX_CHARS: usize = 100;
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Some("仓库名不能为空".to_string());
+    }
+    let length = trimmed.chars().count();
+    if length > NAME_MAX_CHARS {
+        return Some(format!(
+            "仓库名最多 {NAME_MAX_CHARS} 个字符，现在有 {length} 个"
+        ));
+    }
+    if let Some(bad) = trimmed
+        .chars()
+        .find(|c| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')))
+    {
+        return Some(format!(
+            "仓库名里的 {bad:?} 不能用：只允许字母、数字、点、下划线、连字符"
+        ));
+    }
+    None
+}
+
+/// The `gh repo create` arguments for one repository.
+///
+/// `gitignore` and `license` are template names gh knows (`Rust`, `Node`, `mit`, ...); no
+/// template means no file is generated, which is a different thing from an empty one.
+pub fn create_args(
+    name: &str,
+    private: bool,
+    description: &str,
+    gitignore: Option<&str>,
+    license: Option<&str>,
+) -> Vec<String> {
+    let mut args = vec![
+        "repo".to_string(),
+        "create".to_string(),
+        name.trim().to_string(),
+        if private { "--private" } else { "--public" }.to_string(),
+    ];
+    let description = description.trim();
+    if !description.is_empty() {
+        args.push("--description".to_string());
+        args.push(description.to_string());
+    }
+    if let Some(template) = gitignore.map(str::trim).filter(|t| !t.is_empty()) {
+        args.push("--gitignore".to_string());
+        args.push(template.to_string());
+    }
+    if let Some(template) = license.map(str::trim).filter(|t| !t.is_empty()) {
+        args.push("--license".to_string());
+        args.push(template.to_string());
+    }
+    args
+}
+
+/// The slug `gh repo create` reports, read from the URL it prints on success.
+///
+/// None when the output is not a repository URL: the caller then falls back to the name it
+/// asked for instead of pretending to know better.
+pub fn slug_from_create_output(stdout: &str) -> Option<String> {
+    // gh prints the URL on success; any other line is ignored rather than guessed at.
+    let line = stdout.lines().map(str::trim).find(|line| {
+        line.starts_with("https://github.com/")
+            || line.starts_with("http://github.com/")
+            || line.starts_with("git@github.com:")
+    })?;
+    let rest = line
+        .trim_start_matches("https://github.com/")
+        .trim_start_matches("http://github.com/")
+        .trim_start_matches("git@github.com:");
+    let mut parts = rest
+        .trim_end_matches('/')
+        .trim_end_matches(".git")
+        .split('/');
+    let owner = parts.next()?.trim();
+    let name = parts.next()?.trim();
+    if owner.is_empty() || name.is_empty() {
+        return None;
+    }
+    Some(format!("{owner}/{name}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,5 +227,68 @@ mod tests {
         assert!(needs_delete_scope("please reauthenticate and try again"));
         assert!(!needs_delete_scope("HTTP 404: Not Found"));
         assert!(!needs_delete_scope("must have admin rights to Repository"));
+    }
+
+    #[test]
+    fn a_name_github_would_refuse_is_reported_local() {
+        assert!(repo_name_problem("  ").is_some());
+        assert!(repo_name_problem("我的仓库").is_some(), "非 ASCII 名字");
+        assert!(repo_name_problem("has space").is_some());
+        assert!(repo_name_problem("has/slash").is_some());
+        assert!(repo_name_problem(&"x".repeat(101)).is_some());
+    }
+
+    #[test]
+    fn the_names_github_accepts_are_left_alone() {
+        assert_eq!(repo_name_problem("Verta"), None);
+        assert_eq!(repo_name_problem("verta-cli_v2.1"), None);
+        assert_eq!(repo_name_problem(".github"), None);
+        assert_eq!(repo_name_problem(&"x".repeat(100)), None);
+        // The field takes a name, not a slug: the owner comes from the account.
+        assert!(repo_name_problem("Zomcxj/verta").is_some());
+    }
+
+    #[test]
+    fn create_args_only_ask_for_what_was_given() {
+        assert_eq!(
+            create_args("repo", true, "", None, None),
+            vec!["repo", "create", "repo", "--private"]
+        );
+        assert_eq!(
+            create_args("repo", false, "  ", Some("  "), Some("")),
+            vec!["repo", "create", "repo", "--public"]
+        );
+        assert_eq!(
+            create_args("repo", true, " 说明 ", Some("Rust"), Some(" mit ")),
+            vec![
+                "repo",
+                "create",
+                "repo",
+                "--private",
+                "--description",
+                "说明",
+                "--gitignore",
+                "Rust",
+                "--license",
+                "mit",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_created_slug_comes_from_the_url_gh_prints() {
+        assert_eq!(
+            slug_from_create_output("https://github.com/Zomcxj/verta\n"),
+            Some("Zomcxj/verta".to_string())
+        );
+        assert_eq!(
+            slug_from_create_output("noise\nhttps://github.com/Zomcxj/verta/\n"),
+            Some("Zomcxj/verta".to_string())
+        );
+        assert_eq!(
+            slug_from_create_output("git@github.com:Zomcxj/verta.git"),
+            Some("Zomcxj/verta".to_string())
+        );
+        assert_eq!(slug_from_create_output("created\n"), None);
     }
 }

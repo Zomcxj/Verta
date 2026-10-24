@@ -55,6 +55,31 @@ export function descriptionProblem(description: string): "tooLong" | null {
   return description.trim().length > DESCRIPTION_MAX_CHARS ? "tooLong" : null;
 }
 
+/** Max length of a repo name; matches `repo_admin::repo_name_problem` on the Rust side. */
+export const REPO_NAME_MAX_CHARS = 100;
+
+/** Why a repo name would be refused, in the shape the UI needs to say it. */
+export type RepoNameProblem =
+  | { reason: "empty" }
+  | { reason: "tooLong"; length: number }
+  | { reason: "badChar"; char: string };
+
+/**
+ * Local check for a repo name; null when GitHub would accept it.
+ *
+ * Checked here because the round trip is slow and gh's own wording ("invalid name") does
+ * not say which rule was broken. GitHub takes letters, digits, `.`, `_` and `-`, up to 100
+ * characters; the field is a name, not a slug, so the owner is not part of it.
+ */
+export function repoNameProblem(name: string): RepoNameProblem | null {
+  const trimmed = name.trim();
+  if (!trimmed) return { reason: "empty" };
+  const length = [...trimmed].length;
+  if (length > REPO_NAME_MAX_CHARS) return { reason: "tooLong", length };
+  const bad = [...trimmed].find((char) => !/[A-Za-z0-9._-]/.test(char));
+  return bad ? { reason: "badChar", char: bad } : null;
+}
+
 /**
  * Default clone destination: **next to** an existing project, named after the
  * repo.

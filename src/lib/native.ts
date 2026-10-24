@@ -793,6 +793,28 @@ export const native = {
    * before reporting success. */
   githubRepoDelete: (repo: string) =>
     invoke<WireRepoActionResult>("github_repo_delete", { repo }),
+  /** Rename a repo; the result carries the new slug, since the old one redirects. */
+  githubRepoRename: (repo: string, newName: string) =>
+    invoke<WireRepoActionResult>("github_repo_rename", {
+      repo,
+      newName,
+    }),
+  /** Create a repo under the logged-in account. `gitignore` / `license` are template
+   * names gh knows; the result carries the slug GitHub really created. */
+  githubRepoCreate: (input: {
+    name: string;
+    private: boolean;
+    description: string;
+    gitignore?: string;
+    license?: string;
+  }) =>
+    invoke<WireRepoActionResult>("github_repo_create", {
+      name: input.name,
+      private: input.private,
+      description: input.description,
+      gitignore: input.gitignore ?? null,
+      license: input.license ?? null,
+    }),
   /** Login state of the local gh. */
   githubAuthStatus: () =>
     invoke<WireAuthStatusPayload>("github_auth_status", {}),

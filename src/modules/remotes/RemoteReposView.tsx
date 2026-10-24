@@ -1,5 +1,13 @@
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -22,19 +30,23 @@ import {
 } from "@/modules/projects";
 import { CloneRepoDialog } from "@/modules/projects/CloneRepoDialog";
 import { AuthDialog } from "./AuthDialog";
+import { DescriptionDialog } from "./DescriptionDialog";
 import { RepoAdminDialog } from "./RepoAdminDialog";
 import { RunListDialog } from "./RunListDialog";
 import { ReleasesDialog } from "./ReleasesDialog";
 import { IssuesDialog } from "./IssuesDialog";
+import { NewRepoDialog } from "./NewRepoDialog";
 import { TONE_CLASS, ciView, type CiView } from "./lib/ci";
 import { cloneDestFromProjects } from "./lib/repoAdmin";
 import { ciFromRuns } from "./lib/runs";
 import {
+  cloneUrlOf,
   copyTextOf,
   filterRows,
   noticeOf,
   sortRows,
   toRows,
+  type RemoteSortState,
 } from "./lib/rows";
 import type { RemoteRepoRow } from "./lib/types";
 
@@ -70,6 +82,14 @@ export function RemoteReposView({ active }: Props) {
   const [issuesFor, setIssuesFor] = useState<string | null>(null);
   /** Repo being edited; null when the dialog is closed. */
   const [adminFor, setAdminFor] = useState<string | null>(null);
+  /** Row whose description is being edited; null when the dialog is closed. */
+  const [descriptionFor, setDescriptionFor] = useState<RemoteRepoRow | null>(
+    null,
+  );
+  /** Row whose switch to public is waiting for a yes; null when nothing is pending. */
+  const [confirmPublic, setConfirmPublic] = useState<RemoteRepoRow | null>(null);
+  /** Full name of the row whose visibility is being written right now. */
+  const [visibilityBusy, setVisibilityBusy] = useState<string | null>(null);
   /** Repo being cloned; `dest` is the prefilled destination directory. */
   const [cloneFor, setCloneFor] = useState<{
     row: RemoteRepoRow;
@@ -77,6 +97,8 @@ export function RemoteReposView({ active }: Props) {
   } | null>(null);
   /** Whether the account panel is open. */
   const [authOpen, setAuthOpen] = useState(false);
+  /** Whether the "new repository" dialog is open. */
+  const [createOpen, setCreateOpen] = useState(false);
   const [ciBusy, setCiBusy] = useState<Record<string, boolean>>({});
 
   /**
@@ -230,6 +252,84 @@ export function RemoteReposView({ active }: Props) {
     [],
   );
 
+  /**
+   * Follow a rename in the list.
+   *
+   * GitHub keeps redirecting the old name, so nothing on disk breaks, but the row has to
+   * show the name the repo now has: the filter matches on it and the link points at it.
+   * Derived from the new slug rather than a re-read, the same way the rest of the panel
+   * builds a GitHub URL.
+   */
+  const applyRename = useCallback((repo: string, newSlug: string) => {
+    const owner = newSlug.split("/")[0] ?? "";
+    const name = newSlug.split("/").pop() ?? "";
+    const webUrl = `https://github.com/${newSlug}`;
+    setPayload((prev) =>
+      prev
+        ? {
+            ...prev,
+            repos: prev.repos.map((item) =>
+              item.fullName === repo
+                ? {
+                    ...item,
+                    fullName: newSlug,
+                    owner,
+                    name,
+                    webUrl,
+                    cloneUrl: cloneUrlOf(webUrl),
+                  }
+                : item,
+            ),
+          }
+        : prev,
+    );
+  }, []);
+
+  /**
+   * Switch one repo's visibility from the list.
+   *
+   * Whether the account may do this is GitHub's call rather than a guess, so the click
+   * goes straight through and a refusal comes back in its own words. The list is patched
+   * from the result instead of re-reading: one row changed, not the whole account.
+   */
+  const setVisibility = useCallback(
+    async (fullName: string, isPrivate: boolean) => {
+      setVisibilityBusy(fullName);
+      try {
+        const result = await native.githubRepoSetVisibility(fullName, isPrivate);
+        if (result.kind !== "ready") {
+          toast.error(result.error ?? t("remotes.ci.error"));
+          return;
+        }
+        applyPatch(fullName, { visibility: isPrivate ? "PRIVATE" : "PUBLIC" });
+        toast.success(t("remotes.admin.visibility.done"));
+      } catch (e) {
+        toast.error(String(e));
+      } finally {
+        setVisibilityBusy(null);
+        // The confirm dialog, when there was one, has said its part either way.
+        setConfirmPublic(null);
+      }
+    },
+    [applyPatch, t],
+  );
+
+  /**
+   * The visibility cell toggles on click. Only the switch **to public** asks first: that
+   * is the direction that cannot be taken back, while going private only tightens access
+   * and is undone by clicking again.
+   */
+  const toggleVisibility = useCallback(
+    (row: RemoteRepoRow) => {
+      if (row.isPrivate) {
+        setConfirmPublic(row);
+        return;
+      }
+      void setVisibility(row.fullName, true);
+    },
+    [setVisibility],
+  );
+
   if (!payload) {
     if (failure) {
       return (
@@ -277,6 +377,15 @@ export function RemoteReposView({ active }: Props) {
           disabled={reading}
         >
           {reading ? t("remotes.reading") : t("remotes.refresh")}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs"
+          disabled={reading}
+          onClick={() => setCreateOpen(true)}
+        >
+          {t("remotes.create.open")}
         </Button>
         <span className="grow" />
         <button
@@ -406,6 +515,9 @@ export function RemoteReposView({ active }: Props) {
                   onOpenReleases={setReleasesFor}
                   onOpenIssues={setIssuesFor}
                   onOpenAdmin={setAdminFor}
+                  onEditDescription={setDescriptionFor}
+                  onToggleVisibility={toggleVisibility}
+                  visibilityBusy={visibilityBusy === row.fullName}
                   onClone={(target) => void startClone(target)}
                 />
               ))}
@@ -455,6 +567,12 @@ export function RemoteReposView({ active }: Props) {
           );
           setAdminFor(null);
         }}
+        onRenamed={(repo, newSlug) => {
+          applyRename(repo, newSlug);
+          // Keep the dialog on this repo: it reads settings keyed by the slug, and the
+          // old name is now only a redirect.
+          setAdminFor(newSlug);
+        }}
       />
       <CloneRepoDialog
         open={cloneFor !== null}
@@ -467,6 +585,65 @@ export function RemoteReposView({ active }: Props) {
         }}
         onCloned={(path) => void handleCloned(path)}
       />
+      <NewRepoDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={() => {
+          // The list is the only thing that knows the account's repositories, so read it
+          // again; an active filter would hide the new row, so clear that too.
+          setFilter("");
+          void read();
+        }}
+      />
+      <DescriptionDialog
+        repo={descriptionFor?.fullName ?? null}
+        current={descriptionFor?.description ?? null}
+        onOpenChange={(open) => {
+          if (!open) setDescriptionFor(null);
+        }}
+        onSaved={(repo, description) => applyPatch(repo, { description })}
+      />
+      <AlertDialog
+        open={confirmPublic !== null}
+        onOpenChange={(next) => {
+          if (!next) setConfirmPublic(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("remotes.admin.visibility.toPublic.title")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="block font-mono text-xs text-foreground">
+                {confirmPublic?.fullName ?? ""}
+              </span>
+              {t("remotes.admin.visibility.toPublic.hint")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button
+              variant="ghost"
+              disabled={visibilityBusy !== null}
+              onClick={() => setConfirmPublic(null)}
+            >
+              {t("scm.common.cancel")}
+            </Button>
+            <Button
+              disabled={visibilityBusy !== null}
+              onClick={() => {
+                if (confirmPublic) {
+                  void setVisibility(confirmPublic.fullName, false);
+                }
+              }}
+            >
+              {visibilityBusy !== null
+                ? t("remotes.runs.working")
+                : t("remotes.admin.visibility.toPublic")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AuthDialog
         open={authOpen}
         onOpenChange={(next) => {
@@ -490,6 +667,9 @@ function RepoRow({
   onOpenReleases,
   onOpenIssues,
   onOpenAdmin,
+  onEditDescription,
+  onToggleVisibility,
+  visibilityBusy,
   onClone,
 }: {
   row: RemoteRepoRow;
@@ -501,6 +681,9 @@ function RepoRow({
   onOpenReleases: (fullName: string) => void;
   onOpenIssues: (fullName: string) => void;
   onOpenAdmin: (fullName: string) => void;
+  onEditDescription: (row: RemoteRepoRow) => void;
+  onToggleVisibility: (row: RemoteRepoRow) => void;
+  visibilityBusy: boolean;
   onClone: (row: RemoteRepoRow) => void;
 }) {
   const t = useT();
@@ -529,10 +712,23 @@ function RepoRow({
         </span>
       </td>
       <td className="py-1.5 pr-2 text-muted-foreground">
-        {row.isPrivate
-          ? t("remotes.visibility.private")
-          : t("remotes.visibility.public")}
         {t(ownershipLabelKey(row.ownership))}
+      </td>
+      <td className="py-1.5 pr-2">
+        <button
+          type="button"
+          title={t("remotes.visibility.toggle")}
+          className="rounded px-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+          disabled={visibilityBusy}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleVisibility(row);
+          }}
+        >
+          {row.isPrivate
+            ? t("remotes.visibility.private")
+            : t("remotes.visibility.public")}
+        </button>
       </td>
       <td className="truncate py-1.5 pr-2 text-muted-foreground">
         {row.language ?? t("remotes.unknown")}
@@ -549,8 +745,22 @@ function RepoRow({
           onOpenDetail={() => onOpenRuns(row.fullName)}
         />
       </td>
-      <td className="truncate py-1.5 pr-2 text-muted-foreground">
-        {row.description ?? ""}
+      <td className="truncate py-1.5 pr-2">
+        <button
+          type="button"
+          title={
+            row.description
+              ? t("remotes.description.edit")
+              : t("remotes.description.add")
+          }
+          className="block max-w-full truncate rounded px-1 text-left text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={(event) => {
+            event.stopPropagation();
+            onEditDescription(row);
+          }}
+        >
+          {row.description ?? "+"}
+        </button>
       </td>
       <td className="py-1.5 text-right">
         <DropdownMenu>

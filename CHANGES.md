@@ -62,6 +62,17 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/projects/ProjectsView.tsx`, `src/modules/remotes/RemoteReposView.tsx`: the shared header cells and the owner cells in both tables. The project list reads the account once per panel visit, since that costs a `gh repo list`.
 - `src/modules/i18n/messages.ts`: the owner labels and the two column headers, Chinese and English.
 
+**Repositories can be created, renamed, described and switched from the list**
+
+- `src-tauri/src/modules/github/repo_admin.rs`: the repository name rules checked locally (GitHub's limits and characters), the arguments a create is made with, and the slug read back from what gh prints instead of assumed, each with tests.
+- `src-tauri/src/modules/github/commands.rs`, `src-tauri/src/lib.rs`, `src/lib/native.ts`: `github_repo_create` and `github_repo_rename`, the latter answering with the new slug because the old name only redirects.
+- `src/modules/remotes/lib/repoAdmin.ts`, `src/modules/remotes/lib/repoAdmin.test.ts`, `src/modules/remotes/RepoAdminDialog.tsx`: the same name rules in the frontend, so the rename field says what is wrong before gh is asked, and GitHub's own refusal is shown under the field.
+- `src/modules/remotes/NewRepoDialog.tsx` (new): the create form, with visibility, a description, and the gitignore and license templates gh knows.
+- `src/modules/remotes/DescriptionDialog.tsx` (new): one field, seeded from the row, so a description is written without opening anything else.
+- `src/modules/remotes/RemoteReposView.tsx`: a New repository button, the row menu following a rename to the new slug, a description cell that opens the one-field dialog, and a visibility cell that switches, asking first only in the direction that goes public, since that is the direction that cannot be undone.
+- `src/modules/i18n/messages.ts`: the create, rename and description strings, Chinese and English.
+- `scripts/dev/probes/create-rename-acceptance.mjs`, `scripts/dev/probes/description-edit-acceptance.mjs`, `scripts/dev/probes/visibility-toggle-acceptance.mjs` (new): the three flows driven through the interface against the real account, with the GitHub side checked outside the scripts.
+
 </details>
 
 
