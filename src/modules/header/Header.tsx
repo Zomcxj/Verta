@@ -5,6 +5,7 @@ import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import type { Tab } from "@/modules/tabs";
 import { TabBar, type TerminalChoice } from "@/modules/tabs";
 import { AgentActivityBadge } from "./AgentActivityBadge";
+import { NotificationBell } from "@/modules/notifications/NotificationBell";
 import {
   CommandIcon,
   CropIcon,
@@ -193,6 +194,8 @@ export function Header({
       </div>
 
       <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
+
+      <NotificationBell tabs={tabs} onJump={onSelect} />
 
       <Button
         size="icon-sm"

@@ -327,6 +327,14 @@ swap in the new date, and drop the `open` from the day before.
 - `src/app/App.tsx`: the effect that called `acknowledgeAttention` with a hand-rolled leaf to pty mapping is replaced by one that hands the active tab's leaves to the store, which is the only place that knows what the user is looking at.
 - Verified on the real machine by `scripts/dev/probes/tab-agent-unseen.mjs` (new): a session of the probe's own that works while its tab is active (dot, no bar), is left waiting after switching to another tab (dot plus the 2px bar, count `在等 1`), then is looked at again (bar gone, dot and count unchanged), then is left waiting again without the bar re-arming, because it has been seen. The probe put the user's active tab back and closed its own. 34 tests over the store, the selectors and the signal path, `pnpm test` 2121 passed, `pnpm build` clean.
 
+**Waiting sessions collect in one list in the header**
+
+- `src/modules/notifications/lib/attentions.ts` (new): `pendingAttentions`, built from the tabs (label and leaves) and the activity store (the latch and the leaf to pty map), so the notification layer owns no data: a row leaves the list when the latch clears, which is when the session is answered or looked at, never on a timeout. Newest first. `questionExcerpt` reads what the session is asking from the bottom of its screen rather than from a stored copy, so there is nothing to keep in step and nothing to show once the agent has moved on.
+- `src/modules/notifications/NotificationBell.tsx` (new): a bell in the header with the count, opening a list of the sessions that are waiting and have not been looked at, each row the tab's label, how long it has been waiting (`relativeTime`) and the question from its screen. Clicking a row activates that tab, which is also what marks the wait as seen. The bell itself is only there while something is on the list, so a window with no agents in it gains no chrome.
+- `src/modules/header/Header.tsx`: mounts the bell next to the search field, wired to the same tab selection the strip uses.
+- `src/modules/i18n/messages.ts`: `notifications.title` / `notifications.empty` / `notifications.jump`, both languages.
+- Verified on the real machine by `scripts/dev/probes/agent-notifications.mjs` (new): no bell at a bare prompt, then a bell with count 1 for a session that started waiting while another tab was in front; opening it lists one row reading `Study` / `刚刚` / the card's text; clicking the row brings that tab to the front and empties the list; the probe's tab was closed and the user's active tab put back. 10 tests over the list and the excerpt, `pnpm test` 2131 passed, `pnpm build` clean.
+
 </details>
 
 
