@@ -179,7 +179,7 @@ export function AboutSection() {
         </div>
         {status.kind === "error" && (
           <p className="font-mono text-[10.5px] break-all text-destructive/80">
-            {status.message}
+            {t(status.message)}
           </p>
         )}
         {downloading && status.contentLength ? (

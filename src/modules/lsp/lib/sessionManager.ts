@@ -56,6 +56,8 @@ export type LspSessionLabels = {
     exited: (name: string) => string;
     keptCrashing: string;
     givingUp: string;
+    /** A reason the other side wrote, shown in the current language when it is one we know. */
+    reason: (text: string) => string;
   };
 };
 
@@ -299,7 +301,7 @@ function handleServerExit(key: string): void {
     );
     useLspRuntimeStore.getState().setFailed(managed.preset.id, info.reason);
     toast.error(managed.labels.toasts.stopped(managed.preset.name), {
-      description: info.reason,
+      description: managed.labels.toasts.reason(info.reason),
     });
     return;
   }

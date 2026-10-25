@@ -113,6 +113,15 @@ swap in the new date, and drop the `open` from the day before.
 - `scripts/dev/probes/window-state-restore.mjs`: the height now has to match the record as strictly as the width does, instead of being allowed to sit an offset above it, so the probe can see this come back.
 - `VERTA.md`: the Window styling notes say every borderless window opts out of the shadow, and what happens to a window-state restore if one does not.
 
+**The two sentences the other side writes follow the language**
+
+- `src/modules/updater/useUpdater.ts`: the one line the updater itself wrote ("update source not configured yet") is a key now. Errors from the updater or the network ride the same field as the text they arrived as, and the lookup falls back to the key, so one field carries both; that is the shape `themeFiles.ts` already uses for a parser message.
+- `src/settings/sections/AboutSection.tsx`: the failure line resolves that key instead of printing the field.
+- `src/modules/lsp/lib/exitReason.ts` (new): the memory-budget sentence the language-server side writes (`session.rs`) becomes a key with its two numbers, read back out of the sentence; anything else, a crash code or stderr text, is shown as it arrived. Reading numbers out of a sentence is the cost of mapping rather than emitting a key from the other side, so the pattern is pinned by a test.
+- `src/modules/lsp/lib/useLspExtension.ts`, `src/modules/lsp/lib/sessionManager.ts`, `src/modules/lsp/components/LspStatusPill.tsx`: that mapping is handed down with the rest of the copy (the crash and the pill both render outside a hook that has the message table), and the store keeps what the other side said, so a language switch does not need the session restarted.
+- `src/modules/i18n/messages.ts`: two new strings, one in Chinese and one in English each.
+- Verified on the running app for the updater one: this build has no update source, so pressing "check for updates" in Settings > About lands on that path, and the line reads the Chinese string with no English left. The language-server one cannot be raised by hand (it needs a server to exceed its memory budget) and is covered by the mapping's tests instead.
+
 **A saved screenshot carries the app's name, not the word every tool writes**
 
 - `src-tauri/src/modules/screenshot/geom.rs`: a region capture is written as `Verta-<stamp>.png` instead of `Screenshot-<stamp>.png`. The folder it lands in (`Pictures/Screenshots`) also collects Windows' own captures, so the name should say which tool took it; `Screenshot` is what the others write. The `-2`, `-3` suffix for a second shot in the same second and the `-overflow` fallback are unchanged, and the two unit tests pin the new prefix.

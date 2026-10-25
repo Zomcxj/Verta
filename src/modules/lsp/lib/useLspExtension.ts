@@ -3,6 +3,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { Extension } from "@codemirror/state";
 import { useEffect, useRef, useState } from "react";
 import { serverForLanguage } from "./presets";
+import { exitReasonMessage } from "./exitReason";
 import { useLspRuntimeStore } from "./runtimeStore";
 import {
   acquireDocExtension,
@@ -32,6 +33,10 @@ export function useLspExtension(
       exited: (name) => t("lsp.toast.exited", { name }),
       keptCrashing: t("lsp.keptCrashing"),
       givingUp: t("lsp.givingUp"),
+      reason: (text) => {
+        const message = exitReasonMessage(text);
+        return t(message.key, message.values);
+      },
     },
   };
   const labelsRef = useRef(labels);

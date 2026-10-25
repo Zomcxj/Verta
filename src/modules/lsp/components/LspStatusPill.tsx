@@ -19,6 +19,7 @@ import { useState } from "react";
 import { redetectBinary } from "../lib/detect";
 import type { LspPreset } from "../lib/presets";
 import { restartPresetSessions } from "../lib/sessionManager";
+import { exitReasonMessage } from "../lib/exitReason";
 import { useLspHint } from "../lib/useLspHint";
 
 type Props = {
@@ -77,6 +78,7 @@ export function LspStatusPill({ filePath }: Props) {
 
 function ErrorPill({ preset, reason }: { preset: LspPreset; reason: string }) {
   const t = useT();
+  const message = exitReasonMessage(reason);
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -97,7 +99,9 @@ function ErrorPill({ preset, reason }: { preset: LspPreset; reason: string }) {
         <div className="mb-1 font-medium text-foreground">
           {t("lsp.stoppedNamed", { name: preset.name })}
         </div>
-        <p className="mb-2 text-muted-foreground">{reason}</p>
+        <p className="mb-2 text-muted-foreground">
+          {t(message.key, message.values)}
+        </p>
         <div className="flex items-center gap-1.5">
           <button
             type="button"

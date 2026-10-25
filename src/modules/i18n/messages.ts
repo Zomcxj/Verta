@@ -702,6 +702,7 @@ const zh = {
   "common.loading": "加载中",
 
   "lsp.stopped": "语言服务器已停止",
+  "lsp.memoryBudget": "超出 {budget} MB 内存预算被杀（实际占用 {resident} MB）",
   "lsp.dismissHint": "关闭（可在设置中重新启用）",
   "lsp.copyCommand": "复制命令",
 
@@ -1175,6 +1176,7 @@ const zh = {
   "settings.about.update.install": "安装 v{version}",
   "settings.about.update.manual": "更新到 v{version}",
   "settings.about.update.check": "检查更新",
+  "settings.about.update.noSource": "还没配置更新源",
   "settings.editor.formatter.lsp": "语言服务器",
   "settings.editor.formatter.custom": "自定义命令",
   "settings.editor.wrapColumn.unit": "列",
@@ -2079,6 +2081,7 @@ const en: Record<MessageKey, string> = {
   "common.loading": "Loading",
 
   "lsp.stopped": "Language server stopped",
+  "lsp.memoryBudget": "Killed for exceeding its {budget} MB memory budget ({resident} MB resident)",
   "lsp.dismissHint": "Dismiss (you can re-enable from Settings)",
   "lsp.copyCommand": "Copy command",
 
@@ -2564,6 +2567,7 @@ const en: Record<MessageKey, string> = {
   "settings.about.update.install": "Install v{version}",
   "settings.about.update.manual": "Update to v{version}",
   "settings.about.update.check": "Check for updates",
+  "settings.about.update.noSource": "No update source is configured",
   "settings.editor.formatter.lsp": "Language server",
   "settings.editor.formatter.custom": "Custom command",
   "settings.editor.wrapColumn.unit": "columns",

@@ -3,6 +3,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useCallback, useEffect, useState } from "react";
 import { IS_LINUX } from "@/lib/platform";
+import type { MessageKey } from "@/modules/i18n";
 
 const LAST_CHECK_KEY = "verta:updater:last-check";
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
@@ -28,7 +29,9 @@ export type UpdaterStatus =
   | { kind: "manual-available"; info: ManualUpdateInfo }
   | { kind: "downloading"; downloaded: number; contentLength: number | null }
   | { kind: "ready" }
-  | { kind: "error"; message: string };
+  // A message key when the sentence is ours, and the text itself when it came from the updater or
+  // the network: the lookup falls back to the key, so one field carries both (see `themeFiles.ts`).
+  | { kind: "error"; message: MessageKey };
 
 function parseVersion(v: string): number[] {
   return v
@@ -94,7 +97,7 @@ export function useUpdater({ autoCheck = true }: HookOptions = {}) {
       // that does not belong to this project.
       setStatus({
         kind: "error",
-        message: "update source not configured yet",
+        message: "settings.about.update.noSource",
       });
       return;
     }
@@ -122,7 +125,7 @@ export function useUpdater({ autoCheck = true }: HookOptions = {}) {
         setStatus({ kind: "uptodate" });
       }
     } catch (err) {
-      setStatus({ kind: "error", message: String(err) });
+      setStatus({ kind: "error", message: String(err) as MessageKey });
     }
   }, []);
 
@@ -150,7 +153,7 @@ export function useUpdater({ autoCheck = true }: HookOptions = {}) {
       });
       await relaunch();
     } catch (err) {
-      setStatus({ kind: "error", message: String(err) });
+      setStatus({ kind: "error", message: String(err) as MessageKey });
     }
   }, [status]);
 
