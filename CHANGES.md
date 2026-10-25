@@ -247,6 +247,13 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/projects/lib/statusStore.test.ts`, `src/modules/remotes/lib/listStore.test.ts`: the same round trips without the memory assertions: what was kept comes back, a missing file reads as nothing remembered, only a `ready` list is ever written, and a project that left the list is dropped on disk as well.
 - `scripts/dev/probes/panel-state-restore.mjs`: the acceptance reads the file instead of a memory copy, and its proof is the store's own copy being on screen in the tick where a check is still out (measured on the running app: on screen at 2.7s against a check that came back at 28s), with the store put back afterwards.
 
+**A confirm window and the other floating layers that were left solid take the pane's tint**
+
+- `src/components/ui/alert-dialog.tsx`: a confirm window (`AlertDialogContent`) carries `verta-float`, the recipe the dialog it is opened from already had. It painted `bg-popover` at full opacity, so under the glass theme it read as a solid slab over tinted panes, which stands out most where a confirm is opened from a panel: 删除 in a repository's run list. The recipe changes only a layer's colour, and only under `html[data-theme-glass]`, so every other theme paints exactly what it painted before.
+- `src/components/ui/context-menu.tsx`, `src/components/ui/select.tsx`, `src/components/ui/hover-card.tsx`: the same class on a right-click menu's content and its submenu, on a dropdown's content and its two scroll strips, and on a hover card, since those were the remaining floating layers without it (`dropdown-menu.tsx`, `dialog.tsx`, `popover.tsx` and `command.tsx` already carried it). The scroll strips keep the tint as well, or the strips would have stayed opaque at the ends of a translucent dropdown.
+- `VERTA.md`: the compositing note names the families that carry the recipe, and leaves the HUD as the one floating surface that stays opaque, instead of saying popovers stay opaque.
+- Verified on the running app under the glass theme: the confirm window behind 删除, a right-click menu on a project row, the session hover card, and the dropdown in 新建仓库… all compute `oklab(0.313312 -0.00584386 -0.0147395 / 0.28)`, the same value the run list's own panel already had, each with `backdrop-filter: none`; every one was opened and closed without reaching the network. A photograph of the confirm window shows the run rows through it.
+
 </details>
 
 
