@@ -68,6 +68,12 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/tabs/lib/useTabs.ts`: `updateTab` applies its patch through a new `applyTabPatch`, which hands the same tab back when the patch changes nothing, so the tab list keeps its identity; `focusPane` and `focusNextPaneInTab` take the same rule, because clicking a pane that already holds focus is routine. The tab list is what the whole window renders from and React re-renders on identity, so a pane reporting the same title, path or unsaved flag on every prompt re-rendered every open tab along with it. `setLeafCwd` already carried this rule, for the same reason.
 - `src/modules/tabs/lib/applyTabPatch.test.ts` (new): a patch that changes nothing, one that changes a field, the terminal custom-title reset, the auto-pin when a preview editor turns dirty, and a preview tab's title derived from its url.
 
+**One tab in the strip is one memoised component**
+
+- `src/modules/tabs/TabChip.tsx` (new): a chip is now its own component, memoised, holding the trigger, the language menu, the context menu and the in-place rename field. The strip re-renders for its own reasons (the sliding pill is measured into state, a drag updates the gap) and for the window's, and each chip carries a few dozen Radix components, so with the chip inline in the strip's map every menu in the strip rendered every time. Only the two chips a switch touches render now. `showAllLanguages` lives here too, since only the open menu reads it and as a strip state it re-rendered every chip when the language list was expanded.
+- `src/modules/tabs/TabBar.tsx`: the strip maps the new chip and keeps what is genuinely its own: the scroll box, the pill, which chip is being dragged and which one is being renamed. The pointer plumbing is one stable object (`ChipDrag`) whose handlers read the drag ref and the latest callbacks, so the chips' memo holds through a drag as well; the tabs' icon types, the drop indicator and the rename field moved to the chip file.
+- `VERTA.md`: the tabs bullet names the chip and why it is a component of its own.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 
