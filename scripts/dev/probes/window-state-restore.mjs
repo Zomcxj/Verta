@@ -16,6 +16,12 @@
 // through the header's own Settings button, and destroyed again at the end (the app only hides it on
 // close, and a window this script created should not be left behind for the rest of the session).
 //
+// The height is checked as strictly as the width, which is how the shadow offset was found: tao adds
+// the hidden frame offset back onto the size it is asked to set for an undecorated window that keeps
+// its shadow, so such a window came back a shadow-offset taller than the height that was saved, every
+// time it was opened, and the plugin then recorded the taller number. The settings window was the
+// only one in the app that kept its shadow; see `src-tauri/src/lib.rs` and VERTA.md's Window styling.
+//
 // Usage: node scripts/dev/probes/window-state-restore.mjs [--port=9222]
 const port = process.argv.find((a) => a.startsWith("--port="))?.slice(7) ?? "9222";
 
@@ -181,6 +187,10 @@ try {
   report.kept = {
     isCodeDefault,
     widthMatchesRecord: Math.abs(report.compared.width) <= 2,
+    // The height is the point of the probe: tao adds the hidden frame offset back onto the size it
+    // is asked to set for an undecorated window that keeps its shadow, so a window created with one
+    // comes back taller than the height that was saved, every time.
+    heightMatchesRecord: Math.abs(report.compared.height) <= 2,
     positionNearRecord:
       Math.abs(report.compared.x) <= 12 && Math.abs(report.compared.y) <= 12,
   };
@@ -193,6 +203,11 @@ try {
   if (!report.kept.widthMatchesRecord) {
     fail(`宽度不是记录里的：${live.inner[0]} 对 ${record.width}`);
   }
+  if (!report.kept.heightMatchesRecord) {
+    fail(
+      `高度不是记录里的：${live.inner[1]} 对 ${record.height}（多 ${report.compared.height} px）。无边框又留着阴影的窗口会被 tao 补一次隐藏外框偏移，见 VERTA.md 的 Window styling。`,
+    );
+  }
   if (report.leftBehind !== 0) {
     fail(`设置窗口没被销毁，还剩 ${report.leftBehind} 个目标`);
   }
@@ -202,11 +217,6 @@ try {
   console.log(
     `PASS: 设置窗口按记录打开（记录 ${record.width}x${record.height} at ${record.x},${record.y}，实际 ${live.inner[0]}x${live.inner[1]} at ${live.at[0]},${live.at[1]}，代码默认 900x700）`,
   );
-  if (report.compared.height !== 0) {
-    console.log(
-      `注意：高度比记录多 ${report.compared.height} px。tao 在 set_inner_size 里会给"无边框但保留阴影"的窗口补一次隐藏偏移（window_rect - client_rect），记录的是客户端高度，所以补完之后客户端就比记录高。设置窗口是全应用唯一保留阴影的无边框窗口（主窗口 shadow: false、截图浮层 .shadow(false)），详见 VERTA.md 的 Window styling。`,
-    );
-  }
   main.socket.close();
 } catch (error) {
   fail(String(error?.message ?? error));

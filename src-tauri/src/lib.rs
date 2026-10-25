@@ -115,6 +115,16 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         .visible(false)
         .always_on_top(settings_always_on_top(cfg!(target_os = "macos")));
 
+    // No shadow, like the main window (`shadow: false` in tauri.windows.conf.json) and the
+    // screenshot overlay (its own `.shadow(false)`). tao adds the hidden frame offset back onto the
+    // size it is asked to set for an undecorated window that keeps its shadow (its window.rs:
+    // `undecorated_with_shadows`), so with a shadow the window-state plugin's restore, which saves
+    // and sets a client size, comes back a shadow-offset taller than what it saved and then records
+    // the taller number. Settings was the only window that asked for the default, and the only one
+    // that grew every time it opened.
+    #[cfg(target_os = "windows")]
+    let builder = builder.shadow(false);
+
     // A normal-level child stays above Verta but recedes with the app on macOS.
     // Never combine the macOS parent with always_on_top; that breaks WebView
     // compositing and can hide Settings behind the main window (#33, #957).
