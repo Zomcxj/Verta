@@ -1,8 +1,5 @@
 pub mod types;
 
-pub mod manifests;
-pub mod state;
-
 mod delete;
 mod image;
 mod opencode;
