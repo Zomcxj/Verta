@@ -24,6 +24,15 @@ type AgentActivityStore = {
   // the tab can show that agent's brand icon while it runs.
   agents: Record<number, string>;
   /**
+   * pty -> when it started waiting on the user, for attention the user has not
+   * looked at yet. This is the latch the tab's own marker and the notification
+   * layers read: it is *not* the live phase, which stays `attention` for as long as
+   * the agent really is blocked, however often the user looks at the tab.
+   */
+  unseen: Record<number, number>;
+  /** The leaves of the tab the user is on, so "the user is looking at it" is a fact. */
+  foregroundLeaves: ReadonlySet<number>;
+  /**
    * leaf -> pty. The tab strip finds a tab's ptys through this, and it has to come
    * from the store rather than from the session registry: a state dot appears when
    * the store changes, and a registry read at render time would only ever be as
@@ -34,14 +43,41 @@ type AgentActivityStore = {
   setAgent: (id: number, agent: string) => void;
   setLeafPty: (leafId: number, ptyId: number) => void;
   clearLeafPty: (leafId: number) => void;
-  acknowledgeAttention: (ids: readonly number[]) => void;
+  /** Tell the store which leaves the user is looking at. */
+  setForegroundLeaves: (ids: readonly number[]) => void;
+  /** The user has looked at these sessions: their waiting is no longer unseen. */
+  markAttentionSeen: (ids: readonly number[]) => void;
+  /** Record that a session started waiting while the user was not looking at it. */
+  markAttentionUnseen: (id: number, atMs: number) => void;
   clear: (id: number) => void;
 };
+
+/** One shared empty set: a store with no foreground tab must not allocate per write. */
+const EMPTY_FOREGROUND: ReadonlySet<number> = new Set();
+
+/**
+ * Whether a session is one the user is looking at, through the leaf it lives in.
+ *
+ * The foreground is a set of leaves (the ones the active tab owns) while sessions
+ * are keyed by pty, so this walks the leaf map, which is at most a handful of panes.
+ */
+export function isForegroundPty(
+  leafPty: Record<number, number>,
+  foregroundLeaves: ReadonlySet<number>,
+  ptyId: number,
+): boolean {
+  for (const leafId of foregroundLeaves) {
+    if (leafPty[leafId] === ptyId) return true;
+  }
+  return false;
+}
 
 export const useAgentActivityStore = create<AgentActivityStore>((set) => ({
   phases: {},
   agents: {},
   leafPty: {},
+  unseen: {},
+  foregroundLeaves: EMPTY_FOREGROUND,
   setPhase: (id, phase) =>
     set((s) => {
       if (s.phases[id] === phase) return s;
@@ -64,28 +100,50 @@ export const useAgentActivityStore = create<AgentActivityStore>((set) => ({
       delete leafPty[leafId];
       return { leafPty };
     }),
-  acknowledgeAttention: (ids) =>
+  setForegroundLeaves: (ids) =>
     set((s) => {
-      let phases: Record<number, AgentPhase> | null = null;
-      for (const id of ids) {
-        if (s.phases[id] !== "attention") continue;
-        phases ??= { ...s.phases };
-        phases[id] = "idle";
+      const next = new Set(ids);
+      if (
+        next.size === s.foregroundLeaves.size &&
+        [...next].every((id) => s.foregroundLeaves.has(id))
+      ) {
+        return s;
       }
-      return phases ? { phases } : s;
+      return { foregroundLeaves: next };
+    }),
+  markAttentionSeen: (ids) =>
+    set((s) => {
+      let unseen: Record<number, number> | null = null;
+      for (const id of ids) {
+        if (!(id in s.unseen)) continue;
+        unseen ??= { ...s.unseen };
+        delete unseen[id];
+      }
+      return unseen ? { unseen } : s;
+    }),
+  markAttentionUnseen: (id, atMs) =>
+    set((s) => {
+      // A session that keeps waiting does not restart its latch: the moment it
+      // started waiting is what the notification layers sort on.
+      if (id in s.unseen) return s;
+      return { unseen: { ...s.unseen, [id]: atMs } };
     }),
   clear: (id) =>
     set((s) => {
-      if (!(id in s.phases) && !(id in s.agents)) return s;
+      const known = id in s.phases || id in s.agents || id in s.unseen;
+      if (!known) return s;
       const phases = { ...s.phases };
       const agents = { ...s.agents };
+      const unseen = { ...s.unseen };
       delete phases[id];
       delete agents[id];
-      return { phases, agents };
+      delete unseen[id];
+      return { phases, agents, unseen };
     }),
 }));
 
 const FINISHED_TTL_MS = 6000;
+
 const finishedTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
 function clearFinishedTimer(id: number): void {
@@ -160,6 +218,18 @@ export function applySignal(payload: AgentSignal): void {
   // The agent name only rides the `started` signal (incl. self-arm).
   if (agent) store.setAgent(id, agent);
   store.setPhase(id, action);
+  if (action === "attention") {
+    // Waiting while the user is looking at the session is not something to be
+    // flagged about later; waiting anywhere else is the thing the ring and the
+    // notification centre exist for.
+    if (!isForegroundPty(store.leafPty, store.foregroundLeaves, id)) {
+      store.markAttentionUnseen(id, Date.now());
+    }
+  } else {
+    // Anything else means the wait is over (the user answered, or the turn went on),
+    // so a latch from before must not outlive it.
+    store.markAttentionSeen([id]);
+  }
   if (action === "finished") {
     finishedTimers.set(
       id,
@@ -205,6 +275,11 @@ export type AgentPhaseCounts = {
   /** Sessions with a turn in flight. */
   working: number;
 };
+
+/** How many sessions are waiting on the user that the user has not looked at yet. */
+export function countUnseenAttention(unseen: Record<number, number>): number {
+  return Object.keys(unseen).length;
+}
 
 /**
  * How many sessions are waiting on the user and how many are working, across every

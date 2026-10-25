@@ -154,8 +154,13 @@ describe("PTY bridge over the multiplexed stream", () => {
       expect(status(id)).toEqual({ state: "working", agent });
     }
     mocks.signal?.({ payload: { id: first.id, kind: "attention" } });
-    useAgentActivityStore.getState().acknowledgeAttention([first.id]);
-    expect(status(first.id)).toEqual({ state: "idle", agent: "claude" });
+    // The phase is live state and stays "waiting"; the latch is what the user's
+    // looking at clears, so the tab keeps saying it needs an answer.
+    expect(status(first.id)).toEqual({ state: "attention", agent: null });
+    expect(first.id in useAgentActivityStore.getState().unseen).toBe(true);
+    useAgentActivityStore.getState().markAttentionSeen([first.id]);
+    expect(first.id in useAgentActivityStore.getState().unseen).toBe(false);
+    expect(status(first.id)).toEqual({ state: "attention", agent: null });
     mocks.signal?.({ payload: { id: first.id, kind: "exited" } });
     expect(status(first.id)).toEqual({ state: null, agent: null });
     mocks.signal?.({ payload: { id: second.id, kind: "finished" } });

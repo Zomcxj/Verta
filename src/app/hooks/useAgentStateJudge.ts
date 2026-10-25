@@ -58,6 +58,10 @@ export function useAgentStateJudge({ tabs }: { tabs: readonly Tab[] }): void {
         const ptyId = ptyIdForLeaf(leafId);
         if (ptyId === null) continue;
         store.setLeafPty(leafId, ptyId);
+        // The user is on this leaf, so anything it was waiting on has been seen. It
+        // is done here rather than only on a tab switch because a session can appear
+        // (or be resumed) while its tab is already the active one.
+        if (store.foregroundLeaves.has(leafId)) store.markAttentionSeen([ptyId]);
         const tail = leafScreenTail(leafId);
         if (tail === null) continue;
         const current = entries.get(leafId);

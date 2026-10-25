@@ -92,7 +92,6 @@ import {
   leafOutputBytes,
   navigateFocusedBlocks,
   type PaneBounds,
-  ptyIdForLeaf,
   type TerminalPaneHandle,
   useAgentActivityStore,
   useTerminalFileDrop,
@@ -530,15 +529,19 @@ export default function App() {
       if (!live.has(k)) searchAddons.current.delete(k);
   }, [tabs]);
 
+  // The tab the user is on, by its leaves, because that is what tells "a session is
+  // waiting on me" apart from "a session started waiting while I was elsewhere": the
+  // first is the live phase, the second is the latch the tab marker and the
+  // notification layers read. Kept here rather than in the judge, because only the
+  // app knows which tab is active, and the judge reads it every tick anyway.
   useEffect(() => {
-    const tab = tabsRef.current.find((t) => t.id === activeId);
-    if (tab?.kind !== "terminal") return;
-    const ptyIds = leafIds(tab.paneTree).flatMap((leafId) => {
-      const ptyId = ptyIdForLeaf(leafId);
-      return ptyId === null ? [] : [ptyId];
-    });
-    useAgentActivityStore.getState().acknowledgeAttention(ptyIds);
-  }, [activeId]);
+    const tab = tabs.find((t) => t.id === activeId);
+    useAgentActivityStore
+      .getState()
+      .setForegroundLeaves(
+        tab?.kind === "terminal" ? leafIds(tab.paneTree) : [],
+      );
+  }, [activeId, tabs]);
 
   // Most-recently-used tab ids, most recent first, pruned to live tabs. Drives
   // the Ctrl+Tab quick switcher so it cycles by recency, not strip order.

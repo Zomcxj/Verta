@@ -48,7 +48,10 @@ import {
 import { useShallow } from "zustand/react/shallow";
 import { leafIds, useAgentActivityStore } from "@/modules/terminal";
 import { labelFor } from "./lib/tabLabel";
-import { selectTabAgentStatusFromLeaves } from "./lib/tabAgentStatus";
+import {
+  selectTabAgentStatusFromLeaves,
+  selectTabAgentUnseen,
+} from "./lib/tabAgentStatus";
 import type { Tab, TerminalTab } from "./lib/useTabs";
 
 /** The four states a live session can be in, as the store spells them. */
@@ -166,6 +169,10 @@ export const TabChip = memo(function TabChip({
   const agentStatus = useAgentActivityStore(
     useShallow((state) => selectTabAgentStatusFromLeaves(state, leaves)),
   );
+  // The latch, not the state: a session waiting since the user was last on this tab.
+  const unseenAttention = useAgentActivityStore(
+    useShallow((state) => selectTabAgentUnseen(state, leaves)),
+  );
 
   const isPreview =
     (tab.kind === "editor" || tab.kind === "git-diff") && tab.preview;
@@ -244,6 +251,13 @@ export const TabChip = memo(function TabChip({
         compact ? "px-1.5!" : onlyTab ? "px-2!" : "ps-2! pe-1!",
       )}
     >
+      {unseenAttention ? (
+        <span
+          aria-hidden
+          data-agent-unseen
+          className="pointer-events-none absolute inset-y-1 start-0 w-0.5 rounded-full bg-amber-500"
+        />
+      ) : null}
       <span
         className={cn(
           "flex min-w-0 items-center gap-1.5",

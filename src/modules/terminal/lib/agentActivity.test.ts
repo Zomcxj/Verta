@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   countAgentPhases,
+  countUnseenAttention,
   isAgentActivePty,
+  isForegroundPty,
   phaseForSignal,
   tabAgentStatus,
   useAgentActivityStore,
@@ -97,7 +99,13 @@ describe("tabAgentStatus", () => {
 
 describe("useAgentActivityStore", () => {
   beforeEach(() =>
-    useAgentActivityStore.setState({ phases: {}, agents: {}, leafPty: {} }),
+    useAgentActivityStore.setState({
+      phases: {},
+      agents: {},
+      leafPty: {},
+      unseen: {},
+      foregroundLeaves: new Set(),
+    }),
   );
 
   it("keeps a stable reference when the phase is unchanged", () => {
@@ -125,33 +133,66 @@ describe("useAgentActivityStore", () => {
     expect(useAgentActivityStore.getState().leafPty).toBe(empty);
   });
 
-  it("drops a pty's phase and agent on clear", () => {
-    const { setPhase, setAgent, clear } = useAgentActivityStore.getState();
+  it("drops a pty's phase, agent and latch on clear", () => {
+    const { setPhase, setAgent, markAttentionUnseen, clear } =
+      useAgentActivityStore.getState();
     setPhase(1, "attention");
     setAgent(1, "gemini");
+    markAttentionUnseen(1, 5_000);
     clear(1);
     const state = useAgentActivityStore.getState();
     expect(1 in state.phases).toBe(false);
     expect(1 in state.agents).toBe(false);
+    expect(1 in state.unseen).toBe(false);
   });
 
-  it("acknowledges attention without losing active agent state", () => {
-    const { setPhase, setAgent, acknowledgeAttention } =
-      useAgentActivityStore.getState();
-    setPhase(1, "attention");
-    setAgent(1, "gemini");
-    setPhase(2, "working");
-    const agents = useAgentActivityStore.getState().agents;
-
-    acknowledgeAttention([1, 2, 3]);
-
+  it("keeps the live phase when the user looks at a waiting session", () => {
+    // The phase is what the agent is doing; the latch is what the user has not seen.
+    // Clearing the latch must not turn a blocked agent into an idle-looking one,
+    // because it is still blocked until it is answered.
+    const store = useAgentActivityStore.getState();
+    store.setPhase(1, "attention");
+    store.setAgent(1, "gemini");
+    store.markAttentionUnseen(1, 5_000);
+    store.markAttentionSeen([1, 2, 3]);
     const state = useAgentActivityStore.getState();
-    expect(state.phases).toEqual({ 1: "idle", 2: "working" });
-    expect(state.agents).toBe(agents);
+    expect(state.phases).toEqual({ 1: "attention" });
+    expect(state.unseen).toEqual({});
+    // The tab still reads as waiting, with the agent that is waiting on it.
     expect(isAgentActivePty(1)).toBe(true);
-    expect(tabAgentStatus(state.phases, state.agents, [1])).toEqual({
-      state: "idle",
-      agent: "gemini",
+    expect(countAgentPhases(state.phases)).toEqual({
+      attention: 1,
+      working: 0,
     });
+  });
+
+  it("does not restart a latch that is already there", () => {
+    const { markAttentionUnseen } = useAgentActivityStore.getState();
+    markAttentionUnseen(1, 5_000);
+    const first = useAgentActivityStore.getState().unseen;
+    markAttentionUnseen(1, 9_000);
+    // The moment it started waiting is what the notification layers sort on.
+    expect(useAgentActivityStore.getState().unseen).toBe(first);
+    expect(useAgentActivityStore.getState().unseen[1]).toBe(5_000);
+    expect(countUnseenAttention(first)).toBe(1);
+  });
+
+  it("keeps the foreground set stable when it does not change", () => {
+    const { setForegroundLeaves } = useAgentActivityStore.getState();
+    setForegroundLeaves([11, 12]);
+    const first = useAgentActivityStore.getState().foregroundLeaves;
+    setForegroundLeaves([12, 11]);
+    expect(useAgentActivityStore.getState().foregroundLeaves).toBe(first);
+    setForegroundLeaves([11]);
+    expect(useAgentActivityStore.getState().foregroundLeaves).not.toBe(first);
+  });
+});
+
+describe("isForegroundPty", () => {
+  it("finds a session through the leaf the user is looking at", () => {
+    const leafPty = { 11: 7, 12: 8 };
+    expect(isForegroundPty(leafPty, new Set([11]), 7)).toBe(true);
+    expect(isForegroundPty(leafPty, new Set([11]), 8)).toBe(false);
+    expect(isForegroundPty(leafPty, new Set(), 7)).toBe(false);
   });
 });

@@ -6,6 +6,7 @@ import {
   ptyIdsForLeaves,
   selectTabAgentStatus,
   selectTabAgentStatusFromLeaves,
+  selectTabAgentUnseen,
 } from "./tabAgentStatus";
 
 const select = (ptyIds: readonly number[]) =>
@@ -15,7 +16,13 @@ const selectFromLeaves = (leafIds: readonly number[]) =>
   selectTabAgentStatusFromLeaves(useAgentActivityStore.getState(), leafIds);
 
 beforeEach(() => {
-  useAgentActivityStore.setState({ phases: {}, agents: {}, leafPty: {} });
+  useAgentActivityStore.setState({
+    phases: {},
+    agents: {},
+    leafPty: {},
+    unseen: {},
+    foregroundLeaves: new Set(),
+  });
 });
 
 describe("selectTabAgentStatus", () => {
@@ -93,5 +100,39 @@ describe("selectTabAgentStatusFromLeaves", () => {
     store.setLeafPty(1, 7);
     const state = useAgentActivityStore.getState();
     expect(ptyIdsForLeaves(state, [1, 2, 3])).toEqual([7]);
+  });
+});
+
+describe("selectTabAgentUnseen", () => {
+  const unseenOf = (leafIds: readonly number[]) =>
+    selectTabAgentUnseen(useAgentActivityStore.getState(), leafIds);
+
+  it("is false for a tab with nothing waiting on it", () => {
+    expect(unseenOf([])).toBe(false);
+    const store = useAgentActivityStore.getState();
+    store.setLeafPty(1, 7);
+    expect(unseenOf([1])).toBe(false);
+  });
+
+  it("is true while the session it holds is waiting unseen, and false once seen", () => {
+    const store = useAgentActivityStore.getState();
+    store.setLeafPty(1, 7);
+    store.setLeafPty(2, 8);
+    store.setPhase(7, "attention");
+    store.markAttentionUnseen(7, 5_000);
+    expect(unseenOf([1])).toBe(true);
+    // Looking at the session clears the latch, and the phase stays what it is.
+    store.markAttentionSeen([7]);
+    expect(unseenOf([1])).toBe(false);
+    expect(useAgentActivityStore.getState().phases[7]).toBe("attention");
+  });
+
+  it("does not leak one tab's latch onto another", () => {
+    const store = useAgentActivityStore.getState();
+    store.setLeafPty(1, 7);
+    store.setLeafPty(2, 8);
+    store.markAttentionUnseen(7, 5_000);
+    expect(unseenOf([1])).toBe(true);
+    expect(unseenOf([2])).toBe(false);
   });
 });

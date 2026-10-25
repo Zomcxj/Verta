@@ -6,7 +6,7 @@ import {
 
 type ActivityState = Pick<
   ReturnType<typeof useAgentActivityStore.getState>,
-  "phases" | "agents" | "leafPty"
+  "phases" | "agents" | "leafPty" | "unseen"
 >;
 
 /** Shared result for tabs with no agent state (and for non-terminal tabs). */
@@ -48,6 +48,25 @@ export function selectTabAgentStatusFromLeaves(
     state.agents,
     ptyIdsForLeaves(state, leafIds),
   );
+}
+
+/**
+ * Whether this tab holds a session that started waiting while the user was not
+ * looking at it.
+ *
+ * This is the latch, not the live state: a session that is still blocked keeps its
+ * `attention` phase (the dot stays amber), while this goes quiet the moment the
+ * user is on the tab. Derived the same way as the status, so a tab re-renders for
+ * its own latch and nothing else.
+ */
+export function selectTabAgentUnseen(
+  state: ActivityState,
+  leafIds: readonly number[],
+): boolean {
+  for (const ptyId of ptyIdsForLeaves(state, leafIds)) {
+    if (ptyId in state.unseen) return true;
+  }
+  return false;
 }
 
 /**
