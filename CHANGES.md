@@ -94,6 +94,14 @@ swap in the new date, and drop the `open` from the day before.
 
 - `scripts/dev/probes/terminal-cell-pitch.mjs`: the ruler is written long enough to wrap, and the row is chosen by which row has the most equally spaced strokes instead of which row has the most contrast, so the prompt on the same row (or the theme's own vertical gradient) can no longer be measured in place of the ruler. A candidate row also has to carry real ink: a gradient's pixel noise is evenly spaced, and in a uniformity contest it beat every glyph in the window. Two dead ends are worth recording: the wrapped continuation row is the clean one because the prompt is only on the row the typing started on, and the canvas-per-column figure the report prints is not the pitch, since the backing store is deliberately wider than the grid. The terminal tab is found by looking for a mounted terminal surface rather than by its label, because a terminal tab is titled after its cwd.
 
+**The sheet over an opened session picture follows the theme**
+
+- `src/modules/terminal/ghostty/GhosttyImageOverlay.tsx`: the veil that dims the session behind a picture opened from it is the pane's background at high alpha instead of a fixed 75% black, which was a black rectangle over every light theme. The terminal's own background is deliberately not used: the glass theme sets it fully transparent, so a veil made of it would have been invisible. It is plain alpha, so it stays inside the compositing budget (no `backdrop-filter`), which the probe checks.
+
+**The picture veil is verified without an agent attachment**
+
+- `scripts/dev/probes/image-preview-veil.mjs` (new): the veil cannot be raised from the outside, since it needs a message in an agent session that attached an image (the bytes live in the opencode database), a terminal printing that name with a mosaic band above it, and the read back through IPC. So the probe raises it the way the component does, through React's own dispatcher for the preview hook, found by walking the fiber tree to the overlay by display name and taking the last hook of that component carrying a `dispatch` (the hook above it holds the placed images, and every hook below it is a ref). What is drawn afterwards is the component's real markup, so what is measured is real: the veil's computed colour, that it covers the pane, that the picture is loaded, that it carries no `backdrop-filter`, and that it is gone once dismissed. The light theme is simulated by writing `--background`, since swapping the theme for real would write the user's settings. Photographs of both themes come out with `--shots`. It took two attempts to reach this: a tab switch needs a pointer sequence rather than a click, and a veil made of `--terminal-background` was invisible on the glass theme.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 

@@ -218,10 +218,15 @@ export default function GhosttyImageOverlay({ leafId }: { leafId: number }) {
         </button>
       ))}
       {preview && (
+        // The veil that dims the session behind the picture is the pane's own background at high
+        // alpha, not a fixed black: a fixed black slab is a black rectangle over every light theme.
+        // The terminal's own background is not used either, since the glass theme sets it fully
+        // transparent on purpose (the material is meant to show through), and a veil made of it
+        // would be invisible. Plain blending, no blur: see the compositing budget in VERTA.md.
         <button
           type="button"
           aria-label={t("term.closeImage")}
-          className="pointer-events-auto absolute inset-0 z-20 flex items-center justify-center border-0 bg-black/75 p-4"
+          className="pointer-events-auto absolute inset-0 z-20 flex items-center justify-center border-0 bg-background/85 p-4"
           onClick={() => setPreview(null)}
         >
           <img
