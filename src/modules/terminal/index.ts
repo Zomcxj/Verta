@@ -1,4 +1,5 @@
 export {
+  countAgentPhases,
   subscribeAgentSignals,
   useAgentActivityStore,
 } from "./lib/agentActivity";

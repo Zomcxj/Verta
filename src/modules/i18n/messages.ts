@@ -680,6 +680,8 @@ const zh = {
   "tabs.agentState.idle": "空闲",
 
   "header.settings": "设置",
+  "header.agentWaiting": "在等 {count}",
+  "header.agentWorking": "在跑 {count}",
   "header.toggleSidebar": "显示/隐藏侧栏",
   "header.toggleGitPanel": "显示/隐藏 Git 面板",
   "header.projectsPanel": "本地项目与远程仓库",
@@ -2062,6 +2064,8 @@ const en: Record<MessageKey, string> = {
   "tabs.agentState.idle": "Idle",
 
   "header.settings": "Settings",
+  "header.agentWaiting": "{count} waiting",
+  "header.agentWorking": "{count} working",
   "header.toggleSidebar": "Toggle sidebar",
   "header.toggleGitPanel": "Toggle the Git panel",
   "header.projectsPanel": "Local projects and remote repositories",

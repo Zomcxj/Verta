@@ -1,10 +1,29 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  countAgentPhases,
   isAgentActivePty,
   phaseForSignal,
   tabAgentStatus,
   useAgentActivityStore,
 } from "./agentActivity";
+
+describe("countAgentPhases", () => {
+  it("counts the two states worth showing and ignores the rest", () => {
+    expect(
+      countAgentPhases({
+        1: "attention",
+        2: "working",
+        3: "attention",
+        4: "finished",
+        5: "idle",
+      }),
+    ).toEqual({ attention: 2, working: 1 });
+  });
+
+  it("is all zeros for a window with no agents in it", () => {
+    expect(countAgentPhases({})).toEqual({ attention: 0, working: 0 });
+  });
+});
 
 describe("phaseForSignal", () => {
   it("maps lifecycle kinds to phases", () => {

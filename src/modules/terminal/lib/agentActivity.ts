@@ -199,6 +199,30 @@ export function isAgentActivePty(ptyId: number): boolean {
   return ptyId in useAgentActivityStore.getState().phases;
 }
 
+export type AgentPhaseCounts = {
+  /** Sessions waiting on the user. */
+  attention: number;
+  /** Sessions with a turn in flight. */
+  working: number;
+};
+
+/**
+ * How many sessions are waiting on the user and how many are working, across every
+ * terminal in the window. The tab strip answers "which one", this answers "how
+ * many", which is what is worth showing when the tabs themselves are out of view.
+ */
+export function countAgentPhases(
+  phases: Record<number, AgentPhase>,
+): AgentPhaseCounts {
+  let attention = 0;
+  let working = 0;
+  for (const phase of Object.values(phases)) {
+    if (phase === "attention") attention += 1;
+    else if (phase === "working") working += 1;
+  }
+  return { attention, working };
+}
+
 export type AgentTabStatus = {
   state: "attention" | "working" | "finished" | "idle" | null;
   // The running agent's name when its brand icon should be shown.

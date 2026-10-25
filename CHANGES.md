@@ -309,6 +309,15 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/i18n/messages.ts`: the four state labels, both languages.
 - Verified on the real machine by `scripts/dev/probes/tab-agent-dot.mjs` (new), which opens a plain terminal of its own, puts each screen on it and reads the tab strip's own DOM rather than the store: no dot at a bare prompt, then `idle` (grey, 空闲), `working` (sky, 正在工作), `attention` (amber, carrying the pulse class, 在等你), and `finished` (green, 刚做完) once the screen stopped showing the agent. The two tabs the user had open never carried a dot, and the probe's tab was closed again. 19 tests over the store map and the selector, `pnpm test` 2113 passed, `pnpm build` clean.
 
+**The header says how many sessions want you**
+
+- `src/modules/header/AgentActivityBadge.tsx` (new): the count across every terminal, next to the tab strip, with the same two dots a tab carries: amber for sessions waiting on the user, sky for sessions with a turn in flight, each followed by its own label (`在等 1`, `在跑 2`, from `header.agentWaiting` / `header.agentWorking`). Nothing is rendered when nothing is running, so a window with no agents in it shows no extra chrome. This is the half a narrow window hides: when the tabs are scrolled out of view the dots cannot be counted, and a session that starts asking for something should not need a search to notice.
+- `src/modules/terminal/lib/agentActivity.ts`: `countAgentPhases`, the count behind it. It only counts waiting and working sessions, since those are the two a user acts on; `finished` and `idle` are for the tab's own dot.
+- `src/modules/terminal/index.ts`: exports it.
+- `src/modules/header/Header.tsx`: mounts the badge after the tab strip.
+- `scripts/dev/probes/tab-agent-dot.mjs`: reads the badge's own DOM as well, so the same probe covers both surfaces. Measured: `在跑 1` while a session works, `在等 1` while one waits, and no badge at all at a prompt, after a turn settles or with nothing running.
+- One process note worth keeping: adding an export to a barrel file (`modules/terminal/index.ts`) while the dev server is hot-reloading left one update serving a stale barrel, which broke the running window and needed a reload. Nothing is wrong with the committed state (a fresh load has the export), but a barrel export plus a new importer is a shape that can do this to a running dev window.
+
 </details>
 
 

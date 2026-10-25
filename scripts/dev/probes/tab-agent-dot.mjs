@@ -1,11 +1,13 @@
-// Does the tab strip actually show the agent's state? The judge writing the store
-// is one thing; a dot a user can see is another, and the path between them (the
-// store's leaf map, the tab selector, the chip's render) is what this checks.
+// Does the tab strip actually show the agent's state, and does the header count it?
+// The judge writing the store is one thing; a dot a user can see is another, and the
+// path between them (the store's leaf map, the tab selector, the chip's render, the
+// header badge) is what this checks.
 //
-// It opens a plain terminal of its own, puts each screen on it, and reads the tab
-// strip's own DOM: which chip carries a dot, with what state and what label. The
-// screenshot is for the eye; the DOM is the evidence. The tab is closed again, and
-// the user's other tabs are read too, since a dot must not appear on them.
+// It opens a plain terminal of its own, puts each screen on it, and reads the
+// interface's own DOM: which chip carries a dot, with what state and what label, and
+// what the header badge says. The screenshot is for the eye; the DOM is the evidence.
+// The tab is closed again, and the user's other tabs are read too, since a dot must
+// not appear on them.
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const targets = await (await fetch("http://127.0.0.1:9222/json")).json();
@@ -55,24 +57,30 @@ const MODULES = `
   const activity = await import(find("modules/terminal/lib/agentActivity.ts"));
 `;
 
-/** Every chip in the strip, with the dot it carries (if any). */
+/** Every chip in the strip, with the dot it carries (if any), and the header badge. */
 const tabStrip = () =>
   pageEval(`
-    return JSON.stringify([...document.querySelectorAll("[role=tab]")].map((tab) => {
-      const dot = tab.querySelector("[data-agent-state]");
-      return {
-        title: (tab.textContent || "").trim(),
-        active: tab.getAttribute("data-tab-active") === "true",
-        dot: dot
-          ? {
-              state: dot.getAttribute("data-agent-state"),
-              label: dot.getAttribute("aria-label"),
-              className: dot.getAttribute("class"),
-              size: dot.getBoundingClientRect().width
-            }
-          : null
-      };
-    }));
+    const badge = document.querySelector("[data-agent-counts]");
+    return JSON.stringify({
+      tabs: [...document.querySelectorAll("[role=tab]")].map((tab) => {
+        const dot = tab.querySelector("[data-agent-state]");
+        return {
+          title: (tab.textContent || "").trim(),
+          active: tab.getAttribute("data-tab-active") === "true",
+          dot: dot
+            ? {
+                state: dot.getAttribute("data-agent-state"),
+                label: dot.getAttribute("aria-label"),
+                className: dot.getAttribute("class"),
+                size: dot.getBoundingClientRect().width
+              }
+            : null
+        };
+      }),
+      badge: badge
+        ? { text: (badge.textContent || "").trim(), title: badge.getAttribute("title"), width: badge.getBoundingClientRect().width }
+        : null
+    });
   `);
 
 const report = {};
