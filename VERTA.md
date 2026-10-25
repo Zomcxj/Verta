@@ -422,6 +422,7 @@ What remains on purpose:
 - macOS: `titleBarStyle: Overlay` + `hiddenTitle: true` in `tauri.conf.json` (native traffic lights via overlay). The main window is created opaque, because a non-opaque `NSWindow` makes WindowServer blend every terminal frame. `window_set_backdrop` makes the window and its `WKWebView` (`drawsBackground`) see-through only while vibrancy is on, and paints the opaque window with the theme's frame colour otherwise. `macOSPrivateApi: true` stays for that `WKWebView` key and the private `NSVisualEffectView` hosting, so the macOS build uses a private API and is not App Store eligible.
 - Linux: `decorations: false` + `transparent: true` from `tauri.linux.conf.json`; re-asserted post-realize for GNOME/Mutter CSD. Windows and Linux stay transparent from creation because the borderless chrome paints its own rounded corners.
 - Windows: same as Linux via `tauri.windows.conf.json`. React renders custom `WindowControls`.
+- Window state: `tauri-plugin-window-state` restores each window on its ready event and keeps later moves and resizes in memory; it writes `.window-state.json` only on a clean exit (`RunEvent::Exit`), so a state file older than the running process describes the last clean exit, not the window on screen - a dev app killed by a rebuild never writes. The restore is a Rust call (`window.restore_state(flags)`), not an IPC command, which is why it needs no capability (see Tauri capabilities below). Both other borderless windows are created with `shadow: false` (`tauri.windows.conf.json` for the main window, the screenshot overlay's builder for itself), because tao's `set_inner_size` adds the hidden `window_rect - client_rect` offset back onto the requested size for an undecorated window that keeps its shadow: such a window comes back from a restore one shadow-offset taller than the height that was saved, and the plugin then records the taller value. Settings asks for no `shadow`, so it is the window that does this; `scripts/dev/probes/window-state-restore.mjs` measures it.
 
 ### Tauri capabilities
 
@@ -429,6 +430,8 @@ What remains on purpose:
 1. `Cargo.toml` dependency
 2. `.plugin(...)` call in `lib.rs` `run()`
 3. capability entry in `default.json`
+
+A plugin whose work is a Rust hook rather than an IPC command needs no entry from that list: window-state restores and saves from `lib.rs`'s plugin hooks, and the webview never calls it (its commands are unreachable, which is fine and deliberate). The list also names the window the permission applies to, which is what the frontend's own `close`/`destroy` calls on both `main` and `settings` rely on.
 
 ### Cross-platform conventions
 
