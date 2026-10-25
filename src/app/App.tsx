@@ -357,6 +357,18 @@ export default function App() {
     [],
   );
 
+  /** The header's opener for the command list: same call, stable identity. */
+  const openCommandPaletteFromHeader = useCallback(
+    () => openCommandPalette("commands"),
+    [openCommandPalette],
+  );
+
+  /** The header's opener for the settings window: imported, so this only fixes the identity. */
+  const openSettingsFromHeader = useCallback(
+    () => void openSettingsWindow(),
+    [],
+  );
+
   const activeTab = tabs.find((t) => t.id === activeId);
   const isTerminalTab = activeTab?.kind === "terminal";
   const isBlockTab = activeTerminalTab?.blocks === true;
@@ -1030,6 +1042,16 @@ export default function App() {
     );
   }, []);
 
+  /** The header's openers, stable so the strip's memoised pieces are not re-rendered for a new arrow. */
+  const openNewPreviewTab = useCallback(
+    () => openPreviewTab(""),
+    [openPreviewTab],
+  );
+  const openNewEditorDialog = useCallback(
+    () => setNewEditorOpen(true),
+    [],
+  );
+
   const swapActivePane = useCallback(
     (direction: "left" | "right" | "up" | "down") => {
       swapActivePaneInDirection(activeId, direction, livePaneBounds(activeId));
@@ -1489,8 +1511,8 @@ export default function App() {
               onNewTerminal={openTerminalChoice}
               onNewBlock={openNewBlockTab}
               onNewPrivate={openNewPrivateTab}
-              onNewPreview={() => openPreviewTab("")}
-              onNewEditor={() => setNewEditorOpen(true)}
+              onNewPreview={openNewPreviewTab}
+              onNewEditor={openNewEditorDialog}
               onNewGitGraph={openGitGraphFromContext}
               onOpenProjectsPanel={openProjects}
               onClose={handleClose}
@@ -1503,8 +1525,8 @@ export default function App() {
               onToggleGitPanel={toggleRightPanel}
               onScreenshot={startScreenshot}
               changedCount={sourceControl.changedCount}
-              onOpenCommandPalette={() => openCommandPalette("commands")}
-              onOpenSettings={() => void openSettingsWindow()}
+              onOpenCommandPalette={openCommandPaletteFromHeader}
+              onOpenSettings={openSettingsFromHeader}
               searchTarget={searchTarget}
               searchRef={searchInlineRef}
               onOverrideLanguage={setOverrideLanguage}

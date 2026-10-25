@@ -22,7 +22,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 /** A specific terminal: a local shell, the default terminal, or a terminal inside a distro. */
 export type TerminalChoice = {
@@ -47,7 +47,13 @@ type Props = {
   onNewGitGraph: () => void;
 };
 
-export function NewTabMenu({
+/**
+ * The strip's "+" menu. Memoised for the same reason the chips are: the strip re-renders for its own
+ * reasons (the measured pill, a drag), and this menu carries a submenu, a separator set and a popper
+ * layer for each of them, which is a few dozen Radix components that have nothing to do with a pill
+ * being re-measured.
+ */
+export const NewTabMenu = memo(function NewTabMenu({
   onNew,
   onNewTerminal,
   onNewBlock,
@@ -198,4 +204,4 @@ export function NewTabMenu({
       </DropdownMenu>
     </span>
   );
-}
+});

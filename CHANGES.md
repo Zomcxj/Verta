@@ -74,6 +74,12 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/tabs/TabBar.tsx`: the strip maps the new chip and keeps what is genuinely its own: the scroll box, the pill, which chip is being dragged and which one is being renamed. The pointer plumbing is one stable object (`ChipDrag`) whose handlers read the drag ref and the latest callbacks, so the chips' memo holds through a drag as well; the tabs' icon types, the drop indicator and the rename field moved to the chip file.
 - `VERTA.md`: the tabs bullet names the chip and why it is a component of its own.
 
+**The strip's "+" menu and the status bar stop re-rendering with the window**
+
+- `src/modules/tabs/NewTabMenu.tsx`: memoised. It carries a submenu, its separators and a popper layer per submenu, so it was a few dozen Radix components re-rendering every time the strip re-rendered for something else (the measured pill, a drag).
+- `src/modules/statusbar/StatusBar.tsx`: memoised. Its own inputs (the cwd, the file path, whether the active terminal is private) do not change when the active tab moves between an editor, a picture and a terminal, and its breadcrumb is one item per path segment and its pills carry tooltips.
+- `src/app/App.tsx`: the four openers the header is handed are stable callbacks now instead of arrows written in the JSX (`onNewPreview`, `onNewEditor`, the command palette's list opener, the settings window opener). A fresh function is a new prop on every render of the window, which is what defeated the memo of everything below them.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 

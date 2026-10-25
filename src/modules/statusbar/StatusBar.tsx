@@ -4,6 +4,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useT } from "@/modules/i18n";
+import { memo } from "react";
 import { LspStatusPill } from "@/modules/lsp";
 import { IncognitoIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -20,7 +21,19 @@ type Props = {
   privateActive: boolean;
 };
 
-export function StatusBar({ cwd, filePath, home, onCd, privateActive }: Props) {
+/**
+ * Memoised: the window re-renders on every tab change, and the bar's own inputs (the cwd, the file
+ * path, whether the active terminal is private) do not change when the active tab merely moves
+ * between an editor, a picture and a terminal. Its breadcrumb is one item per path segment and its
+ * pills carry tooltips, so a re-render here is not free.
+ */
+export const StatusBar = memo(function StatusBar({
+  cwd,
+  filePath,
+  home,
+  onCd,
+  privateActive,
+}: Props) {
   const t = useT();
 
   return (
@@ -48,4 +61,4 @@ export function StatusBar({ cwd, filePath, home, onCd, privateActive }: Props) {
       </div>
     </footer>
   );
-}
+});
