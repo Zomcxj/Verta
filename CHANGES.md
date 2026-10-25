@@ -113,6 +113,12 @@ swap in the new date, and drop the `open` from the day before.
 - `scripts/dev/probes/window-state-restore.mjs`: the height now has to match the record as strictly as the width does, instead of being allowed to sit an offset above it, so the probe can see this come back.
 - `VERTA.md`: the Window styling notes say every borderless window opts out of the shadow, and what happens to a window-state restore if one does not.
 
+**A hidden window's visibility is something the page can ask about**
+
+- `src-tauri/capabilities/default.json`: `core:window:allow-hide` and `core:window:allow-is-visible`. Closing the main window with close-to-tray on hides it and the tray icon is the whole route back, but a WebView2 page target stays listed for a hidden window and `document.visibilityState` does not change, so from inside the app neither could tell "hidden behind the tray" from "on screen". The two commands make both halves of that route reachable, which is what lets the probes below drive it.
+- `scripts/dev/probes/tray-return.mjs` (new): the icon answers its labels (that call rebuilds its menu, so it fails when there is no icon), and a hidden main window comes back through the same call a click on the icon makes. An icon the user has not pinned lives in the shell's overflow flyout, so there is no window to click without opening the flyout; the probe invokes what the click and the menu item invoke, and hides and shows in one page turn because the page lives in the window it is hiding.
+- `scripts/dev/probes/close-quits.mjs` (new): with a settings window hidden and the main window then closed, the app leaves in 335ms when close-to-tray is off. That branch was what the handover note called "closing the main window does not quit": it does, and the note was written before the preference existed. With the preference on, the same close hides the window and the process stays, which is the preference working; the probe refuses to run in that state and says so, rather than writing the preference itself. One consequence found on the way: with close-to-tray on, a closed settings window is a hidden one, and a hidden window keeps its page target, so the page list is not how to tell whether anything is on screen.
+
 
 <details>
 <summary><strong>2026-10-24</strong></summary>
