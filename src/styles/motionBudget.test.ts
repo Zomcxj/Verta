@@ -34,12 +34,17 @@ describe("global motion budget", () => {
     expect(names).toContain("verta-blink");
   });
 
-  it("pauses all animations while the window is inactive", () => {
+  it("pauses the animations of an inactive window, except the ones a layer leaves by", () => {
     expect(css).toMatch(
       /html\[data-window-inactive\] \*[^{]*\{[^}]*animation-play-state:\s*paused\s*!important/,
     );
     expect(css).toMatch(/html\[data-window-inactive\] \*::before/);
     expect(css).toMatch(/html\[data-window-inactive\] \*::after/);
+    // Radix unmounts a closing layer on `animationend`, so a paused exit animation would leave the
+    // closed layer painted over the interface for as long as the window stays in the background.
+    expect(css).toMatch(
+      /html\[data-window-inactive\] \[data-state="closed"\][^{]*\{[^}]*animation-play-state:\s*running\s*!important/,
+    );
   });
 
   it("keeps a pending approval's pulse finite", () => {

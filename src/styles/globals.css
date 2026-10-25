@@ -756,6 +756,14 @@ html[data-window-inactive] *::before,
 html[data-window-inactive] *::after {
   animation-play-state: paused !important;
 }
+/* The one exception: a layer that is on its way out. Radix unmounts a closing layer when its exit
+ * animation ends, and a paused animation never ends, so a window left in the background kept a closed
+ * menu, dropdown or dialog painted on screen until it came back to the front. Those hundred
+ * milliseconds are what the interface has to run for the layer to be gone; everything else in that
+ * window stays paused. */
+html[data-window-inactive] [data-state="closed"] {
+  animation-play-state: running !important;
+}
 
 @media (prefers-reduced-motion: reduce) {
   :root {
