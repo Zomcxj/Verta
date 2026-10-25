@@ -12,6 +12,7 @@ describe("phaseForSignal", () => {
     expect(phaseForSignal("working")).toBe("working");
     expect(phaseForSignal("attention")).toBe("attention");
     expect(phaseForSignal("finished")).toBe("finished");
+    expect(phaseForSignal("idle")).toBe("idle");
     expect(phaseForSignal("exited")).toBe("exited");
   });
 

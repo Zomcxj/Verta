@@ -3,9 +3,18 @@ import { create } from "zustand";
 
 export type AgentPhase = "working" | "attention" | "finished" | "idle";
 
-type AgentSignal = {
+/** The kinds a signal can carry, as the store's own vocabulary. */
+export type AgentSignalKind =
+  | "started"
+  | "working"
+  | "attention"
+  | "finished"
+  | "idle"
+  | "exited";
+
+export type AgentSignal = {
   id: number;
-  kind: string;
+  kind: AgentSignalKind;
   agent?: string | null;
 };
 
@@ -74,9 +83,7 @@ export function clearAgentActivity(id: number): void {
 
 /** Maps a raw detector signal to the phase it drives, `"exited"` to drop the
  * pty, or `null` to ignore. Pure so the mapping stays unit-testable. */
-export function phaseForSignal(
-  kind: string,
-): Exclude<AgentPhase, "idle"> | "exited" | null {
+export function phaseForSignal(kind: string): AgentPhase | "exited" | null {
   switch (kind) {
     case "started":
     case "working":
@@ -85,6 +92,8 @@ export function phaseForSignal(
       return "attention";
     case "finished":
       return "finished";
+    case "idle":
+      return "idle";
     case "exited":
       return "exited";
     default:
@@ -109,7 +118,14 @@ export function subscribeAgentSignals(handler: AgentSignalHandler): () => void {
   };
 }
 
-function applySignal(payload: AgentSignal): void {
+/**
+ * Applies one signal to the store (and starts the "finished" timer it may carry).
+ *
+ * Exported for the front-end judge, which produces signals of the same shape as
+ * the native detector: one place applies a signal, so a state dot, the store and
+ * the notification bridge can never disagree about what a signal means.
+ */
+export function applySignal(payload: AgentSignal): void {
   const { id, agent } = payload;
   const action = phaseForSignal(payload.kind);
   if (action === null) return;

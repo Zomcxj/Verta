@@ -467,6 +467,31 @@ export function ghosttyLeafOutputBytes(leafId: number): number {
   return outputBytes.get(leafId) ?? 0;
 }
 
+/**
+ * The visible screen of a leaf as plain text, or `null` when there is no live
+ * terminal to read.
+ *
+ * This is the screen, not the stream: `readTextRange` walks the model's own rows,
+ * so what comes back is what the user is looking at, with the escape sequences
+ * already interpreted by the emulator. Reading it costs no IPC, which is why the
+ * agent judge can afford to look every few hundred milliseconds, and why the judge
+ * lives here rather than in the backend: a ring of raw pty bytes holds what the
+ * terminal received, not what is on screen.
+ *
+ * The whole viewport is read rather than its bottom rows, because a terminal that
+ * has printed little has its text at the *top* of the viewport (a fresh shell's
+ * prompt is the first row, with the rest of the screen blank). The rules decide
+ * what part of the text matters; the reader's job is to hand over all of it.
+ */
+export function ghosttyLeafScreenTail(leafId: number): string | null {
+  const model = sessions.get(leafId)?.model;
+  if (!model || model.isDisposed?.() || !model.readTextRange) return null;
+  const rows = Math.min(model.rows, 256);
+  if (rows <= 0) return "";
+  const origin = model.viewportOriginLine();
+  return model.readTextRange(origin, origin + rows - 1);
+}
+
 export async function ghosttyLeafHasForegroundProcess(
   leafId: number,
 ): Promise<boolean> {

@@ -37,6 +37,7 @@ import { setLspNavigator } from "@/modules/lsp";
 import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { useAgentAttentionFlash } from "@/app/hooks/useAgentAttentionFlash";
+import { useAgentStateJudge } from "@/app/hooks/useAgentStateJudge";
 import { useT } from "@/modules/i18n";
 import {
   basename as projectBasename,
@@ -424,6 +425,7 @@ export default function App() {
     (s) => s.taskbarAttentionFlash,
   );
   useAgentAttentionFlash({ tabs, enabled: taskbarAttentionFlash });
+  useAgentStateJudge({ tabs });
 
   useEffect(() => {
     setActiveSearchAddon(

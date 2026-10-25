@@ -16,6 +16,7 @@ export {
   leafHasForegroundProcess,
   leafIdForPty,
   leafOutputBytes,
+  leafScreenTail,
   navigateFocusedBlocks,
   ptyIdForLeaf,
   whenLeafPaints,

@@ -6,6 +6,7 @@ import {
   ghosttyFocusedLeaf,
   ghosttyLeafHasForegroundProcess,
   ghosttyLeafOutputBytes,
+  ghosttyLeafScreenTail,
   ghosttyLeafIdForPty,
   ghosttyCwdForLeaf,
   ghosttyPtyIdForLeaf,
@@ -167,6 +168,14 @@ export async function leafHasForegroundProcess(
  */
 export function leafOutputBytes(leafId: number): number {
   return ghosttyLeafOutputBytes(leafId);
+}
+
+/**
+ * The visible screen of a leaf as plain text, or `null` when the leaf has no live
+ * terminal. The agent judge reads this to decide what the agent is doing.
+ */
+export function leafScreenTail(leafId: number): string | null {
+  return ghosttyLeafScreenTail(leafId);
 }
 
 /**
