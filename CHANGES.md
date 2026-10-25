@@ -254,6 +254,15 @@ swap in the new date, and drop the `open` from the day before.
 - `VERTA.md`: the compositing note names the families that carry the recipe, and leaves the HUD as the one floating surface that stays opaque, instead of saying popovers stay opaque.
 - Verified on the running app under the glass theme: the confirm window behind 删除, a right-click menu on a project row, the session hover card, and the dropdown in 新建仓库… all compute `oklab(0.313312 -0.00584386 -0.0147395 / 0.28)`, the same value the run list's own panel already had, each with `backdrop-filter: none`; every one was opened and closed without reaching the network. A photograph of the confirm window shows the run rows through it.
 
+**Every floating layer that paints solid is measured against one that does not**
+
+- `scripts/dev/probes/floating-layer-tint.mjs` (new): opens a dropdown, a right-click menu, a hover card, a dropdown inside the create-repository window and the confirm window behind 删除, and compares each one's computed background with the first of those (the layer that carried the recipe before any of this), refusing to run under a theme that is not glass rather than changing the user's setting. It is also the first probe here that photographs the interface, and that needed something on the way: an occluded WebView2 keeps its last frame, so a capture is taken after a pointer move over the page, or the picture shows what was drawn seconds earlier. Measured: every one of the five computes `oklab(0.313312 -0.00584386 -0.0147395 / 0.28)`, with no `backdrop-filter`.
+
+**A repository's list is read once when it is opened again**
+
+- `scripts/dev/probes/repo-list-refresh.mjs` (new): opens one repository's run list, another's and then the first one again, closing each through the panel's own close button, and prints the epoch-millisecond marks around every open. The panel's snapshot cache is cleared first through the app's own `resetListSnapshots`, so the first open has nothing to reuse and the contrast is real rather than inherited from an earlier run.
+- `scripts/dev/probes/gh-process-watch.ps1` (new): records every `gh` process start while that runs. Every GitHub read in the app shells out to `gh`, so the two together answer "did this panel ask GitHub again" without reading anything out of the app. With an empty cache, the first repository's open read its run list and had 20 rows in 2317 ms, the other repository's open read its own and had 20 rows in 2351 ms, and opening the first one again produced no `gh` start at all and had its 20 rows in 516 ms. A WMI process-start trace is not usable for this on this machine (it comes back "Access denied" without elevation), so the watcher polls at 60 ms and is checked against reads that must be seen in the same run.
+
 </details>
 
 
