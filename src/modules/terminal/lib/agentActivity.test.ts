@@ -77,7 +77,9 @@ describe("tabAgentStatus", () => {
 });
 
 describe("useAgentActivityStore", () => {
-  beforeEach(() => useAgentActivityStore.setState({ phases: {}, agents: {} }));
+  beforeEach(() =>
+    useAgentActivityStore.setState({ phases: {}, agents: {}, leafPty: {} }),
+  );
 
   it("keeps a stable reference when the phase is unchanged", () => {
     const { setPhase } = useAgentActivityStore.getState();
@@ -86,6 +88,22 @@ describe("useAgentActivityStore", () => {
     setPhase(1, "working");
     // No churn on repeated identical signals, so subscribers do not re-render.
     expect(useAgentActivityStore.getState().phases).toBe(first);
+  });
+
+  it("remembers which pty a leaf is showing, without churn on a repeat", () => {
+    const { setLeafPty, clearLeafPty } = useAgentActivityStore.getState();
+    setLeafPty(11, 7);
+    const first = useAgentActivityStore.getState().leafPty;
+    expect(first).toEqual({ 11: 7 });
+    // The judge writes this every tick, so an unchanged pair must not allocate.
+    setLeafPty(11, 7);
+    expect(useAgentActivityStore.getState().leafPty).toBe(first);
+    clearLeafPty(11);
+    expect(useAgentActivityStore.getState().leafPty).toEqual({});
+    // Clearing a leaf that was never there is a no-op, not an empty-map write.
+    const empty = useAgentActivityStore.getState().leafPty;
+    clearLeafPty(12);
+    expect(useAgentActivityStore.getState().leafPty).toBe(empty);
   });
 
   it("drops a pty's phase and agent on clear", () => {

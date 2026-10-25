@@ -674,6 +674,10 @@ const zh = {
   "tabs.unsaved": "有未保存的更改",
   "tabs.close": "关闭标签页",
   "tabs.rename": "重命名标签页",
+  "tabs.agentState.working": "正在工作",
+  "tabs.agentState.attention": "在等你",
+  "tabs.agentState.finished": "刚做完",
+  "tabs.agentState.idle": "空闲",
 
   "header.settings": "设置",
   "header.toggleSidebar": "显示/隐藏侧栏",
@@ -2052,6 +2056,10 @@ const en: Record<MessageKey, string> = {
   "tabs.unsaved": "Unsaved changes",
   "tabs.close": "Close tab",
   "tabs.rename": "Rename tab",
+  "tabs.agentState.working": "Working",
+  "tabs.agentState.attention": "Waiting for you",
+  "tabs.agentState.finished": "Just finished",
+  "tabs.agentState.idle": "Idle",
 
   "header.settings": "Settings",
   "header.toggleSidebar": "Toggle sidebar",

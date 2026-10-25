@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { Tab } from "@/modules/tabs";
 import { leafIds, leafScreenTail, ptyIdForLeaf } from "@/modules/terminal";
-import { applySignal } from "@/modules/terminal/lib/agentActivity";
+import { applySignal, useAgentActivityStore } from "@/modules/terminal/lib/agentActivity";
 import {
   emptyJudgeEntry,
   type JudgeEntry,
@@ -42,16 +42,22 @@ export function useAgentStateJudge({ tabs }: { tabs: readonly Tab[] }): void {
 
     const tick = () => {
       const leaves = leavesRef.current;
+      const store = useAgentActivityStore.getState();
       for (const leafId of [...entries.keys()]) {
-        if (!leaves.includes(leafId)) entries.delete(leafId);
+        if (!leaves.includes(leafId)) {
+          entries.delete(leafId);
+          store.clearLeafPty(leafId);
+        }
       }
       const now = Date.now();
       for (const leafId of leaves) {
         if (stopped) return;
         // The store is keyed by pty, because that is what a signal names and what
-        // the tab's icons are derived from.
+        // the tab's icons are derived from. The leaf -> pty mirror is kept for the
+        // tab strip, which has to see a dot appear without a render of its own.
         const ptyId = ptyIdForLeaf(leafId);
         if (ptyId === null) continue;
+        store.setLeafPty(leafId, ptyId);
         const tail = leafScreenTail(leafId);
         if (tail === null) continue;
         const current = entries.get(leafId);

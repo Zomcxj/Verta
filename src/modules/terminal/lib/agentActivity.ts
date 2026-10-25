@@ -23,8 +23,17 @@ type AgentActivityStore = {
   // pty -> agent name, learned from the `started` signal and kept until exit so
   // the tab can show that agent's brand icon while it runs.
   agents: Record<number, string>;
+  /**
+   * leaf -> pty. The tab strip finds a tab's ptys through this, and it has to come
+   * from the store rather than from the session registry: a state dot appears when
+   * the store changes, and a registry read at render time would only ever be as
+   * fresh as the last render that happened for some other reason.
+   */
+  leafPty: Record<number, number>;
   setPhase: (id: number, phase: AgentPhase) => void;
   setAgent: (id: number, agent: string) => void;
+  setLeafPty: (leafId: number, ptyId: number) => void;
+  clearLeafPty: (leafId: number) => void;
   acknowledgeAttention: (ids: readonly number[]) => void;
   clear: (id: number) => void;
 };
@@ -32,6 +41,7 @@ type AgentActivityStore = {
 export const useAgentActivityStore = create<AgentActivityStore>((set) => ({
   phases: {},
   agents: {},
+  leafPty: {},
   setPhase: (id, phase) =>
     set((s) => {
       if (s.phases[id] === phase) return s;
@@ -41,6 +51,18 @@ export const useAgentActivityStore = create<AgentActivityStore>((set) => ({
     set((s) => {
       if (s.agents[id] === agent) return s;
       return { agents: { ...s.agents, [id]: agent } };
+    }),
+  setLeafPty: (leafId, ptyId) =>
+    set((s) => {
+      if (s.leafPty[leafId] === ptyId) return s;
+      return { leafPty: { ...s.leafPty, [leafId]: ptyId } };
+    }),
+  clearLeafPty: (leafId) =>
+    set((s) => {
+      if (!(leafId in s.leafPty)) return s;
+      const leafPty = { ...s.leafPty };
+      delete leafPty[leafId];
+      return { leafPty };
     }),
   acknowledgeAttention: (ids) =>
     set((s) => {

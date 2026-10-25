@@ -1,13 +1,21 @@
 import { shallow } from "zustand/shallow";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useAgentActivityStore } from "@/modules/terminal/lib/agentActivity";
-import { NO_AGENT_STATUS, selectTabAgentStatus } from "./tabAgentStatus";
+import {
+  NO_AGENT_STATUS,
+  ptyIdsForLeaves,
+  selectTabAgentStatus,
+  selectTabAgentStatusFromLeaves,
+} from "./tabAgentStatus";
 
 const select = (ptyIds: readonly number[]) =>
   selectTabAgentStatus(useAgentActivityStore.getState(), ptyIds);
 
+const selectFromLeaves = (leafIds: readonly number[]) =>
+  selectTabAgentStatusFromLeaves(useAgentActivityStore.getState(), leafIds);
+
 beforeEach(() => {
-  useAgentActivityStore.setState({ phases: {}, agents: {} });
+  useAgentActivityStore.setState({ phases: {}, agents: {}, leafPty: {} });
 });
 
 describe("selectTabAgentStatus", () => {
@@ -43,5 +51,47 @@ describe("selectTabAgentStatus", () => {
     const before = select([1]);
     store.setPhase(1, "attention");
     expect(shallow(before, select([1]))).toBe(false);
+  });
+});
+
+describe("selectTabAgentStatusFromLeaves", () => {
+  it("returns the shared empty status without a leaf map to look at", () => {
+    expect(selectFromLeaves([])).toBe(NO_AGENT_STATUS);
+  });
+
+  it("follows a leaf's pty as the store learns it", () => {
+    // Before the judge has reported, the leaf has no pty and no dot can be drawn.
+    expect(selectFromLeaves([11])).toEqual({ state: null, agent: null });
+
+    const store = useAgentActivityStore.getState();
+    store.setLeafPty(11, 7);
+    store.setAgent(7, "opencode");
+    store.setPhase(7, "attention");
+    expect(selectFromLeaves([11])).toEqual({
+      state: "attention",
+      agent: null,
+    });
+
+    // A leaf that was reused for another pty reads the new one, not the old state.
+    expect(useAgentActivityStore.getState().leafPty[11]).toBe(7);
+    store.setLeafPty(11, 8);
+    expect(selectFromLeaves([11])).toEqual({ state: null, agent: null });
+  });
+
+  it("keeps a tab with no live pty out of the way of a tab that has one", () => {
+    const store = useAgentActivityStore.getState();
+    store.setLeafPty(1, 7);
+    store.setLeafPty(2, 8);
+    store.setPhase(8, "working");
+    expect(selectFromLeaves([1])).toEqual({ state: null, agent: null });
+    expect(selectFromLeaves([2]).state).toBe("working");
+    expect(selectFromLeaves([1, 2]).state).toBe("working");
+  });
+
+  it("maps leaves to ptys without inventing one for a leaf the store does not know", () => {
+    const store = useAgentActivityStore.getState();
+    store.setLeafPty(1, 7);
+    const state = useAgentActivityStore.getState();
+    expect(ptyIdsForLeaves(state, [1, 2, 3])).toEqual([7]);
   });
 });
