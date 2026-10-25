@@ -14,11 +14,11 @@
  * table that reads a live screen is enough without asking anyone.
  *
  * The alternative the plan first reached for, asking the kernel whether the shell
- * still has a child, does not work here: on Windows the pid the pty is spawned
- * under is the console host, which keeps the shell as its child forever, so the
- * query answers "yes, something is running" at an idle prompt (measured, see the
- * probe this module was verified with). The screen is the better instrument, and it
- * is free.
+ * still has a child, did not work as written: on Windows the pid the pty spawns is
+ * Git's `bin\bash.exe`, a stub that keeps the real `usr\bin\bash.exe` as its only child
+ * for as long as the tab lives, so the query answered "yes, something is running" at an
+ * idle prompt (measured, see the probe this module was verified with; the pty module now
+ * walks past that stub). The screen is the better instrument, and it is free.
  */
 
 import type { AgentSignal } from "@/modules/terminal/lib/agentActivity";
