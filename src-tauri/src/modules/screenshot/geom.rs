@@ -117,24 +117,28 @@ pub fn apply_corner_radius(rgba: &mut [u8], width: u32, height: u32, radius: u32
     }
 }
 
-/// `Screenshot-<stamp>.png`; a second shot in the same second becomes `-2`, `-3`, so
+/// `Verta-<stamp>.png`; a second shot in the same second becomes `-2`, `-3`, so
 /// the previous one is never overwritten.
+///
+/// The prefix is the app's name rather than the word `Screenshot`, which is what
+/// every other screenshot tool writes: the folder this lands in also collects
+/// Windows' own shots, and the name should say which of them is Verta's.
 ///
 /// `taken` is supplied by the caller (which asks the filesystem), so this stays
 /// unit-testable.
 pub fn screenshot_file_name(stamp: &str, taken: impl Fn(&str) -> bool) -> String {
-    let first = format!("Screenshot-{stamp}.png");
+    let first = format!("Verta-{stamp}.png");
     if !taken(&first) {
         return first;
     }
     for n in 2..1000 {
-        let name = format!("Screenshot-{stamp}-{n}.png");
+        let name = format!("Verta-{stamp}-{n}.png");
         if !taken(&name) {
             return name;
         }
     }
     // A thousand screenshots in one second: stop picking, let the write report the error.
-    format!("Screenshot-{stamp}-overflow.png")
+    format!("Verta-{stamp}-overflow.png")
 }
 
 #[cfg(test)]
@@ -295,15 +299,15 @@ mod tests {
     #[test]
     fn a_second_shot_in_the_same_second_does_not_overwrite_the_first() {
         // Absent first, then "already taken", then absent again; the result is -2.
-        let taken = |name: &str| name == "Screenshot-2026-10-21-183012.png";
+        let taken = |name: &str| name == "Verta-2026-10-21-183012.png";
         assert_eq!(
             screenshot_file_name("2026-10-21-183012", taken),
-            "Screenshot-2026-10-21-183012-2.png"
+            "Verta-2026-10-21-183012-2.png"
         );
         let none = |_: &str| false;
         assert_eq!(
             screenshot_file_name("2026-10-21-183012", none),
-            "Screenshot-2026-10-21-183012.png"
+            "Verta-2026-10-21-183012.png"
         );
     }
 }

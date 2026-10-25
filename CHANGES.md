@@ -113,6 +113,10 @@ swap in the new date, and drop the `open` from the day before.
 - `scripts/dev/probes/window-state-restore.mjs`: the height now has to match the record as strictly as the width does, instead of being allowed to sit an offset above it, so the probe can see this come back.
 - `VERTA.md`: the Window styling notes say every borderless window opts out of the shadow, and what happens to a window-state restore if one does not.
 
+**A saved screenshot carries the app's name, not the word every tool writes**
+
+- `src-tauri/src/modules/screenshot/geom.rs`: a region capture is written as `Verta-<stamp>.png` instead of `Screenshot-<stamp>.png`. The folder it lands in (`Pictures/Screenshots`) also collects Windows' own captures, so the name should say which tool took it; `Screenshot` is what the others write. The `-2`, `-3` suffix for a second shot in the same second and the `-overflow` fallback are unchanged, and the two unit tests pin the new prefix.
+
 **The path in the status bar collapses by the room it has, not by a breakpoint**
 
 - `src/modules/statusbar/lib/breadcrumbFit.ts` (new): how many of a trail's middle segments fit, from the measured widths of the leading part, the "more paths" button, each middle and the trailing folder or file plus the gap between boxes. It knows nothing about the markup, so it is a pure function with its own test.
