@@ -587,26 +587,36 @@ export const SourceControlPanel = memo(function SourceControlPanel({
     }
   };
 
+  /**
+   * The three header actions, reading the latest summaries through a ref.
+   *
+   * `scm` and `sourceControl` are new objects on every refresh, so depending on them would give these
+   * callbacks a new identity on every refresh, which is exactly what a memoised header compares
+   * against. They are handed to the header as props, so their identity has to be stable.
+   */
+  const latestScm = useRef({ scm, sourceControl });
+  latestScm.current = { scm, sourceControl };
+
   const handleRefresh = useCallback(() => {
     setRefreshAnimating(true);
     if (refreshAnimationRef.current) {
       window.clearTimeout(refreshAnimationRef.current);
     }
-    void scm.refresh().finally(() => {
+    void latestScm.current.scm.refresh().finally(() => {
       refreshAnimationRef.current = window.setTimeout(() => {
         setRefreshAnimating(false);
         refreshAnimationRef.current = null;
       }, 450);
     });
-  }, [scm]);
+  }, []);
 
   const handleFetch = useCallback(() => {
-    void sourceControl.runRemoteAction("fetch");
-  }, [sourceControl]);
+    void latestScm.current.sourceControl.runRemoteAction("fetch");
+  }, []);
 
   const handlePull = useCallback(() => {
-    void sourceControl.runRemoteAction("pull");
-  }, [sourceControl]);
+    void latestScm.current.sourceControl.runRemoteAction("pull");
+  }, []);
 
   const rows = useMemo<RowDescriptor[]>(() => {
     const result: RowDescriptor[] = [];
@@ -769,117 +779,33 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   return (
     <TooltipProvider delayDuration={800} skipDelayDuration={300}>
       <aside className="flex h-full min-w-0 flex-col [contain:layout_style]">
-        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 pb-2.5 pt-3">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <BranchDropdown
-              repoRoot={
-                fixedTargetPending ? null : (scm.repo?.repoRoot ?? null)
-              }
-              repoLabel={repoLabel}
-              displayRepoRoot={
-                repositoryTarget.mode === "fixed"
-                  ? repositoryTarget.repoRoot
-                  : (scm.repo?.repoRoot ?? null)
-              }
-              repositoryTarget={repositoryTarget}
-              onFollowRepositoryContext={onFollowRepositoryContext}
-              onNavigateToPath={onNavigateToPath}
-              onRefresh={handleRefresh}
-            />
-            {scm.status && (scm.status.ahead > 0 || scm.status.behind > 0) ? (
-              <div className="flex shrink-0 items-center gap-0.5 text-[10px] font-semibold tabular-nums leading-none text-muted-foreground">
-                {scm.status.ahead > 0 ? (
-                  <span className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1 py-0.5">
-                    <HugeiconsIcon
-                      icon={ArrowUp01Icon}
-                      size={9}
-                      strokeWidth={2.2}
-                    />
-                    {scm.status.ahead}
-                  </span>
-                ) : null}
-                {scm.status.behind > 0 ? (
-                  <span className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1 py-0.5">
-                    <HugeiconsIcon
-                      icon={ArrowDown01Icon}
-                      size={9}
-                      strokeWidth={2.2}
-                    />
-                    {scm.status.behind}
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-            {scm.status?.isDetached ? (
-              <span className="rounded bg-muted/55 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                {t("scm.detached")}
-              </span>
-            ) : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-0.5">
-            <IconActionButton
-              label={fetchBusy ? t("scm.fetching") : t("scm.fetch")}
-              disabled={!canFetch}
-              onClick={handleFetch}
-              side="bottom"
-            >
-              {fetchBusy ? (
-                <Spinner className="size-3" />
-              ) : (
-                <HugeiconsIcon
-                  icon={FolderCloudIcon}
-                  size={14}
-                  strokeWidth={1.85}
-                />
-              )}
-            </IconActionButton>
-            <IconActionButton
-              label={
-                pullBusy
-                  ? t("scm.pulling")
-                  : isDiverged
-                    ? t("scm.pullDiverged")
-                    : !hasUpstream
-                      ? t("scm.pullNoUpstream")
-                      : (scm.status?.behind ?? 0) === 0
-                        ? t("scm.pullUpToDate")
-                        : t("scm.pullBehind", {
-                            count: String(scm.status?.behind ?? 0),
-                          })
-              }
-              disabled={!canPull}
-              onClick={handlePull}
-              side="bottom"
-            >
-              {pullBusy ? (
-                <Spinner className="size-3" />
-              ) : (
-                <HugeiconsIcon
-                  icon={Download01Icon}
-                  size={14}
-                  strokeWidth={1.9}
-                />
-              )}
-            </IconActionButton>
-            <IconActionButton
-              label={t("scm.refresh")}
-              disabled={isRefreshing || !!scm.actionBusy}
-              onClick={handleRefresh}
-              side="bottom"
-            >
-              {isRefreshing ? (
-                <Spinner className="size-3.5" />
-              ) : (
-                <HugeiconsIcon
-                  icon={Refresh01Icon}
-                  size={14}
-                  strokeWidth={1.9}
-                  className={cn(refreshAnimating && "animate-spin")}
-                />
-              )}
-            </IconActionButton>
-          </div>
-        </header>
+        <ScmHeader
+          repoRoot={fixedTargetPending ? null : (scm.repo?.repoRoot ?? null)}
+          repoLabel={repoLabel}
+          displayRepoRoot={
+            repositoryTarget.mode === "fixed"
+              ? repositoryTarget.repoRoot
+              : (scm.repo?.repoRoot ?? null)
+          }
+          repositoryTarget={repositoryTarget}
+          ahead={scm.status?.ahead ?? 0}
+          behind={scm.status?.behind ?? 0}
+          detached={scm.status?.isDetached === true}
+          fetchBusy={fetchBusy}
+          pullBusy={pullBusy}
+          isDiverged={isDiverged}
+          hasUpstream={hasUpstream}
+          canFetch={canFetch}
+          canPull={canPull}
+          refreshDisabled={isRefreshing || !!scm.actionBusy}
+          refreshing={isRefreshing}
+          refreshAnimating={refreshAnimating}
+          onFollowRepositoryContext={onFollowRepositoryContext}
+          onNavigateToPath={onNavigateToPath}
+          onRefresh={handleRefresh}
+          onFetch={handleFetch}
+          onPull={handlePull}
+        />
 
         {onOpenGitGraph ? (
           <button
@@ -1472,6 +1398,167 @@ const EntryRow = memo(function EntryRow({
         ) : null}
       </ContextMenuContent>
     </ContextMenu>
+  );
+});
+
+type ScmHeaderProps = {
+  repoRoot: string | null;
+  repoLabel: string;
+  displayRepoRoot: string | null;
+  repositoryTarget: SourceControlRepositoryTarget;
+  ahead: number;
+  behind: number;
+  detached: boolean;
+  fetchBusy: boolean;
+  pullBusy: boolean;
+  isDiverged: boolean;
+  hasUpstream: boolean;
+  canFetch: boolean;
+  canPull: boolean;
+  refreshDisabled: boolean;
+  refreshing: boolean;
+  refreshAnimating: boolean;
+  onFollowRepositoryContext: () => void;
+  onNavigateToPath?: (path: string) => void;
+  onRefresh: () => void;
+  onFetch: () => void;
+  onPull: () => void;
+};
+
+/**
+ * The panel's header: the branch selector, the ahead/behind counts and the three remote actions.
+ *
+ * Memoised, and every input is a primitive or a stable callback, because the panel re-renders on
+ * every `git status` (a refresh replaces the whole summary object) while the header's own contents
+ * change only when the branch, the counts or a busy flag do. It was the most expensive single piece
+ * of those re-renders: three icon buttons, each with a tooltip and a popper layer, plus the branch
+ * menu beside them.
+ */
+const ScmHeader = memo(function ScmHeader({
+  repoRoot,
+  repoLabel,
+  displayRepoRoot,
+  repositoryTarget,
+  ahead,
+  behind,
+  detached,
+  fetchBusy,
+  pullBusy,
+  isDiverged,
+  hasUpstream,
+  canFetch,
+  canPull,
+  refreshDisabled,
+  refreshing,
+  refreshAnimating,
+  onFollowRepositoryContext,
+  onNavigateToPath,
+  onRefresh,
+  onFetch,
+  onPull,
+}: ScmHeaderProps) {
+  const t = useT();
+
+  return (
+    <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 pb-2.5 pt-3">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <BranchDropdown
+          repoRoot={repoRoot}
+          repoLabel={repoLabel}
+          displayRepoRoot={displayRepoRoot}
+          repositoryTarget={repositoryTarget}
+          onFollowRepositoryContext={onFollowRepositoryContext}
+          onNavigateToPath={onNavigateToPath}
+          onRefresh={onRefresh}
+        />
+        {ahead > 0 || behind > 0 ? (
+          <div className="flex shrink-0 items-center gap-0.5 text-[10px] font-semibold tabular-nums leading-none text-muted-foreground">
+            {ahead > 0 ? (
+              <span className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1 py-0.5">
+                <HugeiconsIcon
+                  icon={ArrowUp01Icon}
+                  size={9}
+                  strokeWidth={2.2}
+                />
+                {ahead}
+              </span>
+            ) : null}
+            {behind > 0 ? (
+              <span className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1 py-0.5">
+                <HugeiconsIcon
+                  icon={ArrowDown01Icon}
+                  size={9}
+                  strokeWidth={2.2}
+                />
+                {behind}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {detached ? (
+          <span className="rounded bg-muted/55 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t("scm.detached")}
+          </span>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <IconActionButton
+          label={fetchBusy ? t("scm.fetching") : t("scm.fetch")}
+          disabled={!canFetch}
+          onClick={onFetch}
+          side="bottom"
+        >
+          {fetchBusy ? (
+            <Spinner className="size-3" />
+          ) : (
+            <HugeiconsIcon
+              icon={FolderCloudIcon}
+              size={14}
+              strokeWidth={1.85}
+            />
+          )}
+        </IconActionButton>
+        <IconActionButton
+          label={
+            pullBusy
+              ? t("scm.pulling")
+              : isDiverged
+                ? t("scm.pullDiverged")
+                : !hasUpstream
+                  ? t("scm.pullNoUpstream")
+                  : behind === 0
+                    ? t("scm.pullUpToDate")
+                    : t("scm.pullBehind", { count: String(behind) })
+          }
+          disabled={!canPull}
+          onClick={onPull}
+          side="bottom"
+        >
+          {pullBusy ? (
+            <Spinner className="size-3" />
+          ) : (
+            <HugeiconsIcon icon={Download01Icon} size={14} strokeWidth={1.9} />
+          )}
+        </IconActionButton>
+        <IconActionButton
+          label={t("scm.refresh")}
+          disabled={refreshDisabled}
+          onClick={onRefresh}
+          side="bottom"
+        >
+          {refreshing ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <HugeiconsIcon
+              icon={Refresh01Icon}
+              size={14}
+              strokeWidth={1.9}
+              className={cn(refreshAnimating && "animate-spin")}
+            />
+          )}
+        </IconActionButton>
+      </div>
+    </header>
   );
 });
 

@@ -80,6 +80,10 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/statusbar/StatusBar.tsx`: memoised. Its own inputs (the cwd, the file path, whether the active terminal is private) do not change when the active tab moves between an editor, a picture and a terminal, and its breadcrumb is one item per path segment and its pills carry tooltips.
 - `src/app/App.tsx`: the four openers the header is handed are stable callbacks now instead of arrows written in the JSX (`onNewPreview`, `onNewEditor`, the command palette's list opener, the settings window opener). A fresh function is a new prop on every render of the window, which is what defeated the memo of everything below them.
 
+**The source control panel's header stops re-rendering on every git refresh**
+
+- `src/modules/source-control/SourceControlPanel.tsx`: the branch selector, the ahead/behind counts and the three remote actions are one memoised component (`ScmHeader`) whose inputs are primitives and stable callbacks. A refresh replaces the whole summary object, so the header re-rendered on every `git status`, and the header is the expensive part of that render: three icon buttons, each with a tooltip and a popper layer, plus the branch menu beside them. A tab switch that changes the folder pays this twice. The refresh, fetch and pull callbacks now read the latest summary through a ref, which is what gives them a stable identity for the memo to compare; the refresh button's spinner still follows the panel's loading state alone, since the disabled flag also covers a running remote action.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 
