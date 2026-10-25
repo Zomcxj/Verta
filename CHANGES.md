@@ -90,6 +90,10 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/editor/NewEditorDialog.tsx`: memoised, since it is mounted closed and its inputs (whether it is open, the folder it creates in) do not change on a tab switch.
 - `src/app/App.tsx`: the new-file dialog's `onCreated` is a stable callback instead of an arrow written in the JSX, which is what a memoised dialog compares against.
 
+**The cell-pitch probe finds its ruler instead of the shell prompt**
+
+- `scripts/dev/probes/terminal-cell-pitch.mjs`: the ruler is written long enough to wrap, and the row is chosen by which row has the most equally spaced strokes instead of which row has the most contrast, so the prompt on the same row (or the theme's own vertical gradient) can no longer be measured in place of the ruler. A candidate row also has to carry real ink: a gradient's pixel noise is evenly spaced, and in a uniformity contest it beat every glyph in the window. Two dead ends are worth recording: the wrapped continuation row is the clean one because the prompt is only on the row the typing started on, and the canvas-per-column figure the report prints is not the pitch, since the backing store is deliberately wider than the grid. The terminal tab is found by looking for a mounted terminal surface rather than by its label, because a terminal tab is titled after its cwd.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 
