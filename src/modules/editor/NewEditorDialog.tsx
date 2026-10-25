@@ -13,7 +13,7 @@ import { currentWorkspaceEnv } from "@/modules/workspace";
 import { File02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
 type Props = {
   open: boolean;
@@ -27,7 +27,12 @@ function joinPath(parent: string, name: string): string {
   return `${parent}/${name}`;
 }
 
-export function NewEditorDialog({
+/**
+ * Memoised: the dialog is mounted whether or not it is open, and its own inputs (whether it is open,
+ * the folder it creates in) do not change on a tab switch. Its `onCreated` is a stable callback in the
+ * window for the same reason.
+ */
+export const NewEditorDialog = memo(function NewEditorDialog({
   open,
   onOpenChange,
   rootPath,
@@ -135,4 +140,4 @@ export function NewEditorDialog({
       </DialogContent>
     </Dialog>
   );
-}
+});

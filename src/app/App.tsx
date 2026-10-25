@@ -1052,6 +1052,12 @@ export default function App() {
     [],
   );
 
+  /** The new-file dialog's result: a stable identity, since the dialog is memoised. */
+  const openCreatedFile = useCallback(
+    (path: string) => openFileTab(path),
+    [openFileTab],
+  );
+
   const swapActivePane = useCallback(
     (direction: "left" | "right" | "up" | "down") => {
       swapActivePaneInDirection(activeId, direction, livePaneBounds(activeId));
@@ -1722,7 +1728,7 @@ export default function App() {
             open={newEditorOpen}
             onOpenChange={setNewEditorOpen}
             rootPath={explorerRoot ?? home}
-            onCreated={(path) => openFileTab(path)}
+            onCreated={openCreatedFile}
           />
 
           <UpdaterDialog />

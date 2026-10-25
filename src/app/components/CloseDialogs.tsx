@@ -18,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { type MessageKey, useT } from "@/modules/i18n";
 import { setConfirmCloseRunningTerminal } from "@/modules/settings/store";
 import type { Tab } from "@/modules/tabs";
-import { useId, useState } from "react";
+import { memo, useId, useState } from "react";
 
 type Props = {
   tabs: Tab[];
@@ -146,7 +146,12 @@ function closeManyMessage(
 }
 
 /** Confirmation dialogs for closing dirty editors and terminals with live processes. */
-export function CloseDialogs({
+/**
+ * Memoised: these three confirmations are mounted whether or not one of them is pending, and they
+ * render five alert dialogs between them. The window re-renders on every tab change, and nothing here
+ * changes then: its inputs are the tab list plus the pending-close states the close guards own.
+ */
+export const CloseDialogs = memo(function CloseDialogs({
   tabs,
   pendingCloseTab,
   onCancelClose,
@@ -355,4 +360,4 @@ export function CloseDialogs({
       </AlertDialog>
     </>
   );
-}
+});

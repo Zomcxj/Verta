@@ -84,6 +84,12 @@ swap in the new date, and drop the `open` from the day before.
 
 - `src/modules/source-control/SourceControlPanel.tsx`: the branch selector, the ahead/behind counts and the three remote actions are one memoised component (`ScmHeader`) whose inputs are primitives and stable callbacks. A refresh replaces the whole summary object, so the header re-rendered on every `git status`, and the header is the expensive part of that render: three icon buttons, each with a tooltip and a popper layer, plus the branch menu beside them. A tab switch that changes the folder pays this twice. The refresh, fetch and pull callbacks now read the latest summary through a ref, which is what gives them a stable identity for the memo to compare; the refresh button's spinner still follows the panel's loading state alone, since the disabled flag also covers a running remote action.
 
+**The dialogs that are mounted but closed stop re-rendering with the window**
+
+- `src/app/components/CloseDialogs.tsx`: memoised. The five close confirmations are mounted whether or not one is pending, and the window re-renders on every tab change while nothing here changes then: its inputs are the tab list and the pending-close states the close guards own.
+- `src/modules/editor/NewEditorDialog.tsx`: memoised, since it is mounted closed and its inputs (whether it is open, the folder it creates in) do not change on a tab switch.
+- `src/app/App.tsx`: the new-file dialog's `onCreated` is a stable callback instead of an arrow written in the JSX, which is what a memoised dialog compares against.
+
 <details>
 <summary><strong>2026-10-24</strong></summary>
 
