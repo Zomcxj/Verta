@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-26</strong></summary>
 
+**The renderer keeps its cadence while the window is hidden in the tray**
+
+- `scripts/dev/probes/renderer-throttle.mjs` (new): the measurement the notifications plan rested on. A recorder bolted onto the running page stamps a `setInterval`, a `requestAnimationFrame` counter, the document's visibility and the state dot the strip draws; the stages hide the window, show it again, feed the judge one of pi's captured screens while it is hidden, and read the log back. Measured with the window hidden (`isVisible` false, read back from Rust): the interval keeps its exact cadence - 162 ticks in 40.2 s, median gap 251 ms, worst gap 265 ms - and painting continues at 33 fps, because hiding a window does not tell the WebView2 it is hidden (`document.visibilityState` stays `visible`). A screen fed into a terminal while the window was hidden still moved that tab's dot from `working` to `attention`, so the judge keeps judging too: the notification layer does not need a Rust-side timer to hold its couple of seconds.
+- What the same run turned up on the way, recorded and not changed: a pane that has never been painted starts no terminal session at all (no pty, no size), and a window that another window covers is never painted. A tab opened in that state therefore stays empty until the window is raised and painted once.
+
 **The close guards and the taskbar flash ask the screen, not the process list**
 
 - `src/modules/terminal/lib/agentActivity.ts`: `isLeafAgentBusy` (whether the agent on a leaf is working or waiting on an answer, read from the activity store) and `flashForPhaseChange` (the taskbar flash's whole decision, as a pure function so it can be tested).
