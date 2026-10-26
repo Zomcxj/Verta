@@ -1,0 +1,163 @@
+import { describe, expect, it } from "vitest";
+import type { Tab } from "@/modules/tabs/lib/useTabs";
+import { sessionStateById, waitingFirst } from "./sessionActivity";
+
+/** A terminal tab with one leaf, opened for a session. */
+function terminalTab(
+  sessionId: string | undefined,
+  leafId: number,
+  extra?: { split?: number },
+): Tab {
+  const tree =
+    extra?.split === undefined
+      ? { kind: "leaf" as const, id: leafId }
+      : {
+          kind: "split" as const,
+          id: 900,
+          dir: "row" as const,
+          children: [
+            { kind: "leaf" as const, id: leafId },
+            { kind: "leaf" as const, id: extra.split },
+          ],
+        };
+  return {
+    id: 1,
+    kind: "terminal",
+    title: "session",
+    paneTree: tree,
+    activeLeafId: leafId,
+    ...(sessionId !== undefined && { sessionId }),
+  } as Tab;
+}
+
+describe("sessionStateById", () => {
+  it("finds a session's state through the tab that resumed it", () => {
+    const states = sessionStateById({
+      tabs: [terminalTab("ses_a", 5)],
+      leafPty: { 5: 42 },
+      phases: { 42: "working" },
+      agents: {},
+    });
+    expect(states.get("ses_a")).toBe("working");
+  });
+
+  it("leaves a session with no tab out of the map", () => {
+    // Nothing is running for it: the honest answer is "no state", not "idle".
+    const states = sessionStateById({
+      tabs: [],
+      leafPty: {},
+      phases: { 42: "attention" },
+      agents: {},
+    });
+    expect(states.size).toBe(0);
+  });
+
+  it("ignores a tab that is not a resumed session", () => {
+    const states = sessionStateById({
+      tabs: [terminalTab(undefined, 5)],
+      leafPty: { 5: 42 },
+      phases: { 42: "attention" },
+      agents: {},
+    });
+    expect(states.size).toBe(0);
+  });
+
+  it("ignores a tab whose leaves have no pty yet", () => {
+    // A restored tab that has not been started has no pty, so no state to show.
+    const states = sessionStateById({
+      tabs: [terminalTab("ses_a", 5)],
+      leafPty: {},
+      phases: { 42: "attention" },
+      agents: {},
+    });
+    expect(states.size).toBe(0);
+  });
+
+  it("takes the loudest state of a session split across panes", () => {
+    const states = sessionStateById({
+      tabs: [terminalTab("ses_a", 5, { split: 6 })],
+      leafPty: { 5: 42, 6: 43 },
+      phases: { 42: "working", 43: "attention" },
+      agents: {},
+    });
+    expect(states.get("ses_a")).toBe("attention");
+  });
+
+  it("folds two tabs opened for the same session into one state", () => {
+    const states = sessionStateById({
+      tabs: [terminalTab("ses_a", 5), { ...terminalTab("ses_a", 6), id: 2 }],
+      leafPty: { 5: 42, 6: 43 },
+      phases: { 42: "idle", 43: "finished" },
+      agents: { 42: "opencode", 43: "opencode" },
+    });
+    expect(states.get("ses_a")).toBe("finished");
+  });
+
+  it("keeps two sessions apart", () => {
+    const states = sessionStateById({
+      tabs: [
+        { ...terminalTab("ses_a", 5), id: 1 },
+        { ...terminalTab("ses_b", 6), id: 2 },
+      ],
+      leafPty: { 5: 42, 6: 43 },
+      phases: { 42: "working", 43: "attention" },
+      agents: {},
+    });
+    expect(states.get("ses_a")).toBe("working");
+    expect(states.get("ses_b")).toBe("attention");
+  });
+
+  it("says nothing for a session whose pty the store never heard of", () => {
+    const states = sessionStateById({
+      tabs: [terminalTab("ses_a", 5)],
+      leafPty: { 5: 42 },
+      phases: {},
+      agents: {},
+    });
+    expect(states.size).toBe(0);
+  });
+});
+
+describe("waitingFirst", () => {
+  const rows = [
+    { id: "a" },
+    { id: "b" },
+    { id: "c" },
+  ];
+
+  it("returns the list untouched when nothing is waiting", () => {
+    const state = new Map([["b", "working" as const]]);
+    expect(waitingFirst(rows, state)).toBe(rows);
+  });
+
+  it("lifts the waiting session to the top", () => {
+    const state = new Map([["c", "attention" as const]]);
+    expect(waitingFirst(rows, state).map((row) => row.id)).toEqual([
+      "c",
+      "a",
+      "b",
+    ]);
+  });
+
+  it("keeps the order of everything else, and of several waiters", () => {
+    const state = new Map([
+      ["a", "attention" as const],
+      ["c", "attention" as const],
+      ["b", "finished" as const],
+    ]);
+    expect(waitingFirst(rows, state).map((row) => row.id)).toEqual([
+      "a",
+      "c",
+      "b",
+    ]);
+  });
+
+  it("leaves rows with no state where they were", () => {
+    const state = new Map<string, "attention">([["b", "attention"]]);
+    expect(waitingFirst(rows, state).map((row) => row.id)).toEqual([
+      "b",
+      "a",
+      "c",
+    ]);
+  });
+});

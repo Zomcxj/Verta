@@ -32,7 +32,10 @@ import { deleteAgentSessions, listAgentSessions } from "../lib/sessions";
 import type { AgentSession, AgentTool, SessionTarget } from "../lib/types";
 import { topLevelSessions } from "../lib/visibleSessions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { useAgentActivityStore } from "@/modules/terminal";
+import type { Tab } from "@/modules/tabs/lib/useTabs";
 import { useWorkspaceEnvStore } from "@/modules/workspace";
+import { sessionStateById, waitingFirst } from "../lib/sessionActivity";
 import { SessionList, type SessionRowActions } from "./SessionList";
 
 const TOOLS: AgentTool[] = AGENT_TOOLS;
@@ -57,6 +60,8 @@ type PendingDelete = {
 type Props = {
   activeSessionId: string | null;
   onOpenSession: (session: AgentSession) => void;
+  /** The open tabs, so a row can be marked when its session is running in one. */
+  tabs: readonly Tab[];
   /** Current workspace root: "Copy relative path" resolves against it, and the item
    * is absent without one. */
   workspaceRoot?: string | null;
@@ -65,6 +70,7 @@ type Props = {
 export function LauncherPanel({
   activeSessionId,
   onOpenSession,
+  tabs,
   workspaceRoot = null,
 }: Props) {
   const [query, setQuery] = useState("");
@@ -224,6 +230,21 @@ export function LauncherPanel({
   useEffect(() => {
     if (!managing) void refresh({ silent: true });
   }, [managing, refresh]);
+
+  /**
+   * Which of these sessions are running right now, and how.
+   *
+   * Subscribing to the three maps and deriving from them is what keeps a row's dot
+   * and its place in the list in step with the tab strip: the store changes when a
+   * state changes, and there is one source for both surfaces.
+   */
+  const phases = useAgentActivityStore((s) => s.phases);
+  const agents = useAgentActivityStore((s) => s.agents);
+  const leafPty = useAgentActivityStore((s) => s.leafPty);
+  const states = useMemo(
+    () => sessionStateById({ tabs, leafPty, phases, agents }),
+    [tabs, leafPty, phases, agents],
+  );
 
   const topLevel = useMemo(() => topLevelSessions(sessions), [sessions]);
   // Managing deliberately shows the subagent sessions this list otherwise hides.
@@ -413,8 +434,17 @@ export function LauncherPanel({
                       </div>
                     ) : null}
                     <SessionList
-                      sessions={section.sessions}
+                      // Waiting first, inside the section it belongs to: the
+                      // grouping itself is the user's choice and is left alone.
+                      // Not while managing either - a row that moves under the
+                      // cursor is how the wrong session gets ticked.
+                      sessions={
+                        managing
+                          ? section.sessions
+                          : waitingFirst(section.sessions, states)
+                      }
                       activeId={activeSessionId}
+                      states={states}
                       onOpen={onOpenSession}
                       selectable={managing}
                       actions={rowActions}

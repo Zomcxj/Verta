@@ -17,6 +17,17 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-26</strong></summary>
 
+**The session list says which of its sessions is running, and lifts the ones waiting on you**
+
+- `src/modules/terminal/AgentStateDot.tsx` (new): the state dot, its four colours and its wording, lifted out of the tab strip so the session list can draw the same mark. Two surfaces describing one session two different ways is the thing this avoids.
+- `src/modules/tabs/TabChip.tsx`: draws that shared dot instead of its own copy of the colours and the labels.
+- `src/modules/tabs/lib/useTabs.ts`, `src/modules/tabs/lib/serialize.ts`: a terminal tab records the session it resumed (`sessionId`), and the value is stored and restored with the tab. Nothing else about the tab changes.
+- `src/modules/launcher/lib/sessionActivity.ts` (new): joins the stored sessions to the live activity store through the tab that resumed them (the store is keyed by pty, the list by session), folds a session's panes with the same rule the tab strip uses so one session cannot read two ways in one window, and lifts the sessions that are waiting on the user to the top - within the section they belong to, and stably, so nothing else moves.
+- `src/modules/launcher/components/LauncherPanel.tsx`, `src/modules/launcher/components/SessionList.tsx`: the panel reads the activity maps, marks each running row with its dot, and orders the list waiting-first. The order is left alone while rows are being picked for deletion, because a row that moves under the cursor is how the wrong session gets ticked, and the row carries `data-session-id` the way a tab carries `data-tab-id`.
+- `src/app/App.tsx`: opening a session from the list hands its id to the new tab, and the panel is given the tabs it resolves the ids against.
+- `src/modules/launcher/lib/sessionActivity.test.ts` (new): the join (a session split across two panes, two tabs opened for one session, a tab that is not a resumed session, a tab whose leaves have no pty yet) and the ordering (stable elsewhere, untouched when nothing is waiting).
+- `scripts/dev/probes/launcher-session-state.mjs` (new): opens a session from the list and reads the list back at each step - the dot while the agent works and the row staying put, the amber dot and the row moving to the top when it starts waiting, the rest of the order unchanged, then closes its own tab and puts the user's tab back.
+
 **The opening transition really hides the terminal now**
 
 - `src/modules/terminal/TerminalStack.tsx`: the area the window's shared render canvas lives in is hidden together with the panes while the opening transition covers them. The panes' own containers were already being hidden, but the GPU renderer draws a pane into a canvas that sits *next to* those containers rather than inside them, so the command that had just been typed stayed on screen for the whole animation - in every frame of it, however carefully the moment the layer lifts was tuned.

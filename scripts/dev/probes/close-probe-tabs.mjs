@@ -85,7 +85,15 @@ try {
   await sleep(500);
   report.stripBefore = JSON.parse(await strip());
 
-  for (const title of titles) {
+  // Never close the tab this is going to restore: passing the user's own tab in
+  // `--titles` by mistake closed it once already, and a probe must not be able to do
+  // that. The two lists are meant to be disjoint.
+  const restorable = restore ? titles.filter((t) => t !== restore) : titles;
+  if (restore && restorable.length !== titles.length) {
+    report.warning = `refusing to close the tab meant to be restored: ${restore}`;
+  }
+
+  for (const title of restorable) {
     if (!report.stripBefore.some((t) => t.text === title)) {
       report[`skip:${title}`] = "not open";
       continue;

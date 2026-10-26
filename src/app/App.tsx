@@ -743,6 +743,9 @@ export default function App() {
         session.title,
         plan.workspace,
         session.tool,
+        // The tab carries the session it resumed: the session list marks its row
+        // with this tab's live state.
+        session.id,
       );
       setActiveSessionId(session.id);
       // Cover the moment the command lands in the terminal (see
@@ -1582,6 +1585,7 @@ export default function App() {
                         <LauncherPanel
                           activeSessionId={activeSessionId}
                           onOpenSession={handleOpenSession}
+                          tabs={tabs}
                           workspaceRoot={explorerRoot}
                         />
                       ) : sidebarView === "explorer" ? (

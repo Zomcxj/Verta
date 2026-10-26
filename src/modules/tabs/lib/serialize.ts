@@ -35,6 +35,8 @@ export type SerializedTab =
       blocks?: boolean;
       customTitle?: string;
       agent?: AgentTool;
+      /** The stored session the tab resumed, so the list can still mark its row. */
+      sessionId?: string;
     }
   | { kind: "editor"; path: string }
   | { kind: "preview"; url: string }
@@ -93,6 +95,7 @@ function serializeTab(tab: Tab): SerializedTab | null {
         ...(tab.blocks && { blocks: true }),
         ...(tab.customTitle !== undefined && { customTitle: tab.customTitle }),
         ...(tab.agent !== undefined && { agent: tab.agent }),
+        ...(tab.sessionId !== undefined && { sessionId: tab.sessionId }),
       };
     case "editor":
       return { kind: "editor", path: tab.path };
@@ -246,6 +249,7 @@ function hydrateTab(
         ...(s.blocks && { blocks: true }),
         ...(s.customTitle !== undefined && { customTitle: s.customTitle }),
         ...(s.agent !== undefined && { agent: s.agent }),
+        ...(s.sessionId !== undefined && { sessionId: s.sessionId }),
       } satisfies TerminalTab;
     }
     case "editor":

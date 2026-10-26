@@ -20,7 +20,7 @@ import {
 } from "@/modules/editor/lib/languageDefinitions";
 import { resolveDisplayName } from "@/modules/editor/lib/languageResolver";
 import { FileIcon } from "@/modules/explorer/FileIcon";
-import { type MessageKey, useT } from "@/modules/i18n";
+import { useT } from "@/modules/i18n";
 import { AgentIcon } from "@/modules/launcher";
 import {
   ArrowRight01Icon,
@@ -47,36 +47,13 @@ import {
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { leafIds, useAgentActivityStore } from "@/modules/terminal";
+import { AgentStateDot } from "@/modules/terminal/AgentStateDot";
 import { labelFor } from "./lib/tabLabel";
 import {
   selectTabAgentStatusFromLeaves,
   selectTabAgentUnseen,
 } from "./lib/tabAgentStatus";
 import type { Tab, TerminalTab } from "./lib/useTabs";
-
-/** The four states a live session can be in, as the store spells them. */
-type AgentStateDot = "attention" | "working" | "finished" | "idle";
-
-/**
- * The dot's colour per state: a question it is waiting on is amber, work in flight
- * is sky, a turn that just finished is green, and an agent sitting at its prompt is
- * a quiet grey. The single pulse on the amber dot is the finite one the stylesheet
- * already defines for a waiting approval, so a session that stays blocked does not
- * animate for as long as it sits there (see the motion budget in VERTA.md).
- */
-const AGENT_STATE_DOT: Record<AgentStateDot, string> = {
-  attention: "bg-amber-500 verta-attention-pulse",
-  working: "bg-sky-500",
-  finished: "bg-emerald-500",
-  idle: "bg-muted-foreground/50",
-};
-
-const AGENT_STATE_LABEL: Record<AgentStateDot, MessageKey> = {
-  attention: "tabs.agentState.attention",
-  working: "tabs.agentState.working",
-  finished: "tabs.agentState.finished",
-  idle: "tabs.agentState.idle",
-};
 
 /** A pointer event from a chip's own element. */
 export type TabChipDragEvent = ReactPointerEvent<HTMLElement>;
@@ -365,15 +342,7 @@ export const TabChip = memo(function TabChip({
           {labelFor(tab)}
         </span>
         {agentStatus.state !== null ? (
-          // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the dot is decorative and its label is a hint on the tab; an image role would add a second announcement
-          <span
-            aria-label={tr(AGENT_STATE_LABEL[agentStatus.state])}
-            data-agent-state={agentStatus.state}
-            className={cn(
-              "size-1.5 shrink-0 rounded-full",
-              AGENT_STATE_DOT[agentStatus.state],
-            )}
-          />
+          <AgentStateDot state={agentStatus.state} />
         ) : null}
         {tab.kind === "editor" && tab.dirty ? (
           // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the dot is decorative and the label is a hint on the tab; an image role would add a second announcement

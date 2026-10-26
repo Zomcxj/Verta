@@ -6,6 +6,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
+import { AgentStateDot, type AgentStateDot as AgentState } from "@/modules/terminal/AgentStateDot";
 import { useLanguage, useT } from "@/modules/i18n";
 import { AgentIcon } from "../lib/agentIcon";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
@@ -37,8 +38,10 @@ export type SessionRowActions = {
 };
 
 type Props = {
-  sessions: AgentSession[];
+  sessions: readonly AgentSession[];
   activeId: string | null;
+  /** Live state per session id, for the sessions running in a tab right now. */
+  states?: ReadonlyMap<string, AgentState>;
   onOpen: (session: AgentSession) => void;
   /** Managing turns a row into a checkbox: clicking it selects, not opens. */
   selectable?: boolean;
@@ -57,6 +60,7 @@ type Props = {
 export const SessionList = memo(function SessionList({
   sessions,
   activeId,
+  states,
   onOpen,
   selectable = false,
   selected,
@@ -78,6 +82,7 @@ export const SessionList = memo(function SessionList({
           key={sessionKey(session)}
           session={session}
           active={session.id === activeId}
+          state={states?.get(session.id) ?? null}
           onOpen={onOpen}
           selectable={selectable}
           checked={selected?.has(sessionKey(session)) ?? false}
@@ -92,6 +97,7 @@ export const SessionList = memo(function SessionList({
 const SessionButton = memo(function SessionButton({
   session,
   active,
+  state,
   onOpen,
   selectable,
   checked,
@@ -100,6 +106,8 @@ const SessionButton = memo(function SessionButton({
 }: {
   session: AgentSession;
   active: boolean;
+  /** This session's live state, or null when nothing is running for it. */
+  state: AgentState | null;
   selectable: boolean;
   checked: boolean;
 } & Pick<Props, "onOpen" | "onToggle" | "actions">) {
@@ -110,6 +118,10 @@ const SessionButton = memo(function SessionButton({
   const row = (
     <button
       type="button"
+      // The session's own id, the way a tab carries `data-tab-id`: a probe (and a
+      // person reading the DOM) can tell which row is which without guessing from
+      // the title.
+      data-session-id={session.id}
       // The tooltip keeps only the session title: the path is no longer shown, so it must
       // not sneak back in through a tooltip.
       title={session.title}
@@ -155,6 +167,9 @@ const SessionButton = memo(function SessionButton({
               {session.title}
             </span>
           )}
+          {/* The same dot the tab strip draws, so a session on its way to the top
+              of the list says why it went there. */}
+          {state !== null ? <AgentStateDot state={state} /> : null}
           {session.parentId !== null ? (
             <span className="shrink-0 rounded border border-border/60 px-1 text-[9px] leading-4 text-muted-foreground">
               {t("launcher.subagent")}

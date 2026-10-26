@@ -53,6 +53,12 @@ export type TerminalTab = TabBase & {
    * started with, not a statement about what runs in it now.
    */
   agent?: AgentTool;
+  /**
+   * The stored session this tab resumed, when it was opened from the session
+   * list. It is what lets that list mark a row with the state of the session
+   * running behind it; a tab opened any other way has nothing to point at.
+   */
+  sessionId?: string;
 };
 
 export type EditorTab = TabBase & {
@@ -695,6 +701,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       instances: PaneCount,
       workspace?: WorkspaceEnv,
       agent?: AgentTool,
+      sessionId?: string,
     ) => {
       const tabId = nextIdRef.current++;
       const { paneTree, leafIds: agentLeafIds } = createPanePlan(
@@ -714,6 +721,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
           paneTree,
           activeLeafId: agentLeafIds[0],
           ...(agent !== undefined && { agent }),
+          ...(sessionId !== undefined && { sessionId }),
         },
       ]);
       setActiveId(tabId);
@@ -728,6 +736,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       title: string,
       workspace?: WorkspaceEnv,
       agent?: AgentTool,
+      sessionId?: string,
     ) => {
       const { tabId, leafIds: agentLeafIds } = newAgentGroupTab(
         cwd,
@@ -735,6 +744,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         1,
         workspace,
         agent,
+        sessionId,
       );
       return { tabId, leafId: agentLeafIds[0] };
     },
