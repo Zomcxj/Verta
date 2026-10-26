@@ -143,6 +143,12 @@ export type Preferences = {
   closeToTray: boolean;
   /** Flash that button when an agent asks for input or finishes. */
   taskbarAttentionFlash: boolean;
+  /**
+   * Send a system notification when an agent is waiting on you, or a turn ends while the
+   * window is not in front. The two surfaces have a switch each: the taskbar flash above
+   * stays whatever it is set to.
+   */
+  desktopNotifications: boolean;
   terminalRenderer: "auto" | "webgl";
   terminalScreenReader: boolean;
   terminalCursorBlink: boolean;
@@ -234,6 +240,7 @@ const KEY_WSL_SHUTDOWN_ON_DISABLE = "wslShutdownOnDisable";
 const KEY_EXPLORER_GIT_DECORATIONS = "explorerGitDecorations";
 const KEY_CLOSE_TO_TRAY = "closeToTray";
 const KEY_TASKBAR_ATTENTION_FLASH = "taskbarAttentionFlash";
+const KEY_DESKTOP_NOTIFICATIONS = "desktopNotifications";
 const KEY_TERMINAL_RENDERER = "terminalRenderer";
 const KEY_TERMINAL_SCREEN_READER = "terminalScreenReader";
 const KEY_TERMINAL_CURSOR_BLINK = "terminalCursorBlink";
@@ -309,6 +316,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   explorerGitDecorations: true,
   closeToTray: true,
   taskbarAttentionFlash: true,
+  desktopNotifications: true,
   terminalRenderer: "auto",
   terminalScreenReader: false,
   terminalCursorBlink: false,
@@ -407,6 +415,9 @@ export async function loadPreferences(): Promise<Preferences> {
     taskbarAttentionFlash:
       get<boolean>(KEY_TASKBAR_ATTENTION_FLASH) ??
       DEFAULT_PREFERENCES.taskbarAttentionFlash,
+    desktopNotifications:
+      get<boolean>(KEY_DESKTOP_NOTIFICATIONS) ??
+      DEFAULT_PREFERENCES.desktopNotifications,
     terminalRenderer:
       get<string>(KEY_TERMINAL_RENDERER) === "webgl" ? "webgl" : "auto",
     terminalScreenReader: get<boolean>(KEY_TERMINAL_SCREEN_READER) === true,
@@ -610,6 +621,10 @@ export async function setTaskbarAttentionFlash(value: boolean): Promise<void> {
   await writePref(KEY_TASKBAR_ATTENTION_FLASH, value);
 }
 
+export async function setDesktopNotifications(value: boolean): Promise<void> {
+  await writePref(KEY_DESKTOP_NOTIFICATIONS, value);
+}
+
 export async function setWslEnabled(value: boolean): Promise<void> {
   await writePref(KEY_WSL_ENABLED, value);
 }
@@ -786,6 +801,7 @@ export async function onPreferencesChange(
     [KEY_EXPLORER_GIT_DECORATIONS]: "explorerGitDecorations",
     [KEY_CLOSE_TO_TRAY]: "closeToTray",
     [KEY_TASKBAR_ATTENTION_FLASH]: "taskbarAttentionFlash",
+    [KEY_DESKTOP_NOTIFICATIONS]: "desktopNotifications",
     [KEY_TERMINAL_RENDERER]: "terminalRenderer",
     [KEY_TERMINAL_SCREEN_READER]: "terminalScreenReader",
     [KEY_TERMINAL_CURSOR_BLINK]: "terminalCursorBlink",

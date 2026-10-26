@@ -17,6 +17,7 @@ import {
   setConfirmCloseRunningTerminal,
   setDefaultWorkspaceEnv,
   setCloseToTray,
+  setDesktopNotifications,
   setExplorerGitDecorations,
   setRestoreWindowState,
   setShowHidden,
@@ -120,6 +121,9 @@ export function GeneralSection() {
   const closeToTray = usePreferencesStore((s) => s.closeToTray);
   const taskbarAttentionFlash = usePreferencesStore(
     (s) => s.taskbarAttentionFlash,
+  );
+  const desktopNotifications = usePreferencesStore(
+    (s) => s.desktopNotifications,
   );
   const terminalRenderer = usePreferencesStore((s) => s.terminalRenderer);
   const terminalScreenReader = usePreferencesStore(
@@ -231,6 +235,15 @@ export function GeneralSection() {
             <Switch
               checked={taskbarAttentionFlash}
               onCheckedChange={(v) => void setTaskbarAttentionFlash(v)}
+            />
+          </SettingRow>
+          <SettingRow
+            title={t("settings.desktopNotifications.title")}
+            description={t("settings.desktopNotifications.description")}
+          >
+            <Switch
+              checked={desktopNotifications}
+              onCheckedChange={(v) => void setDesktopNotifications(v)}
             />
           </SettingRow>
         </div>

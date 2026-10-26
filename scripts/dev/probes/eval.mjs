@@ -17,15 +17,17 @@ import { readFileSync } from "node:fs";
 const arg = (name) =>
   process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? null;
 const port = arg("port") ?? "9222";
+// Which window to talk to: the main one by default, `settings.html` for the settings window.
+const match = arg("match") ?? "1420/";
 const fromFile = process.argv.includes("--file");
 const body = fromFile
   ? readFileSync(process.argv[2], "utf8")
   : (process.argv[2] ?? "return null;");
 
 const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-const page = targets.find((t) => t.type === "page" && t.url.endsWith("1420/"));
+const page = targets.find((t) => t.type === "page" && t.url.includes(match));
 if (!page) {
-  console.error("dev 起来了？没找到主窗口的 page 目标。");
+  console.error(`dev 起来了？没找到匹配 ${match} 的 page 目标。`);
   process.exit(1);
 }
 const socket = new WebSocket(page.webSocketDebuggerUrl);

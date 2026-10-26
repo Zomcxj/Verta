@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-26</strong></summary>
 
+**The notification plugin, and the switch that turns it on**
+
+- `src-tauri/Cargo.toml`, `src-tauri/src/lib.rs`, `src-tauri/capabilities/default.json`: the official notifications plugin, registered the way the others are and carrying the permission its commands need, plus its frontend package (`package.json`). Nothing sends a notification yet.
+- `src/modules/settings/store.ts`, `src/settings/sections/GeneralSection.tsx`, `src/modules/i18n/messages.ts`: the preference behind that plugin - on by default, with its own switch beside the taskbar reminder in the Windows-only part of General, and both wordings plus the two toast strings. It is a switch of its own: turning it off stops both surfaces it drives (the notification and the tray dot) and leaves the taskbar flash exactly as it was set. Checked on the machine: the row is in General with that wording, starts on, and flips.
+- `scripts/dev/probes/eval.mjs`: can be pointed at any of the app's windows now (`--match=settings.html`), not only the main one, because where a switch stands is only true of the window that draws it.
+
 **A waiting dot on the tray icon**
 
 - `src-tauri/src/modules/tray.rs`: the tray icon's waiting dot and the two commands behind it - one that paints the dot onto the app's own window icon (or clears it back) and hands the result to the shell, and one that brings the main window back the way a click on the tray icon does, which the page calls when a system notification is clicked. The dot is drawn at run time onto the icon's RGBA, so there is no second icon asset to keep in step with the first and no decoder to carry, and its colour is the amber the tab's marker and the bell's count already use. Measured on this machine: the tray area carries no amber at all before, 69 amber pixels in a 9x9 box on the icon's top-right with the dot on, and none again once it is cleared.

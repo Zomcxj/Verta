@@ -685,6 +685,9 @@ const zh = {
   "notifications.title": "等待你的会话",
   "notifications.empty": "没有等待你的会话。",
   "notifications.jump": "跳到这个会话",
+  "notifications.toast.waiting.title": "{title} 在等你",
+  "notifications.toast.done.title": "{title} 跑完了",
+  "notifications.toast.done.body": "它在你不在的时候停下了。",
   "header.toggleSidebar": "显示/隐藏侧栏",
   "header.toggleGitPanel": "显示/隐藏 Git 面板",
   "header.projectsPanel": "本地项目与远程仓库",
@@ -894,6 +897,9 @@ const zh = {
   "settings.taskbarFlash.title": "任务栏提醒",
   "settings.taskbarFlash.description":
     "智能体等待你回答或完成任务时，让任务栏按钮闪烁。",
+  "settings.desktopNotifications.title": "系统通知",
+  "settings.desktopNotifications.description":
+    "智能体在等你、或你不在时一轮跑完，发一条 Windows 通知；点它回到那个会话。",
   "settings.terminal": "终端",
   "settings.terminalRenderer.title": "终端渲染器",
   "settings.terminalRenderer.description":
@@ -2072,6 +2078,9 @@ const en: Record<MessageKey, string> = {
   "notifications.title": "Waiting for you",
   "notifications.empty": "Nothing is waiting for you.",
   "notifications.jump": "Go to this session",
+  "notifications.toast.waiting.title": "{title} is waiting on you",
+  "notifications.toast.done.title": "{title} finished",
+  "notifications.toast.done.body": "It stopped while you were away.",
   "header.toggleSidebar": "Toggle sidebar",
   "header.toggleGitPanel": "Toggle the Git panel",
   "header.projectsPanel": "Local projects and remote repositories",
@@ -2286,6 +2295,9 @@ const en: Record<MessageKey, string> = {
   "settings.taskbarFlash.title": "Taskbar reminders",
   "settings.taskbarFlash.description":
     "Flash the taskbar button when an agent is waiting for an answer or has finished.",
+  "settings.desktopNotifications.title": "System notifications",
+  "settings.desktopNotifications.description":
+    "Send a Windows notification when an agent is waiting on you, or a turn ends while the window is not in front. Click it to go back to that session.",
   "settings.terminal": "Terminal",
   "settings.terminalRenderer.title": "Terminal renderer",
   "settings.terminalRenderer.description":

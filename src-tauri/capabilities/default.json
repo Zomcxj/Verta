@@ -26,6 +26,7 @@
     "dialog:allow-open",
     "log:default",
     "os:default",
-    "store:default"
+    "store:default",
+    "notification:default"
   ]
 }
