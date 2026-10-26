@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-26</strong></summary>
 
+**A waiting dot on the tray icon**
+
+- `src-tauri/src/modules/tray.rs`: the tray icon's waiting dot and the two commands behind it - one that paints the dot onto the app's own window icon (or clears it back) and hands the result to the shell, and one that brings the main window back the way a click on the tray icon does, which the page calls when a system notification is clicked. The dot is drawn at run time onto the icon's RGBA, so there is no second icon asset to keep in step with the first and no decoder to carry, and its colour is the amber the tab's marker and the bell's count already use. Measured on this machine: the tray area carries no amber at all before, 69 amber pixels in a 9x9 box on the icon's top-right with the dot on, and none again once it is cleared.
+- `src-tauri/src/lib.rs`: the two new commands.
+- `scripts/dev/probes/png-count-color.ps1` (new): count the pixels of one colour inside a region of a screenshot, with the box they fall in. A badge on a tray icon is a few pixels in a picture thousands of times its size, so the region's dominant colours do not move when it appears - counting the colour is what settles "is the dot there" and "is it gone again".
+
 **A window that is not in front is not being looked at**
 
 - `src/app/App.tsx`: which sessions count as looked at is now the active tab's leaves, and none at all while the window is not in front. A window hidden in the tray, unfocused or behind another one shows the user nothing, so being on that tab is not being seen; without this, a question asked while the window was in the tray went unflagged whenever the user had left the agent's own tab in front - the case this work exists for. Measured before wiring it: hiding a focused window tells the app within 40 ms. A wait that starts while the window is behind therefore latches, which is what the tab's marker, the bell's list and the two notification layers all read, and when the user comes back the same tracker clears it within a judge tick. Deliberate leftover: the bell's list and the header's count now include waits that started while the window was in the background, which is what those two surfaces were always meant to say.
