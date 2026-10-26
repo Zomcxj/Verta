@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-26</strong></summary>
 
+**Which phase changes are worth a system notification**
+
+- `src/modules/notifications/lib/notificationRule.ts` (new): the whole decision of what a phase change is worth telling the user about - a question an agent is waiting on that the user has not looked at, and a turn that stopped painting work while the window was not in front. It is built on the taskbar flash's own rule, so the two cannot disagree about what a change means; what it adds is that a toast is a real interruption (a flash on a window the user is already looking at is not even shown by Windows) and that the store's latch is what says whether this is the same wait as the one already announced or a new one.
+- `src/modules/notifications/lib/notificationRule.test.ts` (new): those decisions, including a wait that is announced once and not again, and a turn that ends in front of the user.
+
 **A window hidden in the tray does say that nobody is looking at it**
 
 - `scripts/dev/probes/renderer-throttle.mjs`: every tick now also stamps `data-window-inactive`, the app's own answer to "is anyone looking at this window?", and the transition list keys on it as well, because a change in that field alone is exactly what this measurement looks for. Measured with the window in focus (obtained the one way Windows grants it, by asking right after showing the window): hiding it reports the focus loss to both of the app's sources within 40 ms - `dom-blur` at +24 ms, the window's own focus event at +39 ms - and the attribute goes true; showing it again brings both back. So the notification layer can read the page's own tracker instead of polling the shell, and the fallback that plan carried is not needed.
