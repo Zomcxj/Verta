@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-26</strong></summary>
 
+**A window that is not in front is not being looked at**
+
+- `src/app/App.tsx`: which sessions count as looked at is now the active tab's leaves, and none at all while the window is not in front. A window hidden in the tray, unfocused or behind another one shows the user nothing, so being on that tab is not being seen; without this, a question asked while the window was in the tray went unflagged whenever the user had left the agent's own tab in front - the case this work exists for. Measured before wiring it: hiding a focused window tells the app within 40 ms. A wait that starts while the window is behind therefore latches, which is what the tab's marker, the bell's list and the two notification layers all read, and when the user comes back the same tracker clears it within a judge tick. Deliberate leftover: the bell's list and the header's count now include waits that started while the window was in the background, which is what those two surfaces were always meant to say.
+- `src/modules/terminal/lib/agentActivity.test.ts`: the store's meaning pinned - with no leaves in front at all, a wait on the active tab still latches.
+
 **Which phase changes are worth a system notification**
 
 - `src/modules/notifications/lib/notificationRule.ts` (new): the whole decision of what a phase change is worth telling the user about - a question an agent is waiting on that the user has not looked at, and a turn that stopped painting work while the window was not in front. It is built on the taskbar flash's own rule, so the two cannot disagree about what a change means; what it adds is that a toast is a real interruption (a flash on a window the user is already looking at is not even shown by Windows) and that the store's latch is what says whether this is the same wait as the one already announced or a new one.

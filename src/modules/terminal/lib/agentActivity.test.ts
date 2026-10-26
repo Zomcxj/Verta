@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  applySignal,
   countAgentPhases,
   countUnseenAttention,
   flashForPhaseChange,
@@ -248,6 +249,19 @@ describe("useAgentActivityStore", () => {
     expect(useAgentActivityStore.getState().foregroundLeaves).toBe(first);
     setForegroundLeaves([11]);
     expect(useAgentActivityStore.getState().foregroundLeaves).not.toBe(first);
+  });
+
+  it("latches a wait on the active tab while the window is not in front", () => {
+    // "The user is looking at this session" is the set of leaves the window is showing, and a
+    // window hidden in the tray (or behind another one) shows nothing at all - that empty set
+    // is what the app writes while it is not in front. A wait that starts then is a wait the
+    // user has not seen, whichever tab it happens to be on: the tab-level reading of "seen"
+    // was what made a question asked behind a tray-hidden window go unflagged.
+    const { setLeafPty, setForegroundLeaves } = useAgentActivityStore.getState();
+    setLeafPty(7, 70);
+    setForegroundLeaves([]);
+    applySignal({ id: 70, kind: "attention" });
+    expect(useAgentActivityStore.getState().unseen[70]).toBeTypeOf("number");
   });
 });
 
