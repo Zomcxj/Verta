@@ -27,6 +27,60 @@ const CLAUDE_IDLE = "> \n? for shortcuts";
 const CODEX_BLOCKED = "Approve? [y/n]";
 const CODEX_IDLE = "$ \nesc to interrupt";
 
+/** The full-width rule pi draws above and below its input (124 columns in the captures). */
+const PI_RULE = "─".repeat(124);
+
+/**
+ * pi, captured on this machine (2026-10-26) with `scripts/dev/probes/agent-lab.mjs`.
+ * Each sample is the bottom of the screen as the terminal model reported it.
+ */
+const PI_IDLE = [
+  "（以上正文约 210 字）",
+  " sensenova-6.8-flash-lite | think:med | dir verta-pi-probe | ◫ 17k/262k (6.6%) AC | cache in: 49k | LSP Inactive",
+  PI_RULE,
+  PI_RULE,
+  " ↳ 读一下 a.txt 和 b.txt，比较内容差异，然后用中文写一段 200 字的说明",
+].join("\n");
+/** Same interface, working: the label is a phrase from the user's whimsical extension. */
+const PI_WORKING = [
+  " ◠ Bhor bhaye panghat pe...",
+  " sensenova-6.8-flash-lite | think:med | dir verta-pi-probe | ◫ 17k/262k (6.4%) AC | cache in: 33k | LSP Inactive",
+  PI_RULE,
+  PI_RULE,
+  " ↳ 读一下 a.txt 和 b.txt，比较内容差异，然后用中文写一段 200 字的说明",
+].join("\n");
+/** Waiting on the user: the card an `ask_user` call raises. */
+const PI_BLOCKED = [
+  " 删除文件选择",
+  " 该删掉 a.txt 还是 b.txt？",
+  " → 删掉 a.txt — 移除 a.txt，保留 b.txt",
+  "   删掉 b.txt — 移除 b.txt，保留 a.txt",
+  "   Other (type your answer)",
+  " ↑↓ navigate  enter select  escape/ctrl+c cancel",
+  PI_RULE,
+  " ↳ 请再用 ask_user 工具问我：该删掉 a.txt 还是 b.txt？",
+].join("\n");
+/** The same interface with `--no-extensions`: pi's own chrome, no extension footers. */
+const PI_BARE_WORKING = [
+  "用一句话说明 notes.txt 里写了什么",
+  "── ⠙ Working ─────────────────────────────────────────────────────────────",
+  PI_RULE,
+  "~\\AppData\\Local\\Temp\\verta-pi-probe",
+  "1.6%/262k (auto)                                             (sensenova) sensenova-6.8-flash-lite • medium",
+].join("\n");
+const PI_BARE_IDLE = [
+  "notes.txt 或类似“note”的文件，所以没法概括它的内容。",
+  PI_RULE,
+  PI_RULE,
+  "~\\AppData\\Local\\Temp\\verta-pi-probe",
+  "↑6.9k ↓227 R8.2k CH78.8% 2.0%/262k (auto)                     (sensenova) sensenova-6.8-flash-lite • medium",
+].join("\n");
+/** pi's welcome screen before its interface is up (`Press any key to continue (30s)`). */
+const PI_STARTUP = [
+  "This project is not trusted. Project .pi resources and packages are ignored.",
+  "╰───────────────────── Press any key to continue (24s) ──────────────────────╯",
+].join("\n");
+
 function judge(tool: string, tail: string): string {
   const family = familyFor(tool) as AgentFamily;
   expect(family).not.toBeNull();
@@ -54,11 +108,23 @@ describe("identifyAgent", () => {
     expect(identifyAgent(shellProgress)).toBeNull();
   });
 
-  it("keeps a family with no identify pattern silent", () => {
-    // pi until its own screen has been captured: identified by nothing, so the
-    // rules never even get a chance to fire.
-    expect(familyFor("pi")?.identify).toHaveLength(0);
+  it("reads a screen with no agent chrome as no agent", () => {
     expect(identifyAgent("What should I do?\n")).toBeNull();
+  });
+
+  it("identifies pi by the rules its own interface draws", () => {
+    expect(identifyAgent(PI_IDLE)?.tool).toBe("pi");
+    expect(identifyAgent(PI_WORKING)?.tool).toBe("pi");
+    expect(identifyAgent(PI_BLOCKED)?.tool).toBe("pi");
+    expect(identifyAgent(PI_BARE_IDLE)?.tool).toBe("pi");
+    expect(identifyAgent(PI_BARE_WORKING)?.tool).toBe("pi");
+  });
+
+  it("does not read a shell that printed a separator as pi", () => {
+    const shell =
+      "special@LAPTOP MINGW64 /d/VsPro/Verta (main)\n$ pytest -q\n" +
+      "------------------------------------ 3 passed ------------------------------------\n$ ";
+    expect(identifyAgent(shell)).toBeNull();
   });
 });
 
@@ -111,6 +177,48 @@ describe("codex", () => {
   it("reads blocked and idle", () => {
     expect(judge("codex", CODEX_BLOCKED)).toBe("blocked");
     expect(judge("codex", CODEX_IDLE)).toBe("idle");
+  });
+});
+
+describe("pi", () => {
+  it("reads blocked, working and idle", () => {
+    expect(judge("pi", PI_IDLE)).toBe("idle");
+    expect(judge("pi", PI_WORKING)).toBe("working");
+    expect(judge("pi", PI_BLOCKED)).toBe("blocked");
+    expect(judge("pi", PI_BARE_IDLE)).toBe("idle");
+    expect(judge("pi", PI_BARE_WORKING)).toBe("working");
+  });
+
+  it("reads every frame of both spinners as work", () => {
+    for (const frame of ["⠋", "⠙", "⠼", "◜", "◝", "◠", "◡"]) {
+      const tail = `${frame} Musing...\n${PI_RULE}\n${PI_RULE}`;
+      expect(judge("pi", tail)).toBe("working");
+    }
+  });
+
+  it("calls the welcome screen busy rather than idle", () => {
+    expect(judge("pi", PI_STARTUP)).toBe("working");
+  });
+
+  it("does not read a prompt that mentions the question as a question card", () => {
+    // The echo of what the user typed sits below the input, and it can name the tool
+    // and repeat the question without any card being on screen.
+    const tail = [
+      PI_RULE,
+      " ↳ 请再用 ask_user 工具问我：该删掉 a.txt 还是 b.txt？",
+    ].join("\n");
+    expect(judge("pi", tail)).toBe("idle");
+  });
+
+  it("does not read the agent's own words as work", () => {
+    // The label is a phrase from an extension, so it is a spinner that says work; an
+    // answer that says the same word while nothing is running is still idle.
+    const tail = [
+      "Working through the diff now, the remaining question is which file to touch.",
+      PI_RULE,
+      PI_RULE,
+    ].join("\n");
+    expect(judge("pi", tail)).toBe("idle");
   });
 });
 

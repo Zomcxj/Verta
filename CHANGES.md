@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-26</strong></summary>
 
+**pi sessions now have a state: idle, working, and waiting on you**
+
+- `src/modules/terminal/lib/agentRules.ts`: pi's identify pattern and its rules, written from live screens captured on this machine in **both** configurations (as the user runs it, and with `--no-extensions`, so the chrome pi draws itself could be told apart from the chrome their extensions draw). The family is identified by the pair of full-width rules pi draws around its input - the only bottom-of-screen signal the two configurations share, since they agree on no footer string at all (`(auto)` against `AC`, different token counters, different model lines); it deliberately does not match the working label, which is a phrase their whimsical extension generates. Work is a spinner frame in those rules (braille without extensions, the extension's own set with them), waiting is the `ask_user` card's option rows and key hints. No approval rule is written: a destructive command ran without a prompt.
+- `src/modules/terminal/lib/agentRules.test.ts`: the captured screens for idle, working and waiting on the user, in both configurations, plus the counter-examples that keep them from over-firing (a shell that printed an ASCII separator line, a prompt echo that names the question tool, an answer that contains the word the bare interface uses for work).
+- `scripts/dev/probes/agent-lab.mjs` (new): what produced those screens. Opens a terminal of its own, walks it to a scratch directory, starts an agent with whatever flags it is given, records every distinct screen frame with the millisecond it appeared while the caller types at it (`--stage=say`, `--stage=key`), writes the whole screen verbatim (`--stage=dump`), and reads back what the app's own judge decided, phase and dot (`--stage=state`).
+
 **The session list says which of its sessions is running, and lifts the ones waiting on you**
 
 - `src/modules/terminal/AgentStateDot.tsx` (new): the state dot, its four colours and its wording, lifted out of the tab strip so the session list can draw the same mark. Two surfaces describing one session two different ways is the thing this avoids.

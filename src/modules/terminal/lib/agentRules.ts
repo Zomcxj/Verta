@@ -16,9 +16,11 @@
  * - `claude` and `codex`: herdr's published rules (`src/detect/manifests/*.toml`),
  *   which are the rules this whole model was borrowed from. Neither tool is
  *   installed on this machine, so none of these lines has been seen here.
- * - `pi`: named, with no identify pattern and no rules, because no live screen has
- *   been captured. It stays silent rather than guessing; a rule with a false
- *   positive is worse than no rule.
+ * - `pi`: captured on this machine (2026-10-26) with
+ *   `scripts/dev/probes/agent-lab.mjs`, in both configurations (as the user runs it,
+ *   and with `--no-extensions`, so the chrome its own interface draws could be told
+ *   apart from the chrome their extensions draw). The family below says what each
+ *   state looks like and what is deliberately not matched.
  *
  * When a rule is confirmed or corrected against a live screen, move the sample
  * into the test beside this file and say where it came from.
@@ -253,13 +255,116 @@ const CODEX_RULES: readonly AgentRule[] = [
 // ---------------------------------------------------------------------------
 
 /**
- * Empty on purpose. The tool is installed here, but no live screen has been
- * captured yet, so there is nothing honest to match against. The family is named
- * so the wiring and the tests already have a place to put its chrome.
+ * pi's own screen, captured on this machine (2026-10-26) with and without the
+ * user's extensions (`scripts/dev/probes/agent-lab.mjs`, in a directory of its own):
+ *
+ * - idle: two full-width rules with the input between them, a footer line under them.
+ *   The extensions give the footer `... | LSP Inactive`; with `--no-extensions` it reads
+ *   `↑6.9k ↓227 R8.2k CH78.8% 2.0%/262k (auto)`;
+ * - working, `--no-extensions`: `── ⠙ Working ─────...` - a braille frame and the label
+ *   inside the rule, above the input;
+ * - working, as the user runs it: the label is a phrase from their whimsical extension
+ *   (`── ◝ Musing... ──`, and at other times the phrase sits on its own line above the
+ *   footer, with no rule around it), so the phrase is not what a rule can match;
+ * - waiting on the user: the `ask_user` card, captured as a title, the question, `→`
+ *   option rows, `Other (type your answer)`, and the hints
+ *   `↑↓ navigate  enter select  escape/ctrl+c cancel`.
+ *
+ * The two configurations share no footer string - not the token counter, not the model
+ * name, and `(auto)` against `AC` - so the family is identified by the pair of rules pi's
+ * own interface draws: twenty or more box-drawing dashes (`─`, U+2500) in the bottom of
+ * the screen. Command output draws its separators with ASCII `-` instead, so a shell that
+ * prints a line of them is not read as pi.
+ *
+ * Nothing was observed asking for approval of a command: a destructive `rm -f` in the
+ * working directory ran without a prompt, so no approval rule is written for one.
  */
-const PI_IDENTIFY: readonly Pattern[] = [];
+const PI_IDENTIFY: readonly Pattern[] = [contains("─".repeat(20))];
 
-const PI_RULES: readonly AgentRule[] = [];
+/** The frames pi's own spinner rotates through (seen in the `--no-extensions` capture). */
+const PI_SPINNER_FRAMES: readonly string[] = [
+  "⠋",
+  "⠙",
+  "⠹",
+  "⠸",
+  "⠼",
+  "⠴",
+  "⠦",
+  "⠧",
+  "⠇",
+  "⠏",
+];
+
+/** The frames the user's whimsical extension rotates through instead (seen beside its phrases). */
+const PI_WHIMSY_FRAMES: readonly string[] = [
+  "◜",
+  "◝",
+  "◞",
+  "◟",
+  "◠",
+  "◡",
+];
+
+const PI_WORKING_FRAMES: readonly string[] = [
+  ...PI_SPINNER_FRAMES,
+  ...PI_WHIMSY_FRAMES,
+];
+
+const PI_RULES: readonly AgentRule[] = [
+  // The card pi shows when it needs a decision from the user: options with one selected,
+  // and the key hints under them. The hints are the wider of the two signals, because the
+  // question text itself is whatever the model wrote.
+  rule({
+    id: "pi_question_hints",
+    state: "blocked",
+    priority: 1000,
+    region: BOTTOM,
+    allOf: [contains("enter select"), contains("escape/ctrl+c cancel")],
+  }),
+  // The same card read from its other end: the row the user types an answer into.
+  rule({
+    id: "pi_question_card",
+    state: "blocked",
+    priority: 990,
+    region: BOTTOM,
+    allOf: [contains("other (type your answer)")],
+  }),
+  // Starting up: the welcome screen, which leaves on any key or on its own countdown.
+  // It is busy rather than waiting on the user, so it is work.
+  rule({
+    id: "pi_startup",
+    state: "working",
+    priority: 950,
+    region: BOTTOM,
+    allOf: [contains("press any key to continue")],
+  }),
+  // Working: the frame inside the rule pi draws above its input.
+  rule({
+    id: "pi_spinner_in_rule",
+    state: "working",
+    priority: 900,
+    region: BOTTOM,
+    allOf: [lineStartsWith("──"), anyChar(PI_WORKING_FRAMES)],
+  }),
+  // Working, second signal: the same frame with the phrase on its own line instead,
+  // which is the other shape the extension draws it in.
+  rule({
+    id: "pi_spinner",
+    state: "working",
+    priority: 880,
+    region: BOTTOM,
+    allOf: [anyChar(PI_WORKING_FRAMES)],
+  }),
+  // Idle: pi's own screen is there and nothing on it is moving.
+  rule({
+    id: "pi_idle",
+    state: "idle",
+    priority: 500,
+    region: BOTTOM,
+    allOf: PI_IDENTIFY,
+    noneOf: [anyChar(PI_WORKING_FRAMES)],
+  }),
+];
 
 /**
  * The families, in identify order: the most specific chrome first, so two
