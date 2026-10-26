@@ -15,6 +15,14 @@ swap in the new date, and drop the `open` from the day before.
 ---
 
 <details open>
+<summary><strong>2026-10-26</strong></summary>
+
+**The opening transition really hides the terminal now**
+
+- `src/modules/terminal/TerminalStack.tsx`: the area the window's shared render canvas lives in is hidden together with the panes while the opening transition covers them. The panes' own containers were already being hidden, but the GPU renderer draws a pane into a canvas that sits *next to* those containers rather than inside them, so the command that had just been typed stayed on screen for the whole animation - in every frame of it, however carefully the moment the layer lifts was tuned.
+- `scripts/dev/probes/terminal-pixels-where.js` (new): prints where the terminal's pixels actually live and what is hidden at the time; that is what identified the canvas. `scripts/dev/probes/session-opening-frames.mjs` (new): clicks a session in the list and photographs the terminal area every 250 ms, keeping the frames the transition was up for. Measured on the terminal area's top strip while the animation was up: a luma delta of 164 before (the prompt and the command) against 4 after (the pane's own surface).
+
+<details>
 <summary><strong>2026-10-25</strong></summary>
 
 **The input method's candidate window opens at the cursor**

@@ -87,6 +87,20 @@ export function TerminalStack({
     }
   }, [terminals]);
 
+  /**
+   * What "the opening transition is covering the pane" does to everything drawn for the
+   * terminal.
+   *
+   * It has to be applied to two siblings that are easy to think of as one: the pane
+   * containers, and the area the window's shared render canvas lives in. The renderer
+   * draws a pane into a canvas that sits **next to** the containers rather than inside
+   * them, so hiding the containers alone leaves the pixels on screen - the command that
+   * had just been typed stayed visible under the animation, in every frame of it,
+   * however carefully the moment the layer lifts was tuned. Both are hidden here, from
+   * one value, so the pair cannot drift apart again.
+   */
+  const hiddenWhileCovered = covered ? { opacity: 0 } : undefined;
+
   return (
     <div data-terminal-stack="" className="relative h-full w-full">
       {/*
@@ -97,6 +111,7 @@ export function TerminalStack({
       <div
         data-terminal-area=""
         aria-hidden="true"
+        style={hiddenWhileCovered}
         className="zoom-exempt pointer-events-none absolute inset-0 overflow-hidden"
       />
       {terminals.map((t) => {
@@ -109,7 +124,7 @@ export function TerminalStack({
             style={{
               visibility: tabVisible ? "visible" : "hidden",
               // The transition layer covers the pane: keep painting, show nothing.
-              opacity: covered ? 0 : 1,
+              ...hiddenWhileCovered,
               pointerEvents: tabVisible ? "auto" : "none",
             }}
             aria-hidden={!tabVisible}
