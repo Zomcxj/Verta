@@ -107,6 +107,11 @@ try {
           wall: Date.now(),
           vis: document.visibilityState,
           focus: document.hasFocus(),
+          // The app's own answer to "is anyone looking at this window?" - the attribute
+          // globals.css pauses animations on. It is what the notification layer will
+          // read, and it is fed by DOM focus/blur as well as Rust's focus event, so
+          // whether hiding a window moves it is the fact this stage exists to measure.
+          inactive: document.documentElement.hasAttribute("data-window-inactive"),
           dot: chip ? chip.getAttribute("data-agent-state") : null,
           dots: chips.length,
           frames,
@@ -242,9 +247,17 @@ try {
         const phases = [];
         let previous = null;
         for (const entry of log) {
-          const key = entry.dot + "|" + entry.vis + "|" + entry.focus;
+          // inactive is part of the key, not just of the record: a transition that
+          // changes only that field is exactly the one being looked for.
+          const key = entry.dot + "|" + entry.vis + "|" + entry.focus + "|" + entry.inactive;
           if (key !== previous) {
-            phases.push({ wall: entry.wall, dot: entry.dot, vis: entry.vis, focus: entry.focus });
+            phases.push({
+              wall: entry.wall,
+              dot: entry.dot,
+              vis: entry.vis,
+              focus: entry.focus,
+              inactive: entry.inactive,
+            });
             previous = key;
           }
         }
