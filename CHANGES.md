@@ -17,11 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-26</strong></summary>
 
-**System notifications, and a click that goes back to the session**
+**The tray icon says when something is waiting**
 
-- `src/app/hooks/useAgentNotifications.ts` (new): the notification layer. It watches the activity store's phases, asks the rule above what a change is worth, and sends one system notification whose body is the bottom of the session's screen - the question itself. Each session is announced once per wait, and the click is listened for before anything is sent, because the plugin only routes a click when a listener exists at the time; a click raises the main window and goes to the tab that session is drawn in *now*. Nothing here can break the app: a refused permission, a failed send and a failed click are each a log line.
-- `src/modules/notifications/lib/attentions.ts`: where a session is drawn, read from the leaf-to-pty mirror - the click uses it, so a notification clicked after its wait was already looked at still goes to the session it named, and one whose tab is gone has nowhere to go.
-- `src/app/App.tsx`: the layer is on with its preference, and a click goes through the same tab selection the tab strip uses.
+- `src/app/hooks/useTrayAttentionDot.ts` (new): the waiting dot on the tray icon, which is the one signal that works while the window is hidden. It stands for the same latch the bell's list is built from - a session waiting on the user that has not been looked at - so the icon and that list cannot disagree about whether anything is waiting, and the store is read only when the answer changes, so a judge tick does not repaint the icon. Looking at the wait takes the dot away, and so does turning the switch off.
+- `src/app/App.tsx`: the dot runs with the same switch as the notification layer; the in-app surfaces (the tab's marker, the bell, the header's count) stay on whatever they are set to.
+- Measured on this machine, with the dot's own command never called by hand: a question asked in a session left behind another tab takes the tray icon from no amber at all to 69 amber pixels in the same 9x9 box the manual paint put them in, and looking at that wait takes it back to none.
 
 **System notifications, and a click that goes back to the session**
 
