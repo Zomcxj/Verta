@@ -80,6 +80,32 @@ const PI_STARTUP = [
   "This project is not trusted. Project .pi resources and packages are ignored.",
   "╰───────────────────── Press any key to continue (24s) ──────────────────────╯",
 ].join("\n");
+/**
+ * The half-minute before that, captured live: pi paints its banner, says startup is still
+ * running, and sits there. The judge read this as `idle` until it was looked at.
+ */
+const PI_STARTUP_PROGRESS = [
+  "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
+  "Startup is still in progress",
+  PI_RULE,
+  PI_RULE,
+  "~\\AppData\\Local\\Temp\\verta-guard-probe",
+  "0.0%/500k (auto)                                       deepseek-chat • high",
+].join("\n");
+/**
+ * And the window before that one, also captured live: pi's banner is up, its interface is
+ * not, and no status line has been painted. This read as `idle` for the whole capture.
+ */
+const PI_STARTUP_BANNER = [
+  " ▀▀█  v1.4.0",
+  " █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
+  " Press ctrl+o to show full startup help and loaded resources.",
+  " Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
+  PI_RULE,
+  PI_RULE,
+  "~\\AppData\\Local\\Temp\\verta-guard-probe",
+  "0.0%/500k (auto)                                       deepseek-chat • high",
+].join("\n");
 
 function judge(tool: string, tail: string): string {
   const family = familyFor(tool) as AgentFamily;
@@ -198,6 +224,8 @@ describe("pi", () => {
 
   it("calls the welcome screen busy rather than idle", () => {
     expect(judge("pi", PI_STARTUP)).toBe("working");
+    expect(judge("pi", PI_STARTUP_PROGRESS)).toBe("working");
+    expect(judge("pi", PI_STARTUP_BANNER)).toBe("working");
   });
 
   it("does not read a prompt that mentions the question as a question card", () => {

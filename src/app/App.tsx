@@ -88,7 +88,6 @@ import {
   findLeafCwd,
   hasLeaf,
   isTerminalSurfaceTarget,
-  leafHasForegroundProcess,
   leafIds,
   leafOutputBytes,
   leafScreenTail,
@@ -212,11 +211,9 @@ async function waitForAgentUi(
   command: string,
 ): Promise<void> {
   const deadline = Date.now() + AGENT_UI_TIMEOUT_MS;
-  let processUp = false;
   /** The echo has been seen, so a screen without it means the agent replaced it. */
   let echoed = false;
   while (Date.now() < deadline) {
-    if (!processUp) processUp = await leafHasForegroundProcess(leafId);
     const bytes = leafOutputBytes(leafId) - base;
     const screen = leafScreenTail(leafId);
     const showsLaunch = screen !== null && screenShowsLaunchLine(screen, command);
@@ -232,7 +229,11 @@ async function waitForAgentUi(
     // The byte count may only decide when the screen cannot: if the echo was seen, the
     // command is on screen and nothing else counts. A banner is several KB, so this
     // branch would otherwise lift the cover onto exactly the line it exists to hide.
-    if (processUp && bytes >= AGENT_UI_PAINT_BYTES && !echoed) {
+    // The shell's "has a child process" query is deliberately not consulted here either:
+    // it was measured to answer false while an agent was running (a launcher that exits
+    // immediately leaves the agent recorded against a pid that no longer exists), so
+    // requiring it only ever delayed the fallback.
+    if (bytes >= AGENT_UI_PAINT_BYTES && !echoed) {
       await whenLeafPaints(leafId);
       return;
     }
@@ -460,7 +461,7 @@ export default function App() {
   const taskbarAttentionFlash = usePreferencesStore(
     (s) => s.taskbarAttentionFlash,
   );
-  useAgentAttentionFlash({ tabs, enabled: taskbarAttentionFlash });
+  useAgentAttentionFlash({ enabled: taskbarAttentionFlash });
   useAgentStateJudge({ tabs });
 
   useEffect(() => {

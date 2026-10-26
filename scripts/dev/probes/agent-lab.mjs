@@ -206,6 +206,113 @@ try {
     report.tail = (state.screen ?? "").split("\n").slice(-16);
   }
 
+  if (stage === "close-guarded") {
+    // The close guard sits behind a preference the user can turn off (and on this machine
+    // they have: it is off, so the guard is skipped outright and nothing would be proven
+    // by clicking). This stage turns it on, clicks the active tab's close button the way a
+    // person does, reads what the app did, and puts the preference back.
+    const flip = await pageEval(`
+      ${MODULES}
+      const settings = await import(find("modules/settings/store.ts"));
+      const prefs = await import(find("modules/settings/preferences.ts"));
+      const before = prefs.usePreferencesStore.getState().confirmCloseRunningTerminal;
+      await settings.setConfirmCloseRunningTerminal(true);
+      return JSON.stringify({ before });
+    `);
+    report.preferenceBefore = JSON.parse(flip).before;
+    await sleep(400);
+    report.preferenceArmed = JSON.parse(
+      await pageEval(`
+        ${MODULES}
+        const prefs = await import(find("modules/settings/preferences.ts"));
+        return JSON.stringify({ value: prefs.usePreferencesStore.getState().confirmCloseRunningTerminal });
+      `),
+    ).value;
+
+    const target = await pageEval(`
+      const tab = document.querySelector('[role=tab][data-tab-active="true"]');
+      if (!tab) return null;
+      const close = tab.querySelector("[data-no-drag][role=button]");
+      if (!close) return null;
+      const r = close.getBoundingClientRect();
+      return JSON.stringify({ x: r.x + r.width / 2, y: r.y + r.height / 2, title: (tab.textContent || "").trim().slice(0, 30) });
+    `);
+    if (!target) throw new Error("没找到活动标签的关闭按钮");
+    const at = JSON.parse(target);
+    report.closeButton = at;
+    for (let i = 0; i < 2; i += 1) {
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y, button: "none" });
+      await sleep(120);
+    }
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: at.x, y: at.y, button: "left", clickCount: 1 });
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: at.x, y: at.y, button: "left", clickCount: 1 });
+    await sleep(900);
+    report.afterClick = JSON.parse(
+      await pageEval(`
+        const dialogs = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"]')].map((el) => ({
+          title: (el.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 90),
+        }));
+        return JSON.stringify({
+          dialogs,
+          tabs: [...document.querySelectorAll('[role=tab]')].map((t) => (t.textContent || "").trim().slice(0, 24)),
+        });
+      `),
+    );
+
+    const restore = await pageEval(`
+      ${MODULES}
+      const settings = await import(find("modules/settings/store.ts"));
+      const prefs = await import(find("modules/settings/preferences.ts"));
+      await settings.setConfirmCloseRunningTerminal(${JSON.stringify(report.preferenceBefore)});
+      return JSON.stringify({ value: prefs.usePreferencesStore.getState().confirmCloseRunningTerminal });
+    `);
+    await sleep(400);
+    report.preferenceRestored = JSON.parse(
+      await pageEval(`
+        ${MODULES}
+        const prefs = await import(find("modules/settings/preferences.ts"));
+        return JSON.stringify({ value: prefs.usePreferencesStore.getState().confirmCloseRunningTerminal });
+      `),
+    ).value;
+    report.preferenceRestoredWrite = JSON.parse(restore).value;
+  }
+
+  if (stage === "close") {
+    // Click the active tab's close button as a person does, then read what the app did
+    // about it. The close guards are what this stage exists for: the claim under test is
+    // that a running agent is noticed even when the kernel query cannot see it.
+    const target = await pageEval(`
+      const tab = document.querySelector('[role=tab][data-tab-active="true"]');
+      if (!tab) return null;
+      const close = tab.querySelector("[data-no-drag][role=button]");
+      if (!close) return null;
+      const r = close.getBoundingClientRect();
+      return JSON.stringify({ x: r.x + r.width / 2, y: r.y + r.height / 2, title: (tab.textContent || "").trim().slice(0, 30) });
+    `);
+    if (!target) throw new Error("没找到活动标签的关闭按钮");
+    const at = JSON.parse(target);
+    report.closeButton = at;
+    for (let i = 0; i < 2; i += 1) {
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y, button: "none" });
+      await sleep(120);
+    }
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: at.x, y: at.y, button: "left", clickCount: 1 });
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: at.x, y: at.y, button: "left", clickCount: 1 });
+    await sleep(800);
+    report.afterClick = JSON.parse(
+      await pageEval(`
+        const dialogs = [...document.querySelectorAll('[role="dialog"]')].map((el) => ({
+          title: (el.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 60),
+          label: el.getAttribute("aria-label"),
+        }));
+        return JSON.stringify({
+          dialogs,
+          tabs: [...document.querySelectorAll('[role=tab]')].map((t) => (t.textContent || "").trim().slice(0, 24)),
+        });
+      `),
+    );
+  }
+
   if (stage === "state") {
     // What the app itself decided: the activity store's phase for the visible leaf, and
     // the dot the strip draws from it. The judge's unit tests prove the decision over
@@ -224,6 +331,8 @@ try {
           pty,
           agent: pty === null ? null : (store.agents[pty] ?? null),
           phase: pty === null ? null : (store.phases[pty] ?? null),
+          // The kernel's own answer, for comparison with what the screen says.
+          hasChild: leaf === null ? null : await api.leafHasForegroundProcess(leaf),
           badge: badge ? (badge.textContent || "").trim() : null,
           tabs: [...document.querySelectorAll("[role=tab]")].map((tab) => {
             const dot = tab.querySelector("[data-agent-state]");

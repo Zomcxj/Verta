@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   countAgentPhases,
   countUnseenAttention,
+  flashForPhaseChange,
   isAgentActivePty,
   isForegroundPty,
+  isLeafAgentBusy,
   phaseForSignal,
   tabAgentStatus,
   useAgentActivityStore,
@@ -94,6 +96,67 @@ describe("tabAgentStatus", () => {
       state: "working",
       agent: "codex",
     });
+  });
+});
+
+describe("isLeafAgentBusy", () => {
+  beforeEach(() =>
+    useAgentActivityStore.setState({
+      phases: {},
+      agents: {},
+      leafPty: {},
+      unseen: {},
+      foregroundLeaves: new Set(),
+    }),
+  );
+
+  it("is busy while the agent works and while it waits on an answer", () => {
+    const { setLeafPty, setPhase } = useAgentActivityStore.getState();
+    setLeafPty(11, 7);
+    setPhase(7, "working");
+    expect(isLeafAgentBusy(11)).toBe(true);
+    setPhase(7, "attention");
+    expect(isLeafAgentBusy(11)).toBe(true);
+  });
+
+  it("is not busy at the agent's own prompt", () => {
+    // An agent sitting at its prompt is resumable from the session list, and the process
+    // query still reports the process it left behind.
+    const { setLeafPty, setPhase } = useAgentActivityStore.getState();
+    setLeafPty(11, 7);
+    for (const phase of ["idle", "finished"] as const) {
+      setPhase(7, phase);
+      expect(isLeafAgentBusy(11)).toBe(false);
+    }
+  });
+
+  it("says not busy about a leaf with no pty and about an unknown one", () => {
+    expect(isLeafAgentBusy(11)).toBe(false);
+    useAgentActivityStore.getState().setLeafPty(11, 7);
+    expect(isLeafAgentBusy(11)).toBe(false);
+    expect(isLeafAgentBusy(12)).toBe(false);
+  });
+});
+
+describe("flashForPhaseChange", () => {
+  it("calls a stop after work done, and a question only while unseen", () => {
+    expect(flashForPhaseChange("working", "finished", false)).toBe("done");
+    expect(flashForPhaseChange("attention", "finished", false)).toBe("done");
+    expect(flashForPhaseChange("working", "attention", true)).toBe("ask");
+    expect(flashForPhaseChange("attention", "working", true)).toBe(null);
+    expect(flashForPhaseChange("finished", "idle", true)).toBe(null);
+    expect(flashForPhaseChange("working", "idle", false)).toBe(null);
+  });
+
+  it("does not flash for a state that has not changed", () => {
+    expect(flashForPhaseChange("working", "working", true)).toBe(null);
+    expect(flashForPhaseChange("finished", "finished", true)).toBe(null);
+    expect(flashForPhaseChange(undefined, undefined, true)).toBe(null);
+  });
+
+  it("does not flag a wait the user is looking at", () => {
+    // The tab on screen is the tab being read; only a wait elsewhere is worth a flash.
+    expect(flashForPhaseChange("working", "attention", false)).toBe(null);
   });
 });
 

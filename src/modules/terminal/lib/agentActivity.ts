@@ -269,6 +269,57 @@ export function isAgentActivePty(ptyId: number): boolean {
   return ptyId in useAgentActivityStore.getState().phases;
 }
 
+/**
+ * Whether the agent on this leaf is busy: running a turn, or waiting on an answer.
+ *
+ * The close guards ask this beside the shell's "has a child process" query, because that
+ * query cannot see an agent this app launched: Windows records a process's parent when
+ * the process is created, and an agent started through a launcher that exits immediately
+ * is recorded against a pid that no longer exists (measured on this machine, see
+ * `scripts/dev/probes/process-tree.ps1`). So the screen is the tie-breaker, and it is also
+ * the only instrument that can say whether the agent is *doing* something: the query only
+ * says a process exists.
+ *
+ * An agent sitting at its prompt is deliberately not busy. Its session is resumable from
+ * the session list, and the query still reports the process it left behind, so nothing
+ * that would have warned stops warning.
+ */
+export function isLeafAgentBusy(leafId: number): boolean {
+  const { leafPty, phases } = useAgentActivityStore.getState();
+  const ptyId = leafPty[leafId];
+  if (ptyId === undefined) return false;
+  const phase = phases[ptyId];
+  return phase === "working" || phase === "attention";
+}
+
+/** What a phase change is worth flashing the taskbar button for, if anything. */
+export type AgentFlash = "ask" | "done" | null;
+
+/**
+ * The taskbar flash rule, as a function of one phase change.
+ *
+ * It is here rather than inside the hook so it can be tested: the hook's own effect needs a
+ * window, an IPC bridge and a taskbar to observe, while this is the whole decision.
+ *
+ * - `finished` is the judge saying an agent that was working has stopped painting work.
+ *   That is the "done" moment, and it is the phase itself rather than a guess about
+ *   silence: a turn waiting on a slow tool is silent for minutes without being finished.
+ * - `attention` is a question an agent is waiting on, but only while the user has not
+ *   looked at it. The store's latch is what says so, and a tab the user is on never
+ *   latches: being on screen is being seen.
+ * - Anything else, and anything unchanged, is not news.
+ */
+export function flashForPhaseChange(
+  previous: AgentPhase | undefined,
+  phase: AgentPhase | undefined,
+  unseen: boolean,
+): AgentFlash {
+  if (phase === previous) return null;
+  if (phase === "finished") return "done";
+  if (phase === "attention" && unseen) return "ask";
+  return null;
+}
+
 export type AgentPhaseCounts = {
   /** Sessions waiting on the user. */
   attention: number;

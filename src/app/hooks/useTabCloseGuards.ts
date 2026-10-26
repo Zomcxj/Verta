@@ -16,10 +16,24 @@ import {
   type Tab,
 } from "@/modules/tabs";
 import { leafHasForegroundProcess, leafIds } from "@/modules/terminal";
+import { isLeafAgentBusy } from "@/modules/terminal/lib/agentActivity";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 function confirmRunningTerminal(): boolean {
   return usePreferencesStore.getState().confirmCloseRunningTerminal;
+}
+
+/**
+ * Whether closing this leaf would kill something that is running.
+ *
+ * The screen is asked first for the same reason the window guard asks it: the process
+ * query cannot see an agent this app launched (measured - the launcher that starts one
+ * exits immediately and the agent is recorded against a pid that no longer exists), and a
+ * reading of the screen costs nothing. The query is still asked afterwards, because a
+ * command the user typed into a plain shell is something it does see.
+ */
+async function isLeafBusy(leafId: number): Promise<boolean> {
+  return isLeafAgentBusy(leafId) || (await leafHasForegroundProcess(leafId));
 }
 
 type Params = {
@@ -72,7 +86,7 @@ export function useTabCloseGuards({
       }
       if (t?.kind === "terminal" && confirmRunningTerminal()) {
         const leaves = leafIds(t.paneTree);
-        const checks = await Promise.all(leaves.map(leafHasForegroundProcess));
+        const checks = await Promise.all(leaves.map(isLeafBusy));
         if (checks.some(Boolean)) {
           setPendingTerminalCloseTab(id);
           return;
@@ -100,7 +114,7 @@ export function useTabCloseGuards({
     (closeIds: number[]): Promise<CloseManyHazards> =>
       evaluateCloseHazards(
         () => captureCloseMany(closeIds),
-        leafHasForegroundProcess,
+        isLeafBusy,
         confirmRunningTerminal(),
       ),
     [captureCloseMany],

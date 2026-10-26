@@ -12,12 +12,17 @@ import { useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { Tab } from "@/modules/tabs";
 import { leafHasForegroundProcess, leafIds } from "@/modules/terminal";
+import { isLeafAgentBusy } from "@/modules/terminal/lib/agentActivity";
 
 async function anyTerminalBusy(tabs: Tab[]): Promise<boolean> {
   const leaves = tabs.flatMap((t) =>
     t.kind === "terminal" ? leafIds(t.paneTree) : [],
   );
   if (leaves.length === 0) return false;
+  // The screen is asked first: it is free, and it is the only thing that can see an agent
+  // this app launched, because the process query cannot (measured). Nothing is asked of
+  // the kernel when the screen already says busy.
+  if (leaves.some(isLeafAgentBusy)) return true;
   const checks = await Promise.all(leaves.map(leafHasForegroundProcess));
   return checks.some(Boolean);
 }

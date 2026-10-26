@@ -1,87 +1,69 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useRef } from "react";
-import type { Tab } from "@/modules/tabs";
-import { leafHasForegroundProcess, leafIds, leafOutputBytes } from "@/modules/terminal";
+import { useEffect } from "react";
 import {
-  advanceAgentWatch,
-  EMPTY_AGENT_WATCH,
-  type AgentWatch,
-} from "@/modules/terminal/lib/agentAttention";
-
-/** One second: fast enough that the flash follows the agent, slow enough that
- *  the per-leaf process query stays off the radar. */
-const TICK_MS = 1000;
+  type AgentPhase,
+  flashForPhaseChange,
+  useAgentActivityStore,
+} from "@/modules/terminal/lib/agentActivity";
 
 async function flash(attention: "ask" | "done"): Promise<void> {
   try {
     await invoke("window_flash_taskbar", { attention });
   } catch (error) {
-    // The window is still usable without a flashing button; never break a tick.
+    // The window is still usable without a flashing button; never break on this.
     console.error("[verta] taskbar flash failed:", error);
   }
 }
 
 /**
- * Flashes the taskbar button when an agent needs the user.
+ * Flashes the taskbar button when an agent wants the user.
  *
- * Only tabs that were opened for an agent are watched (`tab.agent`), because the
- * signal is inferred from silence and a plain shell goes silent all the time.
- * Nothing here runs when the preference is off.
+ * The signal is the activity store, whose phases the judge reads off each agent's own
+ * screen: `finished` is what it reports when an agent that was working has stopped, and
+ * `attention` is a question the agent is waiting on. Nothing here is inferred from
+ * silence any more, because the two things that inference used could not tell those two
+ * apart:
+ *
+ * - whether the shell still had a child process - measured to answer "nothing is running"
+ *   while an agent this app launched was running (Windows records a process's parent when
+ *   the process is created, and the launcher that starts an agent exits immediately);
+ * - whether output had stopped moving - a turn waiting on a slow tool is quiet for
+ *   minutes without waiting on the user.
+ *
+ * So the flash used to fire for a long build and stay silent for a question. Watching the
+ * store also means there is no polling left: it changes when the screen does, twice a
+ * second at most, and each change is a phase that can be compared with the last one seen.
  */
-export function useAgentAttentionFlash({
-  tabs,
-  enabled,
-}: {
-  tabs: readonly Tab[];
-  enabled: boolean;
-}): void {
-  // The interval reads this on every tick, so it never needs re-creating when a
-  // tab opens or closes.
-  const leavesRef = useRef<number[]>([]);
-  leavesRef.current = enabled
-    ? tabs.flatMap((tab) =>
-        tab.kind === "terminal" && tab.agent ? leafIds(tab.paneTree) : [],
-      )
-    : [];
-
+export function useAgentAttentionFlash({ enabled }: { enabled: boolean }): void {
   useEffect(() => {
     if (!enabled) return;
-    const watches = new Map<number, AgentWatch>();
-    let stopped = false;
+    /** The last phase seen for each pty, so a flash is a change and not a standing state. */
+    const seen = new Map<number, AgentPhase | undefined>();
 
-    const sampleLeaf = async (leafId: number, now: number) => {
-      let hasChild: boolean;
-      let bytes: number;
-      try {
-        hasChild = await leafHasForegroundProcess(leafId);
-        bytes = leafOutputBytes(leafId);
-      } catch {
-        // The leaf is gone; drop it so a stale "done" cannot be reported later.
-        watches.delete(leafId);
-        return;
+    const react = (announce: boolean) => {
+      const state = useAgentActivityStore.getState();
+      for (const key of Object.keys(state.agents)) {
+        const ptyId = Number(key);
+        const phase = state.phases[ptyId];
+        const previous = seen.get(ptyId);
+        seen.set(ptyId, phase);
+        if (!announce) continue;
+        const attention = flashForPhaseChange(
+          previous,
+          phase,
+          state.unseen[ptyId] !== undefined,
+        );
+        if (attention) void flash(attention);
       }
-      if (stopped) return;
-      const next = advanceAgentWatch(watches.get(leafId) ?? EMPTY_AGENT_WATCH, { bytes, hasChild }, now);
-      watches.set(leafId, next.watch);
-      if (next.attention) await flash(next.attention);
-    };
-
-    const tick = async () => {
-      const leaves = leavesRef.current;
-      for (const leafId of [...watches.keys()]) {
-        if (!leaves.includes(leafId)) watches.delete(leafId);
-      }
-      const now = Date.now();
-      for (const leafId of leaves) {
-        if (stopped) return;
-        await sampleLeaf(leafId, now);
+      // A pty that is gone cannot flash again: forget what was remembered about it.
+      for (const ptyId of [...seen.keys()]) {
+        if (!(ptyId in state.agents)) seen.delete(ptyId);
       }
     };
 
-    const timer = window.setInterval(() => void tick(), TICK_MS);
-    return () => {
-      stopped = true;
-      window.clearInterval(timer);
-    };
+    // The first read only fills in what is already true. An agent that was already
+    // waiting when the taskbar watching started is not news.
+    react(false);
+    return useAgentActivityStore.subscribe(() => react(true));
   }, [enabled]);
 }

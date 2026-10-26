@@ -17,6 +17,18 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-26</strong></summary>
 
+**The close guards and the taskbar flash ask the screen, not the process list**
+
+- `src/modules/terminal/lib/agentActivity.ts`: `isLeafAgentBusy` (whether the agent on a leaf is working or waiting on an answer, read from the activity store) and `flashForPhaseChange` (the taskbar flash's whole decision, as a pure function so it can be tested).
+- `src/app/hooks/useAppCloseGuard.ts`, `src/app/hooks/useTabCloseGuards.ts`: a terminal counts as running when its agent is busy on screen, checked before the shell's "has a child process" query is asked at all. That query was measured to answer "nothing is running" while an agent this app had launched was running, so on its own it let a tab with a running agent close without a word. It is still asked afterwards, because a command typed into a plain shell is something it does see, and that is what the query is for.
+- `src/app/hooks/useAgentAttentionFlash.ts`: the flash reacts to the store's phases instead of polling. `finished` is the judge reporting that an agent which was working has stopped, and `attention` (while the user has not looked at it) is a question it is waiting on. The two signals it used before could not tell those apart: the process query above, and "output stopped moving", which describes a turn waiting on a slow tool as often as one waiting on the user - so a long build flashed "you are needed" and a question could go unflagged. The polling is gone with it: the store changes when the screen does.
+- `src/modules/terminal/lib/agentAttention.ts` (removed, with its test): the silence heuristic, which had no part left to play.
+- `src/app/App.tsx`: the opening cover no longer consults the process query, not even for its byte-count fallback, since the measurement above shows it could only ever delay that fallback.
+- `src/modules/terminal/lib/agentRules.ts`: two more pi rules, both captured live while checking this work - pi's `Startup is still in progress` line, and its banner, which is the window before that. The judge read both as an agent sitting idle at its prompt.
+- `src/modules/terminal/lib/agentActivity.test.ts`, `src/modules/terminal/lib/agentRules.test.ts`: the two new decisions and those two screens.
+- `scripts/dev/probes/agent-lab.mjs`: stages for this - the app's own phase and dot (`--stage=state`), a click on the active tab's close button (`--stage=close`), and the same click with the guard's preference turned on, read and turned back (`--stage=close-guarded`).
+- `scripts/dev/probes/crop-png.ps1` (new): cut one region out of a screenshot, for looking at chrome the web view does not draw.
+
 **pi sessions now have a state: idle, working, and waiting on you**
 
 - `src/modules/terminal/lib/agentRules.ts`: pi's identify pattern and its rules, written from live screens captured on this machine in **both** configurations (as the user runs it, and with `--no-extensions`, so the chrome pi draws itself could be told apart from the chrome their extensions draw). The family is identified by the pair of full-width rules pi draws around its input - the only bottom-of-screen signal the two configurations share, since they agree on no footer string at all (`(auto)` against `AC`, different token counters, different model lines); it deliberately does not match the working label, which is a phrase their whimsical extension generates. Work is a spinner frame in those rules (braille without extensions, the extension's own set with them), waiting is the `ask_user` card's option rows and key hints. No approval rule is written: a destructive command ran without a prompt.

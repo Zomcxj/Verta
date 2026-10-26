@@ -338,6 +338,30 @@ const PI_RULES: readonly AgentRule[] = [
     region: BOTTOM,
     allOf: [contains("press any key to continue")],
   }),
+  // Starting up, and saying so: pi paints this line while it loads its resources, which is
+  // the screen it sat on for minutes in the capture. It must not read as an agent idle at
+  // its prompt.
+  rule({
+    id: "pi_startup_in_progress",
+    state: "working",
+    priority: 945,
+    region: BOTTOM,
+    allOf: [contains("startup is still in progress")],
+  }),
+  // Starting up, the half before that: pi has painted its banner line and nothing else yet.
+  // Measured live: an instance sat here for minutes on this machine, and reading that as an
+  // agent idle at its prompt is wrong in the direction that matters (nothing tells the user
+  // to wait). The banner is a proxy - its own line for the key hints - because pi paints
+  // nothing else that says "starting" until the line above appears. A fresh session with an
+  // empty conversation can still have the banner this close to its input, and reads as work
+  // until it paints something over it.
+  rule({
+    id: "pi_startup_banner",
+    state: "working",
+    priority: 940,
+    region: BOTTOM,
+    allOf: [contains("ctrl+o more")],
+  }),
   // Working: the frame inside the rule pi draws above its input.
   rule({
     id: "pi_spinner_in_rule",
