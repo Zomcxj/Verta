@@ -44,6 +44,7 @@ import {
   type ProjectEntry,
 } from "@/modules/projects";
 import { newSessionCommand } from "@/modules/launcher/lib/resumeCommand";
+import { screenShowsLaunchLine } from "@/modules/terminal/lib/launchLine";
 import type { AgentTool } from "@/modules/launcher";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setShowHidden } from "@/modules/settings/store";
@@ -90,6 +91,8 @@ import {
   leafHasForegroundProcess,
   leafIds,
   leafOutputBytes,
+  leafScreenTail,
+  leafUsesAlternateScreen,
   navigateFocusedBlocks,
   type PaneBounds,
   type TerminalPaneHandle,
@@ -152,14 +155,15 @@ const BenchBridge = __VERTA_BENCH__
   ? lazy(() => import("@/bench/BenchBridge"))
   : null;
 
-/** Session-opening overlay: lift it once the agent's UI has painted, judged by the
- * process being up plus a few KB of fresh output. */
+/** Session-opening overlay: lift it once the agent has taken the screen over. */
 const AGENT_UI_POLL_MS = 120;
 /**
- * Paint threshold: a full-screen TUI is several KB, while the command echoed by
- * the shell is only tens of bytes. Measured by **cumulative** output, not by
- * quiet time: a live TUI keeps repainting and is never quiet (measured:
- * opencode never stops emitting for more than 420ms once up).
+ * Paint threshold, for the agents that do **not** take the screen over.
+ *
+ * A full-screen TUI is several KB, while the command echoed by the shell is only
+ * tens of bytes. Measured by **cumulative** output, not by quiet time: a live TUI
+ * keeps repainting and is never quiet (measured: opencode never stops emitting
+ * for more than 420ms once up).
  */
 const AGENT_UI_PAINT_BYTES = 900;
 const AGENT_UI_TIMEOUT_MS = 8000;
@@ -173,29 +177,62 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
- * Has the agent's UI come up? What we wait for is the **UI**, not the process.
+ * Has the agent taken the screen away from the launch command? What we wait for is the
+ * **screen**, not the process and not a byte count.
  *
- * Two conditions: `leafHasForegroundProcess` (does the shell have a child: true
- * as soon as the agent starts) and "this leaf took in another 900+ bytes". The
- * process alone is not enough: opencode / pi take another second or two before
- * painting the first frame, and until then the screen still shows the pre-launch
- * state, so lifting early means the animation ends on a bare terminal. `base` is
- * the cumulative byte count **before** writing the command, so the echo cannot
- * account for 900 bytes but a full-screen TUI can. On timeout (8s) we lift
- * anyway: the overlay must not block the user forever.
+ * The thing being hidden is the launch command, so the question is "is that line still
+ * displayed?", and neither of the other two answers it:
  *
- * The byte count is only what says when to look; what says the frame is there is the
- * renderer's own report (`whenLeafPaints`). Bytes move before the frame does, so lifting on
- * the count alone can land on a pane that has not been painted since the TUI cleared it.
- * Both agents are covered by that step because it comes from the terminal renderer rather
- * than from anything either agent prints.
+ * - a byte count is satisfied by a banner. pi paints its version, its key hints and a
+ *   paragraph on the *normal* screen, several hundred bytes above nothing, while the
+ *   command line is still sitting above them - measured on this machine, and the
+ *   animation ended on exactly what it exists to hide. pi only takes the screen over a
+ *   second or so later, and until it does the command is displayed;
+ * - the shell's own "has a child process" query is not reliable for the agents this
+ *   starts. Windows reports the parent of a process at creation time, and a launcher
+ *   that exits immediately leaves its pid behind: measured here, opencode.exe was
+ *   recorded as a child of a process that no longer existed, so the walk from the shell
+ *   found no children while the agent was running. Depending on it made the cover lift
+ *   early on some runs and late on others.
+ *
+ * So: the leaf has moved to the alternate screen (a separate buffer, so the shell's
+ * scrollback - command included - stops being displayed), or the screen no longer shows
+ * the command we wrote. Both are read from the leaf itself. The byte threshold stays as
+ * a fallback for an agent that does neither, and everything is capped by the timeout:
+ * the cover must not block the user forever.
+ *
+ * The counts only say when to look; what says the frame is there is the renderer's own
+ * report (`whenLeafPaints`). Bytes move before the frame does, so lifting on a signal
+ * alone can land on a pane that has not been painted since, and that frame is the
+ * previous screen - the one with the command on it.
  */
-async function waitForAgentUi(leafId: number, base: number): Promise<void> {
+async function waitForAgentUi(
+  leafId: number,
+  base: number,
+  command: string,
+): Promise<void> {
   const deadline = Date.now() + AGENT_UI_TIMEOUT_MS;
   let processUp = false;
+  /** The echo has been seen, so a screen without it means the agent replaced it. */
+  let echoed = false;
   while (Date.now() < deadline) {
     if (!processUp) processUp = await leafHasForegroundProcess(leafId);
-    if (processUp && leafOutputBytes(leafId) - base >= AGENT_UI_PAINT_BYTES) {
+    const bytes = leafOutputBytes(leafId) - base;
+    const screen = leafScreenTail(leafId);
+    const showsLaunch = screen !== null && screenShowsLaunchLine(screen, command);
+    // The agent's own screen has to be there: an empty one is an agent that has just
+    // cleared or switched buffers and has not painted yet, and lifting onto that trades
+    // a visible command line for a blank pane.
+    const hasOwnScreen = screen !== null && screen.trim().length > 0;
+    if (showsLaunch) echoed = true;
+    if (hasOwnScreen && !showsLaunch && (echoed || leafUsesAlternateScreen(leafId))) {
+      await whenLeafPaints(leafId);
+      return;
+    }
+    // The byte count may only decide when the screen cannot: if the echo was seen, the
+    // command is on screen and nothing else counts. A banner is several KB, so this
+    // branch would otherwise lift the cover onto exactly the line it exists to hide.
+    if (processUp && bytes >= AGENT_UI_PAINT_BYTES && !echoed) {
       await whenLeafPaints(leafId);
       return;
     }
@@ -763,7 +800,7 @@ export default function App() {
         }
         // Wait for the agent's UI before lifting: lifting early exposes a terminal
         // with the command just typed into it.
-        await waitForAgentUi(leafId, baseBytes);
+        await waitForAgentUi(leafId, baseBytes, plan.command);
         hideSessionOpening(opening);
       })();
     },
@@ -792,7 +829,7 @@ export default function App() {
           hideSessionOpening(opening);
           return;
         }
-        await waitForAgentUi(leafId, baseBytes);
+        await waitForAgentUi(leafId, baseBytes, command);
         hideSessionOpening(opening);
       })();
     },

@@ -18,6 +18,7 @@ export {
   leafIdForPty,
   leafOutputBytes,
   leafScreenTail,
+  leafUsesAlternateScreen,
   navigateFocusedBlocks,
   ptyIdForLeaf,
   whenLeafPaints,

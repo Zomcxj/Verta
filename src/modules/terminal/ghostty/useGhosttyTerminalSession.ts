@@ -492,6 +492,23 @@ export function ghosttyLeafScreenTail(leafId: number): string | null {
   return model.readTextRange(origin, origin + rows - 1);
 }
 
+/**
+ * Whether the leaf's terminal is on the alternate screen, i.e. a full-screen
+ * application has taken the screen over from the shell.
+ *
+ * This answers "is the launch command still on screen" without reading any text:
+ * the alternate screen is a separate buffer, so the scrollback that holds the
+ * command we typed is not being displayed the moment an agent switches to it.
+ * Inline programs (a banner, a prompt) run on the normal screen and do not turn
+ * this on, which is exactly the difference between an agent that has taken over
+ * and one that has only started talking.
+ */
+export function ghosttyLeafUsesAlternateScreen(leafId: number): boolean {
+  const model = sessions.get(leafId)?.model;
+  if (!model || model.isDisposed?.()) return false;
+  return model.modes().alternateScreen;
+}
+
 export async function ghosttyLeafHasForegroundProcess(
   leafId: number,
 ): Promise<boolean> {

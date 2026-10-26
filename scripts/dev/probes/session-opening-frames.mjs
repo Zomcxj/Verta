@@ -18,6 +18,8 @@ const label = process.argv.find((a) => a.startsWith("--label="))?.slice(8) ?? "r
 const rowIndex = Number(
   process.argv.find((a) => a.startsWith("--row="))?.slice(6) ?? "2",
 );
+/** Pick the row by its title instead of by position: the list re-sorts as sessions run. */
+const rowTitle = process.argv.find((a) => a.startsWith("--title="))?.slice(8) ?? null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const dir = join(tmpdir(), `verta-opening-${label}`);
@@ -121,12 +123,19 @@ try {
   await sleep(2500);
 
   const rows = await pageEval(
-    `return JSON.stringify([...document.querySelectorAll("button[data-session-id]")].map((r) => r.getAttribute("data-session-id")))`,
+    `return JSON.stringify([...document.querySelectorAll("button[data-session-id]")].map((r) => ({ id: r.getAttribute("data-session-id"), title: (r.getAttribute("title") || "").trim() })))`,
   );
-  const ids = JSON.parse(rows);
-  report.rowCount = ids.length;
-  report.target = ids[rowIndex] ?? null;
-  if (!report.target) throw new Error("没有可点的会话行");
+  const listed = JSON.parse(rows);
+  report.rowCount = listed.length;
+  report.titles = listed.map((r) => r.title);
+  const chosen = rowTitle
+    ? listed.find((r) => r.title === rowTitle)
+    : listed[rowIndex];
+  report.target = chosen ? chosen.id : null;
+  report.targetTitle = chosen ? chosen.title : null;
+  if (!report.target) {
+    throw new Error(`没有可点的会话行（--title=${rowTitle}）`);
+  }
 
   // Nudge the page so an occluded window still repaints before the first capture.
   for (let i = 0; i < 2; i += 1) {

@@ -7,6 +7,7 @@ import {
   ghosttyLeafHasForegroundProcess,
   ghosttyLeafOutputBytes,
   ghosttyLeafScreenTail,
+  ghosttyLeafUsesAlternateScreen,
   ghosttyLeafIdForPty,
   ghosttyCwdForLeaf,
   ghosttyPtyIdForLeaf,
@@ -176,6 +177,16 @@ export function leafOutputBytes(leafId: number): number {
  */
 export function leafScreenTail(leafId: number): string | null {
   return ghosttyLeafScreenTail(leafId);
+}
+
+/**
+ * Whether a full-screen program has taken this leaf's screen over (see the
+ * ghostty accessor). The opening cover waits for this: the alternate screen is a
+ * separate buffer, so the command that was just typed into the shell stops being
+ * displayed the moment the agent switches to it, without reading any text.
+ */
+export function leafUsesAlternateScreen(leafId: number): boolean {
+  return ghosttyLeafUsesAlternateScreen(leafId);
 }
 
 /**
