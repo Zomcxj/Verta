@@ -58,6 +58,26 @@ export function pendingAttentions(
 }
 
 /**
+ * Where a session is drawn right now, read from the leaf-to-pty mirror rather than from the
+ * latch: a notification that is clicked after its wait was already looked at should still go
+ * to the session it named, and one whose tab has been closed since has nowhere to go. The
+ * leaf comes along because the body of a waiting notification is the screen under it.
+ */
+export function tabForPty(
+  tabs: readonly Tab[],
+  leafPty: Record<number, number>,
+  ptyId: number,
+): { tabId: number; leafId: number } | null {
+  for (const tab of tabs) {
+    if (tab.kind !== "terminal") continue;
+    for (const leafId of leafIds(tab.paneTree)) {
+      if (leafPty[leafId] === ptyId) return { tabId: tab.id, leafId };
+    }
+  }
+  return null;
+}
+
+/**
  * What the session is asking, read from the bottom of its screen.
  *
  * The same lines the judge reads, so nothing is stored twice and nothing can go

@@ -17,6 +17,20 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-26</strong></summary>
 
+**System notifications, and a click that goes back to the session**
+
+- `src/app/hooks/useAgentNotifications.ts` (new): the notification layer. It watches the activity store's phases, asks the rule above what a change is worth, and sends one system notification whose body is the bottom of the session's screen - the question itself. Each session is announced once per wait, and the click is listened for before anything is sent, because the plugin only routes a click when a listener exists at the time; a click raises the main window and goes to the tab that session is drawn in *now*. Nothing here can break the app: a refused permission, a failed send and a failed click are each a log line.
+- `src/modules/notifications/lib/attentions.ts`: where a session is drawn, read from the leaf-to-pty mirror - the click uses it, so a notification clicked after its wait was already looked at still goes to the session it named, and one whose tab is gone has nowhere to go.
+- `src/app/App.tsx`: the layer is on with its preference, and a click goes through the same tab selection the tab strip uses.
+
+**System notifications, and a click that goes back to the session**
+
+- `src/app/hooks/useAgentNotifications.ts` (new): the notification layer. It watches the activity store's phases, asks the rule above what a change is worth, and sends one system notification whose body is the question at the bottom of that session's screen; each wait is announced once. The click is listened for before anything is sent, because the plugin only routes a click when a listener exists at the time the notification is made, and a click raises the main window and goes to the tab the session is drawn in now. Nothing here can break the app: a refused permission, a failed send and a failed click are each a log line.
+- `src/modules/notifications/lib/notificationTap.ts` (new): what a click carries - the session it is about, read strictly out of the payload that was stored with the notification. That payload crosses a JSON boundary on its way to the shell and back, so an id which comes back as anything but a number is refused rather than read as 0.
+- `src/modules/notifications/lib/attentions.ts`: where a session is drawn right now, taken from the leaf-to-pty mirror rather than from the latch, so a notification clicked after its wait was already looked at still lands on the session it named. Its leaf comes along because the body of a waiting notification is the screen under it.
+- `src/app/App.tsx`: the layer runs with its preference, and its jump is the same tab selection the tab strip uses.
+- `scripts/dev/probes/notification-tap.mjs` (new): the measurement in development, where the notification itself cannot be seen at all - measured, a burst of six of them puts nothing on the screen, because Windows only shows an installed app's notification, and the plugin's click arrives through a channel in Rust that a page cannot feed. What it does show: a session left waiting behind another tab is read by the judge (its dot), is latched as unseen (the bell lists it and counts it, and looking at it clears both), the send path fails at nothing, and the command a click calls to bring the window back is wired.
+
 **The notification plugin, and the switch that turns it on**
 
 - `src-tauri/Cargo.toml`, `src-tauri/src/lib.rs`, `src-tauri/capabilities/default.json`: the official notifications plugin, registered the way the others are and carrying the permission its commands need, plus its frontend package (`package.json`). Nothing sends a notification yet.

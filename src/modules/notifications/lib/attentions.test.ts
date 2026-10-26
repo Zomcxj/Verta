@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Tab } from "@/modules/tabs";
-import { pendingAttentions, questionExcerpt } from "./attentions";
+import { pendingAttentions, questionExcerpt, tabForPty } from "./attentions";
 
 const terminalTab = (id: number, title: string, leaves: number[]): Tab =>
   ({
@@ -94,6 +94,27 @@ describe("pendingAttentions", () => {
         agents: {},
       }),
     ).toEqual([]);
+  });
+});
+
+describe("tabForPty", () => {
+  it("finds where a session is drawn right now", () => {
+    const tabs = [
+      terminalTab(1, "A", [11, 12]),
+      editorTab,
+      terminalTab(2, "B", [13]),
+    ];
+    const leafPty = { 11: 7, 12: 8, 13: 9 };
+    expect(tabForPty(tabs, leafPty, 8)).toEqual({ tabId: 1, leafId: 12 });
+    expect(tabForPty(tabs, leafPty, 9)).toEqual({ tabId: 2, leafId: 13 });
+  });
+
+  it("has nothing to point at for a session no tab is showing", () => {
+    const tabs = [terminalTab(1, "A", [11])];
+    // Nobody draws this pty...
+    expect(tabForPty(tabs, { 11: 7 }, 99)).toBe(null);
+    // ...and a leaf whose pty is not known yet is not a match either.
+    expect(tabForPty(tabs, {}, 7)).toBe(null);
   });
 });
 

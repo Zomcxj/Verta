@@ -37,6 +37,7 @@ import { setLspNavigator } from "@/modules/lsp";
 import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { useAgentAttentionFlash } from "@/app/hooks/useAgentAttentionFlash";
+import { useAgentNotifications } from "@/app/hooks/useAgentNotifications";
 import { useAgentStateJudge } from "@/app/hooks/useAgentStateJudge";
 import { useT } from "@/modules/i18n";
 import {
@@ -463,6 +464,16 @@ export default function App() {
     (s) => s.taskbarAttentionFlash,
   );
   useAgentAttentionFlash({ enabled: taskbarAttentionFlash });
+  // Two switches, not one: the flash above and the system notification here are told to
+  // stop separately, and a change the notification covers still flashes the button as well.
+  const desktopNotifications = usePreferencesStore(
+    (s) => s.desktopNotifications,
+  );
+  useAgentNotifications({
+    enabled: desktopNotifications,
+    tabs,
+    onJump: setActiveId,
+  });
   useAgentStateJudge({ tabs });
 
   useEffect(() => {
