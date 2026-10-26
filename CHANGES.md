@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-26</strong></summary>
 
+**A question asked while the window is in the tray is not lost**
+
+- `scripts/dev/probes/tray-attention.mjs` (new): the case the whole slice exists for, driven on this machine. The window is focused, put in the tray, and only then is pi's question written into the session that was last in use; the probe reads back what noticed - the tab's marker, the latch behind the bell, the bell itself - and the tray dot is read off the screen with the picture tools. A second stage is the counter-case (same question, window in front, that tab active: read, but deliberately not announced), and a third brings the window back and clears up. What it cannot show is the notification, because Windows shows none for a development build (measured).
+- Measured, in that order: with the window in the tray and the question asked on the last tab, the wait is latched (`unseen` has it, the bell counts 1) and the tray icon carries 69 amber pixels while nothing of Verta is on the screen; the same question with the window in front latches nothing and leaves the bell empty; bringing the window back clears the latch, the bell and the dot, and the probe's tab closes with the user's own tab back in front.
+- Also measured, closing an older question: the renderer keeps its cadence in the tray (86 beats over 21 seconds of hiding, median gap 251ms, worst 260ms, ~50 frames a second) and paints again after being shown - a tab opened right after the window came back is drawn in full, so nothing needs a forced redraw on restore.
+
 **The tray icon says when something is waiting**
 
 - `src/app/hooks/useTrayAttentionDot.ts` (new): the waiting dot on the tray icon, which is the one signal that works while the window is hidden. It stands for the same latch the bell's list is built from - a session waiting on the user that has not been looked at - so the icon and that list cannot disagree about whether anything is waiting, and the store is read only when the answer changes, so a judge tick does not repaint the icon. Looking at the wait takes the dot away, and so does turning the switch off.
