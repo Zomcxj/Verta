@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-27</strong></summary>
 
+**An unfocused window keeps its state dots legible**
+
+- `src/styles/globals.css`: the three state dots stop breathing outright while the window is not being looked at, instead of being paused along with every other animation. Pausing freezes an animation on whatever step it had reached, and on a breath that step can be the dimmest one - measured, with the window unfocused every dot sat at 0.35 opacity and reported `paused`, which on a tab chip reads as no dot at all. That is the report this fixes: the dot was not gone, it was parked somewhere illegible. Stopped instead, they are solid, and an unwatched window still costs no frames.
+- `src/styles/motionBudget.test.ts`: pins that exception, beside the one a closing layer already has.
+
 **Measured on the screen: the three colours, the tray's two, and the tools that read them**
 
 - Measured in development, reading the strip's own computed style rather than its classes, with the same pi screens the judge's tests are built from: work in flight is `orange-500`, a question is `sky-500`, a turn that has ended is `emerald-500`, all three carry the breathing animation with its stepped timing and running, and a fourth state does not exist - the screen that used to draw a quiet dot now draws the green one, and a session with no agent on it draws nothing at all. The header badge reads `在等 1` and draws that one dot; nothing on the screen counts sessions that are merely working.

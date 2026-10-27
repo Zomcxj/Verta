@@ -780,6 +780,15 @@ html[data-window-inactive] *::after {
 html[data-window-inactive] [data-state="closed"] {
   animation-play-state: running !important;
 }
+/* The other exception: the state dots. Pausing freezes an animation where it happened to be, and a
+ * breath that is paused on its dimmest step is a dot at a third of its opacity - on a tab chip that
+ * reads as no dot at all, which is exactly when the dot has to be legible (the window is behind
+ * something else and the dot is the glance). These are drawn from what the state is, not from what
+ * the animation is doing, so they stop outright instead: solid, and not one frame while nobody is
+ * looking. The same treatment reduced motion gets, for a different reason. */
+html[data-window-inactive] .verta-state-breathe {
+  animation: none !important;
+}
 
 @media (prefers-reduced-motion: reduce) {
   :root {

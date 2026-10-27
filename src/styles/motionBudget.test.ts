@@ -45,6 +45,12 @@ describe("global motion budget", () => {
     expect(css).toMatch(
       /html\[data-window-inactive\] \[data-state="closed"\][^{]*\{[^}]*animation-play-state:\s*running\s*!important/,
     );
+    // And the state dots are stopped rather than paused. A paused breath sits on whatever step it
+    // reached, which can be the dimmest one - a third opacity, which on a tab chip reads as no dot
+    // at all. Measured: with the window unfocused every dot sat at 0.35 and reported `paused`.
+    expect(css).toMatch(
+      /html\[data-window-inactive\] \.verta-state-breathe[^{]*\{[^}]*animation:\s*none\s*!important/,
+    );
   });
 
   it("keeps a pending approval's pulse finite", () => {
