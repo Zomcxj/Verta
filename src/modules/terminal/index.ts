@@ -25,6 +25,7 @@ export {
   whenSessionReady,
   writeToSession,
 } from "./lib/terminalSessionApi";
+export { AgentStateDot } from "./AgentStateDot";
 export { isTerminalSurfaceTarget } from "./lib/terminalSurfaceTarget";
 export {
   type TerminalPathDropTarget,

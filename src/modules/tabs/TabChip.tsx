@@ -232,7 +232,7 @@ export const TabChip = memo(function TabChip({
         <span
           aria-hidden
           data-agent-unseen
-          className="pointer-events-none absolute inset-y-1 start-0 w-0.5 rounded-full bg-amber-500"
+          className="pointer-events-none absolute inset-y-1 start-0 w-0.5 rounded-full bg-sky-500"
         />
       ) : null}
       <span

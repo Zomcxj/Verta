@@ -38,7 +38,7 @@ import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { useAgentAttentionFlash } from "@/app/hooks/useAgentAttentionFlash";
 import { useAgentNotifications } from "@/app/hooks/useAgentNotifications";
-import { useTrayAttentionDot } from "@/app/hooks/useTrayAttentionDot";
+import { useTrayStateDot } from "@/app/hooks/useTrayStateDot";
 import { useAgentStateJudge } from "@/app/hooks/useAgentStateJudge";
 import { useT } from "@/modules/i18n";
 import {
@@ -477,7 +477,7 @@ export default function App() {
   });
   // The same switch: the tray dot is the other half of "tell me without the window", and the
   // in-app surfaces (the tab's marker, the bell) stay on whatever it is set to.
-  useTrayAttentionDot({ enabled: desktopNotifications });
+  useTrayStateDot({ enabled: desktopNotifications });
   useAgentStateJudge({ tabs });
 
   useEffect(() => {

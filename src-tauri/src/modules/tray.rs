@@ -50,11 +50,27 @@ fn focus_main(app: &AppHandle) {
 
 /// The tray dot's colour: Tailwind's `red-500`.
 ///
-/// Deliberately not the amber the in-app surfaces use for a waiting session: on the icon this
-/// is a flag that something is waiting while the window is out of the way, and it reads as one
-/// against a taskbar that is usually dark - and smaller than the markers in the window, which
-/// sit next to their own labels and do not have to be found at a glance.
-const ATTENTION_DOT: [u8; 4] = [0xef, 0x44, 0x44, 0xff];
+/// What the tray dot can say, matching what the window's own dots say: a question is blue and
+/// a turn that has ended is green. There is deliberately no third colour - "work in flight" is
+/// not something worth a dot on an icon nobody is looking at, and there is no red at all.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrayDot {
+    /// Some session is asking something.
+    Asking,
+    /// Some session's turn has ended.
+    Finished,
+}
+
+impl TrayDot {
+    /// Tailwind's `sky-500` and `emerald-500`, the same two the window draws.
+    fn colour(self) -> [u8; 4] {
+        match self {
+            TrayDot::Asking => [0x0e, 0xa5, 0xe9, 0xff],
+            TrayDot::Finished => [0x10, 0xb9, 0x81, 0xff],
+        }
+    }
+}
 
 /// Paints one filled circle over the icon's top-right corner, in place.
 ///
@@ -62,7 +78,8 @@ const ATTENTION_DOT: [u8; 4] = [0xef, 0x44, 0x44, 0xff];
 /// then draws at 16x16 - so the radius is a sixth of the shorter side, which survives that
 /// downscale as a small dot rather than a blob, and it is inset by one pixel so the shell's
 /// own rounding cannot clip it.
-pub(crate) fn paint_attention_dot(rgba: &mut [u8], width: u32, height: u32) {
+pub(crate) fn paint_state_dot(rgba: &mut [u8], width: u32, height: u32, dot: TrayDot) {
+    let colour = dot.colour();
     let radius = (width.min(height) / 6) as f32;
     let (centre_x, centre_y) = (width as f32 - radius - 1.0, radius + 1.0);
     for y in 0..height {
@@ -73,24 +90,24 @@ pub(crate) fn paint_attention_dot(rgba: &mut [u8], width: u32, height: u32) {
             }
             let at = ((y * width + x) * 4) as usize;
             if let Some(pixel) = rgba.get_mut(at..at + 4) {
-                pixel.copy_from_slice(&ATTENTION_DOT);
+                pixel.copy_from_slice(&colour);
             }
         }
     }
 }
 
-/// Draws or clears the waiting dot on the tray icon.
+/// Draws one colour of dot on the tray icon, or clears it.
 ///
 /// The dot is painted onto the app's own icon at run time: it arrives as RGBA, so there is
 /// no second asset to keep in step with the first and no decoder to carry. The page calls
 /// this only when the answer changes.
 #[tauri::command]
-pub fn tray_set_attention(app: AppHandle, on: bool) -> Result<(), String> {
+pub fn tray_set_dot(app: AppHandle, dot: Option<TrayDot>) -> Result<(), String> {
     let icon = app.default_window_icon().ok_or("no window icon")?;
     let (width, height) = (icon.width(), icon.height());
     let mut rgba = icon.rgba().to_vec();
-    if on {
-        paint_attention_dot(&mut rgba, width, height);
+    if let Some(dot) = dot {
+        paint_state_dot(&mut rgba, width, height, dot);
     }
     app.tray_by_id(TRAY_ID)
         .ok_or_else(|| "no tray icon".to_string())?
@@ -168,13 +185,13 @@ mod tests {
     fn the_dot_lands_in_the_top_right_and_leaves_the_rest_alone() {
         let (w, h) = (32u32, 32u32);
         let mut rgba = vec![0u8; (w * h * 4) as usize];
-        paint_attention_dot(&mut rgba, w, h);
+        paint_state_dot(&mut rgba, w, h, TrayDot::Asking);
         let at = |x: u32, y: u32| {
             rgba[((y * w + x) * 4) as usize..((y * w + x) * 4 + 4) as usize].to_vec()
         };
         // Asserted as regions rather than as exact pixels: the radius is meant to be tuned
         // against the control screenshots, and the test should survive that.
-        let dot = |p: &[u8]| p[..3] == [0xef, 0x44, 0x44] && p[3] == 0xff;
+        let dot = |p: &[u8]| p[..3] == TrayDot::Asking.colour()[..3] && p[3] == 0xff;
         let top_right = (w - 8..w).flat_map(|x| (1..8).map(move |y| (x, y)));
         assert!(
             top_right.map(|(x, y)| at(x, y)).any(|p| dot(&p)),
@@ -196,5 +213,29 @@ mod tests {
             painted.iter().all(|&(x, y)| x >= w - 14 && y <= 14),
             "the dot escaped its corner: {painted:?}"
         );
+    }
+
+    #[test]
+    fn the_two_dots_are_the_window_own_colours_and_are_not_red() {
+        // The icon's dot is read from across a taskbar, so it has to be one of the two the
+        // window's own dots use: blue for a question, green for a turn that has ended. Red was
+        // there for a day and is gone deliberately.
+        let painted = |dot: TrayDot| {
+            let (w, h) = (32u32, 32u32);
+            let mut rgba = vec![0u8; (w * h * 4) as usize];
+            paint_state_dot(&mut rgba, w, h, dot);
+            let colours = (0..h)
+                .flat_map(|y| (0..w).map(move |x| (x, y)))
+                .map(|(x, y)| rgba[((y * w + x) * 4) as usize..][..3].to_vec())
+                .filter(|p| p.as_slice() != [0, 0, 0])
+                .collect::<Vec<_>>();
+            assert!(!colours.is_empty());
+            colours
+        };
+        let asking = painted(TrayDot::Asking);
+        assert!(asking.iter().all(|p| p.as_slice() == [0x0e, 0xa5, 0xe9]));
+        let finished = painted(TrayDot::Finished);
+        assert!(finished.iter().all(|p| p.as_slice() == [0x10, 0xb9, 0x81]));
+        assert_ne!(TrayDot::Asking, TrayDot::Finished);
     }
 }

@@ -53,6 +53,16 @@ describe("global motion budget", () => {
     expect(rule).not.toMatch(/infinite/);
   });
 
+  it("breathes the state dots with stepped timing", () => {
+    // The three dots on a session breathe so a state reads from across a window. A forever-running
+    // animation is only allowed stepped (above), which is what keeps it a slow breath rather than
+    // a smooth fade's worth of frames; and it stops entirely while the window is not being looked
+    // at, which is the rule right below.
+    const rule = css.match(/\.verta-state-breathe\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(rule).toMatch(/animation:\s*verta-state-breathe[^;]*steps\(/);
+    expect(rule).toMatch(/infinite/);
+  });
+
   it("removes the repeating indicators under prefers-reduced-motion", () => {
     const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion"));
     expect(reduced).toMatch(/\.verta-shimmer\s*\{[^}]*animation:\s*none/);

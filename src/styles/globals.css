@@ -746,6 +746,22 @@ html *::-webkit-scrollbar {
   animation: verta-attention 1.6s steps(8, end) 3;
 }
 
+/* The three state dots breathe, so a session's state reads at a glance without
+ * the dot ever standing still long enough to be mistaken for a decoration.
+ *
+ * Stepped rather than a smooth fade, like every other forever-running animation
+ * in this stylesheet (see the motion budget in VERTA.md): twelve steps over two
+ * and a half seconds is a slow breath at a cost the compositor can keep up with,
+ * and the whole thing stops the moment the window is not being looked at, below. */
+@keyframes verta-state-breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+.verta-state-breathe {
+  animation: verta-state-breathe 2.4s steps(12, end) infinite;
+}
+
 /* A window that is unfocused, hidden or occluded shows nothing the user is
  * watching, so no animation should keep producing frames for it.
  * `data-window-inactive` is maintained on <html> by modules/theme/windowActivity
@@ -786,7 +802,8 @@ html[data-window-inactive] [data-state="closed"] {
     background-position: 0% center;
   }
   .verta-blink,
-  .verta-attention-pulse {
+  .verta-attention-pulse,
+  .verta-state-breathe {
     animation: none;
   }
 }

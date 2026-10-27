@@ -483,7 +483,7 @@ pub fn run() {
             modules::taskbar::window_flash_taskbar,
             modules::tray::app_quit,
             modules::tray::tray_focus_main,
-            modules::tray::tray_set_attention,
+            modules::tray::tray_set_dot,
             modules::tray::tray_set_close_to_tray,
             modules::tray::tray_set_labels,
             modules::window_presentation::window_presentation_state,

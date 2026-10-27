@@ -332,9 +332,7 @@ export type AgentPhaseCounts = {
 };
 
 /** How many sessions are waiting on the user that the user has not looked at yet. */
-export function countUnseenAttention(unseen: Record<number, number>): number {
-  return Object.keys(unseen).length;
-}
+
 
 /**
  * How many sessions are waiting on the user and how many are working, across every
@@ -354,14 +352,17 @@ export function countAgentPhases(
 }
 
 export type AgentTabStatus = {
-  state: "attention" | "working" | "finished" | "idle" | null;
+  /** One of the three the window draws; a session at rest reads as `finished`. */
+  state: "attention" | "working" | "finished" | null;
   // The running agent's name when its brand icon should be shown.
   agent: string | null;
 };
 
 // Highest-severity phase across the tab's ptys wins: attention > working >
-// finished > idle. Surface an agent name for working and acknowledged idle
-// sessions so the tab keeps the active agent's brand icon.
+// finished. There is no fourth state to fall to: a session whose agent is sitting
+// at its prompt has ended a turn, and that is what it keeps saying until the next
+// one starts, rather than going quiet. Surface an agent name for working and
+// acknowledged sessions so the tab keeps the active agent's brand icon.
 export function tabAgentStatus(
   phases: Record<number, AgentPhase>,
   agents: Record<number, string>,
@@ -370,9 +371,8 @@ export function tabAgentStatus(
   let attention = false;
   let working = false;
   let finished = false;
-  let idle = false;
   let workingAgent: string | null = null;
-  let idleAgent: string | null = null;
+  let finishedAgent: string | null = null;
   for (const id of ptyIds) {
     const phase = phases[id];
     if (phase === "attention") attention = true;
@@ -381,16 +381,19 @@ export function tabAgentStatus(
       workingAgent ??= agents[id] ?? null;
     } else if (phase === "finished") finished = true;
     else if (phase === "idle") {
+      // An agent at its prompt: a turn that has ended. A shell with no agent on it is
+      // not a state at all, so it is not counted here.
       const agent = agents[id];
       if (agent) {
-        idle = true;
-        idleAgent ??= agent;
+        finished = true;
+        finishedAgent ??= agent;
       }
     }
   }
   if (attention) return { state: "attention", agent: null };
   if (working) return { state: "working", agent: workingAgent };
-  if (finished) return { state: "finished", agent: null };
-  if (idle) return { state: "idle", agent: idleAgent };
+  // The agent's name rides along on a finished session as well, so the tab keeps the brand
+  // icon of the agent whose turn has just ended.
+  if (finished) return { state: "finished", agent: finishedAgent };
   return { state: null, agent: null };
 }

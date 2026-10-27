@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   applySignal,
   countAgentPhases,
-  countUnseenAttention,
   flashForPhaseChange,
   isAgentActivePty,
   isForegroundPty,
@@ -53,8 +52,10 @@ describe("tabAgentStatus", () => {
       state: null,
       agent: null,
     });
+    // An agent at its prompt is a turn that has ended, and that is the state the window keeps
+    // showing until the next one starts: there is no fourth, quiet state.
     expect(tabAgentStatus({ 1: "idle" }, { 1: "codex" }, [1])).toEqual({
-      state: "idle",
+      state: "finished",
       agent: "codex",
     });
   });
@@ -86,7 +87,7 @@ describe("tabAgentStatus", () => {
   it("surfaces the acknowledged agent name for its icon", () => {
     const phases = { 7: "idle" } as const;
     expect(tabAgentStatus(phases, { 7: "gemini" }, [7])).toEqual({
-      state: "idle",
+      state: "finished",
       agent: "gemini",
     });
   });
@@ -246,7 +247,7 @@ describe("useAgentActivityStore", () => {
     // The moment it started waiting is what the notification layers sort on.
     expect(useAgentActivityStore.getState().unseen).toBe(first);
     expect(useAgentActivityStore.getState().unseen[1]).toBe(5_000);
-    expect(countUnseenAttention(first)).toBe(1);
+    expect(Object.keys(first)).toHaveLength(1);
   });
 
   it("keeps the foreground set stable when it does not change", () => {

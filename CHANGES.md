@@ -17,6 +17,17 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-27</strong></summary>
 
+**A session has three states, they breathe, and the tray says the same two things**
+
+- `src/modules/terminal/AgentStateDot.tsx`: a session has three states and no fourth - work in flight is orange, a question it is waiting on is blue, a turn that has ended is green - and all three breathe. One component draws all of them, so an icon, a tab and a session row can never describe one session two different ways.
+- `src/styles/globals.css`: the breathing animation, stepped like every other forever-running one in this stylesheet (the motion budget), and switched off under reduced motion along with the rest.
+- `src/modules/terminal/lib/agentActivity.ts`: the fold that decides a tab's state drops the fourth, quiet one for the same reason - an agent sitting at its prompt is a turn that ended, and "nothing is happening" is not worth marking - and such a session keeps its agent's name so the tab keeps the brand icon. The counter the old tray dot used goes with it, since that dot no longer asks how many waits are unseen.
+- `src-tauri/src/modules/tray.rs`: the tray dot carries one of those two colours - blue while some session is asking, green once some session's turn has ended - and the red is gone. The paint takes the colour it is asked for, so the icon is still only repainted when the answer changes.
+- `src/app/hooks/useTrayStateDot.ts` (new; replaces `useTrayAttentionDot.ts`): derives that answer from the sessions the store knows, a question outranking an ended turn and nothing at all while everything is only working.
+- `src/modules/header/AgentActivityBadge.tsx`: the count of sessions working is gone. The running dot on each tab already says which sessions are busy, and how many are busy is not something the user acts on; the count of sessions waiting stays, and draws the same dot the tab does.
+- `src/modules/tabs/TabChip.tsx`: the bar that marks a question the user has not looked at yet is the same blue as the dot that means a question.
+- `src/modules/terminal/index.ts`: exports the state dot, which the header badge now draws rather than copying its classes.
+
 **A notification reads the session's own screen, not one leaf's**
 
 - `src/modules/notifications/lib/attentions.ts`, `src/app/hooks/useAgentNotifications.ts`: the question a notification carries is read from whichever of the session's leaves still has a screen, the leaf the session is drawn in first. Measured on an installed build: a leaf can outlive its own session and keep its place in the leaf-to-pty mirror, and reading only the leaf the session is drawn in read nothing at all - the notification arrived with a name and no question under it, while another leaf of the same session had the card on its screen.
