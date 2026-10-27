@@ -18,14 +18,22 @@ const arg = (name) =>
   process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? null;
 const port = arg("port") ?? "9222";
 // Which window to talk to: the main one by default, `settings.html` for the settings window.
-const match = arg("match") ?? "1420/";
+//
+// The main window is picked by *ending* in the dev server, not by containing it: the settings
+// window is served from the same origin, so a substring match picks whichever of the two the
+// debugger happens to list first, and a probe that thinks it is reading the strip reads a
+// settings page with no strip on it instead.
+const match = arg("match");
+const isTarget = (t) =>
+  t.type === "page" &&
+  (match === null ? t.url.endsWith("1420/") : t.url.includes(match));
 const fromFile = process.argv.includes("--file");
 const body = fromFile
   ? readFileSync(process.argv[2], "utf8")
   : (process.argv[2] ?? "return null;");
 
 const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-const page = targets.find((t) => t.type === "page" && t.url.includes(match));
+const page = targets.find(isTarget);
 if (!page) {
   console.error(`dev 起来了？没找到匹配 ${match} 的 page 目标。`);
   process.exit(1);

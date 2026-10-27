@@ -68,7 +68,16 @@ const strip = () =>
         title: (tab.textContent || "").trim(),
         active: tab.getAttribute("data-tab-active") === "true",
         dot: tab.querySelector("[data-agent-state]")?.getAttribute("data-agent-state") ?? null,
-        unseenBar: tab.querySelector("[data-agent-unseen]") ? tab.querySelector("[data-agent-unseen]").getBoundingClientRect().width : null
+        unseenBar: (() => {
+          const bar = tab.querySelector("[data-agent-unseen]");
+          if (!bar) return null;
+          // The bar's colour is part of what the strip promises: it marks the same thing the
+          // asking dot marks, so it carries that dot's own blue rather than a colour of its own.
+          return {
+            width: bar.getBoundingClientRect().width,
+            colour: getComputedStyle(bar).backgroundColor
+          };
+        })()
       })),
       badge: currency ? (currency.textContent || "").trim() : null
     });

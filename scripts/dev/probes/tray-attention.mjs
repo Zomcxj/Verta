@@ -7,6 +7,9 @@
 // was in front, and reads back everything that should have noticed:
 //
 //   --stage=hidden   (the case)      hidden window, question on the last tab in use.
+//   --stage=ended    (the other colour) hidden window, and the turn simply ends on that tab:
+//                                    a question outranks an ended turn, so this is what the icon
+//                                    looks like when nothing is asking.
 //   --stage=watched  (the counter)   same screen with the window in front and that tab active:
 //                                    nothing may be announced, because the user is looking at it.
 //   --stage=looked   (the clearing)  bring the window back, which is what "looking" means here.
@@ -18,6 +21,7 @@
 // front.
 //
 // Usage: node scripts/dev/probes/tray-attention.mjs --stage=hidden
+//        node scripts/dev/probes/tray-attention.mjs --stage=ended
 //        node scripts/dev/probes/tray-attention.mjs --stage=watched
 //        node scripts/dev/probes/tray-attention.mjs --stage=looked
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -109,6 +113,12 @@ const PI_WORKING = [
 const PI_BLOCKED = [
   'clear',
   `printf ' 删除文件选择\\n 该删掉 a.txt 还是 b.txt？\\n → 删掉 a.txt — 移除 a.txt，保留 b.txt\\n   删掉 b.txt — 移除 b.txt，保留 a.txt\\n   Other (type your answer)\\n ↑↓ navigate  enter select  escape/ctrl+c cancel\\n${PI_RULE}\\n ↳ 请再用 ask_user 工具问我：该删掉 a.txt 还是 b.txt？\\n'`,
+].join(" ; ");
+// pi at its prompt: a turn that has ended and is waiting for the next one. This is what the
+// icon should say once the session has finished and nothing is asking.
+const PI_IDLE = [
+  'clear',
+  `printf 'Where to next?\\nctrl+p commands   · Tokens 12.4k\\n'`,
 ].join(" ; ");
 
 const write = (leaf, command) =>
@@ -233,13 +243,17 @@ try {
             hiddenInactive = inactive();
           }
           const beforeQuestion = { unseen: { ...store().unseen }, foreground: [...store().foregroundLeaves], phases: { ...store().phases } };
-          await api.writeToSession(${leaf}, ${JSON.stringify(`${PI_BLOCKED}\r`)});
+          // Which of the two things the icon can say this run is about: a session that has just
+          // stopped to ask, or one whose turn has simply ended.
+          const arriving = ${JSON.stringify(stage === "ended" ? "ended" : "asked")};
+          await api.writeToSession(${leaf}, arriving === "ended" ? ${JSON.stringify(`${PI_IDLE}\r`)} : ${JSON.stringify(`${PI_BLOCKED}\r`)});
           await asleep(3500);
           const strip = [...document.querySelectorAll("[role=tab]")];
           const bell = document.querySelector("[data-agent-bell]");
           return JSON.stringify({
             focusedBeforeHiding: focused,
             inactiveWhileHidden: hiddenInactive,
+            arriving,
             beforeQuestion,
             after: {
               unseen: { ...store().unseen },

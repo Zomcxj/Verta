@@ -216,7 +216,7 @@ try {
   report.working = await readTarget();
   report.workingTail = await tailLines(leaf);
 
-  // Waiting: the dot turns amber and the row comes to the top.
+  // Asking: the dot turns blue and the row comes to the top.
   await runCommand(leaf, `clear ; ${SCREEN_BLOCKED}`);
   await sleep(2500);
   report.waiting = await readTarget();

@@ -8,6 +8,10 @@
 // what the header badge says. The screenshot is for the eye; the DOM is the evidence.
 // The tab is closed again, and the user's other tabs are read too, since a dot must
 // not appear on them.
+//
+// The colour and the breathing are read as computed style rather than as class names:
+// the three states' colours and the fact that all three breathe are a contract with the
+// user, and a stylesheet alone can break either while the classes still read right.
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const targets = await (await fetch("http://127.0.0.1:9222/json")).json();
@@ -61,9 +65,21 @@ const MODULES = `
 const tabStrip = () =>
   pageEval(`
     const badge = document.querySelector("[data-agent-counts]");
+    // What the classes put on screen, not just what they are called: the colour and the
+    // breathing are the contract here, and both can be broken by a stylesheet alone.
+    const look = (el) => {
+      const s = getComputedStyle(el);
+      return {
+        colour: s.backgroundColor,
+        animation: s.animationName,
+        timing: s.animationTimingFunction,
+        play: s.animationPlayState
+      };
+    };
     return JSON.stringify({
       tabs: [...document.querySelectorAll("[role=tab]")].map((tab) => {
         const dot = tab.querySelector("[data-agent-state]");
+        const bar = tab.querySelector("[data-agent-unseen]");
         return {
           title: (tab.textContent || "").trim(),
           active: tab.getAttribute("data-tab-active") === "true",
@@ -72,13 +88,22 @@ const tabStrip = () =>
                 state: dot.getAttribute("data-agent-state"),
                 label: dot.getAttribute("aria-label"),
                 className: dot.getAttribute("class"),
-                size: dot.getBoundingClientRect().width
+                size: dot.getBoundingClientRect().width,
+                ...look(dot)
               }
-            : null
+            : null,
+          unseenBar: bar ? look(bar) : null
         };
       }),
       badge: badge
-        ? { text: (badge.textContent || "").trim(), title: badge.getAttribute("title"), width: badge.getBoundingClientRect().width }
+        ? {
+            text: (badge.textContent || "").trim(),
+            title: badge.getAttribute("title"),
+            width: badge.getBoundingClientRect().width,
+            states: [...badge.querySelectorAll("[data-agent-state]")].map((d) =>
+              d.getAttribute("data-agent-state")
+            )
+          }
         : null
     });
   `);
@@ -154,8 +179,11 @@ try {
     report[label] = JSON.parse(await tabStrip());
   };
 
+  // The three states, in the colours the user asked for, and each of them breathing: an agent
+  // at its prompt has ended a turn (green, not a fourth quiet state), one that is thinking is
+  // working (orange), and one that has stopped to ask is asking (blue).
   await step(
-    "idle",
+    "finished",
     'echo "Where to next?" ; echo "ctrl+p commands   · Tokens 12.4k"',
   );
   await step(
@@ -163,7 +191,7 @@ try {
     'echo "⠹ Thinking" ; echo "ctrl+p commands   · Tokens 12.4k"',
   );
   await step(
-    "blocked",
+    "asking",
     'echo "△ Permission required" ; echo "  Allow once" ; echo "ctrl+p commands"',
   );
 
@@ -176,12 +204,12 @@ try {
   }
   await sleep(400);
   const shot = await send("Page.captureScreenshot", { format: "png" });
-  const { writeFileSync } = await import("node:fs");
-  writeFileSync(
-    `${process.env.TEMP}/v/tab-agent-dot.png`,
-    Buffer.from(shot.result.data, "base64"),
-  );
-  report.shot = `${process.env.TEMP}/v/tab-agent-dot.png`;
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const { dirname } = await import("node:path");
+  const shotPath = `${process.env.TEMP}/v/tab-agent-dot.png`;
+  mkdirSync(dirname(shotPath), { recursive: true });
+  writeFileSync(shotPath, Buffer.from(shot.result.data, "base64"));
+  report.shot = shotPath;
 
   // The agent leaves: no dot on a shell prompt again.
   await step("cleared", "", 3500);

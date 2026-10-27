@@ -17,6 +17,16 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-27</strong></summary>
 
+**Measured on the screen: the three colours, the tray's two, and the tools that read them**
+
+- Measured in development, reading the strip's own computed style rather than its classes, with the same pi screens the judge's tests are built from: work in flight is `orange-500`, a question is `sky-500`, a turn that has ended is `emerald-500`, all three carry the breathing animation with its stepped timing and running, and a fourth state does not exist - the screen that used to draw a quiet dot now draws the green one, and a session with no agent on it draws nothing at all. The header badge reads `在等 1` and draws that one dot; nothing on the screen counts sessions that are merely working.
+- The bar that marks a question the user has not looked at yet is the same blue as the dot that means a question, both measured as the same colour, and it clears when the session is brought in front while the dot stays blue - the two mean different things and no longer say it in different colours.
+- `scripts/dev/probes/tray-attention.mjs`: a stage for the other colour the icon can carry - the window in the tray and the session's turn simply ending, with nothing asking - and the measured result read off the screen in the box the earlier measurement used: 16 pixels of `emerald-500` while nothing of Verta is on the screen, then 16 of `sky-500` with a question instead, and zero pixels of red or amber either way.
+- Corrected: yesterday's entry "the waiting dot is small and red" describes a colour that no longer exists. Red was there for a day and is gone: the icon now carries the same two colours the window's own dots do.
+- `scripts/dev/probes/eval.mjs`: without `--match` it now picks the window that *ends* in the development server rather than any window that contains it, because the settings window is served from the same origin and a substring match made a probe read a settings page while believing it was reading the strip.
+- `scripts/dev/probes/tab-agent-dot.mjs`: reads the colour and the breathing as computed style as well as the classes, since the three colours and the fact that all three breathe are a contract with the user that a stylesheet alone can break; its steps are named after the three states; and it makes the directory it writes its screenshot into.
+- `scripts/dev/probes/tab-agent-unseen.mjs`: reports the unseen bar's colour as well as that it is there.
+
 **A session has three states, they breathe, and the tray says the same two things**
 
 - `src/modules/terminal/AgentStateDot.tsx`: a session has three states and no fourth - work in flight is orange, a question it is waiting on is blue, a turn that has ended is green - and all three breathe. One component draws all of them, so an icon, a tab and a session row can never describe one session two different ways.
