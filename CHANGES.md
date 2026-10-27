@@ -17,6 +17,13 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-27</strong></summary>
 
+**An ending is news only until it has been looked at, and an agent at rest is orange**
+
+- `src/modules/terminal/lib/agentActivity.ts`: a second latch beside the one for waiting - a turn that ended while the user was not on that tab. The phase alone cannot carry that, because a turn that ended stays ended, and the store settles it to `idle` a few seconds later anyway: the latch is what makes it news, and what the fold reads, so the dot goes back to orange the moment the tab is looked at, or as soon as the next turn starts there. Cleared by the same tick that clears the waiting latch, and dropped with the session.
+- `src/modules/terminal/AgentStateDot.tsx`: two states, one colour. An agent with a turn in flight and one sitting at its prompt are both orange and say which they are in their label; blue is a question, and green is an ending that nobody has looked at. The fourth state is drawn again rather than folded away, because the window has to be able to say "there is an agent here and nothing is news" without saying "this just finished" - which is what it said for a session that had only been opened.
+- `src/modules/tabs/lib/tabAgentStatus.ts`, `src/modules/launcher/lib/sessionActivity.ts`, `src/modules/launcher/components/LauncherPanel.tsx`: the latch travels with the rest of the store slice into both folds, so a tab chip and a session row say the same thing about one session.
+- `src/app/hooks/useTrayStateDot.ts`: the icon's dot is read from those two latches and only while the window is out of the way - a question nobody has looked at, or a turn that ended while nobody was there - and it goes quiet as soon as the window is in front, which is what clicking the tray does. Measured before this change: an agent that had just been opened, and one whose turn was in flight, each put a green dot on the icon and kept it there.
+
 **The judge believes an ending only once the screen has stopped working**
 
 - `src/modules/terminal/lib/agentJudge.ts`: a screen that stops showing work is no longer reported as an ending on the first read - the state has to hold for a few reads first (`IDLE_SETTLE_MS`, three ticks). Measured with opencode on this machine: the spinner glyph is missing from a read often enough that the judge called a session idle while that session's own footer said `⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt`, and each of those false endings put a green dot up and a "a turn finished" notification into Windows' store - six of them in three minutes. This is the class fix for both "still running, suddenly green" and "asked a follow-up without interrupting it, and it should have stayed orange".

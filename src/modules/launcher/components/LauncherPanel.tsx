@@ -241,9 +241,10 @@ export function LauncherPanel({
   const phases = useAgentActivityStore((s) => s.phases);
   const agents = useAgentActivityStore((s) => s.agents);
   const leafPty = useAgentActivityStore((s) => s.leafPty);
+  const unseenDone = useAgentActivityStore((s) => s.unseenDone);
   const states = useMemo(
-    () => sessionStateById({ tabs, leafPty, phases, agents }),
-    [tabs, leafPty, phases, agents],
+    () => sessionStateById({ tabs, leafPty, phases, agents, unseenDone }),
+    [tabs, leafPty, phases, agents, unseenDone],
   );
 
   const topLevel = useMemo(() => topLevelSessions(sessions), [sessions]);

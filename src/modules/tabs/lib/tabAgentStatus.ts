@@ -6,7 +6,7 @@ import {
 
 type ActivityState = Pick<
   ReturnType<typeof useAgentActivityStore.getState>,
-  "phases" | "agents" | "leafPty" | "unseen"
+  "phases" | "agents" | "leafPty" | "unseen" | "unseenDone"
 >;
 
 /** Shared result for tabs with no agent state (and for non-terminal tabs). */
@@ -47,6 +47,7 @@ export function selectTabAgentStatusFromLeaves(
     state.phases,
     state.agents,
     ptyIdsForLeaves(state, leafIds),
+    state.unseenDone,
   );
 }
 
@@ -83,5 +84,5 @@ export function selectTabAgentStatus(
   ptyIds: readonly number[],
 ): AgentTabStatus {
   if (ptyIds.length === 0) return NO_AGENT_STATUS;
-  return tabAgentStatus(state.phases, state.agents, ptyIds);
+  return tabAgentStatus(state.phases, state.agents, ptyIds, state.unseenDone);
 }

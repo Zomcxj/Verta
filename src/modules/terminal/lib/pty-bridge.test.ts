@@ -143,8 +143,8 @@ describe("PTY bridge over the multiplexed stream", () => {
     const [first, second] = await Promise.all([openingFirst, openingSecond]);
     expect(mocks.listen).toHaveBeenCalledTimes(1);
     const status = (id: number) => {
-      const { phases, agents } = useAgentActivityStore.getState();
-      return tabAgentStatus(phases, agents, [id]);
+      const { phases, agents, unseenDone } = useAgentActivityStore.getState();
+      return tabAgentStatus(phases, agents, [id], unseenDone);
     };
     for (const [id, agent] of [
       [first.id, "claude"],

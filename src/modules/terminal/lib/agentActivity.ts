@@ -30,6 +30,15 @@ type AgentActivityStore = {
    * the agent really is blocked, however often the user looks at the tab.
    */
   unseen: Record<number, number>;
+  /**
+   * pty -> when its turn ended, for an ending the user has not looked at yet.
+   *
+   * The second latch, and the same shape as `unseen`: a turn that ended stays ended, so the state
+   * alone cannot say whether it is news, and this is what makes the difference between the green
+   * dot ("this just finished and you have not seen it") and the orange one ("there is an agent
+   * here"). Cleared by looking at the tab, and by the next turn starting there.
+   */
+  unseenDone: Record<number, number>;
   /** The leaves of the tab the user is on, so "the user is looking at it" is a fact. */
   foregroundLeaves: ReadonlySet<number>;
   /**
@@ -49,6 +58,10 @@ type AgentActivityStore = {
   markAttentionSeen: (ids: readonly number[]) => void;
   /** Record that a session started waiting while the user was not looking at it. */
   markAttentionUnseen: (id: number, atMs: number) => void;
+  /** The user has looked at these sessions: a turn that ended is no longer unseen either. */
+  markDoneSeen: (ids: readonly number[]) => void;
+  /** Record that a session's turn ended while the user was not looking at it. */
+  markDoneUnseen: (id: number, atMs: number) => void;
   clear: (id: number) => void;
 };
 
@@ -77,6 +90,7 @@ export const useAgentActivityStore = create<AgentActivityStore>((set) => ({
   agents: {},
   leafPty: {},
   unseen: {},
+  unseenDone: {},
   foregroundLeaves: EMPTY_FOREGROUND,
   setPhase: (id, phase) =>
     set((s) => {
@@ -128,17 +142,40 @@ export const useAgentActivityStore = create<AgentActivityStore>((set) => ({
       if (id in s.unseen) return s;
       return { unseen: { ...s.unseen, [id]: atMs } };
     }),
+  markDoneSeen: (ids) =>
+    set((s) => {
+      let unseenDone: Record<number, number> | null = null;
+      for (const id of ids) {
+        if (!(id in s.unseenDone)) continue;
+        unseenDone ??= { ...s.unseenDone };
+        delete unseenDone[id];
+      }
+      return unseenDone ? { unseenDone } : s;
+    }),
+  markDoneUnseen: (id, atMs) =>
+    set((s) => {
+      // An ending already waiting to be seen is not news again for the turn after it: the
+      // earliest one is what the user has not looked at.
+      if (id in s.unseenDone) return s;
+      return { unseenDone: { ...s.unseenDone, [id]: atMs } };
+    }),
   clear: (id) =>
     set((s) => {
-      const known = id in s.phases || id in s.agents || id in s.unseen;
+      const known =
+        id in s.phases ||
+        id in s.agents ||
+        id in s.unseen ||
+        id in s.unseenDone;
       if (!known) return s;
       const phases = { ...s.phases };
       const agents = { ...s.agents };
       const unseen = { ...s.unseen };
+      const unseenDone = { ...s.unseenDone };
       delete phases[id];
       delete agents[id];
       delete unseen[id];
-      return { phases, agents, unseen };
+      delete unseenDone[id];
+      return { phases, agents, unseen, unseenDone };
     }),
 }));
 
@@ -231,6 +268,12 @@ export function applySignal(payload: AgentSignal): void {
     store.markAttentionSeen([id]);
   }
   if (action === "finished") {
+    // The turn ended while nobody was looking at that tab: that is the one thing the window says
+    // in the colour that means "you have not seen this", and it keeps saying it until the user is
+    // on the tab or the next turn starts there.
+    if (!isForegroundPty(store.leafPty, store.foregroundLeaves, id)) {
+      store.markDoneUnseen(id, Date.now());
+    }
     finishedTimers.set(
       id,
       setTimeout(() => {
@@ -239,6 +282,9 @@ export function applySignal(payload: AgentSignal): void {
         if (s.phases[id] === "finished") s.setPhase(id, "idle");
       }, FINISHED_TTL_MS),
     );
+  } else if (action === "working") {
+    // The next turn started: whatever ended before it is no longer the news on that session.
+    store.markDoneSeen([id]);
   }
 }
 
@@ -331,9 +377,6 @@ export type AgentPhaseCounts = {
   working: number;
 };
 
-/** How many sessions are waiting on the user that the user has not looked at yet. */
-
-
 /**
  * How many sessions are waiting on the user and how many are working, across every
  * terminal in the window. The tab strip answers "which one", this answers "how
@@ -351,49 +394,66 @@ export function countAgentPhases(
   return { attention, working };
 }
 
+/**
+ * One tab's agent status.
+ *
+ * The three states the window draws, and what each one is for: `attention` for a question, which
+ * is the one thing that has to reach the user wherever they are looking; `finished` for a turn
+ * that ended and that the user has not looked at yet, which is news and is why it is the one
+ * state that goes away by itself; and `working` for everything else with an agent on it - a turn
+ * in flight, and a session sitting at its prompt, which read the same because a session that has
+ * just been opened has ended no turn and has nothing to say beyond "there is an agent here".
+ *
+ * An agent sitting at its prompt keeps its name, so the tab keeps the brand icon, and a shell
+ * with no agent on it is not a state at all.
+ */
 export type AgentTabStatus = {
-  /** One of the three the window draws; a session at rest reads as `finished`. */
-  state: "attention" | "working" | "finished" | null;
-  // The running agent's name when its brand icon should be shown.
+  state: "attention" | "working" | "idle" | "finished" | null;
   agent: string | null;
 };
 
-// Highest-severity phase across the tab's ptys wins: attention > working >
-// finished. There is no fourth state to fall to: a session whose agent is sitting
-// at its prompt has ended a turn, and that is what it keeps saying until the next
-// one starts, rather than going quiet. Surface an agent name for working and
-// acknowledged sessions so the tab keeps the active agent's brand icon.
+/**
+ * Highest-severity state across the tab's ptys wins: attention > an ending the user has not seen
+ * > work in flight > an agent at its prompt.
+ *
+ * The ending is read from the latch rather than from the phase, because that is what makes it
+ * news: the phase settles to `idle` a few seconds after the turn ends, while "you have not looked
+ * at this" is only true until the user is on that tab, which is when the latch is cleared.
+ */
 export function tabAgentStatus(
   phases: Record<number, AgentPhase>,
   agents: Record<number, string>,
   ptyIds: readonly number[],
+  unseenDone: Record<number, number>,
 ): AgentTabStatus {
   let attention = false;
+  let ended = false;
   let working = false;
-  let finished = false;
-  let workingAgent: string | null = null;
-  let finishedAgent: string | null = null;
+  let resting = false;
+  let agentName: string | null = null;
   for (const id of ptyIds) {
+    const agent = agents[id] ?? null;
     const phase = phases[id];
-    if (phase === "attention") attention = true;
-    else if (phase === "working") {
-      working = true;
-      workingAgent ??= agents[id] ?? null;
-    } else if (phase === "finished") finished = true;
-    else if (phase === "idle") {
-      // An agent at its prompt: a turn that has ended. A shell with no agent on it is
-      // not a state at all, so it is not counted here.
-      const agent = agents[id];
-      if (agent) {
-        finished = true;
-        finishedAgent ??= agent;
-      }
+    if (agent !== null) agentName ??= agent;
+    if (phase === "attention") {
+      attention = true;
+      continue;
     }
+    if (id in unseenDone) {
+      ended = true;
+      continue;
+    }
+    if (phase === "working") {
+      working = true;
+      continue;
+    }
+    // At rest: an agent with no turn in flight. A shell with no agent on it has no state at all,
+    // which is why this one asks for the name and the two above do not.
+    if (agent !== null) resting = true;
   }
   if (attention) return { state: "attention", agent: null };
-  if (working) return { state: "working", agent: workingAgent };
-  // The agent's name rides along on a finished session as well, so the tab keeps the brand
-  // icon of the agent whose turn has just ended.
-  if (finished) return { state: "finished", agent: finishedAgent };
+  if (ended) return { state: "finished", agent: agentName };
+  if (working) return { state: "working", agent: agentName };
+  if (resting) return { state: "idle", agent: agentName };
   return { state: null, agent: null };
 }

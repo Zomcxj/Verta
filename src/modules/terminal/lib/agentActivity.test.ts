@@ -46,39 +46,40 @@ describe("phaseForSignal", () => {
 });
 
 describe("tabAgentStatus", () => {
+  // The latch, as the store keeps it: a turn that ended and the user has not looked at it.
+  const DONE = { 2: 1_000 };
+
   it("returns null state for no matching ptys", () => {
-    expect(tabAgentStatus({}, {}, [])).toEqual({ state: null, agent: null });
-    expect(tabAgentStatus({ 1: "idle" }, {}, [1])).toEqual({
+    expect(tabAgentStatus({}, {}, [], {})).toEqual({ state: null, agent: null });
+    expect(tabAgentStatus({ 1: "idle" }, {}, [1], {})).toEqual({
       state: null,
       agent: null,
     });
-    // An agent at its prompt is a turn that has ended, and that is the state the window keeps
-    // showing until the next one starts: there is no fourth, quiet state.
-    expect(tabAgentStatus({ 1: "idle" }, { 1: "codex" }, [1])).toEqual({
-      state: "finished",
+    // An agent at its prompt is a session with an agent on it and no news: orange, not green.
+    expect(tabAgentStatus({ 1: "idle" }, { 1: "codex" }, [1], {})).toEqual({
+      state: "idle",
       agent: "codex",
     });
   });
 
-  it("orders attention > working > finished", () => {
+  it("orders attention > an ending not yet seen > working > at rest", () => {
     const phases = { 1: "working", 2: "finished", 3: "attention" } as const;
-    expect(tabAgentStatus(phases, {}, [1, 2, 3])).toEqual({
+    expect(tabAgentStatus(phases, { 2: "codex" }, [1, 2, 3], DONE)).toEqual({
       state: "attention",
       agent: null,
     });
-    expect(tabAgentStatus({ 1: "working", 2: "finished" }, {}, [1, 2])).toEqual({
-      state: "working",
-      agent: null,
-    });
-    expect(tabAgentStatus({ 1: "finished" }, {}, [1])).toEqual({
-      state: "finished",
-      agent: null,
-    });
+    expect(
+      tabAgentStatus({ 1: "working", 2: "finished" }, { 2: "codex" }, [1, 2], DONE),
+    ).toEqual({ state: "finished", agent: "codex" });
+    // The same tab, once the user has looked at it: the ending is no longer news.
+    expect(
+      tabAgentStatus({ 1: "working", 2: "finished" }, { 2: "codex" }, [1, 2], {}),
+    ).toEqual({ state: "working", agent: "codex" });
   });
 
   it("surfaces the working agent name for its icon", () => {
     const phases = { 7: "working" } as const;
-    expect(tabAgentStatus(phases, { 7: "claude" }, [7])).toEqual({
+    expect(tabAgentStatus(phases, { 7: "claude" }, [7], {})).toEqual({
       state: "working",
       agent: "claude",
     });
@@ -86,7 +87,16 @@ describe("tabAgentStatus", () => {
 
   it("surfaces the acknowledged agent name for its icon", () => {
     const phases = { 7: "idle" } as const;
-    expect(tabAgentStatus(phases, { 7: "gemini" }, [7])).toEqual({
+    expect(tabAgentStatus(phases, { 7: "gemini" }, [7], {})).toEqual({
+      state: "idle",
+      agent: "gemini",
+    });
+  });
+
+  it("keeps an ending green after the phase settles to idle", () => {
+    // The store holds `finished` for a few seconds and then writes `idle`. The latch is what
+    // carries the news, so the dot is still green then - and stays green until the user looks.
+    expect(tabAgentStatus({ 7: "idle" }, { 7: "gemini" }, [7], { 7: 1_000 })).toEqual({
       state: "finished",
       agent: "gemini",
     });
@@ -94,7 +104,7 @@ describe("tabAgentStatus", () => {
 
   it("only considers the given ptyIds", () => {
     const phases = { 1: "attention", 2: "working" } as const;
-    expect(tabAgentStatus(phases, { 2: "codex" }, [2])).toEqual({
+    expect(tabAgentStatus(phases, { 2: "codex" }, [2], {})).toEqual({
       state: "working",
       agent: "codex",
     });
@@ -108,6 +118,7 @@ describe("isLeafAgentBusy", () => {
       agents: {},
       leafPty: {},
       unseen: {},
+      unseenDone: {},
       foregroundLeaves: new Set(),
     }),
   );
@@ -177,6 +188,7 @@ describe("useAgentActivityStore", () => {
       agents: {},
       leafPty: {},
       unseen: {},
+      unseenDone: {},
       foregroundLeaves: new Set(),
     }),
   );

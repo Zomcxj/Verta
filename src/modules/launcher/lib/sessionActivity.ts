@@ -23,6 +23,8 @@ type Input = {
   leafPty: Record<number, number>;
   phases: Record<number, AgentPhase>;
   agents: Record<number, string>;
+  /** The latch that says a turn ended and the user has not looked at it yet. */
+  unseenDone: Record<number, number>;
 };
 
 /**
@@ -39,6 +41,7 @@ export function sessionStateById({
   leafPty,
   phases,
   agents,
+  unseenDone,
 }: Input): Map<string, AgentStateDot> {
   const ptysBySession = new Map<string, number[]>();
   for (const tab of tabs) {
@@ -54,7 +57,7 @@ export function sessionStateById({
   for (const [sessionId, ptys] of ptysBySession) {
     // The same fold the tab strip uses: the loudest state across a session's
     // panes wins, so one session can never read two ways in one window.
-    const state = tabAgentStatus(phases, agents, ptys).state;
+    const state = tabAgentStatus(phases, agents, ptys, unseenDone).state;
     if (state !== null) out.set(sessionId, state);
   }
   return out;

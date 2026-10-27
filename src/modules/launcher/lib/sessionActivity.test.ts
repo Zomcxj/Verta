@@ -37,6 +37,7 @@ describe("sessionStateById", () => {
       leafPty: { 5: 42 },
       phases: { 42: "working" },
       agents: {},
+      unseenDone: {},
     });
     expect(states.get("ses_a")).toBe("working");
   });
@@ -48,6 +49,7 @@ describe("sessionStateById", () => {
       leafPty: {},
       phases: { 42: "attention" },
       agents: {},
+      unseenDone: {},
     });
     expect(states.size).toBe(0);
   });
@@ -58,6 +60,7 @@ describe("sessionStateById", () => {
       leafPty: { 5: 42 },
       phases: { 42: "attention" },
       agents: {},
+      unseenDone: {},
     });
     expect(states.size).toBe(0);
   });
@@ -69,6 +72,7 @@ describe("sessionStateById", () => {
       leafPty: {},
       phases: { 42: "attention" },
       agents: {},
+      unseenDone: {},
     });
     expect(states.size).toBe(0);
   });
@@ -79,18 +83,26 @@ describe("sessionStateById", () => {
       leafPty: { 5: 42, 6: 43 },
       phases: { 42: "working", 43: "attention" },
       agents: {},
+      unseenDone: {},
     });
     expect(states.get("ses_a")).toBe("attention");
   });
 
   it("folds two tabs opened for the same session into one state", () => {
-    const states = sessionStateById({
+    // One end of the session is at rest and the other has just ended: with the ending still
+    // unseen the session reads as ended, and once it has been looked at both are just "at rest".
+    const base = {
       tabs: [terminalTab("ses_a", 5), { ...terminalTab("ses_a", 6), id: 2 }],
       leafPty: { 5: 42, 6: 43 },
       phases: { 42: "idle", 43: "finished" },
       agents: { 42: "opencode", 43: "opencode" },
-    });
-    expect(states.get("ses_a")).toBe("finished");
+    } as const;
+    expect(
+      sessionStateById({ ...base, unseenDone: { 43: 1_000 } }).get("ses_a"),
+    ).toBe("finished");
+    expect(sessionStateById({ ...base, unseenDone: {} }).get("ses_a")).toBe(
+      "idle",
+    );
   });
 
   it("keeps two sessions apart", () => {
@@ -102,6 +114,7 @@ describe("sessionStateById", () => {
       leafPty: { 5: 42, 6: 43 },
       phases: { 42: "working", 43: "attention" },
       agents: {},
+      unseenDone: {},
     });
     expect(states.get("ses_a")).toBe("working");
     expect(states.get("ses_b")).toBe("attention");
@@ -113,6 +126,7 @@ describe("sessionStateById", () => {
       leafPty: { 5: 42 },
       phases: {},
       agents: {},
+      unseenDone: {},
     });
     expect(states.size).toBe(0);
   });

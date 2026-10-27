@@ -21,6 +21,7 @@ beforeEach(() => {
     agents: {},
     leafPty: {},
     unseen: {},
+    unseenDone: {},
     foregroundLeaves: new Set(),
   });
 });
