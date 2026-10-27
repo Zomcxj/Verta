@@ -11,9 +11,8 @@
 //                                    nothing may be announced, because the user is looking at it.
 //   --stage=looked   (the clearing)  bring the window back, which is what "looking" means here.
 //
-// What it cannot show is the notification itself: on Windows only an installed app's gets shown
-// (measured - a burst of them puts nothing on the screen), so that belongs to the installed
-// build. The tray dot is read off the screen by the picture tools, not from in here.
+// What it cannot show is the notification itself: a development build is not an installed app,
+// so Windows shows nothing for it, and the installed build's own run belongs to the acceptance.
 //
 // The window is left as it is found: the probe's tab closed and the user's own tab back in
 // front.
@@ -89,13 +88,6 @@ const state = () =>
       dots: strip.map((t) => t.querySelector("[data-agent-state]")?.getAttribute("data-agent-state") ?? null),
     });
   `).then(JSON.parse);
-
-const windowEval = (body) =>
-  pageEval(`
-    const urls = performance.getEntriesByType("resource").map((e) => e.name);
-    const w = (await import(urls.find((n) => n.includes("@tauri-apps_api_window")))).getCurrentWindow();
-    ${body}
-  `);
 
 const press = (findJs) =>
   pageEval(`
@@ -209,8 +201,9 @@ try {
       //
       // Being hidden only counts as "nobody is looking" once the window has been *told* it is
       // no longer in front, and that only happens if it was in front to begin with: so it is
-      // focused the one way Windows grants focus (by asking right after showing it), hidden,
-      // and asked the question - all inside one call, because focus is lost between calls.
+      // focused the one way Windows grants focus (by asking right after showing it), then sent
+      // to the tray the way the window's own close button does - not with a bare `hide()`,
+      // which is a path the app never takes and which reports nothing on its own.
       await write(leaf, PI_WORKING);
       await sleep(2000);
       report.case = JSON.parse(
@@ -221,6 +214,7 @@ try {
           const store = () => activity.useAgentActivityStore.getState();
           const asleep = (ms) => new Promise((r) => setTimeout(r, ms));
           const inactive = () => document.documentElement.hasAttribute("data-window-inactive");
+          const inv = window.__TAURI_INTERNALS__.invoke;
 
           await w.show().catch(() => {});
           await w.setFocus().catch(() => {});
@@ -229,9 +223,15 @@ try {
             await asleep(100);
             focused = !inactive();
           }
-          await w.hide().catch(() => {});
-          await asleep(1200);
-          const hiddenInactive = inactive();
+          await inv("tray_set_close_to_tray", { enabled: true }).catch(() => {});
+          await inv("plugin:window|close", { label: "main" }).catch(() => {});
+          // Coming back is done the tray's way at the end; a hidden window cannot be closed by
+          // clicking it, so the probe leaves it in the tray here.
+          let hiddenInactive = false;
+          for (let i = 0; i < 20 && !hiddenInactive; i += 1) {
+            await asleep(200);
+            hiddenInactive = inactive();
+          }
           const beforeQuestion = { unseen: { ...store().unseen }, foreground: [...store().foregroundLeaves], phases: { ...store().phases } };
           await api.writeToSession(${leaf}, ${JSON.stringify(`${PI_BLOCKED}\r`)});
           await asleep(3500);
@@ -259,9 +259,17 @@ try {
   }
 
   if (stage === "looked") {
-    report.raised = await windowEval(
-      `await w.show(); await w.setFocus().catch(() => {}); await new Promise((r) => setTimeout(r, 2500)); return "raised";`,
-    );
+    // Brought back the way the tray does it, not with a bare `show()`: this is the path the
+    // product uses, and it is the one that has to tell the app it can be looked at again.
+    report.raised = await pageEval(`
+      const inv = window.__TAURI_INTERNALS__.invoke;
+      await inv("tray_focus_main").catch(() => {});
+      await new Promise((r) => setTimeout(r, 2500));
+      return JSON.stringify({
+        visible: await inv("plugin:window|is_visible", { label: "main" }),
+        inactive: document.documentElement.hasAttribute("data-window-inactive"),
+      });
+    `);
     report.after = await state();
     // Put the window back: the waiting tab closed, the user's own tab in front again.
     report.closed = await press(

@@ -195,4 +195,32 @@ describe("window presentation bridge", () => {
     });
     expect(terminalResizeInteractionActive()).toBe(false);
   });
+
+  it("treats a hidden window as one nobody is looking at, and coming back as shown", async () => {
+    const h = harness();
+    const { listener } = h.subscribe();
+    await Promise.resolve();
+    h.native({ revision: 1, occluded: false, sleeping: false });
+    expect(terminalWindowPresentation().visible).toBe(true);
+
+    listener.mockClear();
+    // Hidden to the tray: Windows reports this as nothing else, so it arrives on its own.
+    h.native({ revision: 2, occluded: false, sleeping: false, hidden: true });
+    expect(terminalWindowPresentation().visible).toBe(false);
+    expect(listener).toHaveBeenCalled();
+
+    h.native({ revision: 3, occluded: false, sleeping: false, hidden: false });
+    expect(terminalWindowPresentation().visible).toBe(true);
+  });
+
+  it("ignores a malformed hidden flag and old payloads without it", async () => {
+    const h = harness();
+    h.subscribe();
+    await Promise.resolve();
+    h.native({ revision: 1, occluded: false, sleeping: false });
+    expect(terminalWindowPresentation().visible).toBe(true);
+    // A payload from a build that did not have the field is a window that is not hidden.
+    h.native({ revision: 2, occluded: false, sleeping: false, hidden: "yes" });
+    expect(terminalWindowPresentation().visible).toBe(true);
+  });
 });

@@ -1,4 +1,5 @@
 import type { Tab } from "@/modules/tabs/lib/useTabs";
+import { reportWindowHidden } from "@/modules/terminal/ghostty/windowPresentation";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -125,6 +126,9 @@ export function useControlBridge({
             try {
               await window.show();
               await window.setFocus();
+              // Shown by the page, so no window event reports it: tell the app it can be
+              // looked at again.
+              reportWindowHidden(false);
               focused = true;
             } catch (error) {
               console.warn("[verta] could not focus control target:", error);

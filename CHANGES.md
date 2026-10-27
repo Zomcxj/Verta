@@ -15,6 +15,18 @@ swap in the new date, and drop the `open` from the day before.
 ---
 
 <details open>
+<summary><strong>2026-10-27</strong></summary>
+
+**The window tells the app when it goes to the tray**
+
+- `src-tauri/src/modules/window_presentation.rs`: a window that has been hidden is now part of the same report the terminal renderers use, and the Rust side says so when the close button sends the window to the tray and when the tray brings it back. Measured on an installed build, with the window genuinely in front before it was hidden: Windows delivers no focus change and no occlusion change for a hide, so the app went on believing it was being looked at while it sat in the tray - a question asked on the tab the user had last been on was therefore never counted as unseen, and neither the bell nor the tray dot could appear. The occlusion feed this replaces is macOS-only; this one works everywhere.
+- `src-tauri/src/lib.rs`: the window's close-to-tray path, and the tray's own "show" path, report that change; the page can also report a hide or show it performed itself (`src/modules/terminal/ghostty/windowPresentation.ts`, `src/modules/control/useControlBridge.ts`), because a window that hides itself produces no event of any kind.
+- Corrected: last day's entry "a window hidden in the tray does say that nobody is looking at it" was measured in development, where the window really was in front when it was hidden, and it does not hold for the installed build. That is the bug this day fixes.
+- Measured, three times over: sending the window to the tray the way its close button does makes the app report itself inactive and empties the set of sessions it counts as being looked at, then a question written into the session the user had left open is latched as unseen with the bell counting it and the tray icon carrying the dot (69 amber pixels in the box the earlier measurement used); bringing it back the tray's way clears all of that.
+
+</details>
+
+<details>
 <summary><strong>2026-10-26</strong></summary>
 
 **A question asked while the window is in the tray is not lost**

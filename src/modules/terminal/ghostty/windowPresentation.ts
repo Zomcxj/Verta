@@ -10,6 +10,11 @@ type NativePresentation = {
   revision: number;
   occluded: boolean;
   sleeping: boolean;
+  /**
+   * The window has been hidden - sent to the tray, or told to hide. Windows reports neither an
+   * occlusion change nor a focus change for that, so it is sent explicitly.
+   */
+  hidden?: boolean;
   /** The user is dragging the window edge (macOS NSWindow live resize); absent elsewhere. */
   liveResize?: boolean;
 };
@@ -19,6 +24,7 @@ let native: NativePresentation = {
   revision: -1,
   occluded: false,
   sleeping: false,
+  hidden: false,
 };
 let disconnect: (() => void) | null = null;
 
@@ -57,6 +63,21 @@ export function windowPresentationDiagnostics() {
   };
 }
 
+/**
+ * Say that this window just hid or showed itself.
+ *
+ * The shell tells the app when the close button sends it to the tray, but a window that hides
+ * itself (the page's own `hide()`) produces no event of any kind on Windows, so the answer
+ * "is anyone looking" would stay wrong until something else moved it.
+ */
+export function reportWindowHidden(hidden: boolean): void {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
+  if (!policy) connect();
+  void invoke("window_set_hidden", { hidden }).catch((error: unknown) => {
+    console.warn("[verta] Could not report the window's visibility:", error);
+  });
+}
+
 function connect(): void {
   let disposed = false;
   let unlisten: (() => void) | undefined;
@@ -65,7 +86,9 @@ function connect(): void {
   });
   const sync = () =>
     policy?.update(
-      document.visibilityState === "visible" && !native.occluded,
+      document.visibilityState === "visible" &&
+        !native.occluded &&
+        !native.hidden,
       native.sleeping,
     );
   const accept = (value: NativePresentation) => {
@@ -77,6 +100,7 @@ function connect(): void {
       value.revision < native.revision ||
       typeof value.occluded !== "boolean" ||
       typeof value.sleeping !== "boolean" ||
+      (value.hidden !== undefined && typeof value.hidden !== "boolean") ||
       (value.liveResize !== undefined && typeof value.liveResize !== "boolean")
     )
       return;
@@ -84,8 +108,7 @@ function connect(): void {
     // Not part of the visibility policy: only renderers sizing their canvases care.
     setNativeLiveResize(value.liveResize === true);
     sync();
-  };
-  document.addEventListener("visibilitychange", sync);
+  };  document.addEventListener("visibilitychange", sync);
   sync();
   if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
     void getCurrentWindow()

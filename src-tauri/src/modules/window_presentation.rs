@@ -8,28 +8,36 @@ pub struct PresentationSnapshot {
     revision: u64,
     occluded: bool,
     sleeping: bool,
+    /// The window has been hidden - sent to the tray, or told to hide. Not something the
+    /// native occlusion feed can report on Windows, where hiding a window delivers neither an
+    /// occlusion change nor a focus change: the app kept believing it was in front, so a
+    /// question asked on the tab the user had left open was never counted as unseen.
+    hidden: bool,
     /// The user is dragging the window's edge or corner. Renderers keep their canvas backing
     /// stores stable for the duration instead of reallocating on every step.
     live_resize: bool,
 }
 
-#[cfg(any(target_os = "macos", test))]
 impl PresentationSnapshot {
-    /// The window is not being looked at: occluded, or the machine is asleep.
-    fn hidden(&self) -> bool {
-        self.occluded || self.sleeping
+    /// The window is not being looked at: occluded, hidden, or the machine is asleep.
+    fn unwatched(&self) -> bool {
+        self.occluded || self.sleeping || self.hidden
     }
 
-    fn update(&mut self, change: Change) -> Option<Self> {
-        let occluded = change.occluded.unwrap_or(self.occluded);
+    fn update(&mut self, change: Change) -> Option<Self> {        let occluded = change.occluded.unwrap_or(self.occluded);
         let sleeping = change.sleeping.unwrap_or(self.sleeping);
+        let hidden = change.hidden.unwrap_or(self.hidden);
         let live_resize = change.live_resize.unwrap_or(self.live_resize);
-        if self.occluded == occluded && self.sleeping == sleeping && self.live_resize == live_resize
+        if self.occluded == occluded
+            && self.sleeping == sleeping
+            && self.hidden == hidden
+            && self.live_resize == live_resize
         {
             return None;
         }
         self.occluded = occluded;
         self.sleeping = sleeping;
+        self.hidden = hidden;
         self.live_resize = live_resize;
         self.revision += 1;
         Some(*self)
@@ -37,11 +45,11 @@ impl PresentationSnapshot {
 }
 
 /// What a notification reports; fields it does not know stay as they are.
-#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, Default)]
 struct Change {
     occluded: Option<bool>,
     sleeping: Option<bool>,
+    hidden: Option<bool>,
     live_resize: Option<bool>,
 }
 
@@ -53,6 +61,43 @@ pub fn window_presentation_state(
     state: State<'_, WindowPresentationState>,
 ) -> PresentationSnapshot {
     *state.0.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+/// Report that the main window was hidden or shown, from whichever side did it.
+///
+/// This is the one signal that works on every platform: the occlusion feed is macOS-only, and
+/// hiding a window delivers no focus change on Windows (measured on the installed build, with
+/// the window genuinely in front before it was hidden), so without this the app went on
+/// believing it was being looked at while it sat in the tray.
+pub fn set_window_hidden(app: &tauri::AppHandle, hidden: bool) {
+    use tauri::{Emitter, Manager};
+    let state = app.state::<WindowPresentationState>();
+    let (previous, next) = {
+        let mut guard = state.0.lock().unwrap_or_else(|error| error.into_inner());
+        let previous = *guard;
+        let change = Change {
+            hidden: Some(hidden),
+            ..Change::default()
+        };
+        (previous, guard.update(change))
+    };
+    let Some(next) = next else { return };
+    // Terminals switch delivery cadence on the hidden flag, natively, with no round trip.
+    if previous.unwatched() != next.unwatched() {
+        if let Some(pty) = app.try_state::<crate::modules::pty::PtyState>() {
+            pty.set_window_hidden("main", next.unwatched());
+        }
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.emit("verta:window-presentation", next);
+    }
+}
+
+/// The same report, from the page: it knows when it hid or showed itself, and no window event
+/// in this version of the framework says so.
+#[tauri::command]
+pub fn window_set_hidden(app: tauri::AppHandle, hidden: bool) {
+    set_window_hidden(&app, hidden);
 }
 
 #[cfg(target_os = "macos")]
@@ -117,9 +162,9 @@ pub mod macos {
         let Some(next) = next else { return };
         // Applied natively, with no frontend round trip: hidden terminals
         // switch to the occluded delivery cadence the moment the OS says so.
-        if previous.hidden() != next.hidden() {
+        if previous.unwatched() != next.unwatched() {
             if let Some(pty) = app.try_state::<crate::modules::pty::PtyState>() {
-                pty.set_window_hidden("main", next.hidden());
+                pty.set_window_hidden("main", next.unwatched());
             }
         }
         if let Some(window) = app.get_webview_window("main") {
@@ -215,6 +260,7 @@ mod tests {
         let wake = Change {
             occluded: Some(false),
             sleeping: Some(false),
+            hidden: None,
             live_resize: None,
         };
         assert_eq!(state.update(wake).unwrap().revision, 3);
@@ -224,26 +270,46 @@ mod tests {
     #[test]
     fn terminals_slow_down_when_the_window_is_occluded_or_the_machine_sleeps() {
         let mut state = PresentationSnapshot::default();
-        assert!(!state.hidden());
-        assert!(state.update(occluded(true)).unwrap().hidden());
+        assert!(!state.unwatched());
+        assert!(state.update(occluded(true)).unwrap().unwatched());
         // Waking while still occluded keeps terminals on the slow cadence.
-        assert!(state.update(sleeping(true)).unwrap().hidden());
-        assert!(state.update(sleeping(false)).unwrap().hidden());
+        assert!(state.update(sleeping(true)).unwrap().unwatched());
+        assert!(state.update(sleeping(false)).unwrap().unwatched());
         assert!(state.update(sleeping(false)).is_none());
-        assert!(!state.update(occluded(false)).unwrap().hidden());
-        assert!(state.update(sleeping(true)).unwrap().hidden());
+        assert!(!state.update(occluded(false)).unwrap().unwatched());
+        assert!(state.update(sleeping(true)).unwrap().unwatched());
+    }
+
+    #[test]
+    fn a_hidden_window_is_reported_as_hidden_and_only_once() {
+        let mut state = PresentationSnapshot::default();
+        assert!(!state.unwatched());
+        let hiding = state.update(hidden(true)).unwrap();
+        assert!(hiding.unwatched());
+        // Hiding twice is one report: nothing changed the second time.
+        assert!(state.update(hidden(true)).is_none());
+        // Coming back is a report of its own, and the window can be looked at again.
+        let shown = state.update(hidden(false)).unwrap();
+        assert!(!shown.unwatched());
+        assert_eq!(shown.revision, 2);
+        // A hide and an occlusion are the same answer to "is anyone looking", and clearing one
+        // must not clear the other.
+        assert!(state.update(hidden(true)).unwrap().unwatched());
+        assert!(state.update(occluded(true)).unwrap().unwatched());
+        assert!(state.update(hidden(false)).unwrap().unwatched());
+        assert!(!state.update(occluded(false)).unwrap().unwatched());
     }
 
     #[test]
     fn live_resize_is_reported_once_per_drag_and_never_hides_terminals() {
         let mut state = PresentationSnapshot::default();
         let start = state.update(live_resize(true)).unwrap();
-        assert!(start.live_resize && !start.hidden());
+        assert!(start.live_resize && !start.unwatched());
         // AppKit sends the start notification once per drag, but a repeat must be harmless.
         assert!(state.update(live_resize(true)).is_none());
         // Occlusion changes during a drag keep the flag.
         let occluded = state.update(occluded(true)).unwrap();
-        assert!(occluded.live_resize && occluded.hidden());
+        assert!(occluded.live_resize && occluded.unwatched());
         let end = state.update(live_resize(false)).unwrap();
         assert!(!end.live_resize);
         assert_eq!(end.revision, 3);
@@ -259,6 +325,7 @@ mod tests {
                 "revision": 1,
                 "occluded": false,
                 "sleeping": false,
+                "hidden": false,
                 "liveResize": true,
             })
         );
@@ -281,6 +348,13 @@ mod tests {
     fn live_resize(value: bool) -> Change {
         Change {
             live_resize: Some(value),
+            ..Change::default()
+        }
+    }
+
+    fn hidden(value: bool) -> Change {
+        Change {
+            hidden: Some(value),
             ..Change::default()
         }
     }

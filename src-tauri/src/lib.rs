@@ -282,6 +282,10 @@ pub fn run() {
                             api.prevent_close();
                             if let Some(window) = handle.get_webview_window("main") {
                                 let _ = window.hide();
+                                // Windows delivers no focus or occlusion change for this, so
+                                // the page is told directly; it is the difference between a
+                                // window in the tray and one the user is looking at.
+                                modules::window_presentation::set_window_hidden(&handle, true);
                             }
                         }
                     }
@@ -483,6 +487,7 @@ pub fn run() {
             modules::tray::tray_set_close_to_tray,
             modules::tray::tray_set_labels,
             modules::window_presentation::window_presentation_state,
+            modules::window_presentation::window_set_hidden,
             screenshot::screenshot_begin,
             screenshot::screenshot_finish,
             screenshot::screenshot_cancel,

@@ -42,6 +42,9 @@ fn focus_main(app: &AppHandle) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+        // Coming back is the other half of going away: the page is told it can be looked at
+        // again, rather than waiting for a focus event Windows does not send here.
+        crate::modules::window_presentation::set_window_hidden(app, false);
     }
 }
 
