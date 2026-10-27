@@ -107,6 +107,25 @@ const PI_STARTUP_BANNER = [
   "0.0%/500k (auto)                                       deepseek-chat • high",
 ].join("\n");
 
+/**
+ * The same banner as above, on a session that is merely *open*: the counters have arrived, so
+ * pi's interface is up and it is sitting at its prompt, with the banner simply left in the
+ * scrollback above it. Captured from a live session on this machine (`~` / `~ • daily task`,
+ * the footer of an extension).
+ */
+const PI_OPENED_AT_PROMPT = [
+  "cxj@WIN-J8J3DU0CI9T MINGW64 ~",
+  "$ pi --session 01a17b4e-6029-74cd-8263-9fc1486db7ef",
+  " ▀▀█  v1.4.0",
+  " █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
+  " Press ctrl+o to show full startup help and loaded resources.",
+  " Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
+  PI_RULE,
+  PI_RULE,
+  "~ • daily task",
+  "↑629k ↓39k R4.1M CH99.2% 19.5%/500k (auto)                                        MiniMax-M3.1-Flash",
+].join("\n");
+
 function judge(tool: string, tail: string): string {
   const family = familyFor(tool) as AgentFamily;
   expect(family).not.toBeNull();
@@ -226,6 +245,14 @@ describe("pi", () => {
     expect(judge("pi", PI_STARTUP)).toBe("working");
     expect(judge("pi", PI_STARTUP_PROGRESS)).toBe("working");
     expect(judge("pi", PI_STARTUP_BANNER)).toBe("working");
+  });
+
+  it("stops reading an opened session as work once pi's interface is up", () => {
+    // Measured live on 2026-10-27 by `scripts/dev/probes/state-dot-watch.mjs`, which records the
+    // rule that won and the rows it read. The screen is `PI_STARTUP_BANNER` with its counters
+    // moving: the banner stays in the scrollback for the life of the session, so a session that
+    // was merely open read as work for as long as its tab was open, and sat above the idle rule.
+    expect(judge("pi", PI_OPENED_AT_PROMPT)).toBe("idle");
   });
 
   it("does not read a prompt that mentions the question as a question card", () => {

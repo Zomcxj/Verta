@@ -355,12 +355,22 @@ const PI_RULES: readonly AgentRule[] = [
   // nothing else that says "starting" until the line above appears. A fresh session with an
   // empty conversation can still have the banner this close to its input, and reads as work
   // until it paints something over it.
+  //
+  // That was the first version of this rule and it was wrong for a session that is simply
+  // *open*: the banner stays in the scrollback for the life of the session, so the proxy never
+  // stops matching. Measured on a session opened and then left alone, the banner was still the
+  // nearest thing to the bottom of the screen while pi sat at its prompt, and this rule sat
+  // above the idle one (940 against 500), so the session read as work for as long as the tab
+  // was open. What tells the two apart is pi's status line, which is painted only once its own
+  // interface is up: the token counters with their arrows. With that line on screen the banner
+  // is history, and nothing below it has to be read as work.
   rule({
     id: "pi_startup_banner",
     state: "working",
     priority: 940,
     region: BOTTOM,
     allOf: [contains("ctrl+o more")],
+    noneOf: [contains("↑"), contains("↓")],
   }),
   // Working: the frame inside the rule pi draws above its input.
   rule({

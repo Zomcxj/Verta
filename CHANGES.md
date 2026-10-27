@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-27</strong></summary>
 
+**An opened pi session is not a starting one**
+
+- `src/modules/terminal/lib/agentRules.ts`: the rule that reads pi's startup banner as work stops matching once pi's own status line is on screen. The banner is painted once and stays in the scrollback for the life of the session, so on a session that was merely opened - and left alone, which is what was reported - it was still the nearest rule to the bottom, and it sits above the idle one (940 against 500), so the session read as work until its tab was closed. What separates the two is the token counters with their arrows, which pi paints only once its own interface is up: a session still starting shows the banner and counters at zero with no arrows at all.
+- `src/modules/terminal/lib/agentRules.test.ts`: the captured screen of a starting session still reads as work, and the live screen of an opened one reads as idle. The second is the screen the report came with, kept verbatim.
+
 **An unfocused window keeps its state dots legible**
 
 - `src/styles/globals.css`: the three state dots stop breathing outright while the window is not being looked at, instead of being paused along with every other animation. Pausing freezes an animation on whatever step it had reached, and on a breath that step can be the dimmest one - measured, with the window unfocused every dot sat at 0.35 opacity and reported `paused`, which on a tab chip reads as no dot at all. That is the report this fixes: the dot was not gone, it was parked somewhere illegible. Stopped instead, they are solid, and an unwatched window still costs no frames.
