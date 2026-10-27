@@ -25,6 +25,7 @@
 const seconds = Number(
   process.argv.find((a) => a.startsWith("--seconds="))?.slice(10) ?? "45",
 );
+const once = process.argv.includes("--once");
 
 const targets = await (await fetch("http://127.0.0.1:9222/json")).json();
 const page = targets.find((t) => t.type === "page" && t.url.endsWith("1420/"));
@@ -77,6 +78,49 @@ const pageEval = async (body) => {
   return r.result?.result?.value;
 };
 
+// One reading, for the case a watch cannot cover: the question is what the screen looks like
+// once the session is *not* being driven, and nobody can be driving it to ask. Reading the
+// screens once is enough for that, done from outside.
+if (once) {
+  const reading = await pageEval(`
+    const urls = performance.getEntriesByType("resource").map((e) => e.name);
+    const find = (p) => { const hits = urls.filter((n) => n.includes("/src/" + p)); return hits.find((n) => n.includes("?t=")) ?? hits[0] ?? ("/src/" + p); };
+    const api = await import(find("modules/terminal/lib/terminalSessionApi.ts"));
+    const sessions = await import(find("modules/terminal/ghostty/useGhosttyTerminalSession.ts"));
+    const rules = await import(find("modules/terminal/lib/agentRules.ts"));
+    const judging = await import(find("modules/terminal/lib/agentState.ts"));
+    const out = [];
+    for (const session of sessions.ghosttySessionDiagnostics()) {
+      const tail = api.leafScreenTail(session.leafId);
+      if (tail === null || tail.trim() === "") continue;
+      const family = rules.identifyAgent(tail);
+      const detection = family ? judging.evaluate(tail, family.rules) : null;
+      out.push({
+        leaf: session.leafId,
+        pty: session.pty,
+        tool: family ? family.tool : null,
+        state: detection ? detection.state : null,
+        rule: detection ? detection.rule : null,
+        rows: tail.split("\\n").filter((line) => line.trim().length > 0).slice(-16),
+        // The raw bottom of the screen as well: a filtered view cannot tell "the status line is
+        // gone" from "the status line is padding, and my filter dropped it".
+        rawBottom: tail.split("\\n").slice(-4)
+      });
+    }
+    return JSON.stringify(out);
+  `);
+  for (const screen of JSON.parse(reading)) {
+    console.log(
+      `\\n=== leaf ${screen.leaf} pty ${screen.pty} ${screen.tool ?? "(no agent)"} -> ${screen.state ?? "-"} (${screen.rule ?? "-"})`,
+    );
+    console.log(screen.rows.map((row) => "| " + row.replace(/\\s+$/, "")).join("\\n"));
+    console.log("  -- raw bottom --");
+    console.log(screen.rawBottom.map((row) => "R| " + row.replace(/\\s+$/, "")).join("\\n"));
+  }
+  socket.close();
+  process.exit(0);
+}
+
 // The recording happens inside the page: signals arrive on the app's own channel and the store
 // is read there, so nothing has to cross the debugger while it runs.
 await pageEval(`
@@ -113,6 +157,9 @@ await pageEval(`
       phases: { ...st.phases },
       agents: { ...st.agents },
       unseen: Object.keys(st.unseen),
+      // The other latch: a turn that ended and has not been looked at yet. It is what the green
+      // dot is made of, so a watch that did not record it could not see the difference.
+      unseenDone: Object.keys(st.unseenDone),
       inactive: document.documentElement.hasAttribute("data-window-inactive"),
       tabs: [...document.querySelectorAll("[role=tab][data-tab-id]")].map((tab) => {
         const d = dotOf(tab.querySelector("[data-agent-state]"));

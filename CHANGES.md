@@ -53,6 +53,7 @@ swap in the new date, and drop the `open` from the day before.
 - `scripts/dev/probes/eval.mjs`: without `--match` it now picks the window that *ends* in the development server rather than any window that contains it, because the settings window is served from the same origin and a substring match made a probe read a settings page while believing it was reading the strip.
 - `scripts/dev/probes/tab-agent-dot.mjs`: reads the colour and the breathing as computed style as well as the classes, since the three colours and the fact that all three breathe are a contract with the user that a stylesheet alone can break; its steps are named after the three states; and it makes the directory it writes its screenshot into.
 - `scripts/dev/probes/tab-agent-unseen.mjs`: reports the unseen bar's colour as well as that it is there.
+- `scripts/dev/probes/state-dot-watch.mjs`: a single reading as well as a watch (`--once`), for the case nobody can drive - what the screen looks like when the session is not being used - and the raw bottom rows beside the filtered ones, because a filtered view cannot tell "the status line is gone" from "my filter dropped it". It also records the ending latch, which is what the green dot is made of.
 
 **A session has three states, they breathe, and the tray says the same two things**
 
