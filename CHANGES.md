@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-27</strong></summary>
 
+**A recorder for the state dots, and the screen behind each verdict**
+
+- `scripts/dev/probes/state-dot-watch.mjs` (new): watches rather than drives, because the report it exists for is about switching - a passive recorder is the only way to catch what a user did. It records every detector signal with the millisecond it arrived, every change to the store's phases, agents and latch, and every change to each tab's and each launch-list row's own dot as its computed colour, opacity and animation state. It also records the judge's verdict on every screen it can identify an agent from, with the rule that won and the rows that rule read - a dot that flips back and forth is only explicable by the screen that flipped it, and the two flips reported from this machine were both explained that way. Entries are streamed out one at a time rather than collected into a single long evaluation, because a watch of a few minutes held open that way is aborted by the debugger and the whole run is lost.
+
 **An opened pi session is not a starting one**
 
 - `src/modules/terminal/lib/agentRules.ts`: the rule that reads pi's startup banner as work stops matching once pi's own status line is on screen. The banner is painted once and stays in the scrollback for the life of the session, so on a session that was merely opened - and left alone, which is what was reported - it was still the nearest rule to the bottom, and it sits above the idle one (940 against 500), so the session read as work until its tab was closed. What separates the two is the token counters with their arrows, which pi paints only once its own interface is up: a session still starting shows the banner and counters at zero with no arrows at all.
