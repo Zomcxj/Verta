@@ -8,7 +8,7 @@ import {
 import { useEffect, useRef } from "react";
 import { useT } from "@/modules/i18n";
 import {
-  questionExcerpt,
+  sessionExcerpt,
   tabForPty,
 } from "@/modules/notifications/lib/attentions";
 import { noticeForPhaseChange } from "@/modules/notifications/lib/notificationRule";
@@ -145,7 +145,21 @@ export function useAgentNotifications({
             "waiting",
             ptyId,
             tRef.current("notifications.toast.waiting.title", { title }),
-            questionExcerpt(leafScreenTail(where.leafId)),
+            sessionExcerpt(
+              // Every leaf of that session, the one it is drawn in first: a leaf whose own
+              // session is gone is left in the mirror, and reading only that one reads nothing.
+              [
+                where.leafId,
+                ...Object.keys(state.leafPty)
+                  .map(Number)
+                  .filter(
+                    (leafId) =>
+                      leafId !== where.leafId &&
+                      state.leafPty[leafId] === ptyId,
+                  ),
+              ],
+              leafScreenTail,
+            ),
           );
         } else {
           send(

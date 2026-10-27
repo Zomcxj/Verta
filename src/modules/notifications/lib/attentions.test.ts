@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Tab } from "@/modules/tabs";
-import { pendingAttentions, questionExcerpt, tabForPty } from "./attentions";
+import {
+  pendingAttentions,
+  questionExcerpt,
+  sessionExcerpt,
+  tabForPty,
+} from "./attentions";
 
 const terminalTab = (id: number, title: string, leaves: number[]): Tab =>
   ({
@@ -115,6 +120,38 @@ describe("tabForPty", () => {
     expect(tabForPty(tabs, { 11: 7 }, 99)).toBe(null);
     // ...and a leaf whose pty is not known yet is not a match either.
     expect(tabForPty(tabs, {}, 7)).toBe(null);
+  });
+});
+
+describe("sessionExcerpt", () => {
+  it("reads the first of the session's leaves that still has a screen", () => {
+    // A leaf can outlive its session and keep its place in the mirror; reading only the leaf
+    // the session is drawn in is how a notification came out with no question under it.
+    const screens: Record<number, string | null> = {
+      11: null,
+      12: " 该删掉 a.txt 还是 b.txt？\n   Other (type your answer)",
+    };
+    expect(sessionExcerpt([11, 12], (leafId) => screens[leafId] ?? null)).toBe(
+      "该删掉 a.txt 还是 b.txt？",
+    );
+  });
+
+  it("leaves nothing when none of the session's screens has anything to quote", () => {
+    expect(sessionExcerpt([11, 12], () => "")).toBe("");
+    expect(sessionExcerpt([], () => "anything")).toBe("");
+  });
+
+  it("prefers the leaf it was handed first", () => {
+    const screens: Record<number, string> = {
+      11: "第一条问题？",
+      12: "第二条问题？",
+    };
+    expect(sessionExcerpt([11, 12], (leafId) => screens[leafId])).toBe(
+      "第一条问题？",
+    );
+    expect(sessionExcerpt([12, 11], (leafId) => screens[leafId])).toBe(
+      "第二条问题？",
+    );
   });
 });
 

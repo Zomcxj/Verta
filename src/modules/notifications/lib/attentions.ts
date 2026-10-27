@@ -77,6 +77,28 @@ export function tabForPty(
   return null;
 }
 
+/**
+ * What the session is asking, read from whichever of its leaves still has a screen.
+ *
+ * A leaf can outlive its own session - a tab that was left open, a pane whose session was
+ * replaced - and it keeps its place in the leaf-to-pty mirror while it does. Reading only the
+ * leaf the session is drawn in can therefore read nothing at all, which is how a notification
+ * came out with a title and no question under it. So every leaf of that session is tried, in
+ * the order given (the leaf it is drawn in first), and the first screen with something on it
+ * wins.
+ */
+export function sessionExcerpt(
+  leafIds: readonly number[],
+  screen: (leafId: number) => string | null,
+  maxChars = 160,
+): string {
+  for (const leafId of leafIds) {
+    const excerpt = questionExcerpt(screen(leafId), maxChars);
+    if (excerpt) return excerpt;
+  }
+  return "";
+}
+
 /** A bare shell prompt character on a line of its own. */
 const BARE_PROMPT = /^[$#>%]\s*$/;
 /** A shell's own prompt line: `user@host MINGW64 ~/work`. */

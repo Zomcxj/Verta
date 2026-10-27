@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-27</strong></summary>
 
+**A notification reads the session's own screen, not one leaf's**
+
+- `src/modules/notifications/lib/attentions.ts`, `src/app/hooks/useAgentNotifications.ts`: the question a notification carries is read from whichever of the session's leaves still has a screen, the leaf the session is drawn in first. Measured on an installed build: a leaf can outlive its own session and keep its place in the leaf-to-pty mirror, and reading only the leaf the session is drawn in read nothing at all - the notification arrived with a name and no question under it, while another leaf of the same session had the card on its screen.
+- Corrected: this is the second reason a notification arrived empty, and the entry above was written knowing only the first. The excerpt function was also wrong (it quoted the shell), and both are fixed; the screen a session is read from is the one that was still missing.
+
 **A wait flashes the taskbar once, and it is judged by its latch**
 
 - `src/modules/terminal/lib/agentActivity.ts`: the shared flash rule takes the latch itself instead of a yes/no about whether there is one, and a wait answers to it rather than to the phase changing - the same measured ordering that the notification rule was fixed with, where the store writes the phase first and the latch in a following write. Telling one wait from the next, and acting on each exactly once, is left to the caller, which is the one that remembers the latch it has already acted on.
