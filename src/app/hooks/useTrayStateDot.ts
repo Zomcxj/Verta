@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAgentActivityStore } from "@/modules/terminal/lib/agentActivity";
 import { useWindowInactive } from "@/modules/theme/WindowActivityBridge";
 
@@ -24,39 +24,42 @@ export type TrayDot = "asking" | "finished";
  */
 export function useTrayStateDot({ enabled }: { enabled: boolean }): void {
   const windowInactive = useWindowInactive();
+  /**
+   * What is painted on the icon right now, and what was already waiting the last time the window
+   * was being looked at.
+   *
+   * Both have to outlive the effect, because the effect re-runs whenever the window is looked at
+   * or looked away from, and a value kept inside it starts from scratch each time. Measured on the
+   * installed build: the dot stayed green for as long as the app was open - coming back to the
+   * window recomputed `null` and compared it against a freshly reset `null`, so the call that
+   * would have taken the dot off was never made, and the Rust side went on painting the last
+   * colour it had been given.
+   */
+  const shownRef = useRef<TrayDot | null>(null);
+  const knownRef = useRef<Set<number>>(new Set());
   useEffect(() => {
     const set = (dot: TrayDot | null) => {
+      shownRef.current = dot;
       void invoke("tray_set_dot", { dot }).catch((error: unknown) => {
         // A dot that did not get drawn is not worth breaking anything over.
         console.error("[verta] tray dot failed:", error);
       });
     };
     if (!enabled) {
-      set(null);
+      if (shownRef.current !== null) set(null);
       return;
     }
-    // The icon starts plain, so no dot needs no call at all.
-    let shown: TrayDot | null = null;
-    /**
-     * What was already waiting the last time the window was being looked at.
-     *
-     * Reopening the window is looking at what was waiting for it, so the icon clears - and a
-     * session the user never got round to visiting must not light it up again the next time the
-     * window goes out of the way. Only a latch that appeared after that counts as news.
-     */
-    let known = new Set<number>();
     const apply = (state: {
       unseen: Record<number, number>;
       unseenDone: Record<number, number>;
     }) => {
       let dot: TrayDot | null = null;
       if (windowInactive) {
-        dot = trayDotFor(state, known);
+        dot = trayDotFor(state, knownRef.current);
       } else {
-        known = latchedKeys(state);
+        knownRef.current = latchedKeys(state);
       }
-      if (dot === shown) return;
-      shown = dot;
+      if (dot === shownRef.current) return;
       set(dot);
     };
     apply(useAgentActivityStore.getState());

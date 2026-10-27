@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-27</strong></summary>
 
+**The tray dot comes off when the window is looked at**
+
+- `src/app/hooks/useTrayStateDot.ts`: what is painted on the icon, and what was already waiting the last time the window was looked at, are held across the effect's runs instead of inside one of them. Measured on the installed build: the dot stayed green for as long as the app was open, because coming back to the window recomputed `null` and compared it against a freshly reset `null` - the call that takes a dot off was never made, and Rust went on painting the last colour it had been given. The report was "it is green all the time and never goes away"; calling the command by hand from the page took it off immediately, which is what told the two apart.
+- Corrected: the earlier acceptance step that reported the icon plain was measuring a fixed box that the icon had long since moved out of - the tray re-lays itself out as other icons come and go, and the dot was 96 pixels to the left by then. The tray is now measured by scanning the whole strip.
+
 **The two panes of the projects tab put their controls on the same line**
 
 - `src/app/components/WorkspaceSurface.tsx`: the inset both panes sit inside is written once and used by both. Written twice, the local-projects pane carried an extra `pt-1` that the remote-repositories pane did not, so the two filter rows started four pixels apart - measured, `筛选路径` at 87 against `筛选仓库` at 83, while the inputs themselves are the same control in the same classes at the same height. Reported from the running app, where the two rows are read as one surface.
