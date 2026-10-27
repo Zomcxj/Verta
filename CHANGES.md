@@ -17,8 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-27</strong></summary>
 
-**The window tells the app when it goes to the tray, and the installer registers the app with the shell**
+**The waiting dot is small and red**
 
+- `src-tauri/src/modules/tray.rs`: the waiting dot on the tray icon is half the radius it was and Tailwind `red-500` instead of the amber the in-app markers use - on the icon it is a flag to find at a glance rather than a status sitting next to its own label, and the larger dot read as a blob on the taskbar. Its test now also pins that the dot stays in its corner, which the larger radius did not.
+
+**The window tells the app when it goes to the tray, and the installer registers the app with the shell**
 - `src-tauri/src/modules/window_presentation.rs`: a window that has been hidden is now part of the same report the terminal renderers use, and the Rust side says so when the close button sends the window to the tray and when the tray brings it back. Measured on an installed build, with the window genuinely in front before it was hidden: Windows delivers no focus change and no occlusion change for a hide, so the app went on believing it was being looked at while it sat in the tray - a question asked on the tab the user had last been on was therefore never counted as unseen, and neither the bell nor the tray dot could appear. The occlusion feed this replaces is macOS-only; this one works everywhere.
 - `src-tauri/src/lib.rs`: the window's close-to-tray path, and the tray's own "show" path, report that change; the page can also report a hide or show it performed itself (`src/modules/terminal/ghostty/windowPresentation.ts`, `src/modules/control/useControlBridge.ts`), because a window that hides itself produces no event of any kind.
 - `src-tauri/installer-hooks.nsh`: the installer registers the app's identity with the shell, and the uninstaller removes it. This is what an unpackaged app is documented to need for its notifications to be attributed to it, and it was missing; the Start Menu shortcuts already carried the identity. Checked live on the installed build, where adding the registration changed nothing on screen - because that machine is not showing notification banners for anything at all (a toast raised by PowerShell's own identity does not appear either), which is the reason no notification has been seen here and is a setting of the user's, not something this project can or should change. The identity is in place for the name and icon a toast is drawn with.

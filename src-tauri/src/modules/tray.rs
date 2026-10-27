@@ -48,17 +48,22 @@ fn focus_main(app: &AppHandle) {
     }
 }
 
-/// The attention colour: Tailwind's `amber-500`, the same one the tab's marker, the tab
-/// strip's edge and the bell's count use.
-const ATTENTION_DOT: [u8; 4] = [0xf5, 0x9e, 0x0b, 0xff];
+/// The tray dot's colour: Tailwind's `red-500`.
+///
+/// Deliberately not the amber the in-app surfaces use for a waiting session: on the icon this
+/// is a flag that something is waiting while the window is out of the way, and it reads as one
+/// against a taskbar that is usually dark - and smaller than the markers in the window, which
+/// sit next to their own labels and do not have to be found at a glance.
+const ATTENTION_DOT: [u8; 4] = [0xef, 0x44, 0x44, 0xff];
 
 /// Paints one filled circle over the icon's top-right corner, in place.
 ///
 /// The tray icon is this app's own window icon - 32x32 on a 96 DPI screen, which the shell
-/// then draws at 16x16 - so the radius is a third of the shorter side to survive that
-/// downscale, and it is inset by one pixel so the shell's own rounding cannot clip it.
+/// then draws at 16x16 - so the radius is a sixth of the shorter side, which survives that
+/// downscale as a small dot rather than a blob, and it is inset by one pixel so the shell's
+/// own rounding cannot clip it.
 pub(crate) fn paint_attention_dot(rgba: &mut [u8], width: u32, height: u32) {
-    let radius = (width.min(height) / 3) as f32;
+    let radius = (width.min(height) / 6) as f32;
     let (centre_x, centre_y) = (width as f32 - radius - 1.0, radius + 1.0);
     for y in 0..height {
         for x in 0..width {
@@ -169,15 +174,27 @@ mod tests {
         };
         // Asserted as regions rather than as exact pixels: the radius is meant to be tuned
         // against the control screenshots, and the test should survive that.
-        let amber = |p: &[u8]| p[..3] == [0xf5, 0x9e, 0x0b] && p[3] == 0xff;
+        let dot = |p: &[u8]| p[..3] == [0xef, 0x44, 0x44] && p[3] == 0xff;
         let top_right = (w - 8..w).flat_map(|x| (1..8).map(move |y| (x, y)));
         assert!(
-            top_right.map(|(x, y)| at(x, y)).any(|p| amber(&p)),
-            "no amber in the top-right corner"
+            top_right.map(|(x, y)| at(x, y)).any(|p| dot(&p)),
+            "no dot in the top-right corner"
         );
         assert!(
             at(0, h - 1) == vec![0, 0, 0, 0],
             "the far corner must be untouched"
+        );
+        // It has to stay in its corner: a radius a third of the side - which is what this was
+        // first drawn with, and what looked like a blob on the taskbar - reached well past the
+        // middle of the icon.
+        let painted = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .filter(|&(x, y)| dot(&at(x, y)))
+            .collect::<Vec<_>>();
+        assert!(!painted.is_empty());
+        assert!(
+            painted.iter().all(|&(x, y)| x >= w - 14 && y <= 14),
+            "the dot escaped its corner: {painted:?}"
         );
     }
 }
