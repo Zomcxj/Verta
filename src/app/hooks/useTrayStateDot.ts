@@ -37,11 +37,24 @@ export function useTrayStateDot({ enabled }: { enabled: boolean }): void {
     }
     // The icon starts plain, so no dot needs no call at all.
     let shown: TrayDot | null = null;
+    /**
+     * What was already waiting the last time the window was being looked at.
+     *
+     * Reopening the window is looking at what was waiting for it, so the icon clears - and a
+     * session the user never got round to visiting must not light it up again the next time the
+     * window goes out of the way. Only a latch that appeared after that counts as news.
+     */
+    let known = new Set<number>();
     const apply = (state: {
       unseen: Record<number, number>;
       unseenDone: Record<number, number>;
     }) => {
-      const dot = windowInactive ? trayDotFor(state) : null;
+      let dot: TrayDot | null = null;
+      if (windowInactive) {
+        dot = trayDotFor(state, known);
+      } else {
+        known = latchedKeys(state);
+      }
       if (dot === shown) return;
       shown = dot;
       set(dot);
@@ -58,12 +71,32 @@ export function useTrayStateDot({ enabled }: { enabled: boolean }): void {
  * an icon can usefully say while the window is behind something else: `unseen` is a session that
  * asked for something, `unseenDone` is a turn that ended. Nothing else is read - not `working`,
  * not `idle` - because an agent that is merely open or merely busy has nothing to tell the user.
+ *
+ * `known` is what was already waiting when the window last went out of the way; a session in both
+ * is not news, and only a question outranks an ending.
  */
-export function trayDotFor(state: {
+export function trayDotFor(
+  state: {
+    unseen: Record<number, number>;
+    unseenDone: Record<number, number>;
+  },
+  known: ReadonlySet<number> = new Set(),
+): TrayDot | null {
+  const fresh = (latched: Record<number, number>) =>
+    Object.keys(latched).some((key) => !known.has(Number(key)));
+  if (fresh(state.unseen)) return "asking";
+  if (fresh(state.unseenDone)) return "finished";
+  return null;
+}
+
+/** The sessions with something waiting on the user's attention, from either latch. */
+function latchedKeys(state: {
   unseen: Record<number, number>;
   unseenDone: Record<number, number>;
-}): TrayDot | null {
-  if (Object.keys(state.unseen).length > 0) return "asking";
-  if (Object.keys(state.unseenDone).length > 0) return "finished";
-  return null;
+}): Set<number> {
+  const keys = new Set<number>();
+  for (const key of [...Object.keys(state.unseen), ...Object.keys(state.unseenDone)]) {
+    keys.add(Number(key));
+  }
+  return keys;
 }

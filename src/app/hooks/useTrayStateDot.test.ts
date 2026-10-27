@@ -20,4 +20,18 @@ describe("trayDotFor", () => {
     expect(trayDotFor({ unseen: ASKED, unseenDone: DONE })).toBe("asking");
     expect(trayDotFor({ unseen: ASKED, unseenDone: {} })).toBe("asking");
   });
+
+  it("says nothing again for what was already waiting when the window was last looked at", () => {
+    // Coming back to the window clears the icon; going away again with that same session still
+    // unvisited must not light it up for the same news a second time.
+    expect(trayDotFor({ unseen: {}, unseenDone: DONE }, new Set([1]))).toBeNull();
+    expect(trayDotFor({ unseen: ASKED, unseenDone: DONE }, new Set([1]))).toBeNull();
+    // A second session doing either thing is news, though.
+    expect(
+      trayDotFor({ unseen: {}, unseenDone: { 1: 1_000, 2: 2_000 } }, new Set([1])),
+    ).toBe("finished");
+    expect(
+      trayDotFor({ unseen: { 2: 2_000 }, unseenDone: {} }, new Set([1])),
+    ).toBe("asking");
+  });
 });
