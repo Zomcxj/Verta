@@ -64,6 +64,17 @@ export type ProjectsSub = "projects" | "remotes";
 const LAYER = "absolute inset-0";
 
 /**
+ * The inset both sub-tab panes of the projects tab sit inside.
+ *
+ * It is shared rather than written twice because the two panes are read as one surface: each of
+ * their views already insets its own content, so the row of controls at the top of one has to
+ * start at the same height as the row at the top of the other. Written twice, one of them had an
+ * extra `pt-1` and its filter row sat four pixels lower than the other's - measured, `筛选路径`
+ * at 87 and `筛选仓库` at 83, with the two inputs themselves identical.
+ */
+const PANE_INSET = "px-1 pt-1 pb-2";
+
+/**
  * Stacks every tab-kind surface absolutely on top of each other and toggles
  * visibility off the active tab, so panes keep their mounted state (terminal
  * buffers, editor scroll, ...) when switching tabs.
@@ -293,7 +304,9 @@ export function WorkspaceSurface({
         <div className="relative min-h-0 flex-1">
           <div
             className={cn(
-              "absolute inset-0 px-1 pt-1 pb-2 transition-opacity duration-[var(--dur-base)] ease-[var(--ease-premium)]",
+              LAYER,
+              PANE_INSET,
+              "transition-opacity duration-[var(--dur-base)] ease-[var(--ease-premium)]",
               projectsSub !== "projects" && "pointer-events-none opacity-0",
             )}
             aria-hidden={projectsSub !== "projects"}
@@ -310,6 +323,7 @@ export function WorkspaceSurface({
           <div
             className={cn(
               LAYER,
+              PANE_INSET,
               "transition-opacity duration-[var(--dur-base)] ease-[var(--ease-premium)]",
               projectsSub !== "remotes" && "pointer-events-none opacity-0",
             )}

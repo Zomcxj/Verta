@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-27</strong></summary>
 
+**The two panes of the projects tab put their controls on the same line**
+
+- `src/app/components/WorkspaceSurface.tsx`: the inset both panes sit inside is written once and used by both. Written twice, the local-projects pane carried an extra `pt-1` that the remote-repositories pane did not, so the two filter rows started four pixels apart - measured, `筛选路径` at 87 against `筛选仓库` at 83, while the inputs themselves are the same control in the same classes at the same height. Reported from the running app, where the two rows are read as one surface.
+
 **An ending is news only until it has been looked at, and an agent at rest is orange**
 
 - `src/modules/terminal/lib/agentActivity.ts`: a second latch beside the one for waiting - a turn that ended while the user was not on that tab. The phase alone cannot carry that, because a turn that ended stays ended, and the store settles it to `idle` a few seconds later anyway: the latch is what makes it news, and what the fold reads, so the dot goes back to orange the moment the tab is looked at, or as soon as the next turn starts there. Cleared by the same tick that clears the waiting latch, and dropped with the session.
