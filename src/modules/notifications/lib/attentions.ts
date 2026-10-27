@@ -77,14 +77,27 @@ export function tabForPty(
   return null;
 }
 
+/** A bare shell prompt character on a line of its own. */
+const BARE_PROMPT = /^[$#>%]\s*$/;
+/** A shell's own prompt line: `user@host MINGW64 ~/work`. */
+const PROMPT_LINE = /^[^\s@]+@[^\s@]+\s+\S+/;
+/** A row that is nothing but the rule an agent draws across its interface. */
+const SEPARATOR = /^[─═━—–\-_·…\s]+$/;
+
 /**
  * What the session is asking, read from the bottom of its screen.
  *
- * The same lines the judge reads, so nothing is stored twice and nothing can go
- * stale in the store: the question is on screen because the agent is still
- * waiting on it. It is a preview, so it is capped and collapsed to one line, and
- * a tail with nothing on it (a session whose screen was just cleared) reads as no
- * excerpt rather than as an empty row.
+ * The same lines the judge reads, so nothing is stored twice and nothing can go stale in the
+ * store: the question is on screen because the agent is still waiting on it. It is a preview,
+ * so it is capped and collapsed to one line.
+ *
+ * Two things are deliberately left out of it. The user's own shell is not the agent's words -
+ * a card that has just been cleared leaves a screen with a prompt on it, and a toast quoting
+ * the prompt back says nothing about anything. And when there is a question line, that line is
+ * the excerpt rather than the rows around it: a card puts its question above its options, so
+ * the options, the key hints and the rule are its furniture and do not belong in a
+ * notification. The first question in the bottom region is taken rather than the last, because
+ * what is printed under a card is what the user typed, which is already theirs.
  */
 export function questionExcerpt(
   tail: string | null,
@@ -94,8 +107,15 @@ export function questionExcerpt(
   const lines = tail
     .split("\n")
     .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-  const text = lines.slice(-3).join(" · ").trim();
+    .filter(
+      (line) =>
+        line &&
+        !BARE_PROMPT.test(line) &&
+        !PROMPT_LINE.test(line) &&
+        !SEPARATOR.test(line),
+    );
+  const question = lines.slice(-8).find((line) => /[?？]$/.test(line));
+  const text = (question ?? lines.slice(-3).join(" · ")).trim();
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars - 1)}…`;
 }

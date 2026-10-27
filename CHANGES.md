@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-27</strong></summary>
 
+**A toast reads the question out of the card**
+
+- `src/modules/notifications/lib/attentions.ts`: the excerpt a waiting notification carries is the card's own question line rather than the last few rows joined together, and the user's own shell is no longer read as the agent's words. A card puts its question above its options, so joining the rows shipped the options, the key hints and the rule into the notification; and a card that has just been cleared leaves a shell prompt on screen, which the old excerpt quoted back as if the agent had said it. The first question in the bottom region wins, because what is printed under a card is what the user typed. Measured on this machine, reading the same pi card the tests are built from: the excerpt is `该删掉 a.txt 还是 b.txt？`.
+
 **A wait is announced from its latch, not from its phase changing**
 
 - `src/modules/notifications/lib/notificationRule.ts`: a wait is announced from the store's latch rather than from the phase changing. Measured while fixing it: the store writes the new phase first and the latch a moment later in a second write, so by the time a wait is knowable as "nobody has looked at this" its phase has already moved - a rule keyed on the phase changing missed every wait there is, and only the "a turn has finished" notification ever went out. On the machine now: a question asked in a session nobody is looking at puts a notification into Windows' own store under the app's identity, with the question itself as its body.

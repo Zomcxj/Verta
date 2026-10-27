@@ -132,6 +132,40 @@ describe("questionExcerpt", () => {
     );
   });
 
+  it("picks the question itself out of a card, not the rows around it", () => {
+    // The real card, written from the capture the rules were made from: what it is asking is
+    // one line, and the answer rows, the key hints and the rule under them are not that line.
+    const tail = [
+      " 删除文件选择",
+      " 该删掉 a.txt 还是 b.txt？",
+      " → 删掉 a.txt — 移除 a.txt，保留 b.txt",
+      "   删掉 b.txt — 移除 b.txt，保留 a.txt",
+      "   Other (type your answer)",
+      " ↑↓ navigate  enter select  escape/ctrl+c cancel",
+      "─".repeat(60),
+      " ↳ 请再用 ask_user 工具问我：该删掉 a.txt 还是 b.txt？",
+    ].join("\n");
+    expect(questionExcerpt(tail)).toBe("该删掉 a.txt 还是 b.txt？");
+  });
+
+  it("does not read the user's own shell back as the agent's words", () => {
+    // A prompt is the terminal, not the session asking anything: a card that has just been
+    // cleared leaves a screen like this, and a toast that quotes the user's own prompt back
+    // at them says nothing.
+    expect(
+      questionExcerpt(
+        "cxj@WIN-J8J3DU0CI9T MINGW64 ~/Desktop\n$\n\ncxj@WIN-J8J3DU0CI9T MINGW64 ~/Desktop\n$",
+      ),
+    ).toBe("");
+    expect(questionExcerpt("$")).toBe("");
+  });
+
+  it("keeps the agent's lines when the shell's are under them", () => {
+    expect(
+      questionExcerpt("△ Permission required\ncxj@HOST MINGW64 ~/work\n$"),
+    ).toBe("△ Permission required");
+  });
+
   it("collapses runs of spaces and a wide screen's blank rows", () => {
     expect(questionExcerpt("  Ask   anything…   \n\n   \n")).toBe("Ask anything…");
   });
