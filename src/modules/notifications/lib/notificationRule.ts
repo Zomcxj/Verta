@@ -13,15 +13,16 @@ export type NoticeVerdict = "waiting" | "done" | null;
  * what a change means: one place knows that `attention` is a question the agent is waiting on
  * and `finished` is a turn that stopped painting work.
  *
- * Two things are the notification layer's own. A `finished` turn is only worth interrupting
+ * Three things are the notification layer's own. A `finished` turn is only worth interrupting
  * someone for when the window is *not* in front - a toast is a real interruption, while a
- * flash on a window the user is already looking at is not something Windows even shows. And a
- * wait is announced once: the store's latch stays set for as long as the agent is blocked, so
- * the moment it started waiting is what says whether this is the same wait as the one already
- * announced, or a new one.
- *
- * The `attention` case needs no front-of-window test of its own: the latch is only ever set
- * for a wait the user was not looking at.
+ * flash on a window the user is already looking at is not something Windows even shows. A wait
+ * is announced once: the store's latch stays set for as long as the agent is blocked, so the
+ * moment it started waiting is what says whether this is the same wait as the one already
+ * announced, or a new one. And a wait is judged by its latch rather than by its phase changing:
+ * the store writes the phase first and the latch a moment later in a second write (measured),
+ * so at the moment the latch appears the phase has already moved and a rule that waited for the
+ * phase to change would miss every wait there is. Being latched is also already the answer to
+ * "was the user looking", so nothing else is needed to tell the two apart.
  */
 export function noticeForPhaseChange(
   previous: AgentPhase | undefined,
@@ -35,10 +36,12 @@ export function noticeForPhaseChange(
     foreground: boolean;
   },
 ): NoticeVerdict {
-  const flash = flashForPhaseChange(previous, phase, seen.sinceMs !== undefined);
-  if (flash === "ask") {
+  if (phase === "attention") {
+    if (seen.sinceMs === undefined) return null;
     return seen.sinceMs === seen.announcedSinceMs ? null : "waiting";
   }
-  if (flash === "done") return seen.foreground ? null : "done";
+  if (flashForPhaseChange(previous, phase, false) === "done") {
+    return seen.foreground ? null : "done";
+  }
   return null;
 }

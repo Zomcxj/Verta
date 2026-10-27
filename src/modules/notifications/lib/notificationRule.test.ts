@@ -60,12 +60,14 @@ describe("noticeForPhaseChange", () => {
     ).toBe(null);
   });
 
-  it("says nothing when nothing changed", () => {
+  it("announces a wait whose latch arrived after the phase did", () => {
+    // Measured on the machine: the store writes the new phase first and the latch in a second
+    // write a moment later, so by the time the wait is knowable as "nobody has looked at this"
+    // the phase itself is no longer news. A wait is news for as long as it is latched and
+    // nobody has been told about it, which is what this pins - keying it on the phase changing
+    // instead would miss every wait.
     expect(
-      noticeForPhaseChange("attention", "attention", {
-        ...away,
-        sinceMs: 1000,
-      }),
-    ).toBe(null);
+      noticeForPhaseChange("attention", "attention", { ...away, sinceMs: 1000 }),
+    ).toBe("waiting");
   });
 });

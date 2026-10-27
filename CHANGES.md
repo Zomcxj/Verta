@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-27</strong></summary>
 
+**A wait is announced from its latch, not from its phase changing**
+
+- `src/modules/notifications/lib/notificationRule.ts`: a wait is announced from the store's latch rather than from the phase changing. Measured while fixing it: the store writes the new phase first and the latch a moment later in a second write, so by the time a wait is knowable as "nobody has looked at this" its phase has already moved - a rule keyed on the phase changing missed every wait there is, and only the "a turn has finished" notification ever went out. On the machine now: a question asked in a session nobody is looking at puts a notification into Windows' own store under the app's identity, with the question itself as its body.
+- Corrected: that bug was in the tests too - one of them asserted that nothing is worth announcing when the phase has not changed, which is exactly the real case, so it pinned the defect instead of catching it.
+- Left alone deliberately: the taskbar flash rule has the same blind spot (it is called with the latch of the moment, and by then the phase has moved). Fixing it needs the same "one announcement per wait" memory the notification layer keeps, and it is its own change rather than a side effect of this one.
+
 **The waiting dot is small and red**
 
 - `src-tauri/src/modules/tray.rs`: the waiting dot on the tray icon is half the radius it was and Tailwind `red-500` instead of the amber the in-app markers use - on the icon it is a flag to find at a glance rather than a status sitting next to its own label, and the larger dot read as a blob on the taskbar. Its test now also pins that the dot stays in its corner, which the larger radius did not.
