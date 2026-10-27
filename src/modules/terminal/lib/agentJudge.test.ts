@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSignal } from "./agentActivity";
-import { AGENT_GONE_MS, emptyJudgeEntry, judgeTail } from "./agentJudge";
+import {
+  AGENT_GONE_MS,
+  IDLE_SETTLE_MS,
+  emptyJudgeEntry,
+  judgeTail,
+} from "./agentJudge";
 
 /** Real captures from this machine (see `agentRules.test.ts` for the source). */
 const OPENCODE_WORKING =
@@ -54,9 +59,16 @@ describe("judgeTail", () => {
 
   it("marks a finished turn, which the store shows as done before idle", () => {
     const working = first(OPENCODE_WORKING);
-    const idle = judgeTail(working.entry, OPENCODE_IDLE, 2_000);
+    // The idle screen has to be believed before it is reported (see `IDLE_SETTLE_MS`), so the
+    // first read of it says nothing and the ending arrives once the screen has gone on saying so.
+    const firstIdle = judgeTail(working.entry, OPENCODE_IDLE, 2_000);
+    expect(firstIdle.kind).toBe("quiet");
+    if (firstIdle.kind !== "quiet") return;
+    const idle = judgeTail(firstIdle.entry, OPENCODE_IDLE, 2_000 + IDLE_SETTLE_MS);
     expect(idle.kind).toBe("report");
     if (idle.kind !== "report") return;
+    // Reported as `finished`, not as `idle`: the store turns that into a short "done" mark, which
+    // is what the dots and the notification layer read.
     expect(kinds(idle.signals)).toEqual(["finished"]);
   });
 
@@ -104,7 +116,13 @@ describe("an agent that leaves the screen", () => {
     expect(gone.kind).toBe("report");
     if (gone.kind !== "report") return;
     expect(kinds(gone.signals)).toEqual(["finished"]);
-    expect(gone.entry).toEqual({ id: 7, tool: null, state: "idle", lostSince: null });
+    expect(gone.entry).toEqual({
+      id: 7,
+      tool: null,
+      state: "idle",
+      lostSince: null,
+      idleSince: null,
+    });
   });
 
   it("clears the grace period as soon as the agent is back", () => {
@@ -118,7 +136,7 @@ describe("an agent that leaves the screen", () => {
     // And the agent is not called gone a second time for a screen that has already
     // been reported as finished.
     const gone = judgeTail(
-      { id: 7, tool: "opencode", state: "idle", lostSince: 6_000 },
+      { id: 7, tool: "opencode", state: "idle", lostSince: 6_000, idleSince: null },
       SHELL_PROMPT,
       6_000 + AGENT_GONE_MS,
     );
@@ -130,5 +148,45 @@ describe("an agent that leaves the screen", () => {
     // A foreign full-screen program is not an agent leaving; it is nothing at all.
     const outcome = judgeTail(emptyJudgeEntry(7), "man verta\n", 1_000);
     expect(outcome.kind).toBe("quiet");
+  });
+});
+
+describe("the settle before an ending", () => {
+  // The screens the false endings came from, as `agentRules.test.ts` keeps them: the same turn,
+  // read once without the working line and once with it.
+  const WORKING = "Writing the patch\n⠹ Thinking\nctrl+p commands   · Tokens 12.4k";
+  const IDLE = "Where to next?\nctrl+p commands   · Tokens 12.4k";
+
+  it("does not report an ending from a single read that missed the working line", () => {
+    let entry = first(WORKING, 0).entry;
+    const blip = judgeTail(entry, IDLE, 500);
+    expect(blip.kind).toBe("quiet");
+    if (blip.kind !== "quiet") return;
+    expect(blip.entry.state).toBe("working");
+    entry = blip.entry;
+    // The screen says working again on the next read: the ending never happened, and neither the
+    // dot nor the notification for one is produced.
+    const back = judgeTail(entry, WORKING, 1_000);
+    expect(back.kind).toBe("quiet");
+  });
+
+  it("reports the ending once the screen has gone on saying idle", () => {
+    let entry = first(WORKING, 0).entry;
+    for (const nowMs of [500, 1_000, 1_500]) {
+      const outcome = judgeTail(entry, IDLE, nowMs);
+      expect(outcome.kind).toBe("quiet");
+      if (outcome.kind === "quiet") entry = outcome.entry;
+    }
+    const settled = judgeTail(entry, IDLE, 2_100);
+    expect(settled.kind).toBe("report");
+    if (settled.kind === "report") expect(kinds(settled.signals)).toEqual(["finished"]);
+  });
+
+  it("reports a question at once, settled or not", () => {
+    // A card on screen is not a frame that could have been missed.
+    const entry = first(WORKING, 0).entry;
+    const asked = judgeTail(entry, OPENCODE_BLOCKED, 600);
+    expect(asked.kind).toBe("report");
+    if (asked.kind === "report") expect(kinds(asked.signals)).toEqual(["attention"]);
   });
 });

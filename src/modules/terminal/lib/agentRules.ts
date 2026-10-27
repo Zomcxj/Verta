@@ -110,6 +110,36 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     region: BOTTOM,
     allOf: [lineStartsWith("❯ 1.")],
   }),
+  // Working, and saying so for the whole time: the footer carries the interrupt hint and a
+  // progress bar for as long as a turn runs, unlike the spinner glyph, which the TUI paints on
+  // some frames and not others. Measured on this machine (2026-10-27, with
+  // `scripts/dev/probes/state-dot-watch.mjs`, which records the rule that won and the rows it
+  // read): the judge called a session idle while that session's own footer said
+  // `⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt`, and every such false ending also put a "a turn finished"
+  // notification into Windows' own store - six of them in three minutes.
+  //
+  // The footer is one line, so this rule reads only that line: the phrase itself is short enough
+  // to turn up in a conversation, and the conversation is exactly what sits above the footer.
+  rule({
+    id: "opencode_interruptible",
+    state: "working",
+    priority: 820,
+    region: bottom(1),
+    allOf: [contains("esc interrupt")],
+  }),
+  // The turn is over but a background shell is not: opencode goes on counting them on that same
+  // footer line, and a turn that ended is not work that is done. Measured on this machine: the
+  // count fell from three to two as background commands finished, while the session carried on
+  // with another turn in front of them. Read as the footer line rather than as the word alone,
+  // because the word is ordinary in a conversation; `shell` without a plural covers a count of
+  // one, which that footer spells `1 shell`.
+  rule({
+    id: "opencode_background_shell",
+    state: "working",
+    priority: 810,
+    region: bottom(1),
+    allOf: [contains("shell"), contains("ctrl+p")],
+  }),
   // Working: the spinner frames. Seen in the captures (`⠋`, `⠙`, `⠏`).
   rule({
     id: "opencode_spinner",
@@ -126,14 +156,21 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     region: BOTTOM,
     allOf: [contains("thinking")],
   }),
-  // Idle: the footer is there and nothing on it is moving.
+  // Idle: the footer is there and nothing on it is moving - no spinner, no status word, and no
+  // interrupt hint anywhere in the region (the hint sits on the footer's own line, which the
+  // rule above reads alone, but a screen that says the turn can be interrupted is not idle
+  // wherever it says it).
   rule({
     id: "opencode_idle",
     state: "idle",
     priority: 500,
     region: BOTTOM,
     allOf: OPENCODE_IDENTIFY,
-    noneOf: [anyChar(SPINNER_FRAMES), contains("thinking")],
+    noneOf: [
+      anyChar(SPINNER_FRAMES),
+      contains("thinking"),
+      contains("esc interrupt"),
+    ],
   }),
 ];
 

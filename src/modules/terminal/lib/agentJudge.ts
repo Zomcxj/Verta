@@ -43,6 +43,19 @@ import { identifyAgent } from "@/modules/terminal/lib/agentRules";
  */
 export const AGENT_GONE_MS = 2000;
 
+/**
+ * How long a screen has to keep saying "idle" - after it said something else - before that is
+ * believed.
+ *
+ * The evidence that a session is working is a line the agent paints, and agents do not paint every
+ * line on every frame: measured on this machine with opencode, the spinner glyph is missing from
+ * the read often enough that a single tick can miss it while the turn is still running, and each
+ * miss was reported as a turn that had finished - a green dot and a notification for work that had
+ * not stopped, six of them in three minutes. Three reads at the store's cadence, and a read that
+ * says anything else in between starts the count again.
+ */
+export const IDLE_SETTLE_MS = 1500;
+
 /** What was last reported about one leaf. */
 export type JudgeEntry = {
   /** The pty the leaf was showing when this entry was made. */
@@ -53,6 +66,11 @@ export type JudgeEntry = {
   readonly state: AgentState;
   /** When the screen stopped identifying an agent (ms), or `null` while it does. */
   readonly lostSince: number | null;
+  /**
+   * When this screen first said "idle" after saying something else (ms), or `null` while it is
+   * not saying that. A state that has to be settled before it is reported - see `IDLE_SETTLE_MS`.
+   */
+  readonly idleSince: number | null;
 };
 
 export const emptyJudgeEntry = (id: number): JudgeEntry => ({
@@ -60,6 +78,7 @@ export const emptyJudgeEntry = (id: number): JudgeEntry => ({
   tool: null,
   state: "unknown",
   lostSince: null,
+  idleSince: null,
 });
 
 export type JudgeOutcome =
@@ -110,17 +129,44 @@ export function judgeTail(
   if (entry.tool !== family.tool) {
     // The agent appeared. The store takes the name from this signal, which is what
     // the tab's brand icon is drawn from.
-    entry = { id: entry.id, tool: family.tool, state: "unknown", lostSince: null };
+    entry = {
+      id: entry.id,
+      tool: family.tool,
+      state: "unknown",
+      lostSince: null,
+      idleSince: null,
+    };
     signals.push({ id: entry.id, kind: "started", agent: family.tool });
   }
 
   const detection = evaluate(tail, family.rules);
-  if (detectionApplies(detection) && detection.state !== entry.state) {
-    signals.push({
-      id: entry.id,
-      kind: signalKindFor(detection.state, entry.state),
-    });
-    entry = { ...entry, state: detection.state };
+  if (detectionApplies(detection)) {
+    if (detection.state === entry.state) {
+      // The screen still says what it said: a settled state stays settled.
+      entry = { ...entry, idleSince: null };
+    } else if (
+      detection.state === "idle" &&
+      (entry.state === "working" || entry.state === "blocked")
+    ) {
+      // Work stopping is only believed once the screen has gone on saying so: see
+      // `IDLE_SETTLE_MS`. Until then the state stands, and the leaf is held at it.
+      const idleSince = entry.idleSince ?? nowMs;
+      if (nowMs - idleSince < IDLE_SETTLE_MS) {
+        entry = { ...entry, idleSince };
+      } else {
+        signals.push({
+          id: entry.id,
+          kind: signalKindFor(detection.state, entry.state),
+        });
+        entry = { ...entry, state: detection.state, idleSince: null };
+      }
+    } else {
+      signals.push({
+        id: entry.id,
+        kind: signalKindFor(detection.state, entry.state),
+      });
+      entry = { ...entry, state: detection.state, idleSince: null };
+    }
   }
 
   if (signals.length === 0) return { kind: "quiet", entry };
@@ -147,6 +193,7 @@ function judgeWithoutAgent(previous: JudgeEntry, nowMs: number): JudgeOutcome {
     tool: null,
     state: "idle",
     lostSince: null,
+    idleSince: null,
   };
   if (previous.state === "idle") {
     // Already reported as finished; only the bookkeeping changes.

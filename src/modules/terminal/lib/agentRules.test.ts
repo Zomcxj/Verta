@@ -17,6 +17,35 @@ const OPENCODE_WORKING =
   "Writing the patch\n⠹ Thinking\nctrl+p commands   · Tokens 12.4k";
 const OPENCODE_IDLE = "Where to next?\nctrl+p commands   · Tokens 12.4k";
 
+/**
+ * The screen a false ending came from, kept verbatim from the capture
+ * (`scripts/dev/probes/state-dot-watch.mjs`, 2026-10-27): a turn in flight, with the footer's
+ * own progress bar and interrupt hint on its last line. The judge read this as idle, reported
+ * the session as finished, and put "a turn finished" into Windows' store.
+ */
+const OPENCODE_INTERRUPTIBLE = [
+  "     ↳ Shell finished · cd /d/VsPro/Verta && node scripts/dev/probes/state-dot-watch.mjs",
+  "     + 3 commands, 1 thought",
+  "  ┃",
+  "  ┃  Build auto · deepseek-v4.1-flash workbuddy · max",
+  "   ⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt                       命中率 99.5% ↑0.2% · Tokens 1061.4M · 余额 - ·   ↓ 2 shells · 258.6K (52%)  ctrl+p commands",
+].join("\n");
+
+/**
+ * The same footer with the interrupt hint gone: the turn has ended but the background shells on
+ * that footer have not. Measured, the count falls as those commands finish (three to two on this
+ * machine while the session carried on); that the two go together on a real screen has not been
+ * captured yet, and this sample is that footer with the turn's hint removed. A rule that reads it
+ * as work is what the case needs, and the cost of being wrong is a session that reads as busy a
+ * moment longer - not the false alarm the other direction would give.
+ */
+const OPENCODE_BACKGROUND_SHELL = [
+  "     + 3 commands, 1 thought",
+  "  ┃",
+  "  ┃  Build auto · deepseek-v4.1-flash workbuddy · max",
+  "   命中率 99.5% ↑0.2% · Tokens 1061.4M · 余额 - ·   ↓ 2 shells · 258.6K (52%)  ctrl+p commands",
+].join("\n");
+
 /** Written from herdr's rules; not yet seen on this machine. */
 const CLAUDE_BLOCKED =
   "  Do you want to proceed?\n  ❯ 1. Yes\n    2. No\n? for shortcuts";
@@ -177,6 +206,16 @@ describe("opencode", () => {
   it("tells working and idle apart", () => {
     expect(judge("opencode", OPENCODE_WORKING)).toBe("working");
     expect(judge("opencode", OPENCODE_IDLE)).toBe("idle");
+  });
+
+  it("reads a turn in flight from the footer, not only from the spinner", () => {
+    // The false ending measured on this machine: the spinner glyph was between frames, the
+    // footer still said the turn could be interrupted, and the judge settled on idle.
+    expect(judge("opencode", OPENCODE_INTERRUPTIBLE)).toBe("working");
+  });
+
+  it("keeps a session busy while a background shell on its footer is still running", () => {
+    expect(judge("opencode", OPENCODE_BACKGROUND_SHELL)).toBe("working");
   });
 
   it("keeps a moving frame out of idle", () => {
