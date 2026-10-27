@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-27</strong></summary>
 
+**A wait flashes the taskbar once, and it is judged by its latch**
+
+- `src/modules/terminal/lib/agentActivity.ts`: the shared flash rule takes the latch itself instead of a yes/no about whether there is one, and a wait answers to it rather than to the phase changing - the same measured ordering that the notification rule was fixed with, where the store writes the phase first and the latch in a following write. Telling one wait from the next, and acting on each exactly once, is left to the caller, which is the one that remembers the latch it has already acted on.
+- `src/app/hooks/useAgentAttentionFlash.ts`: the hook remembers the wait it has already flashed, so a session blocked for minutes flashes the taskbar button once rather than on every store write. Measured on this machine, mirroring the hook's own decision against the live store: one "a turn finished" and one "waiting" for a session that went quiet and then asked something - and no "waiting" at all before this change, which is what "the taskbar never flashed for a question" was.
+- `src/modules/notifications/lib/notificationRule.ts`: passes the new argument when it reads the shared rule for the "a turn finished" case.
+
 **A toast reads the question out of the card**
 
 - `src/modules/notifications/lib/attentions.ts`: the excerpt a waiting notification carries is the card's own question line rather than the last few rows joined together, and the user's own shell is no longer read as the agent's words. A card puts its question above its options, so joining the rows shipped the options, the key hints and the rule into the notification; and a card that has just been cleared leaves a shell prompt on screen, which the old excerpt quoted back as if the agent had said it. The first question in the bottom region wins, because what is printed under a card is what the user typed. Measured on this machine, reading the same pi card the tests are built from: the excerpt is `该删掉 a.txt 还是 b.txt？`.
@@ -25,7 +31,7 @@ swap in the new date, and drop the `open` from the day before.
 
 - `src/modules/notifications/lib/notificationRule.ts`: a wait is announced from the store's latch rather than from the phase changing. Measured while fixing it: the store writes the new phase first and the latch a moment later in a second write, so by the time a wait is knowable as "nobody has looked at this" its phase has already moved - a rule keyed on the phase changing missed every wait there is, and only the "a turn has finished" notification ever went out. On the machine now: a question asked in a session nobody is looking at puts a notification into Windows' own store under the app's identity, with the question itself as its body.
 - Corrected: that bug was in the tests too - one of them asserted that nothing is worth announcing when the phase has not changed, which is exactly the real case, so it pinned the defect instead of catching it.
-- Left alone deliberately: the taskbar flash rule has the same blind spot (it is called with the latch of the moment, and by then the phase has moved). Fixing it needs the same "one announcement per wait" memory the notification layer keeps, and it is its own change rather than a side effect of this one.
+- Corrected: this entry first said the taskbar flash's blind spot was being left alone. It is fixed in the entry above, in the same way and for the same measured reason.
 
 **The waiting dot is small and red**
 

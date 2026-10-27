@@ -306,17 +306,21 @@ export type AgentFlash = "ask" | "done" | null;
  *   silence: a turn waiting on a slow tool is silent for minutes without being finished.
  * - `attention` is a question an agent is waiting on, but only while the user has not
  *   looked at it. The store's latch is what says so, and a tab the user is on never
- *   latches: being on screen is being seen.
- * - Anything else, and anything unchanged, is not news.
+ *   latches: being on screen is being seen. It is judged by that latch rather than by the
+ *   phase changing, because the store writes the phase first and the latch a moment later
+ *   in a second write (measured): by the time a wait is knowable, its phase has already
+ *   moved, so a rule keyed on the phase changing misses every wait there is. Telling one
+ *   wait from the next, and telling each of them exactly once, is the caller's job - it is
+ *   the caller that remembers the latch it has already acted on.
  */
 export function flashForPhaseChange(
   previous: AgentPhase | undefined,
   phase: AgentPhase | undefined,
-  unseen: boolean,
+  unseenSinceMs: number | undefined,
 ): AgentFlash {
+  if (phase === "attention") return unseenSinceMs === undefined ? null : "ask";
   if (phase === previous) return null;
   if (phase === "finished") return "done";
-  if (phase === "attention" && unseen) return "ask";
   return null;
 }
 

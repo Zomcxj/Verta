@@ -40,7 +40,7 @@ export function noticeForPhaseChange(
     if (seen.sinceMs === undefined) return null;
     return seen.sinceMs === seen.announcedSinceMs ? null : "waiting";
   }
-  if (flashForPhaseChange(previous, phase, false) === "done") {
+  if (flashForPhaseChange(previous, phase, undefined) === "done") {
     return seen.foreground ? null : "done";
   }
   return null;

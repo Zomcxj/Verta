@@ -39,6 +39,8 @@ export function useAgentAttentionFlash({ enabled }: { enabled: boolean }): void 
     if (!enabled) return;
     /** The last phase seen for each pty, so a flash is a change and not a standing state. */
     const seen = new Map<number, AgentPhase | undefined>();
+    /** The wait already flashed for each pty, which is what tells one wait from the next. */
+    const announced = new Map<number, number | undefined>();
 
     const react = (announce: boolean) => {
       const state = useAgentActivityStore.getState();
@@ -48,16 +50,23 @@ export function useAgentAttentionFlash({ enabled }: { enabled: boolean }): void 
         const previous = seen.get(ptyId);
         seen.set(ptyId, phase);
         if (!announce) continue;
-        const attention = flashForPhaseChange(
-          previous,
-          phase,
-          state.unseen[ptyId] !== undefined,
-        );
-        if (attention) void flash(attention);
+        const sinceMs = state.unseen[ptyId];
+        const flashable = flashForPhaseChange(previous, phase, sinceMs);
+        if (!flashable) continue;
+        // One flash per wait: the latch stays set for as long as the agent is blocked, and
+        // the moment it started is what makes this wait this one rather than the next.
+        if (flashable === "ask") {
+          if (sinceMs === announced.get(ptyId)) continue;
+          announced.set(ptyId, sinceMs);
+        }
+        void flash(flashable);
       }
       // A pty that is gone cannot flash again: forget what was remembered about it.
       for (const ptyId of [...seen.keys()]) {
-        if (!(ptyId in state.agents)) seen.delete(ptyId);
+        if (!(ptyId in state.agents)) {
+          seen.delete(ptyId);
+          announced.delete(ptyId);
+        }
       }
     };
 

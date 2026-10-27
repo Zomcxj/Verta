@@ -141,23 +141,31 @@ describe("isLeafAgentBusy", () => {
 
 describe("flashForPhaseChange", () => {
   it("calls a stop after work done, and a question only while unseen", () => {
-    expect(flashForPhaseChange("working", "finished", false)).toBe("done");
-    expect(flashForPhaseChange("attention", "finished", false)).toBe("done");
-    expect(flashForPhaseChange("working", "attention", true)).toBe("ask");
-    expect(flashForPhaseChange("attention", "working", true)).toBe(null);
-    expect(flashForPhaseChange("finished", "idle", true)).toBe(null);
-    expect(flashForPhaseChange("working", "idle", false)).toBe(null);
+    expect(flashForPhaseChange("working", "finished", undefined)).toBe("done");
+    expect(flashForPhaseChange("attention", "finished", undefined)).toBe("done");
+    expect(flashForPhaseChange("working", "attention", 1_000)).toBe("ask");
+    expect(flashForPhaseChange("attention", "working", undefined)).toBe(null);
+    expect(flashForPhaseChange("finished", "idle", 1_000)).toBe(null);
+    expect(flashForPhaseChange("working", "idle", undefined)).toBe(null);
+  });
+
+  it("reads a wait from its latch, even when the phase itself has not moved", () => {
+    // Measured: the store writes the phase first and the latch in a following write, so by
+    // the time a wait is knowable its phase has already changed. A rule that waited for the
+    // phase to move would miss every wait there is; telling the waits apart, and acting on
+    // each of them once, is the caller's job.
+    expect(flashForPhaseChange("attention", "attention", 1_000)).toBe("ask");
   });
 
   it("does not flash for a state that has not changed", () => {
-    expect(flashForPhaseChange("working", "working", true)).toBe(null);
-    expect(flashForPhaseChange("finished", "finished", true)).toBe(null);
-    expect(flashForPhaseChange(undefined, undefined, true)).toBe(null);
+    expect(flashForPhaseChange("working", "working", undefined)).toBe(null);
+    expect(flashForPhaseChange("finished", "finished", undefined)).toBe(null);
+    expect(flashForPhaseChange(undefined, undefined, undefined)).toBe(null);
   });
 
   it("does not flag a wait the user is looking at", () => {
     // The tab on screen is the tab being read; only a wait elsewhere is worth a flash.
-    expect(flashForPhaseChange("working", "attention", false)).toBe(null);
+    expect(flashForPhaseChange("working", "attention", undefined)).toBe(null);
   });
 });
 
