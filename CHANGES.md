@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**A folder can be opened with an agent**
+
+- `src/modules/explorer/lib/agentActions.ts` (new): the entries a folder's menu offers for the agents it can be handed to, built from the supported-tools list rather than written out, so a third agent appears everywhere by being added there. The wording is the same key the local project row already says. A surface that cannot start a session gets no entries at all rather than entries that do nothing.
+
 **The launcher's grouping button names the mode rather than the verb**
 
 - `src/modules/i18n/messages.ts`: that button reads `agent` where it read `按 agent`, and `Agent` where it read `By agent`. It is a toggle that shows which of the two arrangements is in force, so what belongs on it is the arrangement's name.
