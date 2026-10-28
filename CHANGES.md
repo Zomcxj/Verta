@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**A window that can be seen keeps its indicators moving**
+
+- `src/styles/globals.css`: what stops a state indicator is being unseen, not being unfocused. `data-window-hidden` - the window hidden, minimized or fully occluded - stops them outright, which is what keeps a paused breath from freezing on its dimmest step and reading as no dot at all; a window that is merely unfocused keeps them running, because an indicator on screen while another window takes the typing is exactly the glance it exists for. Everything else in an unfocused window still pauses. A new `verta-marquee` keyframe and its class give the session list a highlight crossing a bar, repeated with the stepped timing the motion budget requires.
+- `src/styles/motionBudget.test.ts`: the two markers' rules pinned apart from each other, with the running light pinned as stepped and as stopped under reduced motion.
+
 **Nobody can see the window is its own answer, separate from the window having no focus**
 
 - `src/modules/theme/windowActivity.ts`: the window now publishes two markers where it published one. `data-window-inactive` keeps its meaning exactly - unfocused, hidden or occluded, and the switch every CSS animation pauses on - and `data-window-hidden` is new: nobody can see the window at all. The two are not the same answer to anything that reads them, because a window in front of the user with another window taking their typing is inactive but plainly seen. The narrower one is what the tray, the notifications and the set of leaves being looked at now ask. `src/modules/theme/WindowActivityBridge.tsx`: carries the hook for the new marker beside the hook for the old.

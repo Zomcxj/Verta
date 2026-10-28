@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 // Locks the animation-cost invariants documented in VERTA.md: nothing in the
-// global stylesheet animates forever at display rate, and an inactive window
-// pauses every CSS animation.
+// global stylesheet animates forever at display rate, and a window that cannot be
+// seen pauses every CSS animation. A window that is merely unfocused is a separate
+// question: everything still pauses there except the state indicators, which are
+// the thing being watched from across the desk.
 const css = readFileSync(new URL("./globals.css", import.meta.url), "utf8");
 
 /** Every declaration value that makes an animation repeat forever. */
@@ -45,11 +47,21 @@ describe("global motion budget", () => {
     expect(css).toMatch(
       /html\[data-window-inactive\] \[data-state="closed"\][^{]*\{[^}]*animation-play-state:\s*running\s*!important/,
     );
-    // And the state dots are stopped rather than paused. A paused breath sits on whatever step it
-    // reached, which can be the dimmest one - a third opacity, which on a tab chip reads as no dot
-    // at all. Measured: with the window unfocused every dot sat at 0.35 and reported `paused`.
+    // Unseen stops the indicators outright rather than pausing them: a paused breath sits on
+    // whatever step it reached, which can be the dimmest one - a third opacity, which on a tab chip
+    // reads as no dot at all. Measured: with the window unfocused every dot sat at 0.35 and reported
+    // `paused`, which is what made stopping them outright the fix.
     expect(css).toMatch(
-      /html\[data-window-inactive\] \.verta-state-breathe[^{]*\{[^}]*animation:\s*none\s*!important/,
+      /html\[data-window-hidden\] \.verta-state-indicator[^{]*\{[^}]*animation:\s*none\s*!important/,
+    );
+    // Merely unfocused is not unseen, though: an indicator the user can still glance at keeps
+    // moving, which is the whole reason it exists. Everything else in that window stays paused.
+    expect(css).toMatch(
+      /html\[data-window-inactive\]:not\(\[data-window-hidden\]\) \.verta-state-indicator[^{]*\{[^}]*animation-play-state:\s*running\s*!important/,
+    );
+    // The running light repeats forever like the breath, so it is stepped too.
+    expect(css).toMatch(
+      /\.verta-state-marquee[^{]*\{[^}]*animation:\s*verta-marquee[^;]*steps\(/,
     );
   });
 
@@ -60,10 +72,10 @@ describe("global motion budget", () => {
   });
 
   it("breathes the state dots with stepped timing", () => {
-    // The three dots on a session breathe so a state reads from across a window. A forever-running
+    // The dots on a session breathe so a state reads from across a window. A forever-running
     // animation is only allowed stepped (above), which is what keeps it a slow breath rather than
-    // a smooth fade's worth of frames; and it stops entirely while the window is not being looked
-    // at, which is the rule right below.
+    // a smooth fade's worth of frames; and it stops outright while the window cannot be seen, which
+    // is the rule above.
     const rule = css.match(/\.verta-state-breathe\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(rule).toMatch(/animation:\s*verta-state-breathe[^;]*steps\(/);
     expect(rule).toMatch(/infinite/);
@@ -73,5 +85,8 @@ describe("global motion budget", () => {
     const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion"));
     expect(reduced).toMatch(/\.verta-shimmer\s*\{[^}]*animation:\s*none/);
     expect(reduced).toMatch(/\.verta-blink[^{]*\{[^}]*animation:\s*none/);
+    expect(reduced).toMatch(
+      /\.verta-state-marquee[^{]*\{[^}]*animation:\s*none/,
+    );
   });
 });
