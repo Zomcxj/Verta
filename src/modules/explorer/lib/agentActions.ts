@@ -1,6 +1,8 @@
 import type { MessageKey } from "@/modules/i18n/messages";
 import type { AgentTool } from "@/modules/launcher/lib/types";
 import { AGENT_TOOLS } from "@/modules/launcher/lib/tools";
+import { basename } from "@/modules/projects/lib/paths";
+import { envForPath, type WorkspaceEnv } from "@/modules/workspace";
 
 /**
  * One agent, as an entry in a folder's menu.
@@ -34,4 +36,31 @@ export function agentOpenActions(
     label: t("projects.action.openWith", { tool }),
     onSelect: () => open(tool),
   }));
+}
+
+/** Where a session started on a folder runs, and what it is called. */
+export type FolderSessionTarget = {
+  cwd: string;
+  title: string;
+  workspace: WorkspaceEnv;
+};
+
+/**
+ * The session a folder turns into: the folder itself as its directory, its own name as the title,
+ * and the env to start it in.
+ *
+ * The folder decides the env rather than the window, because the two can disagree for an instant
+ * while a workspace switch lands, and starting an agent on the wrong side of the boundary gives it
+ * a directory it cannot see. A path that cannot say which it is keeps the window's answer, which is
+ * what that helper does and what keeps a Linux path off the local filesystem.
+ */
+export function folderSessionTarget(
+  path: string,
+  previous: WorkspaceEnv,
+): FolderSessionTarget {
+  return {
+    cwd: path,
+    title: basename(path),
+    workspace: envForPath(path, previous),
+  };
 }

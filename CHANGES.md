@@ -21,6 +21,7 @@ swap in the new date, and drop the `open` from the day before.
 
 - `src/modules/explorer/lib/agentActions.ts` (new): the entries a folder's menu offers for the agents it can be handed to, built from the supported-tools list rather than written out, so a third agent appears everywhere by being added there. The wording is the same key the local project row already says. A surface that cannot start a session gets no entries at all rather than entries that do nothing.
 - `src/modules/explorer/FileExplorer.tsx`: right-clicking a folder offers those agents as one row of icons at the top of its menu, which is the shape the local project row already offers them in and the same table behind both, so the two cannot drift apart. A file gets none: an agent's session is a project directory, and a file has nothing to hand it. A surface with no way to start a session draws nothing here.
+- `src/app/App.tsx`: picking one starts a session whose directory is that folder and whose title is its own name, in that folder's own env, by the same command path the local project row sends - so a folder in WSL starts its agent in its distro rather than on the local filesystem, and a path that cannot say which it is keeps the window's own answer. There is no second way to start an agent that would have to be kept in step with the first.
 
 **The launcher's grouping button names the mode rather than the verb**
 

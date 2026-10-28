@@ -46,6 +46,7 @@ import {
   type ProjectEntry,
 } from "@/modules/projects";
 import { newSessionCommand } from "@/modules/launcher/lib/resumeCommand";
+import { folderSessionTarget } from "@/modules/explorer/lib/agentActions";
 import { screenShowsLaunchLine } from "@/modules/terminal/lib/launchLine";
 import type { AgentTool } from "@/modules/launcher";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -860,6 +861,38 @@ export default function App() {
     [newAgentTab, showSessionOpening, hideSessionOpening],
   );
 
+  /**
+   * "Open with {agent}" on a folder in the file tree: a session of that agent, run in that folder.
+   *
+   * The folder is the whole of it - an agent's unit of work is a project directory, not a file in
+   * one - so the path becomes the session's directory and its own name becomes the title, and the
+   * command is the same one the project row sends. There is no second way to start an agent here,
+   * so there is no second thing to keep in step with it.
+   */
+  const handleNewFolderSession = useCallback(
+    (path: string, tool: AgentTool) => {
+      const { cwd, title, workspace } = folderSessionTarget(path, workspaceEnv);
+      const distro = workspace.kind === "wsl" ? workspace.distro : null;
+      const command = newSessionCommand(tool, distro);
+      const { leafId } = newAgentTab(cwd, title, workspace, tool);
+      const opening = showSessionOpening(leafId);
+      void (async () => {
+        await whenSessionReady(leafId);
+        const baseBytes = leafOutputBytes(leafId);
+        if (!writeToSession(leafId, `${command}\r`)) {
+          console.error(
+            `[verta] terminal ${leafId} closed before starting ${tool}`,
+          );
+          hideSessionOpening(opening);
+          return;
+        }
+        await waitForAgentUi(leafId, baseBytes, command);
+        hideSessionOpening(opening);
+      })();
+    },
+    [newAgentTab, showSessionOpening, hideSessionOpening, workspaceEnv],
+  );
+
   /** "Open in terminal" on a project row: just opens a plain terminal tab there. */
   const handleOpenProjectTerminal = useCallback(
     (entry: ProjectEntry) => {
@@ -1662,6 +1695,7 @@ export default function App() {
                           onPathsDeleted={handlePathsDeleted}
                           canReplacePath={canReplaceExplorerPath}
                           onRevealInTerminal={cdInNewTab}
+                          onOpenWithAgent={handleNewFolderSession}
                           onOpenInSourceControl={
                             handleOpenRepositoryInSourceControl
                           }
