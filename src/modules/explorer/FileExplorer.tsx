@@ -44,6 +44,7 @@ import {
   relativePath,
   revealInFinder,
 } from "./lib/contextActions";
+import { agentOpenActions } from "./lib/agentActions";
 import { FileIcon, FolderIcon } from "./FileIcon";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
@@ -56,6 +57,8 @@ import {
   reportCopyFailures,
 } from "./lib/clipboardPaste";
 import { useWorkspaceEnvStore } from "@/modules/workspace";
+import { AgentIcon } from "@/modules/launcher/lib/agentIcon";
+import type { AgentTool } from "@/modules/launcher/lib/types";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
 import { useExplorerDnd } from "./lib/useExplorerDnd";
 import { useExplorerFileDrop } from "./lib/useExplorerFileDrop";
@@ -84,6 +87,11 @@ type Props = {
   onOpenInSourceControl?: (path: string) => void;
   onOpenGitHistory?: (path: string) => void;
   onAttachToAgent?: (path: string) => void;
+  /**
+   * Start a session with an agent in a folder, with that folder as its directory. Left out, the
+   * menu draws no such entries at all - a surface with no way to start one offers none.
+   */
+  onOpenWithAgent?: (path: string, tool: AgentTool) => void;
   pathDropTarget?: TerminalPathDropTarget;
   gitStatus?: GitStatusSnapshot | null;
   /**
@@ -228,6 +236,7 @@ export const FileExplorer = memo(
       onOpenInSourceControl,
       onOpenGitHistory,
       onAttachToAgent,
+      onOpenWithAgent,
       pathDropTarget,
       gitStatus,
       visible = true,
@@ -328,6 +337,19 @@ export const FileExplorer = memo(
     // re-anchors to the new cursor (floating-ui won't reposition on an anchor
     // change alone, only on scroll/resize).
     const [menuNonce, setMenuNonce] = useState(0);
+
+    // The agents this folder can be handed to. Built here rather than inside the menu so the
+    // separator under them is drawn only when there are any, and so anything that is not a folder
+    // gets none: an agent opens a project directory, so a file has nothing to hand it.
+    const agentEntries = useMemo(() => {
+      if (!menuTarget?.isDir) return [];
+      return agentOpenActions(
+        t,
+        onOpenWithAgent
+          ? (tool: AgentTool) => onOpenWithAgent(menuTarget.path, tool)
+          : undefined,
+      );
+    }, [menuTarget, onOpenWithAgent, t]);
 
     const entryPaths = useMemo<string[]>(() => {
       const out: string[] = [];
@@ -933,6 +955,27 @@ export const FileExplorer = memo(
                 </ContextMenuItem>
               ) : menuTarget ? (
                 <>
+                  {/* The agents first, as one row of icons: the same shape the local project row
+                      offers them in and built from the same table, so the two surfaces cannot
+                      drift apart. Only for a folder - an agent's session is a project directory. */}
+                  {agentEntries.length > 0 ? (
+                    <>
+                      <div className="flex items-center gap-1 px-1 py-1">
+                        {agentEntries.map((action) => (
+                          <ContextMenuItem
+                            key={action.tool}
+                            onSelect={action.onSelect}
+                            title={action.label}
+                            aria-label={action.label}
+                            className="justify-center px-2"
+                          >
+                            <AgentIcon agent={action.tool} size={14} />
+                          </ContextMenuItem>
+                        ))}
+                      </div>
+                      <ContextMenuSeparator />
+                    </>
+                  ) : null}
                   {!menuTarget.isDir && (
                     <ContextMenuItem
                       className={COMPACT_ITEM}
