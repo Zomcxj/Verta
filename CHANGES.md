@@ -17,6 +17,13 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**One broken component no longer takes the window with it**
+
+- `src/app/components/AppErrorBoundary.tsx` (new): the application is mounted inside a boundary. React unmounts the whole tree when a render, a commit or a passive effect throws and nothing above it catches - which is what left a window with an empty screen, nothing but the native material behind the interface, and no way to tell what had happened. The panel is plain on purpose: it reads the current language, but it loads nothing and holds nothing that could throw in turn, and the reload is the user's move rather than its own, because a reload stops whatever is running in a terminal.
+- `src/app/components/appErrorFallback.ts` (new): turning whatever was thrown into the line the panel shows. A component usually throws an `Error`, but a rejected promise can carry a string and code can throw anything at all, so the panel cannot assume; an error with no message is shown by its name rather than as a blank line.
+- `src/main.tsx`: wraps the application in it. `src/modules/i18n/messages.ts`: what the panel says, in both languages.
+- `src/app/components/appErrorFallback.test.ts`, `src/app/components/appErrorBoundary.wiring.test.ts` (new): the first pins what the panel says about each kind of thrown value; the second pins the wiring - read as text, the way the motion budget test reads the stylesheet - since nothing here renders a component.
+
 **Nothing subscribes to a terminal model that is already gone**
 
 - `src/modules/terminal/ghostty/modelLiveness.ts` (new): one answer to whether a model is still worth holding on to. No model at all is not live, a model that says it has been disposed is not live, and a model that cannot answer the question is treated as live - the one place where guessing wrong has to fail towards the terminal still working.
