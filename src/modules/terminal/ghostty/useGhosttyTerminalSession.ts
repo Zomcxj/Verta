@@ -528,17 +528,55 @@ export async function ghosttyLeafHasForegroundProcess(
   }
 }
 
+/**
+ * The parts of a session that let go of their resources when it ends.
+ *
+ * Written out structurally rather than as the session type: this is the piece worth testing on its
+ * own, and a real session cannot be built without a WebAssembly core and a GPU surface, neither of
+ * which changes what has to happen here.
+ */
+type GhosttySessionResources = {
+  leafId: number;
+  input: { dispose(): void } | null;
+  surface: { dispose(): void } | null;
+  model: { dispose(): void } | null;
+  ptyResize: { reset(): void };
+  writer: { dispose(): void };
+  callbacks: Callbacks;
+};
+
+/**
+ * Hands back everything one session holds, and tells the surface that was drawing it.
+ *
+ * The telling is the half that matters. The model is handed to React once and held there, so a
+ * session that disposes it without saying so leaves the interface holding a dead object - and the
+ * accessible output, which watches the model to know when the screen changed, subscribes to
+ * something that refuses it, throws from a passive effect, and takes the whole window down with it,
+ * because there is nothing above the application to catch it. Measured: that is exactly how a
+ * right-click on a folder ended with an empty window and a bare acrylic backplate. Both other paths
+ * that dispose a model already say so; this one did not.
+ */
+export function disposeGhosttySessionResources(
+  session: GhosttySessionResources,
+): void {
+  session.input?.dispose();
+  session.input = null;
+  session.surface?.dispose();
+  session.surface = null;
+  disposeGhosttyBlocks(session.leafId);
+  session.model?.dispose();
+  session.model = null;
+  session.callbacks.onModel?.(null);
+  session.ptyResize.reset();
+  session.writer.dispose();
+}
+
 export function disposeGhosttySession(leafId: number): boolean {
   const session = sessions.get(leafId);
   if (!session) return false;
   session.disposed = true;
   session.generation += 1;
-  session.input?.dispose();
-  session.surface?.dispose();
-  disposeGhosttyBlocks(leafId);
-  session.model?.dispose();
-  session.ptyResize.reset();
-  session.writer.dispose();
+  disposeGhosttySessionResources(session);
   void session.pty?.close();
   session.pty = null;
   sessions.delete(leafId);

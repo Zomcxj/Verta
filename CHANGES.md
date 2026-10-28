@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**A disposed session tells the interface its model is gone**
+
+- `src/modules/terminal/ghostty/useGhosttyTerminalSession.ts`: handing back a session's resources now also tells the surface that was drawing it that the model is gone, which the other two paths that dispose a model already did. Without it the interface went on holding a dead model - the accessible output subscribed to it to hear about screen changes, the subscription refuses a dead model, and the throw, out of a passive effect with nothing above it to catch it, unmounted the entire application. Measured on the installed build as a window left with an empty screen and nothing but the acrylic material showing through, with the error still readable in the browser's own log.
+- `src/modules/terminal/ghostty/disposeSessionResources.test.ts` (new): that the teardown hands back each part and says so, and that it holds up for a session that never got as far as having a model or a surface.
+
 **A probe: what a folder's context menu offers**
 
 - `scripts/dev/probes/explorer-agent-menu.mjs` (new): right-clicks a row in the file tree for real - a synthesized `contextmenu` is not what a menu listens for - and reads the menu that was actually drawn, item by item. It tests a folder and a file on purpose, and it takes each row's kind from the filesystem rather than from the interface, so the two halves of the requirement are checked by independent readings. `--open=<tool>` goes on to click an entry and report the tab it started.
