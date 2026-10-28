@@ -1,6 +1,7 @@
 import { useT } from "@/modules/i18n";
 import { changedTerminalText } from "@/modules/terminal/ghostty/core/accessibleTerminalText";
 import type { GhosttyTerminalModelApi } from "@/modules/terminal/ghostty/GhosttyTerminalModel";
+import { isModelLive } from "@/modules/terminal/ghostty/modelLiveness";
 import { subscribeWindowPresentation } from "@/modules/terminal/ghostty/windowPresentation";
 import { useEffect, useEffectEvent, useState } from "react";
 
@@ -26,12 +27,16 @@ export default function TerminalAccessibleOutput({
   }, [focused]);
   useEffect(() => {
     if (!visible) return;
+    // Asked before anything is subscribed, not after: a model that is already gone refuses the
+    // subscription by throwing, and the throw lands in an effect - which is how a window that had
+    // nothing above it to catch it ended up with an empty screen and the acrylic showing through.
+    if (!isModelLive(model)) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let presented = false;
     let previous = "";
     const update = () => {
       timer = null;
-      if (!presented || model.isDisposed?.()) return;
+      if (!presented || !isModelLive(model)) return;
       const start = model.viewportOriginLine();
       const next =
         model

@@ -19,6 +19,7 @@ import {
   useGhosttyTerminalSession,
   ghosttyBlockGeometry,
 } from "./ghostty/useGhosttyTerminalSession";
+import { isModelLive } from "./ghostty/modelLiveness";
 import { ghosttyBlocks } from "./ghostty/ghosttyBlockSessions";
 
 export type TerminalPaneHandle = {
@@ -174,7 +175,7 @@ const GhosttyTerminalPane = memo(
         <Suspense fallback={null}>
           <GhosttyImageOverlay leafId={leafId} />
         </Suspense>
-        {screenReader && session.model && (
+        {screenReader && session.model && isModelLive(session.model) && (
           <Suspense fallback={null}>
             <TerminalAccessibleOutput
               model={session.model}

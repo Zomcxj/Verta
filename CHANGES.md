@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**Nothing subscribes to a terminal model that is already gone**
+
+- `src/modules/terminal/ghostty/modelLiveness.ts` (new): one answer to whether a model is still worth holding on to. No model at all is not live, a model that says it has been disposed is not live, and a model that cannot answer the question is treated as live - the one place where guessing wrong has to fail towards the terminal still working.
+- `src/modules/terminal/ghostty/TerminalAccessibleOutput.tsx`, `src/modules/terminal/TerminalPane.tsx`: that question is asked before the model is subscribed to, and before it is drawn from at all, so a session that let go of its model between a render and an effect cannot throw out of that effect. The same question replaces the check the accessible output already made while updating its text, so one file asks it one way.
+
 **A disposed session tells the interface its model is gone**
 
 - `src/modules/terminal/ghostty/useGhosttyTerminalSession.ts`: handing back a session's resources now also tells the surface that was drawing it that the model is gone, which the other two paths that dispose a model already did. Without it the interface went on holding a dead model - the accessible output subscribed to it to hear about screen changes, the subscription refuses a dead model, and the throw, out of a passive effect with nothing above it to catch it, unmounted the entire application. Measured on the installed build as a window left with an empty screen and nothing but the acrylic material showing through, with the error still readable in the browser's own log.
