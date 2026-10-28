@@ -57,6 +57,23 @@ describe("judgeTail", () => {
     expect(blocked.entry.state).toBe("blocked");
   });
 
+  it("does not call a question that stops a finished turn", () => {
+    // A card leaves the screen because the user answered it, dismissed it, or the agent took the
+    // screen back; a question is not a turn, so its going quiet is rest rather than an ending.
+    // Measured on the installed build, an ending here put a second "a turn finished" notice into
+    // Windows' store for one turn - one for the card leaving, one for the turn, eleven seconds
+    // apart - while the same command on a terminal with no card put exactly one.
+    const blocked = judgeTail(first(OPENCODE_WORKING).entry, OPENCODE_BLOCKED, 2_000);
+    if (blocked.kind !== "report") throw new Error("report");
+    const firstIdle = judgeTail(blocked.entry, OPENCODE_IDLE, 3_000);
+    expect(firstIdle.kind).toBe("quiet");
+    if (firstIdle.kind !== "quiet") return;
+    const idle = judgeTail(firstIdle.entry, OPENCODE_IDLE, 3_000 + IDLE_SETTLE_MS);
+    expect(idle.kind).toBe("report");
+    if (idle.kind !== "report") return;
+    expect(kinds(idle.signals)).toEqual(["idle"]);
+  });
+
   it("marks a finished turn, which the store shows as done before idle", () => {
     const working = first(OPENCODE_WORKING);
     // The idle screen has to be believed before it is reported (see `IDLE_SETTLE_MS`), so the
@@ -123,6 +140,20 @@ describe("an agent that leaves the screen", () => {
       lostSince: null,
       idleSince: null,
     });
+  });
+
+  it("reports rest, not finished, when what left was a question", () => {
+    // Same reasoning as the settled case: the app is being told a card is no longer on the screen,
+    // not that a turn ended. Reported as `idle` so nothing is latched and nothing is announced.
+    const blocked = judgeTail(working, OPENCODE_BLOCKED, 5_000);
+    if (blocked.kind !== "report") throw new Error("report");
+    const firstMiss = judgeTail(blocked.entry, SHELL_PROMPT, 6_000);
+    if (firstMiss.kind !== "quiet") throw new Error("quiet");
+    const gone = judgeTail(firstMiss.entry, SHELL_PROMPT, 6_000 + AGENT_GONE_MS);
+    expect(gone.kind).toBe("report");
+    if (gone.kind !== "report") return;
+    expect(kinds(gone.signals)).toEqual(["idle"]);
+    expect(gone.entry.tool).toBeNull();
   });
 
   it("clears the grace period as soon as the agent is back", () => {

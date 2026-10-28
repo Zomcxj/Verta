@@ -97,6 +97,13 @@ export type JudgeOutcome =
  * `blocked` is the store's `attention` and `working` is `working`; `idle` becomes
  * the transient `finished` when the agent was busy a moment ago, which is what the
  * store turns into a short "done" mark before settling on idle.
+ *
+ * A question is not a turn, so an idle screen that follows one is rest rather than
+ * an ending: the card left because the user answered it, because they dismissed it,
+ * or because the agent took the screen back. Measured on the installed build, one
+ * turn put two "a turn finished" notices into Windows' store that way - one for the
+ * card leaving and one for the turn, eleven seconds apart - and the same command run
+ * against a terminal with no card on it put exactly one.
  */
 function signalKindFor(
   state: AgentState,
@@ -104,7 +111,7 @@ function signalKindFor(
 ): AgentSignal["kind"] {
   if (state === "working") return "working";
   if (state === "blocked") return "attention";
-  if (previous === "working" || previous === "blocked") return "finished";
+  if (previous === "working") return "finished";
   return "idle";
 }
 
@@ -198,6 +205,11 @@ function judgeWithoutAgent(previous: JudgeEntry, nowMs: number): JudgeOutcome {
   if (previous.state === "idle") {
     // Already reported as finished; only the bookkeeping changes.
     return { kind: "quiet", entry };
+  }
+  if (previous.state === "blocked") {
+    // What left the screen was a question, and a question is not a turn: reported as rest, so
+    // nothing is latched and no notification follows. See `signalKindFor` for the measurement.
+    return { kind: "report", entry, signals: [{ id: previous.id, kind: "idle" }] };
   }
   return { kind: "report", entry, signals: [{ id: previous.id, kind: "finished" }] };
 }
