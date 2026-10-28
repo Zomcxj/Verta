@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef } from "react";
 import { useAgentActivityStore } from "@/modules/terminal/lib/agentActivity";
-import { useWindowInactive } from "@/modules/theme/WindowActivityBridge";
+import { useWindowHidden } from "@/modules/theme/WindowActivityBridge";
 
 /** What the tray icon's corner says, or nothing at all. */
 export type TrayDot = "asking" | "finished";
@@ -9,13 +9,17 @@ export type TrayDot = "asking" | "finished";
 /**
  * The dot on the tray icon, and which of the two colours it carries.
  *
- * The tray is what keeps this app reachable while its window is out of the way, so the dot is the
+ * The tray is what keeps this app reachable while its window is closed into it, so the dot is the
  * one signal that works then, and it is read from the two latches rather than from the phases: a
  * question nobody has looked at, and a turn that ended while nobody was there. Both are cleared by
  * looking - which is what clicking the tray does - so the icon goes quiet the moment the window is
- * in front again, and it says nothing at all the rest of the time: an agent that has just been
- * opened, or one that has been sitting at its prompt, or one whose turn is in flight, is not news
- * about the user.
+ * up again, and it says nothing at all the rest of the time: an agent that has just been opened, or
+ * one that has been sitting at its prompt, or one whose turn is in flight, is not news about the
+ * user.
+ *
+ * "Nobody was there" is the window being unseen, not the window being unfocused. A user typing in
+ * another window with this one in front of them can see it: a turn that ends on a tab they are not
+ * on is drawn on that tab, and the icon has nothing to add.
  *
  * A question outranks an ending, because only one of the two is waiting for an answer.
  *
@@ -23,13 +27,13 @@ export type TrayDot = "asking" | "finished";
  * would be a repaint on every judge tick. Turning the switch off takes the dot with it.
  */
 export function useTrayStateDot({ enabled }: { enabled: boolean }): void {
-  const windowInactive = useWindowInactive();
+  const windowHidden = useWindowHidden();
   /**
    * What is painted on the icon right now, and what was already waiting the last time the window
-   * was being looked at.
+   * could be seen.
    *
-   * Both have to outlive the effect, because the effect re-runs whenever the window is looked at
-   * or looked away from, and a value kept inside it starts from scratch each time. Measured on the
+   * Both have to outlive the effect, because the effect re-runs whenever the window is seen or
+   * stops being seen, and a value kept inside it starts from scratch each time. Measured on the
    * installed build: the dot stayed green for as long as the app was open - coming back to the
    * window recomputed `null` and compared it against a freshly reset `null`, so the call that
    * would have taken the dot off was never made, and the Rust side went on painting the last
@@ -54,7 +58,7 @@ export function useTrayStateDot({ enabled }: { enabled: boolean }): void {
       unseenDone: Record<number, number>;
     }) => {
       let dot: TrayDot | null = null;
-      if (windowInactive) {
+      if (windowHidden) {
         dot = trayDotFor(state, knownRef.current);
       } else {
         knownRef.current = latchedKeys(state);
@@ -64,7 +68,7 @@ export function useTrayStateDot({ enabled }: { enabled: boolean }): void {
     };
     apply(useAgentActivityStore.getState());
     return useAgentActivityStore.subscribe((state) => apply(state));
-  }, [enabled, windowInactive]);
+  }, [enabled, windowHidden]);
 }
 
 /**
@@ -92,8 +96,14 @@ export function trayDotFor(
   return null;
 }
 
-/** The sessions with something waiting on the user's attention, from either latch. */
-function latchedKeys(state: {
+/**
+ * The sessions with something waiting on the user's attention, from either latch.
+ *
+ * This is the snapshot the hook takes while the window can be seen, and it is the whole of what
+ * makes "news" mean news: whatever is already waiting when the window is up is not something the
+ * icon should announce when the window goes down.
+ */
+export function latchedKeys(state: {
   unseen: Record<number, number>;
   unseenDone: Record<number, number>;
 }): Set<number> {

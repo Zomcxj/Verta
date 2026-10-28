@@ -114,7 +114,7 @@ import {
   WindowActivityBridge,
   WindowVibrancyBridge,
 } from "@/modules/theme";
-import { useWindowInactive } from "@/modules/theme/WindowActivityBridge";
+import { useWindowHidden } from "@/modules/theme/WindowActivityBridge";
 import { UpdaterDialog } from "@/modules/updater";
 import {
   envForRoot,
@@ -589,19 +589,20 @@ export default function App() {
   // notification layers read. Kept here rather than in the judge, because only the
   // app knows which tab is active, and the judge reads it every tick anyway.
   //
-  // The window has to be in front for any of it to count: a window hidden in the tray,
-  // unfocused or behind another one shows the user nothing, so being on that tab is not being
-  // seen. Without this, a question asked while the window was in the tray went unflagged
-  // whenever the user had left the agent's own tab in front.
-  const windowInactive = useWindowInactive();
+  // The window has to be unseen for any of it to stop counting: a window closed into the tray,
+  // minimized or behind another one shows the user nothing, so being on that tab is not being
+  // seen. A window that is merely unfocused is not that - the user can still see it, and the
+  // markers on it are how they see what happened. Without this, a question asked while the window
+  // was in the tray went unflagged whenever the user had left the agent's own tab in front.
+  const windowHidden = useWindowHidden();
   useEffect(() => {
     const tab = tabs.find((t) => t.id === activeId);
     useAgentActivityStore
       .getState()
       .setForegroundLeaves(
-        tab?.kind === "terminal" && !windowInactive ? leafIds(tab.paneTree) : [],
+        tab?.kind === "terminal" && !windowHidden ? leafIds(tab.paneTree) : [],
       );
-  }, [activeId, tabs, windowInactive]);
+  }, [activeId, tabs, windowHidden]);
 
   // Most-recently-used tab ids, most recent first, pruned to live tabs. Drives
   // the Ctrl+Tab quick switcher so it cycles by recency, not strip order.

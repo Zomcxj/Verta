@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**Only a window nobody can see counts as the user being away**
+
+- `src/app/App.tsx`: the set of leaves being looked at is emptied when the window cannot be seen, rather than when it has no focus. A window in front of the user with another window taking their typing is one they can see, so a turn ending on another tab is drawn on that tab, and it is not news. This corrects what the same day settled earlier, where the two questions were read as one - reported from the running app as the tray lighting up for a turn that ended while the user was typing elsewhere with the window in front of them.
+- `src/app/hooks/useTrayStateDot.ts`: the icon's dot asks the narrower question too, so the icon says nothing about what was on screen while the window was up. The notifications and the taskbar flash take their answer from the set of leaves being looked at and so follow it without a line of their own - worth writing down, because the next reader will look for them here.
+- `src/app/hooks/useTrayStateDot.test.ts`: the snapshot of what is already waiting, which is what makes news mean news, and the two questions pinned apart where this repository can pin them - as text, the way the motion budget test reads the stylesheet, since nothing here renders a component.
+
 **The session list marks a state with a running light**
 
 - `src/modules/launcher/components/SessionList.tsx`: a row draws a bar with a highlight crossing it in the state's own colour, instead of the dot the tab strip draws, and only where there is an agent. At a row's weight a bar reads from across the window where a six-pixel dot does not, which is what a list of sessions is for.
