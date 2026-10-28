@@ -24,9 +24,15 @@ const port = arg("port") ?? "9222";
 // debugger happens to list first, and a probe that thinks it is reading the strip reads a
 // settings page with no strip on it instead.
 const match = arg("match");
-const isTarget = (t) =>
-  t.type === "page" &&
-  (match === null ? t.url.endsWith("1420/") : t.url.includes(match));
+const isTarget = (t) => {
+  if (t.type !== "page") return false;
+  if (match === null) return t.url.endsWith("1420/");
+  // A match that ends in a slash names a window exactly - `tauri.localhost/` is the app's own
+  // window and `tauri.localhost/settings.html` is the settings window, and a substring test picks
+  // whichever the debugger happens to list first. Anything else stays a substring, so a partial
+  // name like `settings.html` still finds its window.
+  return match.endsWith("/") ? t.url.endsWith(match) : t.url.includes(match);
+};
 const fromFile = process.argv.includes("--file");
 const body = fromFile
   ? readFileSync(process.argv[2], "utf8")

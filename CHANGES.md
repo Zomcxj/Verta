@@ -15,6 +15,15 @@ swap in the new date, and drop the `open` from the day before.
 ---
 
 <details open>
+<summary><strong>2026-10-28</strong></summary>
+
+**A window is named exactly, not by substring**
+
+- `scripts/dev/probes/eval.mjs`: a `--match` that ends in a slash names a window exactly rather than matching a substring of its URL. The installed build keeps two windows alive at once - the app's own and the settings page - and a probe that names one of them as a substring reads whichever of the two the debugger happens to list first: measured, a probe that thought it was reading the state dots was reading the settings page, which has no strip on it at all. Partial names still match as substrings, so the settings window is still found by the part of its name it was found by before.
+
+</details>
+
+<details>
 <summary><strong>2026-10-27</strong></summary>
 
 **The tray dot comes off when the window is looked at**
