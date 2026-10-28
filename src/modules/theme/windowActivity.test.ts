@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  getWindowHidden,
   getWindowInactive,
   installWindowActivity,
+  isWindowHidden,
   isWindowInactive,
+  subscribeWindowHidden,
   subscribeWindowInactive,
+  WINDOW_HIDDEN_ATTR,
   WINDOW_INACTIVE_ATTR,
 } from "./windowActivity";
 
@@ -79,6 +83,29 @@ describe("isWindowInactive", () => {
   });
 });
 
+describe("isWindowHidden", () => {
+  it("calls a window hidden when nobody can see it, focused or not", () => {
+    // Unseen is the page being hidden, the native feed reporting occlusion, sleep or the window
+    // having been sent to the tray. Focus is not part of it: a window someone is looking at has to
+    // count as seen even while another window is taking their typing.
+    expect(
+      isWindowHidden({ documentVisible: false, presentationVisible: true }),
+    ).toBe(true);
+    expect(
+      isWindowHidden({ documentVisible: true, presentationVisible: false }),
+    ).toBe(true);
+    expect(
+      isWindowHidden({ documentVisible: true, presentationVisible: true }),
+    ).toBe(false);
+  });
+
+  it("leaves inactive as it was: unfocused but visible is inactive, not hidden", () => {
+    const seen = { documentVisible: true, presentationVisible: true };
+    expect(isWindowInactive({ ...seen, focused: false })).toBe(true);
+    expect(isWindowHidden(seen)).toBe(false);
+  });
+});
+
 describe("installWindowActivity", () => {
   it("starts active without an inactive marker", () => {
     const env = fakeEnv();
@@ -127,6 +154,43 @@ describe("installWindowActivity", () => {
     expect(env.attrs.has(WINDOW_INACTIVE_ATTR)).toBe(true);
     env.setPresentation(true);
     expect(env.attrs.has(WINDOW_INACTIVE_ATTR)).toBe(false);
+  });
+
+  it("marks being unseen separately from being unfocused", () => {
+    const env = fakeEnv();
+    dispose = installWindowActivity(env.sources);
+    // Unfocused, still on screen: only the pause marker goes up.
+    env.setFocus(false);
+    expect(env.attrs.has(WINDOW_INACTIVE_ATTR)).toBe(true);
+    expect(env.attrs.has(WINDOW_HIDDEN_ATTR)).toBe(false);
+    expect(getWindowHidden()).toBe(false);
+    // Then the native feed says nobody can see it: both markers.
+    env.setPresentation(false);
+    expect(env.attrs.has(WINDOW_HIDDEN_ATTR)).toBe(true);
+    expect(getWindowHidden()).toBe(true);
+    // Seen again, and back to focused: both markers gone.
+    env.setPresentation(true);
+    expect(env.attrs.has(WINDOW_HIDDEN_ATTR)).toBe(false);
+    env.setFocus(true);
+    expect(env.attrs.has(WINDOW_INACTIVE_ATTR)).toBe(false);
+  });
+
+  it("tells the unseen listeners only about real transitions", () => {
+    const env = fakeEnv();
+    dispose = installWindowActivity(env.sources);
+    const listener = vi.fn();
+    const off = subscribeWindowHidden(listener);
+    env.setFocus(false);
+    env.setPresentation(false);
+    env.setVisibility("hidden");
+    // One transition into unseen, however many inputs agree.
+    expect(listener).toHaveBeenCalledTimes(1);
+    env.setPresentation(true);
+    env.setVisibility("visible");
+    expect(listener).toHaveBeenCalledTimes(2);
+    off();
+    env.setPresentation(false);
+    expect(listener).toHaveBeenCalledTimes(2);
   });
 
   it("notifies subscribers only on real transitions", () => {

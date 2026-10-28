@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**Nobody can see the window is its own answer, separate from the window having no focus**
+
+- `src/modules/theme/windowActivity.ts`: the window now publishes two markers where it published one. `data-window-inactive` keeps its meaning exactly - unfocused, hidden or occluded, and the switch every CSS animation pauses on - and `data-window-hidden` is new: nobody can see the window at all. The two are not the same answer to anything that reads them, because a window in front of the user with another window taking their typing is inactive but plainly seen. The narrower one is what the tray, the notifications and the set of leaves being looked at now ask. `src/modules/theme/WindowActivityBridge.tsx`: carries the hook for the new marker beside the hook for the old.
+- `src/modules/theme/windowActivity.test.ts`: both derivations pinned on their own, the two markers going up and down separately over one sequence of inputs, and the unseen listeners hearing only about their own transitions rather than about a focus change that did not move them.
+
 **A question that leaves the screen is not a turn that ended**
 
 - `src/modules/terminal/lib/agentJudge.ts`: an ending is kept for a working turn only. A question that goes quiet - the card answered, dismissed, or taken back by the agent - was reported the same way as a turn stopping, both in the state the judge reaches from the screen by itself and in the one it reaches when the screen stops naming an agent at all. Measured on the installed build: one turn put two "a turn finished" notices into Windows' store, eleven seconds apart, and a card left on that terminal by an earlier round was the whole of the difference - the same command run against a terminal with no card on it put exactly one. A question is not a turn, so both places now report rest instead, which latches nothing and announces nothing.

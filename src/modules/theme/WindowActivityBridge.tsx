@@ -1,8 +1,10 @@
 import { useEffect, useSyncExternalStore } from "react";
 import {
   bindDomWindowFocus,
+  getWindowHidden,
   getWindowInactive,
   installWindowActivity,
+  subscribeWindowHidden,
   subscribeWindowInactive,
   type WindowActivitySources,
 } from "./windowActivity";
@@ -36,6 +38,19 @@ export function useWindowInactive(): boolean {
   return useSyncExternalStore(
     subscribeWindowInactive,
     getWindowInactive,
+    () => false,
+  );
+}
+
+/**
+ * True while nobody can see the window: it is hidden, minimized or fully occluded. Focus is not
+ * part of it - a window the user is looking at with another window taking their typing is still
+ * seen, and that is the difference between this and `useWindowInactive`.
+ */
+export function useWindowHidden(): boolean {
+  return useSyncExternalStore(
+    subscribeWindowHidden,
+    getWindowHidden,
     () => false,
   );
 }
