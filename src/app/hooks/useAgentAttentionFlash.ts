@@ -56,8 +56,15 @@ export function useAgentAttentionFlash({ enabled }: { enabled: boolean }): void 
         const phase = state.phases[ptyId];
         const previous = seen.get(ptyId);
         seen.set(ptyId, phase);
-        if (!announce || windowSeen) continue;
         const sinceMs = state.unseen[ptyId];
+        if (windowSeen) {
+          // The same as the notifications: a wait the user could see is not one to interrupt them
+          // for later either. Recorded as announced, because hiding the window writes the store
+          // itself, and a wait left unrecorded flashes on that write.
+          if (sinceMs !== undefined) announced.set(ptyId, sinceMs);
+          continue;
+        }
+        if (!announce) continue;
         const flashable = flashForPhaseChange(previous, phase, sinceMs);
         if (!flashable) continue;
         // One flash per wait: the latch stays set for as long as the agent is blocked, and

@@ -23,6 +23,13 @@ describe("when a notification is worth interrupting the user for", () => {
   it("records a wait it deliberately did not announce", () => {
     // Otherwise closing the window later announces it: the wait is still latched, and the hook reads
     // "already announced" from what it remembers, so it has to remember this case too.
-    expect(hook).toMatch(/announced\.set\(ptyId, sinceMs\)/);
+    //
+    // Pinned inside the branch rather than by the line existing: this hook also sets that map when
+    // it really does announce a wait, so matching the line anywhere would prove nothing.
+    const branch = hook.indexOf("if (windowSeen)");
+    expect(branch).toBeGreaterThan(-1);
+    const rest = hook.slice(branch);
+    const upToTheNextCheck = rest.slice(0, rest.indexOf("if (!announce"));
+    expect(upToTheNextCheck).toContain("announced.set(ptyId, sinceMs)");
   });
 });

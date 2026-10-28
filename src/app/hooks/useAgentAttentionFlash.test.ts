@@ -16,4 +16,20 @@ describe("when a flash is worth flashing for", () => {
     expect(hook).toContain("getWindowHidden()");
     expect(hook).toMatch(/windowSeen/);
   });
+
+  it("records a wait it deliberately did not flash for", () => {
+    // Which it did not do at first, while the notification hook did. A question standing on another
+    // tab while the window was in front was recorded there and not here, so the first store write
+    // after the window went out of the way flashed the button for a question the user had been able
+    // to see all along - hiding the window writes the store itself, so that write always happens.
+    // The surfaces that interrupt tell one story, or none of them does.
+    //
+    // Pinned inside the branch, not by the line existing: this hook already carried that line for
+    // the case where it really does flash, so matching it anywhere proved nothing.
+    const branch = hook.indexOf("if (windowSeen)");
+    expect(branch).toBeGreaterThan(-1);
+    const rest = hook.slice(branch);
+    const upToTheNextCheck = rest.slice(0, rest.indexOf("if (!announce"));
+    expect(upToTheNextCheck).toContain("announced.set(ptyId, sinceMs)");
+  });
 });
