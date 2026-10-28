@@ -799,14 +799,21 @@ html[data-window-inactive] [data-state="closed"] {
  * that reads as no dot at all, which is exactly when the dot has to be legible. These are drawn from
  * what the state is, not from what the animation is doing, so when nobody can see the window at all
  * they stop outright instead: solid, and not one frame. The same treatment reduced motion gets, for
- * a different reason. */
-html[data-window-hidden] .verta-state-indicator {
+ * a different reason.
+ *
+ * The descendants are named because one indicator is more than one element: the session list draws a
+ * track with the moving part inside it, and the animation lives on that part, so a rule that named
+ * only the track left the light inside it running in a window nobody can see and frozen in one that
+ * is merely unfocused. */
+html[data-window-hidden] .verta-state-indicator,
+html[data-window-hidden] .verta-state-indicator * {
   animation: none !important;
 }
 /* Unfocused is not unseen. A window whose indicators are on screen while another window takes the
  * typing is exactly the case they exist for - the glance from across the desk - so they keep
  * running. Everything else in that window stays paused, per the rule above. */
-html[data-window-inactive]:not([data-window-hidden]) .verta-state-indicator {
+html[data-window-inactive]:not([data-window-hidden]) .verta-state-indicator,
+html[data-window-inactive]:not([data-window-hidden]) .verta-state-indicator * {
   animation-play-state: running !important;
 }
 

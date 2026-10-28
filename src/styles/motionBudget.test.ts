@@ -63,6 +63,16 @@ describe("global motion budget", () => {
     expect(css).toMatch(
       /\.verta-state-marquee[^{]*\{[^}]*animation:\s*verta-marquee[^;]*steps\(/,
     );
+    // The light is two elements - a track with the moving part inside it - so the marker has to
+    // cover the indicator's descendants as well. Written to match only the track, a stopped
+    // indicator still had its sweep moving, and one that was merely unfocused still had it frozen:
+    // the two rules were describing the container and the animation was in the child.
+    expect(css).toMatch(
+      /html\[data-window-hidden\] \.verta-state-indicator[^{]*\*[^{]*\{[^}]*animation:\s*none\s*!important/,
+    );
+    expect(css).toMatch(
+      /html\[data-window-inactive\]:not\(\[data-window-hidden\]\) \.verta-state-indicator[^{]*\*[^{]*\{[^}]*animation-play-state:\s*running\s*!important/,
+    );
   });
 
   it("keeps a pending approval's pulse finite", () => {

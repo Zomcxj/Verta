@@ -36,7 +36,7 @@ swap in the new date, and drop the `open` from the day before.
 **A window that can be seen keeps its indicators moving**
 
 - `src/styles/globals.css`: what stops a state indicator is being unseen, not being unfocused. `data-window-hidden` - the window hidden, minimized or fully occluded - stops them outright, which is what keeps a paused breath from freezing on its dimmest step and reading as no dot at all; a window that is merely unfocused keeps them running, because an indicator on screen while another window takes the typing is exactly the glance it exists for. Everything else in an unfocused window still pauses. A new `verta-marquee` keyframe and its class give the session list a highlight crossing a bar, repeated with the stepped timing the motion budget requires.
-- `src/styles/motionBudget.test.ts`: the two markers' rules pinned apart from each other, with the running light pinned as stepped and as stopped under reduced motion.
+- `src/styles/motionBudget.test.ts`: the two markers' rules pinned apart from each other, with the running light pinned as stepped and as stopped under reduced motion, and the marker pinned as reaching the indicator's descendants rather than only the indicator - corrected before this shipped, because the session list's light is a track with the part that moves inside it, and a rule naming only the track left that part running in a window nobody could see and frozen in one that was merely unfocused.
 
 **Nobody can see the window is its own answer, separate from the window having no focus**
 
