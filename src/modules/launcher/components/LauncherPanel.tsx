@@ -377,7 +377,7 @@ export function LauncherPanel({
           placeholder={t("launcher.search")}
           className="w-full rounded-md border border-border/60 bg-transparent px-2 py-1 text-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
         />
-        {/* Default is "all": one straight chronological list. "By agent" splits it
+        {/* Default is "all": one straight chronological list. The agent mode splits it
             into sections ordered like the tool list. */}
         <div
           role="tablist"

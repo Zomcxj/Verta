@@ -807,7 +807,7 @@ const zh = {
 
   "launcher.groupBy": "会话怎么摆",
   "launcher.groupAll": "全部",
-  "launcher.groupByTool": "按 agent",
+  "launcher.groupByTool": "agent",
   "launcher.manage": "管理",
   "launcher.done": "完成",
   "launcher.refresh": "刷新",
@@ -2201,7 +2201,7 @@ const en: Record<MessageKey, string> = {
 
   "launcher.groupBy": "How sessions are listed",
   "launcher.groupAll": "All",
-  "launcher.groupByTool": "By agent",
+  "launcher.groupByTool": "Agent",
   "launcher.manage": "Manage",
   "launcher.done": "Done",
   "launcher.refresh": "Refresh",

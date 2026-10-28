@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**The launcher's grouping button names the mode rather than the verb**
+
+- `src/modules/i18n/messages.ts`: that button reads `agent` where it read `按 agent`, and `Agent` where it read `By agent`. It is a toggle that shows which of the two arrangements is in force, so what belongs on it is the arrangement's name.
+- `src/modules/launcher/components/LauncherPanel.tsx`: the comment beside it names the mode the same way.
+
 **A session's token count reads in thousands, in both languages**
 
 - `src/modules/launcher/lib/sessionStats.ts`: the middle band of the token count is thousands now rather than the Chinese myriad. 170,000 tokens read as `17.0 万 tokens` in Chinese and - worse - as `17.00k tokens` in English, which says 17k for a number that is 170k. Both read `170K tokens`. `src/modules/i18n/messages.ts`: that band is one label in both languages, so the row says the same number whichever language it is drawn in.
