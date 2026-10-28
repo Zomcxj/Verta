@@ -5,6 +5,7 @@ import {
   flashForPhaseChange,
   useAgentActivityStore,
 } from "@/modules/terminal/lib/agentActivity";
+import { getWindowHidden } from "@/modules/theme/windowActivity";
 
 async function flash(attention: "ask" | "done"): Promise<void> {
   try {
@@ -44,12 +45,18 @@ export function useAgentAttentionFlash({ enabled }: { enabled: boolean }): void 
 
     const react = (announce: boolean) => {
       const state = useAgentActivityStore.getState();
+      // The same question the notifications ask, and for the same reason: a flashing taskbar button
+      // is visible whether or not the window is in front of the user, so while the window can be
+      // seen its own dots and its bell are the surface and a flash on top of them is noise. Read,
+      // not subscribed to, for the reason the notification hook gives: this effect's memory of what
+      // has been announced lives in these maps and would not survive a re-subscribe.
+      const windowSeen = !getWindowHidden();
       for (const key of Object.keys(state.agents)) {
         const ptyId = Number(key);
         const phase = state.phases[ptyId];
         const previous = seen.get(ptyId);
         seen.set(ptyId, phase);
-        if (!announce) continue;
+        if (!announce || windowSeen) continue;
         const sinceMs = state.unseen[ptyId];
         const flashable = flashForPhaseChange(previous, phase, sinceMs);
         if (!flashable) continue;

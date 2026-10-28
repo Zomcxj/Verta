@@ -20,6 +20,7 @@ import {
 } from "@/modules/terminal/lib/agentActivity";
 import { leafScreenTail } from "@/modules/terminal/lib/terminalSessionApi";
 import { labelFor, type Tab } from "@/modules/tabs";
+import { getWindowHidden } from "@/modules/theme/windowActivity";
 
 /**
  * Telling the user about an agent when the window is out of the way.
@@ -120,13 +121,30 @@ export function useAgentNotifications({
 
     const react = (announce: boolean) => {
       const state = useAgentActivityStore.getState();
+      /**
+       * Whether the window is on screen at all, read here rather than subscribed to.
+       *
+       * Reading is enough because the decision is taken when the store changes, and a subscription
+       * would have to keep this effect's `seen` and `announced` maps alive across re-subscribes -
+       * they are the memory of what has already been announced, and dropping them would announce a
+       * wait a second time.
+       */
+      const windowSeen = !getWindowHidden();
       for (const key of Object.keys(state.agents)) {
         const ptyId = Number(key);
         const phase = state.phases[ptyId];
         const previous = seen.get(ptyId);
         seen.set(ptyId, phase);
-        if (!announce) continue;
         const sinceMs = state.unseen[ptyId];
+        if (windowSeen) {
+          // Whatever is waiting is already drawn on the tab it belongs to, and the bell counts it.
+          // A notification on top of a window the user can see is the interruption they asked to
+          // stop - and it is recorded as announced, so that closing the window later does not
+          // announce it then either: they have been shown it.
+          if (sinceMs !== undefined) announced.set(ptyId, sinceMs);
+          continue;
+        }
+        if (!announce) continue;
         const verdict = noticeForPhaseChange(previous, phase, {
           sinceMs,
           announcedSinceMs: announced.get(ptyId),
