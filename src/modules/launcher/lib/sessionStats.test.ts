@@ -19,12 +19,18 @@ describe("turnsLabel", () => {
 });
 
 describe("tokensLabel", () => {
-  it("keeps small numbers readable and folds big ones into 万 / M", () => {
+  it("keeps small numbers readable and folds big ones into K / M", () => {
     expect(tokensLabel(850)).toBe("850 tokens");
     expect(tokensLabel(9_999)).toBe("9999 tokens");
-    expect(tokensLabel(12_340)).toBe("1.2 万 tokens");
+    expect(tokensLabel(12_340)).toBe("12.3K tokens");
+    expect(tokensLabel(170_000)).toBe("170K tokens");
     expect(tokensLabel(2_345_000)).toBe("2.3 M tokens");
     expect(tokensLabel(234_000_000)).toBe("234 M tokens");
+  });
+
+  it("reads one language the same way as the other", () => {
+    // The unit is the unit: 170,000 tokens is 170K tokens whichever language the row is drawn in.
+    expect(tokensLabel(170_000, "en")).toBe("170K tokens");
   });
 
   it("a session without usage data says so instead of claiming zero", () => {

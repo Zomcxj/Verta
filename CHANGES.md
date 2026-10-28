@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**A session's token count reads in thousands, in both languages**
+
+- `src/modules/launcher/lib/sessionStats.ts`: the middle band of the token count is thousands now rather than the Chinese myriad. 170,000 tokens read as `17.0 万 tokens` in Chinese and - worse - as `17.00k tokens` in English, which says 17k for a number that is 170k. Both read `170K tokens`. `src/modules/i18n/messages.ts`: that band is one label in both languages, so the row says the same number whichever language it is drawn in.
+
 **A probe: what the session list's running light is doing**
 
 - `scripts/dev/probes/marquee-state.mjs` (new): reads the light a session row draws - the bar's own colour, the colour of the part that moves inside it, and that part's animation name, timing and play state - beside the window's two markers and the dot the tab strip draws for the same session. Neither half of the contract is readable from the stylesheet: the part that moves is a child of the part that carries the marker, and the rules that stop and start it are selected by an attribute on `<html>`. `--expect=focused|unfocused|hidden` checks the reading against the state the window was in and exits non-zero when they disagree; putting the window into that state is the caller's job, not the probe's.

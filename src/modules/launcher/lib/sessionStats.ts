@@ -44,9 +44,11 @@ export function tokensLabel(
   if (tokens < 10_000)
     return translate(language, "stats.tokens", { count: tokens });
   if (tokens < 1_000_000) {
-    const wan = tokens / 10_000;
-    return translate(language, "stats.tokensTenThousand", {
-      value: wan >= 100 ? Math.round(wan) : wan.toFixed(1),
+    // Thousands, not the Chinese myriad: 170,000 tokens reads as 170K, which is the unit the row's
+    // neighbours are in and the one the reader is counting in.
+    const thousands = tokens / 1_000;
+    return translate(language, "stats.tokensThousand", {
+      value: thousands >= 100 ? Math.round(thousands) : thousands.toFixed(1),
     });
   }
   const million = tokens / 1_000_000;
