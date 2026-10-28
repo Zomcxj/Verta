@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**An agent at rest is green, and green no longer says whether it was looked at**
+
+- `src/modules/terminal/AgentStateDot.tsx`: three colours over four states. A question is blue, work in flight is orange, and an agent that is neither - a turn that has just ended, or one that has been sitting at its prompt - is green, and stays green until the next turn starts. The colour a state is drawn in is one exported table with the classes written out beside it, because Tailwind reads class names as text out of the source and an assembled one does not exist; the test beside it keeps the two in step. Green used to mean "an ending nobody has looked at yet", which a turn that only just ended and one from an hour ago could not be told apart by; that latch still exists and still drives the tray icon and the notifications, and it is no longer what the dot is coloured by.
+- `src/modules/terminal/agentStateAppearance.test.ts` (new): the colour of each state, that only three exist, and that every state is drawn as an indicator that breathes.
+
 **A window that can be seen keeps its indicators moving**
 
 - `src/styles/globals.css`: what stops a state indicator is being unseen, not being unfocused. `data-window-hidden` - the window hidden, minimized or fully occluded - stops them outright, which is what keeps a paused breath from freezing on its dimmest step and reading as no dot at all; a window that is merely unfocused keeps them running, because an indicator on screen while another window takes the typing is exactly the glance it exists for. Everything else in an unfocused window still pauses. A new `verta-marquee` keyframe and its class give the session list a highlight crossing a bar, repeated with the stepped timing the motion budget requires.

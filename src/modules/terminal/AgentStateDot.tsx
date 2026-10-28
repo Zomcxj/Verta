@@ -9,28 +9,50 @@ import { type MessageKey, useT } from "@/modules/i18n";
  * a state have to be the same in both or the two places would describe one session two different
  * ways.
  *
- * `working` and `idle` are two states and one colour. They are not the same thing to say - an
- * agent with a turn in flight and one sitting at its prompt are different screens - but neither is
- * news about the user, so the same orange carries both and only the label beside it tells them
- * apart. Green is the one that has something to say: a turn that ended and that the user has not
- * looked at yet.
+ * There are three colours and four states. `working` and `idle` are two states and one colour
+ * because neither is news about the user, and `idle` and `finished` are two states and one colour
+ * because a turn that ended and an agent sitting back down at its prompt are the same thing to look
+ * at: green says an agent is there and nothing is in flight, and it goes on saying it until the next
+ * turn starts. Which of them it is only matters to the wording, and to the store, where the latch
+ * that says "an ending nobody has looked at yet" is kept - that latch is what the tray icon and the
+ * notifications read, and it is not drawn here.
  */
 export type AgentStateDot = "attention" | "working" | "idle" | "finished";
 
 /**
- * A question is blue, work in flight and an agent at rest are both orange, and a turn that ended
- * while nobody was looking is green. All four breathe (the stepped animation in the stylesheet,
- * which stops entirely while the window is not being looked at), so a state reads from across a
- * window rather than needing a legend.
+ * The colour a state is drawn in, as the bare token, so that one table is the single answer and a
+ * test can pin it. A question is blue, work in flight is orange, and an agent at rest - however it
+ * got there - is green.
  */
-const DOT_CLASS: Record<AgentStateDot, string> = {
-  attention: "bg-sky-500 verta-state-breathe",
-  working: "bg-orange-500 verta-state-breathe",
-  idle: "bg-orange-500 verta-state-breathe",
-  finished: "bg-emerald-500 verta-state-breathe",
+export const STATE_COLOUR: Record<
+  AgentStateDot,
+  "sky-500" | "orange-500" | "emerald-500"
+> = {
+  attention: "sky-500",
+  working: "orange-500",
+  idle: "emerald-500",
+  finished: "emerald-500",
 };
 
-const DOT_LABEL: Record<AgentStateDot, MessageKey> = {
+/**
+ * The classes each state is drawn with.
+ *
+ * Written out rather than assembled from `STATE_COLOUR`: Tailwind reads class names out of the
+ * source as text, so a name it cannot see does not exist. The two tables are kept in step by the
+ * test beside this file, not by a template string.
+ *
+ * `verta-state-breathe` is the animation and `verta-state-indicator` is the marker the stylesheet
+ * looks for when it decides whether the window being seen matters: an indicator keeps moving while
+ * the window is on screen and stops when nobody can see it.
+ */
+export const DOT_CLASS: Record<AgentStateDot, string> = {
+  attention: "bg-sky-500 verta-state-breathe verta-state-indicator",
+  working: "bg-orange-500 verta-state-breathe verta-state-indicator",
+  idle: "bg-emerald-500 verta-state-breathe verta-state-indicator",
+  finished: "bg-emerald-500 verta-state-breathe verta-state-indicator",
+};
+
+const STATE_LABEL: Record<AgentStateDot, MessageKey> = {
   attention: "tabs.agentState.attention",
   working: "tabs.agentState.working",
   idle: "tabs.agentState.idle",
@@ -39,7 +61,7 @@ const DOT_LABEL: Record<AgentStateDot, MessageKey> = {
 
 /** The state's wording, for any surface that needs to say it in words. */
 export function agentStateLabelKey(state: AgentStateDot): MessageKey {
-  return DOT_LABEL[state];
+  return STATE_LABEL[state];
 }
 
 /** One session's state as a dot. */
