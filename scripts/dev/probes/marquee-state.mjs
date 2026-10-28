@@ -203,8 +203,14 @@ const distinct = new Set(colourOf.values());
 if (colourOf.has("idle") && colourOf.has("finished") && colourOf.get("idle") !== colourOf.get("finished")) {
   failures.push("空闲与刚结束是两个颜色（结束应当一直绿）");
 }
-if ([...distinct].length !== colourOf.size) {
-  failures.push(`有状态共用了颜色：${[...colourOf].map(([s, c]) => `${s}=${c}`).join(", ")}`);
+// Three colours over four states, and the one collision the vocabulary asks for: a turn that just
+// ended and an agent sitting at its prompt are drawn the same. Counting distinct colours against
+// states therefore has to allow exactly that one, or this check fails a correct build whenever a
+// `finished` row (six seconds of one) is on screen beside an `idle` one.
+const intendedCollisions =
+  colourOf.has("idle") && colourOf.has("finished") ? 1 : 0;
+if (distinct.size !== colourOf.size - intendedCollisions) {
+  failures.push(`颜色数与状态数对不上：${[...colourOf].map(([s, c]) => `${s}=${c}`).join(", ")}`);
 }
 
 if (expect !== null) {
