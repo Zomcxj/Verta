@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**The session list marks a state with a running light**
+
+- `src/modules/launcher/components/SessionList.tsx`: a row draws a bar with a highlight crossing it in the state's own colour, instead of the dot the tab strip draws, and only where there is an agent. At a row's weight a bar reads from across the window where a six-pixel dot does not, which is what a list of sessions is for.
+- `src/modules/terminal/AgentStateDot.tsx`: a second drawing of the appearance tables rather than a second set of them, so the bar, the highlight crossing it and the dot all take their colour from one table and the test beside it fails if any of them drifts. `src/modules/terminal/index.ts` exports the new one. The tab strip and the header badge keep their breathing dots unchanged.
+
 **An agent at rest is green, and green no longer says whether it was looked at**
 
 - `src/modules/terminal/AgentStateDot.tsx`: three colours over four states. A question is blue, work in flight is orange, and an agent that is neither - a turn that has just ended, or one that has been sitting at its prompt - is green, and stays green until the next turn starts. The colour a state is drawn in is one exported table with the classes written out beside it, because Tailwind reads class names as text out of the source and an assembled one does not exist; the test beside it keeps the two in step. Green used to mean "an ending nobody has looked at yet", which a turn that only just ended and one from an hour ago could not be told apart by; that latch still exists and still drives the tray icon and the notifications, and it is no longer what the dot is coloured by.

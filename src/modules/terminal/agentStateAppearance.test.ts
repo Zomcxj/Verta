@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { DOT_CLASS, STATE_COLOUR } from "./AgentStateDot";
+import {
+  DOT_CLASS,
+  MARQUEE_SWEEP_CLASS,
+  MARQUEE_TRACK_CLASS,
+  STATE_COLOUR,
+} from "./AgentStateDot";
 
 /**
  * How a state is drawn, as data.
@@ -29,6 +34,18 @@ describe("the state appearance", () => {
       // running when the window is only unfocused.
       expect(DOT_CLASS[state]).toContain("verta-state-indicator");
       expect(DOT_CLASS[state]).toContain("verta-state-breathe");
+    }
+  });
+
+  it("gives every state a running light in the colour of its dot", () => {
+    for (const state of STATES) {
+      expect(MARQUEE_TRACK_CLASS[state]).toContain(STATE_COLOUR[state]);
+      expect(MARQUEE_SWEEP_CLASS[state]).toContain(STATE_COLOUR[state]);
+      // The bar is an indicator too: unseen stops it with everything else, and merely unfocused
+      // keeps it moving.
+      expect(MARQUEE_TRACK_CLASS[state]).toContain("verta-state-indicator");
+      // And the sweep is the part that moves.
+      expect(MARQUEE_SWEEP_CLASS[state]).toContain("verta-state-marquee");
     }
   });
 });

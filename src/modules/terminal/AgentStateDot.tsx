@@ -59,6 +59,26 @@ const STATE_LABEL: Record<AgentStateDot, MessageKey> = {
   finished: "tabs.agentState.finished",
 };
 
+/**
+ * The bar's own colour - the state's colour, held back - and the sweep's.
+ *
+ * Two tables because a bar and the highlight crossing it are drawn by two elements, and Tailwind
+ * reads class names as text. Both are held to `STATE_COLOUR` by the test beside this file.
+ */
+export const MARQUEE_TRACK_CLASS: Record<AgentStateDot, string> = {
+  attention: "bg-sky-500/25 verta-state-indicator",
+  working: "bg-orange-500/25 verta-state-indicator",
+  idle: "bg-emerald-500/25 verta-state-indicator",
+  finished: "bg-emerald-500/25 verta-state-indicator",
+};
+
+export const MARQUEE_SWEEP_CLASS: Record<AgentStateDot, string> = {
+  attention: "bg-sky-500 verta-state-marquee",
+  working: "bg-orange-500 verta-state-marquee",
+  idle: "bg-emerald-500 verta-state-marquee",
+  finished: "bg-emerald-500 verta-state-marquee",
+};
+
 /** The state's wording, for any surface that needs to say it in words. */
 export function agentStateLabelKey(state: AgentStateDot): MessageKey {
   return STATE_LABEL[state];
@@ -76,7 +96,7 @@ export function AgentStateDot({
   return (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the dot is decorative and its label is a hint next to the session's own name; an image role would add a second announcement
     <span
-      aria-label={t(DOT_LABEL[state])}
+      aria-label={t(agentStateLabelKey(state))}
       data-agent-state={state}
       className={cn(
         "size-1.5 shrink-0 rounded-full",
@@ -84,5 +104,48 @@ export function AgentStateDot({
         className,
       )}
     />
+  );
+}
+
+/**
+ * The same state as a bar with a highlight crossing it.
+ *
+ * The session list draws this rather than the dot: a row's state sits beside its name at the same
+ * weight as the name itself, and a bar that is moving is legible out of the corner of an eye in a
+ * way a six-pixel dot is not. It is a second drawing of one table, not a second table - the colour
+ * and the marker come from the same place the dot's do, so the two surfaces cannot describe one
+ * session two different ways.
+ *
+ * The track carries `verta-state-indicator` (so an unseen window stops it with everything else) and
+ * the sweep inside it carries the animation.
+ */
+export function AgentStateMarquee({
+  state,
+  className,
+}: {
+  state: AgentStateDot;
+  className?: string;
+}) {
+  const t = useT();
+  return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the bar is decorative and its label is a hint next to the session's own name; an image role would add a second announcement
+    <span
+      aria-label={t(agentStateLabelKey(state))}
+      data-agent-state={state}
+      data-agent-marquee
+      className={cn(
+        "relative h-1 w-6 shrink-0 overflow-hidden rounded-full",
+        MARQUEE_TRACK_CLASS[state],
+        className,
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "absolute inset-y-0 w-2 rounded-full",
+          MARQUEE_SWEEP_CLASS[state],
+        )}
+      />
+    </span>
   );
 }

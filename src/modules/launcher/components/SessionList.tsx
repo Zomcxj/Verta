@@ -6,7 +6,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
-import { AgentStateDot, type AgentStateDot as AgentState } from "@/modules/terminal/AgentStateDot";
+import { AgentStateMarquee, type AgentStateDot as AgentState } from "@/modules/terminal/AgentStateDot";
 import { useLanguage, useT } from "@/modules/i18n";
 import { AgentIcon } from "../lib/agentIcon";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
@@ -167,9 +167,10 @@ const SessionButton = memo(function SessionButton({
               {session.title}
             </span>
           )}
-          {/* The same dot the tab strip draws, so a session on its way to the top
-              of the list says why it went there. */}
-          {state !== null ? <AgentStateDot state={state} /> : null}
+          {/* The running light for this session's agent, in the same colour the tab strip
+              would draw: a bar reads as a state from across the window where a dot at this
+              row's weight is easy to miss, and it is only drawn where there is an agent. */}
+          {state !== null ? <AgentStateMarquee state={state} /> : null}
           {session.parentId !== null ? (
             <span className="shrink-0 rounded border border-border/60 px-1 text-[9px] leading-4 text-muted-foreground">
               {t("launcher.subagent")}
