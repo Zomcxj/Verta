@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**A probe: what a folder's context menu offers**
+
+- `scripts/dev/probes/explorer-agent-menu.mjs` (new): right-clicks a row in the file tree for real - a synthesized `contextmenu` is not what a menu listens for - and reads the menu that was actually drawn, item by item. It tests a folder and a file on purpose, and it takes each row's kind from the filesystem rather than from the interface, so the two halves of the requirement are checked by independent readings. `--open=<tool>` goes on to click an entry and report the tab it started.
+- Measured on the installed build: right-clicking a folder offers the agents first, one row of icons above everything the menu used to show, and right-clicking a file offers none of them while every entry it did offer is unchanged. Clicking the pi entry on a folder started a tab named after that folder.
+- Left for the next install: the directory that session actually runs in, read off its own screen. The app came down mid-read for an unrelated reason (a disposal path that empties the window), so the screen showed a frozen frame.
+
 **A folder can be opened with an agent**
 
 - `src/modules/explorer/lib/agentActions.ts` (new): the entries a folder's menu offers for the agents it can be handed to, built from the supported-tools list rather than written out, so a third agent appears everywhere by being added there. The wording is the same key the local project row already says. A surface that cannot start a session gets no entries at all rather than entries that do nothing.
