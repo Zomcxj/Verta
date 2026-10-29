@@ -19,8 +19,12 @@ swap in the new date, and drop the `open` from the day before.
 
 **A launch starts with one tab of its own**
 
-- `src/modules/tabs/lib/useTabRestore.ts`: starting up no longer takes the previous session's tab list. It loads the preferences and adopts the default workspace environment, and that is boot; the single tab the window opened with is the whole content. Nothing of where the last session was - its tabs, their directories, or the environment its active tab happened to sit in - carries over. The tab list is still written back, so a crash still has something to compare against, it is simply never read.
+- `src/modules/tabs/lib/useTabRestore.ts`: starting up no longer takes the previous session's tab list. It loads the preferences and adopts the default workspace environment, and that is boot; the single tab the window opened with is the whole content. Nothing of where the last session was - its tabs, their directories, or the environment its active tab happened to sit in - carries over. The tab list is still written back, because this asked for no restore rather than for no memory; it is simply never read on the way in, so the reading side of that storage (and the older format it could migrate) is left in place, tested and unused.
 - `src/app/App.tsx`: stopped handing the restore what it needs to rebuild a tab list, and the two comments that described waiting for one now describe what that wait is for - a resolved workspace before a file or a folder argument opens anything.
+
+**The launch directory is the one this launch was given**
+
+- `src/lib/launchDir.ts`: a start with no directory argument has no directory now, instead of falling back to the directory Verta itself was started from. That fallback is what put a terminal somewhere on every start; without it the terminal is handed no working directory, and the environment decides - the desktop on Windows, the distro's home under WSL. A folder argument is untouched and still opens.
 
 **Two comments corrected to say what the code does**
 
