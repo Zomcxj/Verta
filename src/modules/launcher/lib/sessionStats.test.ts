@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   lastTalkedDayLabel,
+  statsLine,
   statsOf,
   tokensLabel,
   turnsLabel,
@@ -74,6 +75,30 @@ describe("lastTalkedDayLabel", () => {
   it("no time at all is a dash", () => {
     expect(lastTalkedDayLabel(NOW, null)).toBe("—");
     expect(lastTalkedDayLabel(NOW, 0)).toBe("—");
+  });
+});
+
+describe("statsLine", () => {
+  it("says the same three things the row says, in one line", () => {
+    expect(
+      statsLine({ turns: 12, tokens: 12_340, lastAtMs: NOW - 20 * 3_600_000 }, NOW),
+    ).toBe("12 轮 · 12.3K tokens · 昨天");
+  });
+
+  it("reads the other language the same way, unit for unit", () => {
+    expect(
+      statsLine(
+        { turns: 12, tokens: 12_340, lastAtMs: NOW - 20 * 3_600_000 },
+        NOW,
+        "en",
+      ),
+    ).toBe("12 turns · 12.3K tokens · Yesterday");
+  });
+
+  it("a session with nothing known says so with dashes, not zeros", () => {
+    expect(statsLine({ turns: null, tokens: null, lastAtMs: null }, NOW)).toBe(
+      "— · — · —",
+    );
   });
 });
 

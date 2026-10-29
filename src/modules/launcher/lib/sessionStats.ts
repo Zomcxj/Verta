@@ -134,3 +134,22 @@ export function statsOf(session: {
     lastAtMs: session.lastAtMs ?? session.updatedAtMs ?? null,
   };
 }
+
+/**
+ * The row's three facts as one line, for the popup a compact row shows on hover.
+ *
+ * Composed from the same three label functions the row itself draws with, so the two
+ * surfaces can never disagree about what a number means - the separator is the one the row
+ * already puts between its segments.
+ */
+export function statsLine(
+  stats: SessionStats,
+  nowMs: number,
+  language: Language = "zh",
+): string {
+  return [
+    turnsLabel(stats.turns, language),
+    tokensLabel(stats.tokens, language),
+    lastTalkedDayLabel(nowMs, stats.lastAtMs, language),
+  ].join(" · ");
+}

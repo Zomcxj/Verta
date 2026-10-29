@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**One line for a session's numbers**
+
+- `src/modules/launcher/lib/sessionStats.ts`: the row's three facts joined into a single line, for the popup a compact row shows. It is built from the same three label functions the row itself draws with, so the two surfaces cannot come to different conclusions about what a number or a date means; the separator is the one the row already puts between its segments.
+
 **A row in the settings window for it**
 
 - `src/settings/sections/GeneralSection.tsx`, `src/modules/i18n/messages.ts`: a session-list group holding one row, a two-option choice between the standard list and the compact one, with the description saying what moves where. It reads and writes the preference, so the change reaches the main window through the same broadcast every other setting uses rather than at the next start.
