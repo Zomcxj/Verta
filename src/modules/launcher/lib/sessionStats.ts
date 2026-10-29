@@ -30,8 +30,8 @@ export function turnsLabel(
 }
 
 /**
- * Tokens: written out below ten thousand, folded to `12.3 k` above that, and to
- * `1.2 M` in the millions.
+ * Tokens: written out below ten thousand, folded to thousands above that (`170K tokens`), and to
+ * millions at a million (`2.3 M tokens`).
  *
  * Sessions routinely reach hundreds of thousands of tokens; the raw number is too
  * long to read the magnitude off.

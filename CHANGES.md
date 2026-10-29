@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**Two comments corrected to say what the code does**
+
+- `src/modules/explorer/lib/agentActions.ts`: a folder path that cannot say which env it belongs to keeps the window's answer *or the distro the window last used* - the remembered distro is part of what that helper answers with, and the comment named only the first half of it.
+- `src/modules/launcher/lib/sessionStats.ts`: the doc comment quoted `12.3 k` and `1.2 M`, neither of which is a string this code produces. It quotes what it produces.
+
 **Two probes corrected, one of them because it could not pass**
 
 - `scripts/dev/probes/exception-watch.mjs`: an uncaught exception is what fails it now, and `console.error` or an error-level log entry is printed as context rather than counted against it. As written it failed on any `console.error`, which meant it failed on a correct build in the very scenario it exists for - the terminal's failure path announces itself with one on purpose - so its exit code had to be interpreted rather than trusted. The header says which is which.

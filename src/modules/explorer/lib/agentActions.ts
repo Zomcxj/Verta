@@ -51,8 +51,9 @@ export type FolderSessionTarget = {
  *
  * The folder decides the env rather than the window, because the two can disagree for an instant
  * while a workspace switch lands, and starting an agent on the wrong side of the boundary gives it
- * a directory it cannot see. A path that cannot say which it is keeps the window's answer, which is
- * what that helper does and what keeps a Linux path off the local filesystem.
+ * a directory it cannot see. A path that cannot say which it is keeps the window's answer - or the
+ * distro the window last used, when the window's own answer is local - which is what that helper
+ * does, and what keeps a stateless Linux path off the local filesystem.
  */
 export function folderSessionTarget(
   path: string,
