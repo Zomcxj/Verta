@@ -11,6 +11,12 @@ export type BackgroundKind = "none" | "image";
 
 export type TerminalCursorStyle = "bar" | "block" | "underline";
 
+/**
+ * How much a session list row says at rest. `compact` keeps the title and moves the numbers
+ * and the directory into a popup; `standard` is the two-line row every install already shows.
+ */
+export type SessionListDensity = "standard" | "compact";
+
 export const EDITOR_THEMES = [
   "kanagawa",
   "kanagawa-lotus",
@@ -139,6 +145,8 @@ export type Preferences = {
   editorWordWrapColumn: number;
   showHidden: boolean;
   explorerGitDecorations: boolean;
+  /** How much a session row says at rest; see `SessionListDensity`. */
+  sessionListDensity: SessionListDensity;
   /** Hide the main window in the tray when its close button is pressed. */
   closeToTray: boolean;
   /** Flash that button when an agent asks for input or finishes. */
@@ -238,6 +246,7 @@ const LEGACY_KEY_SHOW_HIDDEN_DIRS = "showHiddenDirectories";
 const KEY_WSL_ENABLED = "wslEnabled";
 const KEY_WSL_SHUTDOWN_ON_DISABLE = "wslShutdownOnDisable";
 const KEY_EXPLORER_GIT_DECORATIONS = "explorerGitDecorations";
+const KEY_SESSION_LIST_DENSITY = "sessionListDensity";
 const KEY_CLOSE_TO_TRAY = "closeToTray";
 const KEY_TASKBAR_ATTENTION_FLASH = "taskbarAttentionFlash";
 const KEY_DESKTOP_NOTIFICATIONS = "desktopNotifications";
@@ -314,6 +323,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   editorWordWrapColumn: EDITOR_WORD_WRAP_COLUMN_DEFAULT,
   showHidden: false,
   explorerGitDecorations: true,
+  sessionListDensity: "standard",
   closeToTray: true,
   taskbarAttentionFlash: true,
   desktopNotifications: true,
@@ -420,6 +430,9 @@ export async function loadPreferences(): Promise<Preferences> {
       DEFAULT_PREFERENCES.desktopNotifications,
     terminalRenderer:
       get<string>(KEY_TERMINAL_RENDERER) === "webgl" ? "webgl" : "auto",
+    sessionListDensity: coerceSessionListDensity(
+      get<string>(KEY_SESSION_LIST_DENSITY),
+    ),
     terminalScreenReader: get<boolean>(KEY_TERMINAL_SCREEN_READER) === true,
     terminalCursorBlink:
       get<boolean>(KEY_TERMINAL_CURSOR_BLINK) ??
@@ -657,6 +670,19 @@ export async function setTerminalCursorStyle(value: unknown): Promise<void> {
   await writePref(KEY_TERMINAL_CURSOR_STYLE, coerceTerminalCursorStyle(value));
 }
 
+/**
+ * The session list's density. Only the one word turns it compact; anything else draws the
+ * standard list, which is what every existing install shows and what a corrupt file has to
+ * fall back to rather than a blank row.
+ */
+export function coerceSessionListDensity(value: unknown): SessionListDensity {
+  return value === "compact" ? "compact" : "standard";
+}
+
+export async function setSessionListDensity(value: unknown): Promise<void> {
+  await writePref(KEY_SESSION_LIST_DENSITY, coerceSessionListDensity(value));
+}
+
 export async function setTerminalFontFamily(value: string): Promise<void> {
   await writePref(KEY_TERMINAL_FONT_FAMILY, value.trim());
 }
@@ -799,6 +825,7 @@ export async function onPreferencesChange(
     [KEY_WSL_ENABLED]: "wslEnabled",
     [KEY_WSL_SHUTDOWN_ON_DISABLE]: "wslShutdownOnDisable",
     [KEY_EXPLORER_GIT_DECORATIONS]: "explorerGitDecorations",
+    [KEY_SESSION_LIST_DENSITY]: "sessionListDensity",
     [KEY_CLOSE_TO_TRAY]: "closeToTray",
     [KEY_TASKBAR_ATTENTION_FLASH]: "taskbarAttentionFlash",
     [KEY_DESKTOP_NOTIFICATIONS]: "desktopNotifications",

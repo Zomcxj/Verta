@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A session list can be drawn compact or standard**
+
+- `src/modules/settings/store.ts`: a preference for how much a session row says at rest - `sessionListDensity` - whose default is the two-line row every install already shows, so nothing changes until someone asks it to. Only the one word reads as compact: a file edited by hand, or a value some later version wrote, draws the standard list, because a row has to say something rather than go blank.
+
 **A probe for what a launch opens with**
 
 - `scripts/dev/probes/start-with-one-tab.mjs` (new): counts the tabs the window drew and reads the place the active one landed, which is the whole of what was asked for and nothing a unit test can see - the count is a fact about a real start, and the place is inside a live shell. `--title=<name>` requires the single tab's name, which is how a folder handed to the launch shows up, and `--where` types `pwd` as real key presses and prints the last lines of the interface's own readable copy of the terminal. Measured on the installed build, one launch at a time: three tabs on disk (the last one active, in another directory) and the window drew one, on the desktop; a folder argument still landed there (`/c/Users/cxj/Desktop/agent2api`); and with the default environment set to WSL, the same single tab landed on `/home/cxj` - which is also the reading that shows the preferences are still loaded, since nothing else makes a start follow that setting.
