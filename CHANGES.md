@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**A probe: how long the interface takes to arrive**
+
+- `scripts/dev/probes/startup-timing.mjs` (new): run before the application, it reports when the page target existed, when the interface was in the document, and the page's own navigation entries - which are the honest ones, since the probe cannot see when the process started. It also reads a launch timestamp from a file, because the number does not exist yet when the probe has to be running.
+- Measured: from the process starting to the interface being in the document, 3.6s cold and 1.0s warm. The application's own share of that - navigation start to the document being ready, which covers the two things it awaits before it renders and its first render - was 0.8 to 1.0s both times; the rest is the operating system and WebView2 bringing the renderer up, which arrives later in a run that follows a cold start. Not chased further: what is worth changing, if anything, is the serial pair of calls the application makes before it renders.
+- First contentful paint is not readable from here, and that is by design rather than a fault: the window is created hidden and shown by the interface once it has rendered, and a window nobody can see does not paint.
+
 **A probe: everything the interface threw**
 
 - `scripts/dev/probes/exception-watch.mjs` (new): attaches to the window's own log domains - uncaught exceptions, console errors, log errors - and exits non-zero if it saw any, so it works as a check and not only as a readout. This is how the reason a window emptied itself was found at all: a tree that unmounts leaves a window with nothing but the native material behind it, and no message anywhere the user can see, while `Log.enable` replays the entries the browser had already collected.
