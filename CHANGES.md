@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A probe for a run's detail sitting inside the window**
+
+- `scripts/dev/probes/run-detail-height.mjs` (new): reads the open run panel's own box against the window's, finds the log body and asks whether it scrolls inside it, and with `--close` presses the panel's close button and reads whether the panel is gone. Neither number is readable from the source - the height comes from a shared dialog style and the scrolling depends on which ancestor owns the overflow - and the close is the half a screenshot cannot answer. Measured on the installed build with a 712-line log: a 768x720 panel from 111 to 831 in a 941-high window, its log scrolling inside a 720x331 box with 15088 pixels of content, and the close button leaving no panel behind.
+
 **A run's detail is a panel with a height, not a page that keeps growing**
 
 - `src/modules/remotes/RunDetail.tsx`, `src/modules/remotes/RunListDialog.tsx`: the run detail is capped to the window and scrolls inside itself - the job list gets a fixed share and the log takes what is left - instead of being as tall as its log. The shared dialog's panel is topped up to fit its content and an unconstrained log made that a two-thousand-line column standing off the bottom of the screen, which is what a person saw as a panel floating over the interface that could not be reached or closed. A viewport percentage on the log body was a second, unrelated number that did not bound the panel at all; it is gone.
