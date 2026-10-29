@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A probe for a project row, end to end**
+
+- `scripts/dev/probes/project-row.mjs` (new): opens the projects panel from the header, closes the source column, hovers a project's name and reads that nothing appeared, then presses it and reads the layout again - the column must be open and a terminal must have opened. Starting from a closed column is the point: "opens" and "toggles" look identical while it is already open, which is how the toggling version passed a measurement taken in the wrong state. Measured on the installed build: hovering drew no popper; pressing took the column from zero width to 260 and the tabs from 2 to 3; pressing again with the column open left it at 260 rather than closing it.
+
 **A project row no longer opens a card, and points the source panel at itself**
 
 - `src/modules/projects/ProjectsView.tsx`: the hover card that appeared beside a project's name is gone, with the body it drew and the props only it used. The name already carries the way in, and a panel of sessions appearing under the pointer as one moves across a list is what a person asked not to have. Opening a session from one of those rows was the card's only entry point; the row's own menu and the sessions panel both still offer it.
