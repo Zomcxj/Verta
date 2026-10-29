@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**Two more probes: a pull request's corner, and coming back to the sessions list**
+
+- `scripts/dev/probes/issue-detail-corner.mjs` (new): compares the boxes of a pull request detail's "open on GitHub" button and the panel's close button. Measured on the installed build: 1162 and 1174 - a 12-pixel gap.
+- `scripts/dev/probes/sessions-return.mjs` (new): leaves the sessions list for the file tree and comes straight back, sampling the panel once per animation frame so a single empty frame is caught, and reports whether anything said "no sessions". A probe that asked from outside would see only the frame it settled on. Measured on the installed build over three round trips: every frame carried sessions, none said the list was empty.
+
 **Switching back to the sessions list no longer says it is empty**
 
 - `src/modules/launcher/components/LauncherPanel.tsx`: the panel keeps the last list it read at module scope and starts from it, so the sidebar's remount - leaving for the file tree and coming back - draws the sessions it had instead of starting from nothing. It also tracks whether a read has finished at all, because an unread list is not an empty one.
