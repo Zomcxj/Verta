@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A probe for the corner where a run's two buttons meet**
+
+- `scripts/dev/probes/run-detail-corner.mjs` (new): opens a run's own detail - the remote list, the first repository that has a run, that run's detail - and compares the boxes of the row's "open on GitHub" button and the panel's close button, reporting what sits at the point where they would meet. Overlap is not visible in a diff once the class that keeps them apart is removed: the close button is absolutely placed by the shared dialog style, and which of two overlapping siblings receives a press depends on paint order. Measured on the installed build: GitHub's right edge at 1098, the close button's left edge at 1110 - a 12-pixel gap and nothing to fight over.
+
 **A run's first row keeps clear of the panel's close button**
 
 - `src/modules/remotes/RunDetail.tsx`: the row that carries "back" and "open on GitHub" stops short of the panel's top-right corner, where the shared dialog draws its close button. Both were in the same corner, so one of them was unpressable depending on which of two absolutely positioned siblings happened to be painted first - seen on the installed build where the close crossed the "open on GitHub" button.

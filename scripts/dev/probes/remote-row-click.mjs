@@ -61,7 +61,7 @@ const press = async (x, y) => {
 /** The row's name cell and its CI button, plus the cursor the row itself asks for. */
 const spot = await evalIn(`
   const table = [...document.querySelectorAll("table")].find((t) =>
-    /仓库.*归属.*CI/.test((t.querySelector("thead")?.textContent || "").replace(/\\s+/g, " "))
+    /^仓库归属可见性.*CI/.test((t.querySelector("thead")?.textContent || "").replace(/\\s+/g, " "))
   );
   if (!table) return { found: false, why: "远程仓库那张表不在屏幕上" };
   const row = [...table.querySelectorAll("tbody tr")].find((tr) =>
