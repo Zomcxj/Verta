@@ -32,4 +32,16 @@ describe("a session row's density", () => {
     expect(source).toContain("TooltipContent");
     expect(source).toContain("statsLine");
   });
+
+  it("paints the popup in the window's own surface rather than a fixed one", () => {
+    // The shared sheet is a one-line pill in the window's two theme colours, which is right for a
+    // status label and wrong for three lines of text: in a light theme the row would open a black
+    // block. A menu is the surface this window already uses for a panel of text, and its colours
+    // come from the theme's variables like everything else that follows it.
+    expect(source).toContain("border border-border/70 bg-popover");
+    expect(source).toContain("text-popover-foreground");
+    // What the shared sheet sets is inverted; leaving any of it in place would fight the surface.
+    expect(source).not.toMatch(/TooltipContent[\s\S]{0,400}bg-foreground/);
+    expect(source).not.toMatch(/TooltipContent[\s\S]{0,400}text-background/);
+  });
 });

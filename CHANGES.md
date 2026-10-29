@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**The compact row's popup is painted in the window's own surface**
+
+- `src/modules/launcher/components/SessionList.tsx`: the popup takes a menu's surface - the theme's own popover colours with a border and a shadow - instead of the shared sheet's inverted two-colour pill. That pill is right for a status label and wrong for three lines of text: in a light theme the row would open a black block, and the window's theme changes nothing about it. Measured on the installed build, the same popup reads `#2b3239` on `#f2f5f7` under the acrylic theme, both of which are that theme's own values.
+
 **A compact session row keeps its numbers on hover**
 
 - `src/modules/launcher/components/SessionList.tsx`: a row draws one of two densities. The compact one is a single line - the agent's icon, the title, the running light - and the numbers line moves into a popup that also carries the session's directory, which is what the row gave up when it stopped showing a path. The browser's own title tooltip is only set on the standard row: two popups on one hover, the native one knowing nothing but the title, is worse than the single popup. Both triggers of a row - the context menu's and the popup's - have to end on the same element, so their slots are chained and the row sits at the end of the chain. A compact row still opens, and still offers the same menu; the popup is mounted only in the compact density, so the default costs nothing. The file's own comment about what a row carries was corrected - it named a tooltip the row did not have.
