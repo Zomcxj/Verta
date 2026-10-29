@@ -755,8 +755,10 @@ function RepoRow({
 
   return (
     <tr
-      className="cursor-pointer border-t border-border/40 align-top hover:bg-accent/40"
-      onClick={() => onOpenRuns(row.fullName)}
+      // One door, and it is the column that shows the result: the CI button opens the runs panel. A
+      // row-wide click made every column a door, so a click that missed the visibility toggle or the
+      // description's edit box opened a panel over them instead.
+      className="border-t border-border/40 align-top hover:bg-accent/40"
       onMouseEnter={onHover}
     >
       <td className="py-1.5 pr-2">
