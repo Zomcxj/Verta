@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A probe for what a launch opens with**
+
+- `scripts/dev/probes/start-with-one-tab.mjs` (new): counts the tabs the window drew and reads the place the active one landed, which is the whole of what was asked for and nothing a unit test can see - the count is a fact about a real start, and the place is inside a live shell. `--title=<name>` requires the single tab's name, which is how a folder handed to the launch shows up, and `--where` types `pwd` as real key presses and prints the last lines of the interface's own readable copy of the terminal. Measured on the installed build, one launch at a time: three tabs on disk (the last one active, in another directory) and the window drew one, on the desktop; a folder argument still landed there (`/c/Users/cxj/Desktop/agent2api`); and with the default environment set to WSL, the same single tab landed on `/home/cxj` - which is also the reading that shows the preferences are still loaded, since nothing else makes a start follow that setting.
+
 **A launch starts with one tab of its own**
 
 - `src/modules/tabs/lib/useTabRestore.ts`: starting up no longer takes the previous session's tab list. It loads the preferences and adopts the default workspace environment, and that is boot; the single tab the window opened with is the whole content. Nothing of where the last session was - its tabs, their directories, or the environment its active tab happened to sit in - carries over. The tab list is still written back, because this asked for no restore rather than for no memory; it is simply never read on the way in, so the reading side of that storage (and the older format it could migrate) is left in place, tested and unused.
