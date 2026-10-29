@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A toast can be read twice, and a failed write is no longer silent**
+
+- `src/components/ui/sonner.tsx`: a toast now carries a close button and its text can be selected. Sonner sets `touch-action: none` and a swipe handler on the whole toast, so a drag dismissed it instead of selecting the text inside it; the action that does copy is offered per message rather than by making the whole stack draggable.
+- `src/modules/explorer/lib/useFileTree.ts`, `src/modules/i18n/messages.ts`: creating a file or a folder, renaming, and deleting each reported a failure only to the developer console, while the input closed exactly as it does on success - so a name with a slash in it, or a file an editor had locked, looked like it had worked. Each now says what failed and why, and offers to copy that sentence, because the toast is the only place these errors surface and a message nobody can reproduce from memory is one nobody can report.
+- `src/modules/explorer/lib/fileTreeFailures.test.ts` (new): pins that each of the three writes says something and keeps the console line beside it.
+
 **A probe for a project row, end to end**
 
 - `scripts/dev/probes/project-row.mjs` (new): opens the projects panel from the header, closes the source column, hovers a project's name and reads that nothing appeared, then presses it and reads the layout again - the column must be open and a terminal must have opened. Starting from a closed column is the point: "opens" and "toggles" look identical while it is already open, which is how the toggling version passed a measurement taken in the wrong state. Measured on the installed build: hovering drew no popper; pressing took the column from zero width to 260 and the tabs from 2 to 3; pressing again with the column open left it at 260 rather than closing it.

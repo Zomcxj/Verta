@@ -5,7 +5,7 @@ import type { WorkspaceEnv } from "@/modules/workspace";
 
 /** Message lookup as `useT()` hands it out. The helpers below are not
  *  components, so the caller passes its own lookup in. */
-type Translate = (
+export type Translate = (
   key: MessageKey,
   values?: Record<string, string | number>,
 ) => string;

@@ -13,6 +13,7 @@ import {
   workspaceScopeKey,
 } from "@/modules/workspace";
 import { useT } from "@/modules/i18n";
+import type { MessageKey } from "@/modules/i18n/messages";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   executeBatchMove,
@@ -44,6 +45,29 @@ export type PendingCreate = {
   parentPath: string;
   kind: "file" | "dir";
 };
+
+/**
+ * A file-tree write that failed, said out loud and offerable to whoever has to quote it.
+ *
+ * This toast is the only place these errors surface, and a message nobody can select cannot be
+ * pasted into a report; the action puts the whole sentence on the clipboard.
+ */
+function reportWriteFailure(
+  t: (key: MessageKey, values?: Record<string, string | number>) => string,
+  message: string,
+): void {
+  toast.error(message, {
+    action: {
+      label: t("explorer.toast.copy"),
+      onClick: () => {
+        // The label turns into the confirmation: the toast is the answer, and a second one
+        // stacked under it for "copied" would cover the thing that was just copied.
+        toast.success(t("explorer.toast.copied"));
+        void navigator.clipboard.writeText(message).catch(() => {});
+      },
+    },
+  });
+}
 
 export function joinPath(parent: string, name: string): string {
   if (parent.endsWith("/")) return `${parent}${name}`;
@@ -443,7 +467,6 @@ export function useFileTree(rootPath: string | null, options?: Options) {
 
   const cancelCreate = useCallback(() => setPendingCreate(null), []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: workspace is read for envForPath at commit time only, and listing it would rebuild the create handler on every workspace switch
   const commitCreate = useCallback(
     async (name: string) => {
       if (!pendingCreate) return;
@@ -459,12 +482,18 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         await invoke(cmd, { path, workspace: envForPath(path, workspace) });
         await fetchChildren(pendingCreate.parentPath);
       } catch (e) {
+        // The input closes either way, so a failure that says nothing reads as success: a name
+        // with a slash in it, or a folder an editor has locked.
         console.error(`${cmd} failed:`, e);
+        reportWriteFailure(
+          t,
+          t("explorer.createFailed", { name: trimmed, error: String(e) }),
+        );
       } finally {
         setPendingCreate(null);
       }
     },
-    [pendingCreate, fetchChildren],
+    [pendingCreate, fetchChildren, workspace, t],
   );
 
   const beginRename = useCallback((path: string) => {
@@ -495,11 +524,12 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         if (scopeKeyRef.current === scopeKey) await fetchChildren(parent);
       } catch (e) {
         console.error("fs_rename failed:", e);
+        reportWriteFailure(t, t("explorer.renameFailed", { error: String(e) }));
       } finally {
         setRenaming(null);
       }
     },
-    [renaming, workspace, scopeKey, fetchChildren],
+    [renaming, workspace, scopeKey, fetchChildren, t],
   );
 
   const deletePath = useCallback(
@@ -515,9 +545,16 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         }
       } catch (e) {
         console.error("fs_delete failed:", e);
+        reportWriteFailure(
+          t,
+          t("explorer.deleteOneFailed", {
+            name: path.slice(path.lastIndexOf("/") + 1),
+            error: String(e),
+          }),
+        );
       }
     },
-    [workspace, scopeKey, fetchChildren],
+    [workspace, scopeKey, fetchChildren, t],
   );
 
   const deletePaths = useCallback(
