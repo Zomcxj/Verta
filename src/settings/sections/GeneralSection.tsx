@@ -284,7 +284,13 @@ export function GeneralSection() {
             onValueChange={(value) => void setSessionListDensity(value)}
           >
             <SelectTrigger className="h-8 w-36 text-[12px]">
-              <SelectValue />
+              {/* Without a label the trigger shows the raw value, which would read `standard` in a
+                  window where every other control is in the interface's own language. */}
+              <SelectValue>
+                {sessionListDensity === "compact"
+                  ? t("settings.sessionListDensity.compact")
+                  : t("settings.sessionListDensity.standard")}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="standard">

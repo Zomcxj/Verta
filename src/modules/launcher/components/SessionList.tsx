@@ -225,18 +225,21 @@ const SessionButton = memo(function SessionButton({
 
   // The two triggers have to land on the same element, so their `asChild` slots are chained and
   // the row is the only thing at the end of that chain. A Root that renders nothing cannot sit
-  // between them: the props would be merged onto it and never reach the row.
+  // between them: the props would be merged onto it and never reach the row. Both triggers write
+  // their own attributes onto the row - the tooltip sets `data-state` and `aria-describedby` on it,
+  // so the row carries those whenever a compact row has a popup attached.
   const body =
     density === "compact" ? (
       <Tooltip>
         <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-        {/* The sheet behind this is a one-line pill in the window's two theme colours, which is
-            right for a status label and wrong for three lines: in a light theme the row would open
-            a black block. A menu is what this window already uses for a panel of text, and its
-            colours come from the theme's own variables. */}
+        {/* A floating panel of text in this window is `verta-float`: the theme's own popover
+            colours, a hairline ring, and - on the glass theme only - the pane tint that makes it
+            translucent like every neighbouring menu. The two colours the shared sheet sets are for
+            a one-line pill and must not come through: in a light theme the row would open a black
+            block. */}
         <TooltipContent
           side="right"
-          className="max-w-72 flex-col items-start gap-0.5 rounded-lg border border-border/70 bg-popover px-2.5 py-2 text-[11px] leading-relaxed text-popover-foreground shadow-lg shadow-black/20"
+          className="verta-float max-w-72 flex-col items-start gap-0.5 rounded-xl bg-popover px-2.5 py-2 text-[11px] leading-relaxed text-popover-foreground shadow-lg ring-1 ring-foreground/5 dark:ring-foreground/10"
         >
           <span className="font-medium">{session.title}</span>
           <span>{statsLine(stats, Date.now(), language)}</span>

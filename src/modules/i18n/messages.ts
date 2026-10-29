@@ -2300,7 +2300,7 @@ const en: Record<MessageKey, string> = {
   "settings.sessionList": "Session list",
   "settings.sessionListDensity.title": "List density",
   "settings.sessionListDensity.description":
-    "Compact keeps the title and moves the turns, the size, when it was last talked to and the session's directory into a popup on hover.",
+    "Compact keeps only the title. The turn count, the size, when it was last talked to and the session's directory move into a popup on hover.",
   "settings.sessionListDensity.standard": "Standard",
   "settings.sessionListDensity.compact": "Compact",
   "settings.taskbar": "Taskbar and notification area",

@@ -38,6 +38,13 @@ const match = arg("match");
 const expect = arg("expect");
 const hover = process.argv.includes("--hover");
 const clickRow = process.argv.includes("--click-row");
+// Every density's consequence that matters is about hovering - a standard row produces no popup, a
+// compact one exactly one - so a run that checks a density without hovering would report a pass on a
+// build where either of those is broken.
+if (expect !== null && !hover) {
+  console.error("--expect 必须和 --hover 一起用（每种密度的判定都落在悬停上）");
+  process.exit(2);
+}
 if (expect !== null && expect !== "standard" && expect !== "compact") {
   console.error(`--expect must be standard or compact (got ${expect})`);
   process.exit(2);
@@ -165,6 +172,12 @@ if (hover) {
 }
 
 let clicked = null;
+/**
+ * The last reading taken for a judgement. Pressing a row opens a session, which can hide the panel,
+ * so this is not always `after` - and a reading with no list in it, judged as "0 rows all correct",
+ * is exactly how a probe reports a pass on a build it never looked at.
+ */
+let judged = after;
 if (clickRow) {
   for (const type of ["mousePressed", "mouseReleased"]) {
     await send("Input.dispatchMouseEvent", {
@@ -179,21 +192,27 @@ if (clickRow) {
   const settled = JSON.parse(await readScreen());
   clicked = { before: after.tabs, after: settled.tabs };
   console.log(`\n点那一行：标签 ${clicked.before} → ${clicked.after}`);
+  // The density and the row shapes were read before the press, while the list was certainly there.
+  if (settled.listFound) judged = settled;
+  else console.log("（点开会话后列表收了回去，密度与行形状用点之前的读数）");
 }
 
 const failures = [];
-if (expect !== null && after.density !== expect) {
-  failures.push(`密度是 ${after.density}，不是 --expect 的 ${expect}`);
+if (expect !== null && judged.density !== expect) {
+  failures.push(`密度是 ${judged.density}，不是 --expect 的 ${expect}`);
+}
+if (judged.rows.length === 0) {
+  failures.push("一行都没读到：这一轮什么都没量到，不能算通过");
 }
 
-for (const row of after.rows) {
-  if (expect === "compact" || after.density === "compact") {
+for (const row of judged.rows) {
+  if (expect === "compact" || judged.density === "compact") {
     if (row.meta !== 0) failures.push(`「${row.title}」是紧凑行却还有 ${row.meta} 条数字行`);
     if (row.nativeTitle !== null) {
       failures.push(`「${row.title}」是紧凑行却还挂着原生 title（会和悬浮窗叠着弹两层）`);
     }
   }
-  if (expect === "standard" || after.density === "standard") {
+  if (expect === "standard" || judged.density === "standard") {
     if (row.meta !== 1) failures.push(`「${row.title}」是标准行却没有那一条数字行`);
     if (row.nativeTitle === null) failures.push(`「${row.title}」的标准行丢了原生 title`);
   }
@@ -220,19 +239,19 @@ if (hover) {
         failures.push(`悬浮窗最后一段不像目录：${where}`);
       }
     }
-  } else if (after.popups.length !== before.popups.length) {
-    failures.push(
-      `标准行悬停后多出 ${after.popups.length - before.popups.length} 个悬浮窗（缺省模式不该挂它）`,
-    );
+  } else if (after.popups.length !== 0) {
+    // Not "no more than before": a popup already on screen and one opened by this hover are the same
+    // failure, and the standard density is the one everybody sees.
+    failures.push(`标准行悬停后有 ${after.popups.length} 个悬浮窗（缺省模式不该挂它）`);
   }
 }
 
 if (clickRow && clicked && clicked.after <= clicked.before) {
-  failures.push(`点在紧凑行上没能开出一个会话（标签 ${clicked.before} → ${clicked.after}）`);
+  failures.push(`点那一行没能开出一个会话（标签 ${clicked.before} → ${clicked.after}）`);
 }
 
 if (failures.length === 0) {
-  console.log(`\n通过：${after.density} 的列表，${after.rows.length} 行都对得上。`);
+  console.log(`\n通过：${judged.density} 的列表，${judged.rows.length} 行都对得上。`);
   process.exit(0);
 }
 console.log("\n不通过：");

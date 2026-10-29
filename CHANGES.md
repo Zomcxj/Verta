@@ -17,6 +17,14 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**The review's findings, fixed**
+
+- `src/modules/launcher/components/SessionList.tsx`: the popup carries the class every other floating panel in this window carries, so on the glass theme it takes the same pane tint as the menus beside it instead of sitting on the interface as an opaque slab with a bare black shadow. The comment about how the row's two triggers compose now also says that the popup writes its own state attributes onto the row.
+- `src/settings/sections/GeneralSection.tsx`: the density control shows the interface's own words for the chosen value rather than the stored one, which would have read `standard` in a window where every other control is translated.
+- `src/modules/settings/store.ts`: the fallback for an unrecognised value is read from the default rather than written out a second time, so a change to the default cannot leave the two disagreeing.
+- `src/modules/i18n/messages.ts`: the English description of the compact list is split into two sentences instead of one long list.
+- `scripts/dev/probes/session-list-density.mjs`: the standard density's check now requires no popup at all rather than no more than before, a run cannot check a density without hovering (the popup is what every density's claim is about), the readings are judged from the last one taken while the list was certainly on screen, and an empty reading is a failure rather than "no rows, everything correct".
+
 **A probe for what a session row draws in each density**
 
 - `scripts/dev/probes/session-list-density.mjs` (new): reads the density the list says it drew, then each row's lines, its native title and the popups on screen - and, given `--hover`, puts the pointer on a row for real and reads what appeared while it is still there. `--expect=standard|compact` checks each density's consequences, and `--click-row` presses the row to prove a compact one still opens a session, which is what decides whether the two triggers ended on the same element. It names the window by its whole address on purpose: the settings page shares the origin, so a shorter name reads whichever of the two the debugger lists first. Measured on the installed build: the default drew two-line rows and no popup on hover; compact drew one-line rows with no native title, one three-line popup carrying the directory, and the row still opened a session; a restart kept it compact; and switching back brought the two-line rows and the silent hover back, with the main window following the settings window each time without a restart.

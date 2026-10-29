@@ -29,19 +29,24 @@ describe("a session row's density", () => {
   });
 
   it("shows the popup in compact mode only, from the library's tooltip", () => {
-    expect(source).toContain("TooltipContent");
-    expect(source).toContain("statsLine");
+    // The imported name alone proves nothing: the popup has to be in the compact branch, and the
+    // numbers line has to be the shared one rather than a second copy of the three labels.
+    expect(source).toContain('density === "compact" ? (');
+    expect(source).toMatch(/<TooltipContent\b/);
+    expect(source).toContain("{statsLine(stats, Date.now(), language)}");
   });
 
   it("paints the popup in the window's own surface rather than a fixed one", () => {
     // The shared sheet is a one-line pill in the window's two theme colours, which is right for a
     // status label and wrong for three lines of text: in a light theme the row would open a black
-    // block. A menu is the surface this window already uses for a panel of text, and its colours
-    // come from the theme's variables like everything else that follows it.
-    expect(source).toContain("border border-border/70 bg-popover");
-    expect(source).toContain("text-popover-foreground");
-    // What the shared sheet sets is inverted; leaving any of it in place would fight the surface.
-    expect(source).not.toMatch(/TooltipContent[\s\S]{0,400}bg-foreground/);
-    expect(source).not.toMatch(/TooltipContent[\s\S]{0,400}text-background/);
+    // block. A floating panel of text in this window is `verta-float`, which is also what gives the
+    // glass theme its tint.
+    const sheet = /<TooltipContent\b[^>]*className="([^"]*)"/.exec(source)?.[1] ?? "";
+    expect(sheet).toContain("verta-float");
+    expect(sheet).toContain("bg-popover");
+    expect(sheet).toContain("text-popover-foreground");
+    // What the shared sheet sets is inverted; any of it left here would fight the surface.
+    expect(sheet).not.toContain("bg-foreground");
+    expect(sheet).not.toContain("text-background");
   });
 });

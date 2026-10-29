@@ -676,7 +676,7 @@ export async function setTerminalCursorStyle(value: unknown): Promise<void> {
  * fall back to rather than a blank row.
  */
 export function coerceSessionListDensity(value: unknown): SessionListDensity {
-  return value === "compact" ? "compact" : "standard";
+  return value === "compact" ? "compact" : DEFAULT_PREFERENCES.sessionListDensity;
 }
 
 export async function setSessionListDensity(value: unknown): Promise<void> {
