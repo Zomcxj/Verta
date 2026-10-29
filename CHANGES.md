@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A run's detail is a panel with a height, not a page that keeps growing**
+
+- `src/modules/remotes/RunDetail.tsx`, `src/modules/remotes/RunListDialog.tsx`: the run detail is capped to the window and scrolls inside itself - the job list gets a fixed share and the log takes what is left - instead of being as tall as its log. The shared dialog's panel is topped up to fit its content and an unconstrained log made that a two-thousand-line column standing off the bottom of the screen, which is what a person saw as a panel floating over the interface that could not be reached or closed. A viewport percentage on the log body was a second, unrelated number that did not bound the panel at all; it is gone.
+- `src/modules/remotes/runDetailHeight.test.ts` (new): pins which element owns the height and which owns the scroll.
+
 **A probe for a toast that can be read twice**
 
 - `scripts/dev/probes/toast-copy.mjs` (new): reads the toasts on screen - whether their text can be selected, whether they carry a close button and an action - then drags across the title with real mouse events and reads `window.getSelection()`, because whether a drag selects or dismisses is decided by the swipe handler sonner wraps every toast in and by nothing visible in the source. `--copy` presses the action and looks for its confirmation. It refuses to run with no toast on screen rather than reporting a pass on nothing. Measured on the installed build, on the error a folder name with a slash raises: the text was selectable, a real drag selected 23 characters and left the toast in place, and the action turned the toast into its confirmation while the clipboard held the whole sentence - the visible half of the copy, with the clipboard read separately to confirm the other half.

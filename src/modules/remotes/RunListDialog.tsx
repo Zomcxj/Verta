@@ -237,7 +237,14 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
     <>
       <Dialog open={repo !== null} onOpenChange={close}>
         <DialogContent
-          className={detail ? "sm:max-w-3xl" : "sm:max-w-2xl"}
+          // The detail view holds a log that can run to thousands of lines, so it is given a height
+          // and scrolls inside it: without one, the panel grows past the window and part of it sits
+          // outside the screen where nothing can reach it. The shared style tops the panel up with
+          // `fit-content`, which is what made that growth happen; the cap is the window's.
+          className={cn(
+            "max-h-[min(85vh,720px)]",
+            detail ? "sm:max-w-3xl" : "sm:max-w-2xl",
+          )}
           // The confirm dialog (AlertDialog) is another Radix layer portalled
           // outside body, so clicking it counts as "outside the panel" and closes the
           // panel too (leaving the user thinking they misclicked).

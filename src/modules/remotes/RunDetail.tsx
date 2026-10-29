@@ -89,7 +89,11 @@ export function RunDetail({ repo, run, onBack }: Props) {
   }));
 
   return (
-    <div className="space-y-3">
+    // A height, not a fit: this view holds a log that can run to thousands of lines, and a panel
+    // that grows to fit it runs off the bottom of the window, where the rest of it cannot be
+    // reached. The cap is the window's own height - the same number the dialog that holds this uses -
+    // so the two cannot disagree about how much room there is.
+    <div className="flex max-h-[calc(min(85vh,720px)-3rem)] min-h-0 flex-col gap-3">
       <div className="flex items-center gap-2">
         <Button
           variant="ghost"
@@ -133,7 +137,7 @@ export function RunDetail({ repo, run, onBack }: Props) {
         </p>
       ) : null}
 
-      <div className="space-y-1.5">
+      <div className="max-h-[28vh] shrink-0 space-y-1.5 overflow-auto">
         <p className="text-xs font-medium text-muted-foreground">
           {t("remotes.runs.detail.jobs")}
         </p>
@@ -207,8 +211,8 @@ export function RunDetail({ repo, run, onBack }: Props) {
         )}
       </div>
 
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+        <div className="flex shrink-0 items-center gap-2">
           <p className="text-xs font-medium text-muted-foreground">
             {t("remotes.runs.detail.log")}
           </p>
@@ -264,7 +268,7 @@ export function RunDetail({ repo, run, onBack }: Props) {
               : (log.error ?? t("remotes.ci.error"))}
           </p>
         ) : (
-          <div className="max-h-[42vh] overflow-auto rounded border border-border/40 bg-muted/30 p-2 font-mono text-[11px] leading-4">
+          <div className="min-h-0 flex-1 overflow-auto rounded border border-border/40 bg-muted/30 p-2 font-mono text-[11px] leading-4">
             {(numberedLines).map(({ line, id, previous }) => {
               const tone = logLineTone(line.text);
               return (
