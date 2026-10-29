@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A probe for a toast that can be read twice**
+
+- `scripts/dev/probes/toast-copy.mjs` (new): reads the toasts on screen - whether their text can be selected, whether they carry a close button and an action - then drags across the title with real mouse events and reads `window.getSelection()`, because whether a drag selects or dismisses is decided by the swipe handler sonner wraps every toast in and by nothing visible in the source. `--copy` presses the action and looks for its confirmation. It refuses to run with no toast on screen rather than reporting a pass on nothing. Measured on the installed build, on the error a folder name with a slash raises: the text was selectable, a real drag selected 23 characters and left the toast in place, and the action turned the toast into its confirmation while the clipboard held the whole sentence - the visible half of the copy, with the clipboard read separately to confirm the other half.
+
 **A toast can be read twice, and a failed write is no longer silent**
 
 - `src/components/ui/sonner.tsx`: a toast now carries a close button and its text can be selected. Sonner sets `touch-action: none` and a swipe handler on the whole toast, so a drag dismissed it instead of selecting the text inside it; the action that does copy is offered per message rather than by making the whole stack draggable.
