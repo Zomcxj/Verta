@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-28</strong></summary>
 
+**A probe: everything the interface threw**
+
+- `scripts/dev/probes/exception-watch.mjs` (new): attaches to the window's own log domains - uncaught exceptions, console errors, log errors - and exits non-zero if it saw any, so it works as a check and not only as a readout. This is how the reason a window emptied itself was found at all: a tree that unmounts leaves a window with nothing but the native material behind it, and no message anywhere the user can see, while `Log.enable` replays the entries the browser had already collected.
+- Measured after the fix, with every terminal's renderer forced to fail (`--disable-gpu --disable-software-rasterizer`, which is the state that used to end in a dead window: `WebGL2 is unavailable in this webview`): switching through every tab and closing one left the window intact - 389 to 539 elements, the root element never emptied, and not one uncaught exception in seventy-five seconds of watching. Each pane reported its own failure instead ("could not start the terminal", with a retry). The three `console.error` lines it did see are the failure path announcing itself on purpose.
+
 **One broken component no longer takes the window with it**
 
 - `src/app/components/AppErrorBoundary.tsx` (new): the application is mounted inside a boundary. React unmounts the whole tree when a render, a commit or a passive effect throws and nothing above it catches - which is what left a window with an empty screen, nothing but the native material behind the interface, and no way to tell what had happened. The panel is plain on purpose: it reads the current language, but it loads nothing and holds nothing that could throw in turn, and the reload is the user's move rather than its own, because a reload stops whatever is running in a terminal.
