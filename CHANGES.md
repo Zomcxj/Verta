@@ -20,7 +20,7 @@ swap in the new date, and drop the `open` from the day before.
 **A project row no longer opens a card, and points the source panel at itself**
 
 - `src/modules/projects/ProjectsView.tsx`: the hover card that appeared beside a project's name is gone, with the body it drew and the props only it used. The name already carries the way in, and a panel of sessions appearing under the pointer as one moves across a list is what a person asked not to have. Opening a session from one of those rows was the card's only entry point; the row's own menu and the sessions panel both still offer it.
-- `src/app/App.tsx`, `src/app/components/WorkspaceSurface.tsx`: pressing a project name now also points the source-control column at that project and opens the column if it was closed, instead of leaving it wherever the last project put it. It opens rather than toggles - pressing a project is a request to look at that repository, and toggling closed a column the person already had open.
+- `src/app/App.tsx`, `src/app/components/WorkspaceSurface.tsx`: pressing a project name now also points the source-control column at that repository and opens the column if it was closed, instead of leaving it wherever the last project put it. It opens rather than toggles - pressing a project is a request to look at that repository, and toggling closed a column the person already had open. The callback moved up beside the panel hooks it needs, so the terminal it opens is no longer skipped: its dependency list used to name a callback declared below it, which the language reports as use before declaration, so the reachable version had to be checked by hand.
 
 **The review's findings, fixed**
 

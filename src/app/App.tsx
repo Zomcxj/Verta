@@ -1073,13 +1073,13 @@ export default function App() {
   });
 
   /**
-   * Clicking a project row: switch to that project's env (local / WSL), point the
+   * Pressing a project row: switch to that project's env (local / WSL), point the
    * source-control panel at that project, and open a terminal at its root.
    *
-   * The project list is the only way in to a project. This used to be "one
-   * project, one workspace", with a workspace switcher in the UI.
+   * Declared up here rather than beside its other callers because it needs the panel hooks,
+   * and those come below the tab-opening callbacks this block sits among.
    */
-  const handleOpenProject = useCallback(
+  const openProject = useCallback(
     (entry: ProjectEntry) => {
       void adoptWorkspaceEnv(entry.workspace);
       // The source-control column follows the project that was just opened, and is made
@@ -1096,6 +1096,7 @@ export default function App() {
       openRightPanel,
     ],
   );
+
 
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
@@ -1745,7 +1746,7 @@ export default function App() {
                         onOpenCommitFile={openCommitFileDiffTab}
                         onGitHistorySearchHandle={setGitHistoryHandle}
                         onSetMarkdownView={setMarkdownView}
-                        onOpenProject={handleOpenProject}
+                        onOpenProject={openProject}
                         onOpenProjectTerminal={handleOpenProjectTerminal}
                         onNewProjectSession={handleNewProjectSession}
                         onProjectsSubChange={renameProjectsPanel}
