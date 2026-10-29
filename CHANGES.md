@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A probe for what a session row draws in each density**
+
+- `scripts/dev/probes/session-list-density.mjs` (new): reads the density the list says it drew, then each row's lines, its native title and the popups on screen - and, given `--hover`, puts the pointer on a row for real and reads what appeared while it is still there. `--expect=standard|compact` checks each density's consequences, and `--click-row` presses the row to prove a compact one still opens a session, which is what decides whether the two triggers ended on the same element. It names the window by its whole address on purpose: the settings page shares the origin, so a shorter name reads whichever of the two the debugger lists first. Measured on the installed build: the default drew two-line rows and no popup on hover; compact drew one-line rows with no native title, one three-line popup carrying the directory, and the row still opened a session; a restart kept it compact; and switching back brought the two-line rows and the silent hover back, with the main window following the settings window each time without a restart.
+
 **The compact row's popup is painted in the window's own surface**
 
 - `src/modules/launcher/components/SessionList.tsx`: the popup takes a menu's surface - the theme's own popover colours with a border and a shadow - instead of the shared sheet's inverted two-colour pill. That pill is right for a status label and wrong for three lines of text: in a light theme the row would open a black block, and the window's theme changes nothing about it. Measured on the installed build, the same popup reads `#2b3239` on `#f2f5f7` under the acrylic theme, both of which are that theme's own values.
