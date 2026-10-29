@@ -57,6 +57,11 @@ type Props = {
   onToggle?: (session: AgentSession) => void;
   /** Context menu and in-place rename; omitted means no menu (not needed in manage mode). */
   actions?: SessionRowActions;
+  /**
+   * Nothing has been read yet. An empty list and an unread one are different things: saying "no
+   * sessions" while the first read is still running is a claim nobody has checked.
+   */
+  reading?: boolean;
 };
 
 /**
@@ -75,13 +80,21 @@ export const SessionList = memo(function SessionList({
   selected,
   onToggle,
   actions,
+  reading = false,
 }: Props) {
   const t = useT();
   const density = usePreferencesStore((s) => s.sessionListDensity);
   if (sessions.length === 0) {
     return (
-      <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-        {selectable ? t("launcher.emptySelectable") : t("launcher.empty")}
+      <div
+        data-session-empty={reading ? "reading" : "empty"}
+        className="px-3 py-6 text-center text-xs text-muted-foreground"
+      >
+        {reading
+          ? t("launcher.loading")
+          : selectable
+            ? t("launcher.emptySelectable")
+            : t("launcher.empty")}
       </div>
     );
   }

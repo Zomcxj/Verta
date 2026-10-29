@@ -41,6 +41,16 @@ import { SessionList, type SessionRowActions } from "./SessionList";
 const TOOLS: AgentTool[] = AGENT_TOOLS;
 
 /**
+ * The last list read, kept at module scope.
+ *
+ * The sidebar swaps panels with a `key`, so leaving the sessions list for the file tree and coming
+ * back mounts this component again with nothing. Module scope is the one thing that survives that,
+ * so the panel draws what it had while the read happens again instead of flashing an empty list.
+ * Only a display cache: nothing decides anything from it, and a read replaces it.
+ */
+let cachedSessions: AgentSession[] = [];
+
+/**
  * Copy to the clipboard, and say something either way: a menu item that does
  * nothing at all is the most unsettling outcome there is.
  */
@@ -75,7 +85,10 @@ export function LauncherPanel({
 }: Props) {
   const [query, setQuery] = useState("");
   const t = useT();
-  const [sessions, setSessions] = useState<AgentSession[]>([]);
+  // Seeded from the last read, so a remount shows the list it showed before rather than nothing.
+  const [sessions, setSessions] = useState<AgentSession[]>(() => cachedSessions);
+  /** Whether a read has finished at least once: an unread empty list is not an empty list. */
+  const [hasRead, setHasRead] = useState(() => cachedSessions.length > 0);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -143,7 +156,9 @@ export function LauncherPanel({
         }
       });
       merged.sort((left, right) => right.updatedAtMs - left.updatedAtMs);
+      cachedSessions = merged;
       setSessions(merged);
+      setHasRead(true);
       setWarnings(nextWarnings);
       setError(failures.length > 0 ? failures.join("\n") : null);
       setLoading(false);
@@ -451,6 +466,9 @@ export function LauncherPanel({
                       actions={rowActions}
                       selected={selected}
                       onToggle={toggleRow}
+                      // Only the first read counts: a refresh over an empty list the user has
+                      // already seen is not news.
+                      reading={!hasRead}
                     />
                   </div>
                 ))}

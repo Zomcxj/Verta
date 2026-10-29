@@ -97,7 +97,10 @@ export function IssueDetail({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      {/* The panel's close button is absolutely placed in this corner; the row's last control -
+          "open on GitHub" - stops short of it. Two buttons in one corner leave one of them
+          unpressable, and which one depends on paint order rather than on anything written here. */}
+      <div className="flex flex-wrap items-center gap-2 pr-9">
         <Button
           variant="ghost"
           size="sm"

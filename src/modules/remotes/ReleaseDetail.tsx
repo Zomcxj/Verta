@@ -81,7 +81,8 @@ export function ReleaseDetail({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Same corner as the panel's close button: the row keeps clear of it. */}
+      <div className="flex flex-wrap items-center gap-2 pr-9">
         <Button
           variant="ghost"
           size="sm"

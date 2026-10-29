@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**Switching back to the sessions list no longer says it is empty**
+
+- `src/modules/launcher/components/LauncherPanel.tsx`: the panel keeps the last list it read at module scope and starts from it, so the sidebar's remount - leaving for the file tree and coming back - draws the sessions it had instead of starting from nothing. It also tracks whether a read has finished at all, because an unread list is not an empty one.
+- `src/modules/launcher/components/SessionList.tsx`: an empty list says "reading" until the first read lands, and "no sessions" only after it. Before this, the list was empty for as long as the read took and announced that as a fact.
+- `src/modules/remotes/IssueDetail.tsx`, `src/modules/remotes/ReleaseDetail.tsx`: the same corner as the run detail - the row's last button stops short of the panel's close button, which the run detail's fix already covered for its own row. A pull request's "open on GitHub" was crossed by the close button for exactly the reason the run's was.
+
 **A probe for the corner where a run's two buttons meet**
 
 - `scripts/dev/probes/run-detail-corner.mjs` (new): opens a run's own detail - the remote list, the first repository that has a run, that run's detail - and compares the boxes of the row's "open on GitHub" button and the panel's close button, reporting what sits at the point where they would meet. Overlap is not visible in a diff once the class that keeps them apart is removed: the close button is absolutely placed by the shared dialog style, and which of two overlapping siblings receives a press depends on paint order. Measured on the installed build: GitHub's right edge at 1098, the close button's left edge at 1110 - a 12-pixel gap and nothing to fight over.

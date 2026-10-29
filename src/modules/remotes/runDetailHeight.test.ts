@@ -41,5 +41,10 @@ describe("the run detail's height", () => {
     // land on the same pixels: one of them becomes unpressable, and which one depends on the order
     // two absolutely positioned siblings happen to be painted in.
     expect(detail).toContain("flex items-center gap-2 pr-9");
+    // The issue and release details are the same shape and share the same corner.
+    for (const sibling of ["IssueDetail.tsx", "ReleaseDetail.tsx"]) {
+      const text = readFileSync(new URL(`./${sibling}`, import.meta.url), "utf8");
+      expect(text).toContain("flex flex-wrap items-center gap-2 pr-9");
+    }
   });
 });
