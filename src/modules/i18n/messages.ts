@@ -890,6 +890,12 @@ const zh = {
   "settings.gitDecorations.title": "Git 标记",
   "settings.gitDecorations.description":
     "在文件树中给已修改的文件着色，并淡化被 gitignore 的条目。",
+  "settings.sessionList": "会话列表",
+  "settings.sessionListDensity.title": "列表密度",
+  "settings.sessionListDensity.description":
+    "紧凑只留标题，轮数、体积、最后说话时间和会话目录移到鼠标停上去的小窗里。",
+  "settings.sessionListDensity.standard": "标准",
+  "settings.sessionListDensity.compact": "紧凑",
   "settings.taskbar": "任务栏与通知区域",
   "settings.closeToTray.title": "关闭时收进托盘",
   "settings.closeToTray.description":
@@ -2291,6 +2297,12 @@ const en: Record<MessageKey, string> = {
   "settings.gitDecorations.title": "Git decorations",
   "settings.gitDecorations.description":
     "Tint changed files and dim gitignored entries in the file explorer.",
+  "settings.sessionList": "Session list",
+  "settings.sessionListDensity.title": "List density",
+  "settings.sessionListDensity.description":
+    "Compact keeps the title and moves the turns, the size, when it was last talked to and the session's directory into a popup on hover.",
+  "settings.sessionListDensity.standard": "Standard",
+  "settings.sessionListDensity.compact": "Compact",
   "settings.taskbar": "Taskbar and notification area",
   "settings.closeToTray.title": "Close to tray",
   "settings.closeToTray.description":

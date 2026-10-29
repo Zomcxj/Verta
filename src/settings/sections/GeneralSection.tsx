@@ -20,6 +20,7 @@ import {
   setDesktopNotifications,
   setExplorerGitDecorations,
   setRestoreWindowState,
+  setSessionListDensity,
   setShowHidden,
   setTaskbarAttentionFlash,
   setWslEnabled,
@@ -115,6 +116,7 @@ export function GeneralSection() {
     }
   };
   const showHidden = usePreferencesStore((s) => s.showHidden);
+  const sessionListDensity = usePreferencesStore((s) => s.sessionListDensity);
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
   );
@@ -268,6 +270,31 @@ export function GeneralSection() {
             checked={explorerGitDecorations}
             onCheckedChange={(v) => void setExplorerGitDecorations(v)}
           />
+        </SettingRow>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>{t("settings.sessionList")}</Label>
+        <SettingRow
+          title={t("settings.sessionListDensity.title")}
+          description={t("settings.sessionListDensity.description")}
+        >
+          <Select
+            value={sessionListDensity}
+            onValueChange={(value) => void setSessionListDensity(value)}
+          >
+            <SelectTrigger className="h-8 w-36 text-[12px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="standard">
+                {t("settings.sessionListDensity.standard")}
+              </SelectItem>
+              <SelectItem value="compact">
+                {t("settings.sessionListDensity.compact")}
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </SettingRow>
       </div>
 

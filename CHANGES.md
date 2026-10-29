@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A row in the settings window for it**
+
+- `src/settings/sections/GeneralSection.tsx`, `src/modules/i18n/messages.ts`: a session-list group holding one row, a two-option choice between the standard list and the compact one, with the description saying what moves where. It reads and writes the preference, so the change reaches the main window through the same broadcast every other setting uses rather than at the next start.
+
 **A session list can be drawn compact or standard**
 
 - `src/modules/settings/store.ts`: a preference for how much a session row says at rest - `sessionListDensity` - whose default is the two-line row every install already shows, so nothing changes until someone asks it to. Only the one word reads as compact: a file edited by hand, or a value some later version wrote, draws the standard list, because a row has to say something rather than go blank.
