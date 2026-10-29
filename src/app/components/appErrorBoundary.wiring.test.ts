@@ -39,4 +39,19 @@ describe("the root of the application", () => {
     // A boundary that throws again is a boundary that does nothing: React gives up on the second one.
     expect(boundary).not.toMatch(/throw\s+error/);
   });
+
+  it("keeps the window closable and movable, which the application was providing", () => {
+    // On Windows the frame draws none of it (`decorations: false` in the windows config): the close
+    // button and the drag region live inside the application, and the application is what just failed.
+    // A recovery panel that cannot be closed is a worse failure than the one it is recovering from.
+    expect(boundary).toContain("WindowControls");
+    expect(boundary).toContain("data-tauri-drag-region");
+  });
+
+  it("paints its own surface rather than leaving the window's material showing", () => {
+    // The interface normally sits on the window's own translucent material, which is the very thing
+    // this cut is about; the one message that matters should not be drawn on the most translucent
+    // surface in the window.
+    expect(boundary).toContain("bg-background");
+  });
 });

@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**The recovery panel keeps the window's own controls**
+
+- `src/app/components/AppErrorBoundary.tsx`: the panel that replaces a broken interface now carries a drag region and the window's controls, and paints its own surface. On Windows the frame draws none of those (`decorations: false`), so the close button and the drag region live inside the application - which is exactly what has just failed, leaving a window that could not be closed or moved at the moment one most wants to close it. The interface normally sits on the window's own translucent material, which is what that material is for; the one message that matters is not drawn on it.
+- `src/app/components/appErrorBoundary.wiring.test.ts`: both pinned, read as text like the rest of that file.
+
 **The door a session goes out of when it never started tells the interface too**
 
 - `src/modules/terminal/ghostty/useGhosttyTerminalSession.ts`: the path that gives up on a session whose initialisation failed now tells the surface that was drawing it that the model is gone, which is what it was missing. This is the path the emptied window actually came through: a terminal whose renderer cannot be created hands its model to the interface before it has a renderer at all, so the interface went on holding a live-looking model after this took it away, subscribed to it on the next visibility change, and threw out of that effect. The teardown is one named function now, so the two doors out of a session read the same way. Found by review, against the fix that only closed the disposal door.

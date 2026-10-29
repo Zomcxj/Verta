@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { WindowControls } from "@/components/WindowControls";
 import { useT } from "@/modules/i18n";
 import { type ErrorDetail, errorDetailOf } from "./appErrorFallback";
 
@@ -42,24 +43,35 @@ export class AppErrorBoundary extends Component<Props, State> {
 function BrokenInterface({ detail }: { detail: ErrorDetail }) {
   const t = useT();
   return (
-    <div
-      role="alert"
-      className="flex h-full min-h-0 flex-col items-center justify-center gap-3 p-6 text-center"
-    >
-      <p className="text-sm font-medium">{t("app.error.title")}</p>
-      <p className="max-w-md text-xs text-muted-foreground">
-        {t("app.error.hint")}
-      </p>
-      <pre className="max-h-40 max-w-md overflow-auto rounded-md border border-border bg-foreground/[0.03] p-2 text-left text-[11px] text-muted-foreground">
-        {detail.name}: {detail.detail}
-      </pre>
-      <button
-        type="button"
-        className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs hover:bg-accent/70"
-        onClick={() => window.location.reload()}
+    // The bar keeps what the application was providing: on Windows the frame draws none of it, so the
+    // close button and the drag region live inside the application - which is what just failed. A panel
+    // that cannot be closed is a worse failure than the one it is there for.
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      <header
+        data-tauri-drag-region
+        className="flex h-10 shrink-0 items-center justify-between border-b border-border/60 bg-card/60 pl-3"
       >
-        {t("app.error.reload")}
-      </button>
+        <span className="text-xs font-medium">{t("app.error.title")}</span>
+        <WindowControls />
+      </header>
+      <div
+        role="alert"
+        className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-background p-6 text-center"
+      >
+        <p className="max-w-md text-xs text-muted-foreground">
+          {t("app.error.hint")}
+        </p>
+        <pre className="max-h-40 max-w-md overflow-auto rounded-md border border-border bg-foreground/[0.03] p-2 text-left text-[11px] text-muted-foreground">
+          {detail.name}: {detail.detail}
+        </pre>
+        <button
+          type="button"
+          className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs hover:bg-accent/70"
+          onClick={() => window.location.reload()}
+        >
+          {t("app.error.reload")}
+        </button>
+      </div>
     </div>
   );
 }
