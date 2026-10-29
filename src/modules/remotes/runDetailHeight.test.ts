@@ -34,4 +34,12 @@ describe("the run detail's height", () => {
     // The shared dialog draws it by default; this pins that the run panel does not opt out.
     expect(dialog).not.toContain("showCloseButton={false}");
   });
+
+  it("keeps its own top row clear of the panel's close button", () => {
+    // The close button is absolutely placed at the panel's top-right corner. The detail view's first
+    // row ends with a button of its own ("open on GitHub"), and with nothing holding it back the two
+    // land on the same pixels: one of them becomes unpressable, and which one depends on the order
+    // two absolutely positioned siblings happen to be painted in.
+    expect(detail).toContain("flex items-center gap-2 pr-9");
+  });
 });

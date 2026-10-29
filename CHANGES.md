@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A run's first row keeps clear of the panel's close button**
+
+- `src/modules/remotes/RunDetail.tsx`: the row that carries "back" and "open on GitHub" stops short of the panel's top-right corner, where the shared dialog draws its close button. Both were in the same corner, so one of them was unpressable depending on which of two absolutely positioned siblings happened to be painted first - seen on the installed build where the close crossed the "open on GitHub" button.
+- `src/modules/remotes/runDetailHeight.test.ts`: pins the gap rather than the corner.
+
 **A run's record opens from the column that shows the result**
 
 - `src/modules/remotes/RemoteReposView.tsx`: a remote repository row no longer opens the runs panel from a click anywhere on it. The whole row was a door, so a click that missed the visibility toggle or the description's edit box opened a panel over the control it missed, and the row's pointer cursor promised it everywhere. The CI column's own button is the way in, with the row's menu offering it as before; hovering still checks, which is not a click.

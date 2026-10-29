@@ -94,7 +94,10 @@ export function RunDetail({ repo, run, onBack }: Props) {
     // reached. The cap is the window's own height - the same number the dialog that holds this uses -
     // so the two cannot disagree about how much room there is.
     <div className="flex max-h-[calc(min(85vh,720px)-3rem)] min-h-0 flex-col gap-3">
-      <div className="flex items-center gap-2">
+      {/* The panel's close button sits in the top-right corner (`top-4 right-4`), so the row's last
+          control stops short of it: a second button drawn underneath would be a corner nobody can
+          press, whichever one happened to be counted first. */}
+      <div className="flex items-center gap-2 pr-9">
         <Button
           variant="ghost"
           size="sm"
