@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**The settings window always opens in the middle of the screen**
+
+- `src-tauri/src/lib.rs`: opening settings now centres the window every time - both when it is built and when it is shown again after having been dragged somewhere. The window-state plugin saves and restores each window's position, so the first open landed in the middle and every open after that landed wherever it had last been moved. The placement is now the same on every platform instead of being a macOS-only calculation against the main window.
+
 **Two more probes: a pull request's corner, and coming back to the sessions list**
 
 - `scripts/dev/probes/issue-detail-corner.mjs` (new): compares the boxes of a pull request detail's "open on GitHub" button and the panel's close button. Measured on the installed build: 1162 and 1174 - a 12-pixel gap.

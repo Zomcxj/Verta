@@ -9,8 +9,6 @@ use modules::{
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
-#[cfg(target_os = "macos")]
-use tauri::PhysicalPosition;
 use tauri::WindowEvent;
 use tauri_plugin_window_state::StateFlags;
 
@@ -97,6 +95,10 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     if let Some(window) = app.get_webview_window("settings") {
         #[cfg(not(target_os = "macos"))]
         let _ = window.set_always_on_top(true);
+        // Centre on every open, not only when the window is built: the window-state plugin saves
+        // and restores each window's position, so a window that was centred the first time came
+        // back wherever it had been dragged since.
+        let _ = window.center();
         let _ = window.show();
         let _ = window.set_focus();
         if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
@@ -172,22 +174,10 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         let _ = window.set_decorations(false);
     }
 
-    #[cfg(target_os = "macos")]
-    if let Some(main) = app.get_webview_window("main") {
-        if let (Ok(main_pos), Ok(main_size), Ok(settings_size)) = (
-            main.outer_position(),
-            main.outer_size(),
-            window.outer_size(),
-        ) {
-            let x = main_pos.x
-                + ((main_size.width as i32).saturating_sub(settings_size.width as i32)) / 2;
-            let y = main_pos.y
-                + ((main_size.height as i32).saturating_sub(settings_size.height as i32)) / 2;
-            let _ = window.set_position(PhysicalPosition::new(x, y));
-        } else {
-            let _ = window.center();
-        }
-    }
+    // Centred on every platform: the window is always opened to be looked at straight away, and
+    // where it lands has nothing to do with where the main window is. macOS keeps the parent
+    // relationship above, which is about stacking rather than placement.
+    let _ = window.center();
 
     Ok(())
 }
@@ -615,5 +605,45 @@ mod launch_target_tests {
     fn settings_float_only_outside_macos() {
         assert!(!settings_always_on_top(true));
         assert!(settings_always_on_top(false));
+    }
+
+    /// The settings window is centred every time it is opened, not only the first time.
+    ///
+    /// The window-state plugin saves and restores every window's position, so a window that was
+    /// centred when it was built came back wherever it was last dragged. Centring is therefore a
+    /// property of "open", not of "create", and both halves of that function have to do it.
+    #[test]
+    fn settings_is_centred_every_time_it_opens() {
+        let source = include_str!("lib.rs");
+        let start = source
+            .find("async fn open_settings_window")
+            .expect("open_settings_window is gone");
+        let end = start
+            + source[start..]
+                .find("\n#[cfg_attr(mobile, tauri::mobile_entry_point)]")
+                .expect("the function's end marker is gone");
+        let body = &source[start..end];
+
+        // The already-open branch shows and focuses; it has to centre too.
+        let existing = body
+            .find("get_webview_window(\"settings\")")
+            .expect("the already-open branch is gone");
+        let branch_end = body[existing..]
+            .find("return Ok(());")
+            .expect("the already-open branch's return is gone");
+        assert!(
+            body[existing..existing + branch_end].contains("center()"),
+            "reopening settings does not centre it"
+        );
+
+        // And a fresh open is centred on every platform, not only macOS.
+        assert!(
+            body.contains("window.center()"),
+            "a freshly built settings window does not centre"
+        );
+        assert!(
+            !body.contains("#[cfg(target_os = \"macos\")]\n    if let Some(main)"),
+            "centring is still macOS-only: every platform has to land in the middle"
+        );
     }
 }
