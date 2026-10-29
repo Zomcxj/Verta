@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A project row no longer opens a card, and points the source panel at itself**
+
+- `src/modules/projects/ProjectsView.tsx`: the hover card that appeared beside a project's name is gone, with the body it drew and the props only it used. The name already carries the way in, and a panel of sessions appearing under the pointer as one moves across a list is what a person asked not to have. Opening a session from one of those rows was the card's only entry point; the row's own menu and the sessions panel both still offer it.
+- `src/app/App.tsx`, `src/app/components/WorkspaceSurface.tsx`: pressing a project name now also points the source-control column at that project and opens the column if it was closed, instead of leaving it wherever the last project put it. It opens rather than toggles - pressing a project is a request to look at that repository, and toggling closed a column the person already had open.
+
 **The review's findings, fixed**
 
 - `src/modules/launcher/components/SessionList.tsx`: the popup carries the class every other floating panel in this window carries, so on the glass theme it takes the same pane tint as the menus beside it instead of sitting on the interface as an opaque slab with a bare black shadow. The comment about how the row's two triggers compose now also says that the popup writes its own state attributes onto the row.

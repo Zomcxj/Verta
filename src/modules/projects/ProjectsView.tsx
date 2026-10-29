@@ -23,11 +23,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
 import { CloneRepoDialog } from "./CloneRepoDialog";
 import { Input } from "@/components/ui/input";
 import { SortHeader } from "@/components/ui/sort-header";
@@ -40,7 +35,6 @@ import {
   type AgentTool,
   loadAllAgentSessions,
   relativeTime,
-  topLevelSessions,
 } from "@/modules/launcher";
 import { native, type WireProjectTarget } from "@/lib/native";
 import { type Account, accountFrom, ownershipLabelKey } from "@/lib/ownership";
@@ -57,7 +51,6 @@ import {
 import {
   filterRows,
   ownershipOfRow,
-  sessionsForProject,
   sortRows,
   stateOf,
   type RowState,
@@ -83,9 +76,6 @@ type Props = {
    * active: running git status over 15 repos at startup would be wasted work.
    */
   active: boolean;
-  /** Clicking a session in the hover popover: same resume path as the sessions panel
-   * (cwd and session id come as a pair). */
-  onOpenSession: (session: AgentSession) => void;
   /** Clicking a project row: switch to a workspace rooted at that project, creating
    * one if needed. */
   onOpenWorkspace: (entry: ProjectEntry) => void;
@@ -109,7 +99,6 @@ const TONE_CLASS: Record<RowState["tone"], string> = {
 
 export function ProjectsView({
   active,
-  onOpenSession,
   onOpenWorkspace,
   onOpenTerminal,
   onNewSession,
@@ -221,9 +210,6 @@ export function ProjectsView({
     () => (paths ? entriesFromPaths(paths) : []),
     [paths],
   );
-
-  // Subagent sessions are hidden, matching the sessions panel (the R1 rule).
-  const topLevel = useMemo(() => topLevelSessions(sessions), [sessions]);
 
   const entries = useMemo(
     () => [...managed, ...discoveredEntries(sessions, managed)],
@@ -537,8 +523,6 @@ export function ProjectsView({
                 <ProjectRowView
                   key={`${row.path}\u0000${row.workspace.kind === "wsl" ? row.workspace.distro : ""}`}
                   row={row}
-                  sessions={sessionsForProject(topLevel, row)}
-                  onOpenSession={onOpenSession}
                   onOpenWorkspace={onOpenWorkspace}
                   onOpenTerminal={onOpenTerminal}
                   onNewSession={onNewSession}
@@ -594,8 +578,6 @@ function samePathAny(paths: string[], target: string): boolean {
 
 function ProjectRowView({
   row,
-  sessions,
-  onOpenSession,
   onOpenWorkspace,
   onOpenTerminal,
   onNewSession,
@@ -605,8 +587,6 @@ function ProjectRowView({
   pulling,
 }: {
   row: ProjectRow;
-  sessions: AgentSession[];
-  onOpenSession: (session: AgentSession) => void;
   onOpenWorkspace: (entry: ProjectEntry) => void;
   onOpenTerminal: (entry: ProjectEntry) => void;
   onNewSession: (entry: ProjectEntry, tool: AgentTool) => void;
@@ -684,35 +664,19 @@ function ProjectRowView({
           )}
         >
           <td className="truncate px-2 py-1">
-            <HoverCard openDelay={250} closeDelay={120}>
-              <HoverCardTrigger asChild>
-                <button
-                  type="button"
-                  className="block max-w-full truncate text-left"
-                  title={row.path}
-                  onClick={() => onOpenWorkspace(row)}
-                >
-                  {name}
-                  {distro ? (
-                    <span className="ml-1 text-muted-foreground">
-                      {t("projects.row.from", { distro })}
-                    </span>
-                  ) : null}
-                </button>
-              </HoverCardTrigger>
-              <HoverCardContent
-                align="start"
-                className="w-80 p-2 text-xs"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <SessionHoverBody
-                  row={row}
-                  sessions={sessions}
-                  onOpenSession={onOpenSession}
-                  onNewSession={onNewSession}
-                />
-              </HoverCardContent>
-            </HoverCard>
+            <button
+              type="button"
+              className="block max-w-full truncate text-left"
+              title={row.path}
+              onClick={() => onOpenWorkspace(row)}
+            >
+              {name}
+              {distro ? (
+                <span className="ml-1 text-muted-foreground">
+                  {t("projects.row.from", { distro })}
+                </span>
+              ) : null}
+            </button>
           </td>
           <td className="truncate px-2 py-1 text-muted-foreground">
             {t(ownershipLabelKey(row.ownership))}
@@ -866,61 +830,3 @@ function ProjectRowView({
   );
 }
 
-function SessionHoverBody({
-  row,
-  sessions,
-  onOpenSession,
-  onNewSession,
-}: {
-  row: ProjectRow;
-  sessions: AgentSession[];
-  onOpenSession: (session: AgentSession) => void;
-  onNewSession: (entry: ProjectEntry, tool: AgentTool) => void;
-}) {
-  const t = useT();
-  const language = useLanguage();
-  const usable = row.status === null || row.status.kind !== "missing";
-
-  return (
-    <div className="flex flex-col gap-1">
-      <p className="text-muted-foreground">{t("projects.sessions.title")}</p>
-      {sessions.length === 0 ? (
-        <p className="text-muted-foreground">{t("projects.sessions.empty")}</p>
-      ) : (
-        <div className="flex max-h-56 flex-col overflow-auto">
-          {sessions.slice(0, 20).map((session) => (
-            <button
-              key={`${session.tool}:${session.id}`}
-              type="button"
-              className="flex items-center justify-between gap-2 rounded px-2 py-1 text-left hover:bg-accent"
-              onClick={() => onOpenSession(session)}
-            >
-              <span className="truncate">{session.title || session.id}</span>
-              <span className="shrink-0 text-muted-foreground">
-                {relativeTime(Date.now(), session.updatedAtMs, language)}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="mt-1 border-t border-border/50 pt-1">
-        {AGENT_TOOLS.map((tool) => (
-          <button
-            key={tool}
-            type="button"
-            disabled={!usable}
-            className="block w-full rounded px-2 py-1 text-left hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
-            onClick={() => onNewSession(row, tool)}
-          >
-            {t("projects.sessions.new", { tool })}
-          </button>
-        ))}
-        {usable ? null : (
-          <p className="px-2 py-1 text-muted-foreground">
-            {t("projects.sessions.unusable")}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}

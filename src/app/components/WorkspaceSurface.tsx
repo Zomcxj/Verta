@@ -4,7 +4,7 @@ import { GitHistoryStack } from "@/modules/git-history";
 import { ProjectsView } from "@/modules/projects";
 import type { ProjectEntry } from "@/modules/projects";
 import { RemoteReposView } from "@/modules/remotes";
-import type { AgentSession, AgentTool } from "@/modules/launcher";
+import type { AgentTool } from "@/modules/launcher";
 import { MarkdownStack } from "@/modules/markdown";
 import { PreviewStack } from "@/modules/preview";
 import type { Tab } from "@/modules/tabs";
@@ -47,7 +47,6 @@ type Props = {
   onGitHistorySearchHandle: GitHistoryStackProps["onSearchHandle"];
   onSetMarkdownView: EditorStackProps["onSetMarkdownView"];
   onOpenProject: (entry: ProjectEntry) => void;
-  onOpenProjectSession: (session: AgentSession) => void;
   onOpenProjectTerminal: (entry: ProjectEntry) => void;
   onNewProjectSession: (entry: ProjectEntry, tool: AgentTool) => void;
   /** Which list the projects panel is showing; the app renames the tab to match, since
@@ -100,7 +99,6 @@ export function WorkspaceSurface({
   onGitHistorySearchHandle,
   onSetMarkdownView,
   onOpenProject,
-  onOpenProjectSession,
   onOpenProjectTerminal,
   onNewProjectSession,
   onProjectsSubChange,
@@ -314,7 +312,6 @@ export function WorkspaceSurface({
           >
             <ProjectsView
               active={isProjectsTab && projectsSub === "projects"}
-              onOpenSession={onOpenProjectSession}
               onOpenWorkspace={onOpenProject}
               onOpenTerminal={onOpenProjectTerminal}
               onNewSession={onNewProjectSession}

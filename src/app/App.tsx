@@ -380,6 +380,7 @@ export default function App() {
     persistRightCollapsed,
     persistRightWidth,
     toggleRightPanel,
+    openRightPanel,
   } = useRightPanel();
 
   const [newEditorOpen, setNewEditorOpen] = useState(false);
@@ -897,21 +898,6 @@ export default function App() {
     [newTab],
   );
 
-  /**
-   * Clicking a project row: switch to that project's env (local / WSL) and open a
-   * terminal at the project root.
-   *
-   * The project list is the only way in to a project. This used to be "one
-   * project, one workspace", with a workspace switcher in the UI.
-   */
-  const handleOpenProject = useCallback(
-    (entry: ProjectEntry) => {
-      void adoptWorkspaceEnv(entry.workspace);
-      handleOpenProjectTerminal(entry);
-    },
-    [adoptWorkspaceEnv, handleOpenProjectTerminal],
-  );
-
   /** The markdown preview draws a "Run" button on fenced commands; it sends to
    * whichever terminal is active, the same way a resumed session does. */
   const runInActiveTerminal = useCallback(
@@ -1085,6 +1071,32 @@ export default function App() {
     openSourceControl,
     openCommitHistoryTab,
   });
+
+  /**
+   * Clicking a project row: switch to that project's env (local / WSL), point the
+   * source-control panel at that project, and open a terminal at its root.
+   *
+   * The project list is the only way in to a project. This used to be "one
+   * project, one workspace", with a workspace switcher in the UI.
+   */
+  const handleOpenProject = useCallback(
+    (entry: ProjectEntry) => {
+      void adoptWorkspaceEnv(entry.workspace);
+      // The source-control column follows the project that was just opened, and is made
+      // visible rather than toggled: pressing a project is a request to look at that repo, and
+      // toggling would close a panel the user already had open.
+      void handleOpenRepositoryInSourceControl(entry.path);
+      openRightPanel();
+      handleOpenProjectTerminal(entry);
+    },
+    [
+      adoptWorkspaceEnv,
+      handleOpenProjectTerminal,
+      handleOpenRepositoryInSourceControl,
+      openRightPanel,
+    ],
+  );
+
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
   );
@@ -1734,7 +1746,6 @@ export default function App() {
                         onGitHistorySearchHandle={setGitHistoryHandle}
                         onSetMarkdownView={setMarkdownView}
                         onOpenProject={handleOpenProject}
-                        onOpenProjectSession={handleOpenSession}
                         onOpenProjectTerminal={handleOpenProjectTerminal}
                         onNewProjectSession={handleNewProjectSession}
                         onProjectsSubChange={renameProjectsPanel}
