@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { disposeGhosttySessionResources } from "./useGhosttyTerminalSession";
+import {
+  disposeGhosttySessionResources,
+  releaseGhosttySessionForFailure,
+} from "./useGhosttyTerminalSession";
 
 /**
  * What tearing a session's resources down has to leave behind.
@@ -64,5 +67,55 @@ describe("disposing a session's resources", () => {
 
     expect(() => disposeGhosttySessionResources(session)).not.toThrow();
     expect(session.writer.dispose).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The other door: a session that never managed to start.
+ *
+ * This is the one the window actually came down through - a terminal whose renderer could not be
+ * created (`WebGL2 is unavailable`, measured) has its model disposed and nulled here, and the surface
+ * that was handed the model before the renderer existed was never told. React went on holding it, the
+ * accessible output subscribed to it on the next visibility change, and the throw emptied the window.
+ */
+describe("giving up on a session that could not start", () => {
+  function failed() {
+    return {
+      leafId: 9_999,
+      input: { dispose: vi.fn() },
+      surface: { dispose: vi.fn() },
+      surfaceOptions: { some: "options" },
+      model: { dispose: vi.fn() },
+      ptyResize: { reset: vi.fn() },
+      writer: { clear: vi.fn() },
+      callbacks: { onModel: vi.fn() },
+    };
+  }
+
+  it("tells the surface the model is gone", () => {
+    const session = failed();
+    const model = session.model;
+
+    releaseGhosttySessionForFailure(session);
+
+    expect(model.dispose).toHaveBeenCalledTimes(1);
+    expect(session.callbacks.onModel).toHaveBeenCalledWith(null);
+    expect(session.model).toBeNull();
+  });
+
+  it("hands back the rest of what it was holding", () => {
+    const session = failed();
+    const input = session.input;
+    const surface = session.surface;
+
+    releaseGhosttySessionForFailure(session);
+
+    expect(input.dispose).toHaveBeenCalledTimes(1);
+    expect(surface.dispose).toHaveBeenCalledTimes(1);
+    expect(session.surface).toBeNull();
+    expect(session.surfaceOptions).toBeNull();
+    // Cleared rather than disposed, which is what this path has always done.
+    expect(session.writer.clear).toHaveBeenCalledTimes(1);
+    expect(session.ptyResize.reset).toHaveBeenCalledTimes(1);
   });
 });

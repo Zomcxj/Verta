@@ -584,6 +584,49 @@ export function disposeGhosttySession(leafId: number): boolean {
   return true;
 }
 
+/**
+ * The parts of a session that let go when it could not be started at all.
+ *
+ * Structural for the same reason the other door is.
+ */
+type GhosttyFailedSessionResources = {
+  leafId: number;
+  input: { dispose(): void } | null;
+  surface: { dispose(): void } | null;
+  surfaceOptions: unknown;
+  model: { dispose(): void } | null;
+  ptyResize: { reset(): void };
+  writer: { clear(): void };
+  callbacks: Callbacks;
+};
+
+/**
+ * Hands back everything a session that never started was holding, and tells the surface - the telling
+ * being the part that was missing here.
+ *
+ * A session hands its model to the interface *before* it has a renderer, so a failure in between leaves
+ * the interface holding what still looks like a live model while this takes it away. Not saying so is
+ * what emptied the window: measured, a terminal whose renderer could not be created (`WebGL2 is
+ * unavailable in this webview`) took exactly this path, the accessible output went on holding the
+ * model, subscribed to it on the next visibility change, and the throw out of that effect unmounted the
+ * application. Every path that takes a model away now says so.
+ */
+export function releaseGhosttySessionForFailure(
+  session: GhosttyFailedSessionResources,
+): void {
+  session.input?.dispose();
+  session.input = null;
+  session.surface?.dispose();
+  session.surface = null;
+  session.surfaceOptions = null;
+  ghosttyBlocks(session.leafId)?.detach();
+  session.model?.dispose();
+  session.model = null;
+  session.callbacks.onModel?.(null);
+  session.writer.clear();
+  session.ptyResize.reset();
+}
+
 async function respawnGhosttySession(
   leafId: number,
   cwd?: string,
@@ -754,18 +797,7 @@ function initializeSession(session: GhosttySession): Promise<void> {
     (generation) => initializeSessionGeneration(session, generation),
     (error) => {
       session.shellExited = session.pty === null;
-      if (!session.pty) {
-        session.input?.dispose();
-        session.input = null;
-        session.surface?.dispose();
-        session.surface = null;
-        session.surfaceOptions = null;
-        ghosttyBlocks(session.leafId)?.detach();
-        session.model?.dispose();
-        session.model = null;
-        session.writer.clear();
-        session.ptyResize.reset();
-      }
+      if (!session.pty) releaseGhosttySessionForFailure(session);
       session.startupError = toError(error).message;
       console.error("[verta] Ghostty session initialization failed:", error);
       session.callbacks.onError?.(sessionFailure(session));

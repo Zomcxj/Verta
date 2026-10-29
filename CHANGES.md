@@ -15,6 +15,14 @@ swap in the new date, and drop the `open` from the day before.
 ---
 
 <details open>
+<summary><strong>2026-10-29</strong></summary>
+
+**The door a session goes out of when it never started tells the interface too**
+
+- `src/modules/terminal/ghostty/useGhosttyTerminalSession.ts`: the path that gives up on a session whose initialisation failed now tells the surface that was drawing it that the model is gone, which is what it was missing. This is the path the emptied window actually came through: a terminal whose renderer cannot be created hands its model to the interface before it has a renderer at all, so the interface went on holding a live-looking model after this took it away, subscribed to it on the next visibility change, and threw out of that effect. The teardown is one named function now, so the two doors out of a session read the same way. Found by review, against the fix that only closed the disposal door.
+- `src/modules/terminal/ghostty/disposeSessionResources.test.ts`: the giving-up door pinned beside the disposal one - the notification, and the rest of what it hands back.
+
+<details>
 <summary><strong>2026-10-28</strong></summary>
 
 **A probe: how long the interface takes to arrive**
@@ -42,7 +50,7 @@ swap in the new date, and drop the `open` from the day before.
 
 **A disposed session tells the interface its model is gone**
 
-- `src/modules/terminal/ghostty/useGhosttyTerminalSession.ts`: handing back a session's resources now also tells the surface that was drawing it that the model is gone, which the other two paths that dispose a model already did. Without it the interface went on holding a dead model - the accessible output subscribed to it to hear about screen changes, the subscription refuses a dead model, and the throw, out of a passive effect with nothing above it to catch it, unmounted the entire application. Measured on the installed build as a window left with an empty screen and nothing but the acrylic material showing through, with the error still readable in the browser's own log.
+- `src/modules/terminal/ghostty/useGhosttyTerminalSession.ts`: handing back a session's resources now also tells the surface that was drawing it that the model is gone. Corrected on 2026-10-29: the sentence here said the other two paths that dispose a model already did this. One of the two hands a new model over rather than disposing anything, and the path that gives up on a session that never started disposed one without telling anybody - which is the path the measured crash came through. Without it the interface went on holding a dead model - the accessible output subscribed to it to hear about screen changes, the subscription refuses a dead model, and the throw, out of a passive effect with nothing above it to catch it, unmounted the entire application. Measured on the installed build as a window left with an empty screen and nothing but the acrylic material showing through, with the error still readable in the browser's own log.
 - `src/modules/terminal/ghostty/disposeSessionResources.test.ts` (new): that the teardown hands back each part and says so, and that it holds up for a session that never got as far as having a model or a surface.
 
 **A probe: what a folder's context menu offers**
