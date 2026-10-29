@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**Two probes corrected, one of them because it could not pass**
+
+- `scripts/dev/probes/exception-watch.mjs`: an uncaught exception is what fails it now, and `console.error` or an error-level log entry is printed as context rather than counted against it. As written it failed on any `console.error`, which meant it failed on a correct build in the very scenario it exists for - the terminal's failure path announces itself with one on purpose - so its exit code had to be interpreted rather than trusted. The header says which is which.
+- `scripts/dev/probes/startup-timing.mjs`: whether the interface is up is judged by the window's own drag-region marker rather than by counting elements, which was a number to keep in step by hand; and a CDP error rejects instead of leaving the caller to read a result off a message that never had one.
+
 **The recovery panel keeps the window's own controls**
 
 - `src/app/components/AppErrorBoundary.tsx`: the panel that replaces a broken interface now carries a drag region and the window's controls, and paints its own surface. On Windows the frame draws none of those (`decorations: false`), so the close button and the drag region live inside the application - which is exactly what has just failed, leaving a window that could not be closed or moved at the moment one most wants to close it. The interface normally sits on the window's own translucent material, which is what that material is for; the one message that matters is not drawn on it.

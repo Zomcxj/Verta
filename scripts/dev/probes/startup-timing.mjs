@@ -9,6 +9,9 @@
 //   * the page's own navigation and first-paint entries, which is the honest number: the interface
 //     is on screen at first contentful paint, and the window is shown 50ms after the first render.
 //
+// Only arrival. A build that arrives and then empties itself is `exception-watch.mjs`'s job - the two
+// probes answer different halves of "is the interface there".
+//
 // Usage:
 //   node scripts/dev/probes/startup-timing.mjs --match=tauri.localhost/
 //   node scripts/dev/probes/startup-timing.mjs --match=tauri.localhost/ --wait   # retry until the app is up
@@ -75,9 +78,11 @@ socket.addEventListener("message", (e) => {
   }
 });
 const send = (method, params) =>
-  new Promise((res) => {
+  new Promise((res, rej) => {
     const i = id++;
-    pending.set(i, res);
+    // A CDP error has to reject: without it the caller reads `result.result.value` off a message that
+    // never had one, and dies with a TypeError that says nothing about what went wrong.
+    pending.set(i, (m) => (m.error ? rej(new Error(JSON.stringify(m.error))) : res(m)));
     socket.send(JSON.stringify({ id: i, method, params }));
   });
 const pageEval = async (body) => {
@@ -92,18 +97,19 @@ const pageEval = async (body) => {
   return r.result.result.value;
 };
 
-/** Wait until the interface is actually in the DOM, which is what the window being shown waits for. */
+/** Wait until the interface is actually in the document, which is what the window being shown waits for. */
 let paintedMs = null;
 let readyState = "loading";
 for (let i = 0; i < 800; i += 1) {
   const state = await pageEval(
-    `return JSON.stringify({ state: document.readyState, elements: document.querySelectorAll("*").length });`,
+    `return JSON.stringify({ state: document.readyState, marker: document.querySelector("[data-tauri-drag-region]") !== null });`,
   ).then((raw) => JSON.parse(raw));
   readyState = state.state;
-  // Two conditions, because either one alone is a lie: `complete` is reached before React has
-  // rendered, and the root element has a child as soon as React commits anything at all. The
-  // interface being *in* the document is what both together say.
-  if (state.state === "complete" && state.elements > 200) {
+  // The marker is the window's own drag region, which is drawn by the interface and by nothing else:
+  // a count of elements would be a number to keep in step by hand, and it reads as satisfied in a
+  // window that has rendered something and then stopped. `complete` alone is reached before React has
+  // rendered at all, so the two together are the answer.
+  if (state.state === "complete" && state.marker) {
     paintedMs = Date.now() - startedAt;
     break;
   }
@@ -166,8 +172,9 @@ if (launchMs !== null) {
 // does not paint. So first contentful paint is not available to read here at all.
 
 const failures = [];
-if (paintedMs === null) failures.push("界面一直没进 DOM（readyState 到不了 complete 或元素太少）");
-if (timing.elements <= 200) failures.push(`DOM 里只有 ${timing.elements} 个元素：界面没画出来`);
+if (paintedMs === null) {
+  failures.push("界面一直没进 DOM（到不了 readyState=complete，或没出现拖拽区标记）");
+}
 socket.close();
 if (failures.length === 0) process.exit(0);
 console.log("不通过：");

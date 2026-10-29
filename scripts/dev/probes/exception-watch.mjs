@@ -6,9 +6,14 @@
 // the `Ghostty terminal model is disposed` that emptied a window was found, through `Log.enable`
 // replaying the entries it had already collected.
 //
-// This enables both domains and prints what arrives: uncaught exceptions, console errors, and log
-// entries at warning level and above. It exits non-zero if it saw an uncaught exception or a console
-// error, so it can be used as a check rather than only as a readout.
+// What it fails on, and what it only prints:
+//
+//   * an **uncaught exception** fails it, and exits non-zero. That is the thing this exists for: an
+//     exception in a render, a commit or a passive effect is what takes a tree down.
+//   * `console.error` and log entries at error level are printed as **context** and do not fail it.
+//     Deliberate reporting looks exactly like this - the terminal's failure path announces itself with
+//     `console.error` on purpose - so a probe that failed on them would fail on a correct build in the
+//     very scenario it was built to watch.
 //
 // Usage:
 //   node scripts/dev/probes/exception-watch.mjs --match=tauri.localhost/ --seconds=60
@@ -39,25 +44,27 @@ const send = (method, params) =>
   socket.send(JSON.stringify({ id: id++, method, params }));
 
 const startedAt = Date.now();
-const problems = [];
+const exceptions = [];
+const reported = [];
 const at = () => `${((Date.now() - startedAt) / 1000).toFixed(1)}s`;
 socket.addEventListener("message", (event) => {
   const message = JSON.parse(event.data);
   if (message.method === "Runtime.exceptionThrown") {
     const d = message.params.exceptionDetails;
     const where = (d.stackTrace?.callFrames ?? [])
-      .slice(0, 4)
+      .slice(0, 5)
       .map((f) => `${f.functionName || "(anonymous)"} @ ${f.url.split("/").pop()}:${f.lineNumber}`);
-    problems.push(`[${at()}] 未捕获异常：${d.exception?.description ?? d.text ?? "(无描述)"}\n     ${where.join("\n     ")}`);
+    exceptions.push(
+      `[${at()}] ${d.exception?.description ?? d.text ?? "(无描述)"}\n     ${where.join("\n     ")}`,
+    );
   }
   if (message.method === "Runtime.consoleAPICalled" && message.params.type === "error") {
-    problems.push(
-      `[${at()}] console.error：${(message.params.args ?? []).map((a) => String(a.value ?? a.description ?? "")).join(" ").slice(0, 400)}`,
+    reported.push(
+      `[${at()}] console.error：${(message.params.args ?? []).map((a) => String(a.value ?? a.description ?? "")).join(" ").slice(0, 300)}`,
     );
   }
   if (message.method === "Log.entryAdded" && message.params.entry.level === "error") {
-    const e = message.params.entry;
-    problems.push(`[${at()}] 日志 error：${(e.text ?? "").slice(0, 400)}`);
+    reported.push(`[${at()}] 日志 error：${(message.params.entry.text ?? "").slice(0, 300)}`);
   }
 });
 
@@ -67,6 +74,15 @@ send("Runtime.enable");
 await new Promise((r) => setTimeout(r, seconds * 1000));
 socket.close();
 
-console.log(`看了 ${seconds}s：${problems.length === 0 ? "没有未捕获异常 / console.error" : `${problems.length} 条`}`);
-for (const p of problems) console.log(p);
-process.exit(problems.length === 0 ? 0 : 1);
+console.log(
+  `看了 ${seconds}s：未捕获异常 ${exceptions.length} 条，另有 ${reported.length} 条 error 级输出（仅上下文）`,
+);
+if (reported.length > 0) {
+  console.log("--- error 级输出（不判失败）---");
+  for (const line of reported) console.log(line);
+}
+if (exceptions.length > 0) {
+  console.log("--- 未捕获异常（判失败）---");
+  for (const line of exceptions) console.log(line);
+}
+process.exit(exceptions.length === 0 ? 0 : 1);
