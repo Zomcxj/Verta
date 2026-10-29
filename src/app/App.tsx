@@ -250,9 +250,7 @@ export default function App() {
     tabs,
     activeId,
     setActiveId,
-    allocId,
     booted,
-    replaceTabs,
     reorderTabByGap,
     markBooted,
     newTab,
@@ -349,8 +347,6 @@ export default function App() {
 
   const tabsHydrated = useTabRestore({
     ready: launchCwdResolved,
-    allocId,
-    replaceTabs,
     markBooted,
     adoptWorkspaceEnv,
   });
@@ -988,11 +984,10 @@ export default function App() {
   }, [openLaunchFiles]);
 
   // Cold start: files arrive as CLI args (Linux/Windows) or the macOS open-files
-  // event, and get_launch_files drains them once. Wait for `booted`: the spaces
-  // restore ends in replaceTabs(), which overwrites the whole tab list and would
-  // discard a launch tab opened before it, making the file flash open and vanish.
-  // Booting first also lands the tab in the restored active space, and lets
-  // openFileTab dedupe against a session that already had the file open.
+  // event, and get_launch_files drains them once. Wait for `booted` so the tab opens
+  // into a resolved workspace - the env is adopted during boot, and a file opened
+  // before that would land in the wrong one. Booting first also lets openFileTab
+  // dedupe against a session that already had the file open.
   useEffect(() => {
     if (!booted) return;
     void (async () => {
@@ -1001,10 +996,11 @@ export default function App() {
   }, [booted, openLaunchFiles]);
 
   // A folder passed as an argument (`verta.exe <dir>`, which is what the Explorer verb
-  // runs) is a request to work there, not just a preference for where the next session
-  // starts: the restored tabs would otherwise win and the click would look like it did
-  // nothing. Open a terminal on it once the restore is done, the way a launch file is
-  // opened. A terminal on that folder also becomes the workspace root.
+  // runs) is a request to work there, not a preference for where the next session
+  // starts: the cold tab has no cwd of its own, so nothing else would open on it and
+  // the click would look like it did nothing. Open a terminal on it once boot is done,
+  // the way a launch file is opened. A terminal on that folder also becomes the
+  // workspace root.
   useEffect(() => {
     if (!booted || !didLaunchWithDir()) return;
     const dir = getLaunchDir();

@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A launch starts with one tab of its own**
+
+- `src/modules/tabs/lib/useTabRestore.ts`: starting up no longer takes the previous session's tab list. It loads the preferences and adopts the default workspace environment, and that is boot; the single tab the window opened with is the whole content. Nothing of where the last session was - its tabs, their directories, or the environment its active tab happened to sit in - carries over. The tab list is still written back, so a crash still has something to compare against, it is simply never read.
+- `src/app/App.tsx`: stopped handing the restore what it needs to rebuild a tab list, and the two comments that described waiting for one now describe what that wait is for - a resolved workspace before a file or a folder argument opens anything.
+
 **Two comments corrected to say what the code does**
 
 - `src/modules/explorer/lib/agentActions.ts`: a folder path that cannot say which env it belongs to keeps the window's answer *or the distro the window last used* - the remembered distro is part of what that helper answers with, and the comment named only the first half of it.
