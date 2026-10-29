@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-29</strong></summary>
 
+**A compact session row keeps its numbers on hover**
+
+- `src/modules/launcher/components/SessionList.tsx`: a row draws one of two densities. The compact one is a single line - the agent's icon, the title, the running light - and the numbers line moves into a popup that also carries the session's directory, which is what the row gave up when it stopped showing a path. The browser's own title tooltip is only set on the standard row: two popups on one hover, the native one knowing nothing but the title, is worse than the single popup. Both triggers of a row - the context menu's and the popup's - have to end on the same element, so their slots are chained and the row sits at the end of the chain. A compact row still opens, and still offers the same menu; the popup is mounted only in the compact density, so the default costs nothing. The file's own comment about what a row carries was corrected - it named a tooltip the row did not have.
+
 **One line for a session's numbers**
 
 - `src/modules/launcher/lib/sessionStats.ts`: the row's three facts joined into a single line, for the popup a compact row shows. It is built from the same three label functions the row itself draws with, so the two surfaces cannot come to different conclusions about what a number or a date means; the separator is the one the row already puts between its segments.

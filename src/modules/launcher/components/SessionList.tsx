@@ -5,9 +5,16 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { AgentStateMarquee, type AgentStateDot as AgentState } from "@/modules/terminal/AgentStateDot";
 import { useLanguage, useT } from "@/modules/i18n";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import type { SessionListDensity } from "@/modules/settings/store";
 import { AgentIcon } from "../lib/agentIcon";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { memo, useEffect, useRef, useState } from "react";
@@ -15,6 +22,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { sessionKey } from "../lib/selection";
 import {
   lastTalkedDayLabel,
+  statsLine,
   statsOf,
   tokensLabel,
   turnsLabel,
@@ -53,9 +61,10 @@ type Props = {
 
 /**
  * One row per session. The list is memoised together with the row: a session row carries a context
- * menu, a tooltip and their popper layers, which is a dozen Radix components per row, and the panel
- * around this list re-renders for reasons that have nothing to do with the rows (a tab switch, the
- * query box, managing mode). `LauncherPanel` keeps the props it hands down stable so this holds.
+ * menu, and in the compact density a tooltip as well, with the popper layers behind them, which is a
+ * dozen Radix components per row - and the panel around this list re-renders for reasons that have
+ * nothing to do with the rows (a tab switch, the query box, managing mode). `LauncherPanel` keeps the
+ * props it hands down stable so this holds.
  */
 export const SessionList = memo(function SessionList({
   sessions,
@@ -68,6 +77,7 @@ export const SessionList = memo(function SessionList({
   actions,
 }: Props) {
   const t = useT();
+  const density = usePreferencesStore((s) => s.sessionListDensity);
   if (sessions.length === 0) {
     return (
       <div className="px-3 py-6 text-center text-xs text-muted-foreground">
@@ -76,12 +86,15 @@ export const SessionList = memo(function SessionList({
     );
   }
   return (
-    <div className="flex flex-col gap-0.5 px-1.5 pb-2">
+    // Which density was drawn, the way a row carries `data-session-id`: a probe measuring the two
+    // modes has to know which one it is looking at, and counting lines is a guess.
+    <div data-session-density={density} className="flex flex-col gap-0.5 px-1.5 pb-2">
       {sessions.map((session) => (
         <SessionButton
           key={sessionKey(session)}
           session={session}
           active={session.id === activeId}
+          density={density}
           state={states?.get(session.id) ?? null}
           onOpen={onOpen}
           selectable={selectable}
@@ -97,6 +110,7 @@ export const SessionList = memo(function SessionList({
 const SessionButton = memo(function SessionButton({
   session,
   active,
+  density,
   state,
   onOpen,
   selectable,
@@ -106,6 +120,8 @@ const SessionButton = memo(function SessionButton({
 }: {
   session: AgentSession;
   active: boolean;
+  /** How much this row says at rest; see `SessionListDensity`. */
+  density: SessionListDensity;
   /** This session's live state, or null when nothing is running for it. */
   state: AgentState | null;
   selectable: boolean;
@@ -123,8 +139,10 @@ const SessionButton = memo(function SessionButton({
       // the title.
       data-session-id={session.id}
       // The tooltip keeps only the session title: the path is no longer shown, so it must
-      // not sneak back in through a tooltip.
-      title={session.title}
+      // not sneak back in through a tooltip. Except in the compact row, which has a popup of
+      // its own: two popups on one hover, and the native one knowing only the title, is worse
+      // than the one.
+      title={density === "standard" ? session.title : undefined}
       onClick={() =>
         selectable && onToggle ? onToggle(session) : onOpen(session)
       }
@@ -178,25 +196,60 @@ const SessionButton = memo(function SessionButton({
           ) : null}
         </span>
         {/* The path is gone: show how much this session talked about, how big it is,
-            and when instead: these identify a session better than a path. */}
-        <span className="flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
-          <span className="shrink-0">{turnsLabel(stats.turns, language)}</span>
-          <span aria-hidden>·</span>
-          <span className="shrink-0">{tokensLabel(stats.tokens, language)}</span>
-          <span aria-hidden>·</span>
-          <span className="truncate">
-            {lastTalkedDayLabel(Date.now(), stats.lastAtMs, language)}
+            and when instead: these identify a session better than a path. The compact row
+            keeps them, one hover away, so nothing is lost by hiding the line. */}
+        {density === "standard" ? (
+          <span
+            data-session-meta=""
+            className="flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground"
+          >
+            <span className="shrink-0">{turnsLabel(stats.turns, language)}</span>
+            <span aria-hidden>·</span>
+            <span className="shrink-0">{tokensLabel(stats.tokens, language)}</span>
+            <span aria-hidden>·</span>
+            <span className="truncate">
+              {lastTalkedDayLabel(Date.now(), stats.lastAtMs, language)}
+            </span>
           </span>
-        </span>
+        ) : null}
       </span>
     </button>
   );
 
-  if (!actions || selectable || renaming) return row;
+  const trigger =
+    actions && !selectable && !renaming ? (
+      <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+    ) : (
+      row
+    );
+
+  // The two triggers have to land on the same element, so their `asChild` slots are chained and
+  // the row is the only thing at the end of that chain. A Root that renders nothing cannot sit
+  // between them: the props would be merged onto it and never reach the row.
+  const body =
+    density === "compact" ? (
+      <Tooltip>
+        <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+        {/* The sheet behind this is a one-line pill (`inline-flex` / `items-center`), so the three
+            lines have to be told to stack. */}
+        <TooltipContent
+          side="right"
+          className="max-w-72 flex-col items-start gap-0.5 text-[11px] leading-relaxed"
+        >
+          <span className="font-medium">{session.title}</span>
+          <span>{statsLine(stats, Date.now(), language)}</span>
+          <span className="break-all opacity-80">{session.cwd}</span>
+        </TooltipContent>
+      </Tooltip>
+    ) : (
+      trigger
+    );
+
+  if (!actions || selectable || renaming) return body;
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+      {body}
       <ContextMenuContent className="min-w-44">
         <ContextMenuItem onSelect={() => actions.onOpen(session)}>
           {t("launcher.open")}
