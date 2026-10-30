@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   deletionSummary,
+  isRenaming,
+  type SessionKey,
   selectedTargets,
   sessionKey,
   toggleSelection,
@@ -123,5 +125,34 @@ describe("deletionSummary", () => {
     expect(summary.byTool).toEqual({ opencode: 0, pi: 0 });
     expect(summary.subagents).toBe(0);
     expect(summary.hasSubagents).toBe(false);
+  });
+});
+
+describe("isRenaming", () => {
+  it("matches the row whose key was stored", () => {
+    const row = session("ses_1");
+    expect(isRenaming(sessionKey(row), row)).toBe(true);
+  });
+
+  it("never matches a raw id, which is what broke in-place rename", () => {
+    // The panel stores `sessionKey(session)`; the list used to compare that against `session.id`.
+    // The two are different strings, so the rename box was never drawn and the menu item looked
+    // like it did nothing at all.
+    const row = session("ses_1");
+    expect(sessionKey(row)).not.toBe(row.id);
+    // The cast is the point: a bare id is not a key, and the type says so. This line is what the
+    // old code did without noticing.
+    expect(isRenaming(row.id as SessionKey, row)).toBe(false);
+  });
+
+  it("tells two sessions with the same id in different stores apart", () => {
+    const local = session("ses_1");
+    const inWsl = session("ses_1", "opencode", null, "Ubuntu-22.04");
+    expect(isRenaming(sessionKey(inWsl), local)).toBe(false);
+    expect(isRenaming(sessionKey(inWsl), inWsl)).toBe(true);
+  });
+
+  it("nothing being renamed matches nothing", () => {
+    expect(isRenaming(null, session("ses_1"))).toBe(false);
   });
 });

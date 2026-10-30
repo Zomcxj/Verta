@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-30</strong></summary>
 
+**Renaming a session from its row menu now opens the name box**
+
+- `src/modules/launcher/lib/selection.ts`, `src/modules/launcher/components/SessionList.tsx`, `src/modules/launcher/components/LauncherPanel.tsx`: the menu item wrote a session key (`tool::source::id`) into the state and the list compared that state against a bare session id, so the two were never equal and the rename box was never drawn - the menu closed and nothing happened. It had been that way since the feature was added. Both sides now go through one function, and the key carries a type that a bare id does not satisfy, so the two cannot drift apart again without a compile error.
+- `src/modules/launcher/lib/selection.test.ts`: covers the match, the raw-id mismatch that caused this, and two stores holding the same id.
+
 **Two more probes, and the numbers they produced**
 
 - `scripts/dev/probes/repo-activity-dot.mjs` (new): reads every repository row's name and whether a dot is drawn next to it, plus the dot's size, colour painted onto a canvas (Tailwind ships oklch, so the computed value is not an rgb string) and its distance from the name. Moves the real pointer onto a named row first, because the question is only asked when a row is touched. Measured on the installed build: the dot is 6x6, amber, six pixels right of the name, and it appears only once a repository has something newer than the last look.

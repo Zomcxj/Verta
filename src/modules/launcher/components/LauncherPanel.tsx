@@ -23,6 +23,7 @@ import { AGENT_TOOLS } from "../lib/tools";
 import {
   type DeletionSummary,
   deletionSummary,
+  type SessionKey,
   selectedTargets,
   sessionKey,
   toggleSelection,
@@ -99,7 +100,7 @@ export function LauncherPanel({
   );
   const [deleting, setDeleting] = useState(false);
   /** Session being renamed in place (`sessionKey`); null when none. */
-  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<SessionKey | null>(null);
   /** Default is one block sorted by time; `tool` splits it into per-agent sections. */
   const [groupBy, setGroupBy] = useState<SessionGroupBy>("all");
 

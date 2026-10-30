@@ -19,7 +19,11 @@ import { AgentIcon } from "../lib/agentIcon";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { memo, useEffect, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { sessionKey } from "../lib/selection";
+import {
+  isRenaming,
+  type SessionKey,
+  sessionKey,
+} from "../lib/selection";
 import {
   lastTalkedDayLabel,
   statsLine,
@@ -40,7 +44,7 @@ export type SessionRowActions = {
   onStartRename: (session: AgentSession) => void;
   /** False when no relative path can be computed (no workspace root), greying out that item. */
   canCopyRelative: boolean;
-  renameId: string | null;
+  renameId: SessionKey | null;
   onRenameSubmit: (session: AgentSession, name: string) => void;
   onRenameCancel: () => void;
 };
@@ -143,7 +147,7 @@ const SessionButton = memo(function SessionButton({
   const t = useT();
   const language = useLanguage();
   const stats = statsOf(session);
-  const renaming = actions?.renameId === session.id;
+  const renaming = isRenaming(actions?.renameId, session);
   const row = (
     <button
       type="button"
