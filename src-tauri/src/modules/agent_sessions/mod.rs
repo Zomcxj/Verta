@@ -1,5 +1,6 @@
 pub mod types;
 
+pub mod background;
 mod delete;
 mod image;
 mod opencode;
@@ -10,6 +11,17 @@ mod wsl;
 
 use delete::{DeleteReport, SessionTarget};
 use types::AgentSessionsPayload;
+
+/// Which sessions have a live `opencode` process on this machine.
+///
+/// Read-only and cheap (one process snapshot plus one command-line read per `opencode` process), so
+/// the session list can ask it while it is open. It answers only "is there a process": whether the
+/// agent is generating cannot be seen from here, which is why the caller draws it as "an agent is
+/// there" rather than "work in flight".
+#[tauri::command]
+pub fn agent_background_sessions() -> Result<Vec<String>, String> {
+    Ok(background::live_session_ids())
+}
 
 /// Reads sqlite and session files, so it runs on the blocking pool: Tauri runs a
 /// non-async command inline in the IPC handler (the main thread on macOS).

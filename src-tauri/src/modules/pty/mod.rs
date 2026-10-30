@@ -1,6 +1,6 @@
 mod da_filter;
 mod dump;
-mod foreground;
+pub(crate) mod foreground;
 mod gate;
 mod hub;
 mod output;

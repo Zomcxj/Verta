@@ -17,6 +17,13 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-30</strong></summary>
 
+**Sessions that have an opencode process behind them, read from the process table**
+
+- `src-tauri/src/modules/agent_sessions/background.rs` (new): finds the sessions a live `opencode.exe` names in its command line, so a session left running without a terminal here is not invisible. `PROCESSENTRY32` carries no command line, so the id is read out of the target process with `NtQueryInformationProcess`; on this Windows the kernel copies the command line into the caller's own buffer, and the other documented shape (a pointer into the target) is covered too, because a build where this quietly returned nothing would show no dots at all. Nothing is spawned and nothing is written.
+- `src-tauri/src/modules/agent_sessions/mod.rs`, `src-tauri/src/lib.rs`: the command and its registration.
+- `src-tauri/Cargo.toml`: the two `windows-sys` features this needs.
+- `src-tauri/src/modules/pty/foreground.rs`: the ToolHelp snapshot is shared with this check instead of being written a second time.
+
 **The settings window no longer takes its size and place from the last run**
 
 - `src-tauri/src/lib.rs`: the window-state plugin is told to skip the settings window's saved geometry, so it opens where the code puts it (centred) and at the size it asks for. Restoring used to hand it back a too-tall size that an old shadow bug wrote once and every later open inherited. The plugin still saves the window, so the file keeps describing it as it is; the window label also lives in one place now, because two spellings of it would silently stop matching.

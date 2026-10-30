@@ -87,7 +87,7 @@ pub(super) fn shell_has_children(shell_pid: u32) -> bool {
 
 #[cfg(any(target_os = "windows", test))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct ProcEntry {
+pub(crate) struct ProcEntry {
     pub pid: u32,
     pub parent: u32,
     pub name: String,
@@ -155,8 +155,12 @@ pub(super) fn shell_has_children(shell_pid: u32) -> bool {
 }
 
 /// One ToolHelp snapshot as a process list.
+///
+/// `pub(crate)` because the background-agent check needs the same snapshot: `PROCESSENTRY32` gives
+/// the pid and the image name, and that is the only cheap way to find the processes whose command
+/// line is worth reading.
 #[cfg(target_os = "windows")]
-fn process_list() -> Vec<ProcEntry> {
+pub(crate) fn process_list() -> Vec<ProcEntry> {
     use std::mem::{size_of, zeroed};
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
