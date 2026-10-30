@@ -256,12 +256,12 @@ export function applySignal(payload: AgentSignal): void {
   if (agent) store.setAgent(id, agent);
   store.setPhase(id, action);
   if (action === "attention") {
-    // Waiting while the user is looking at the session is not something to be
-    // flagged about later; waiting anywhere else is the thing the ring and the
-    // notification centre exist for.
-    if (!isForegroundPty(store.leafPty, store.foregroundLeaves, id)) {
-      store.markAttentionUnseen(id, Date.now());
-    }
+    // Recorded wherever the session is drawn, including the tab the user is looking at. "Waiting
+    // for an answer" is a state the user acts on, so it stays counted until the answer is given -
+    // the phase leaving `attention` is what clears it, not the tab being in front. Clearing it on
+    // sight made the count honest about "not seen" and useless about "still unanswered": a question
+    // on the active tab was counted for one tick and then vanished while still on screen.
+    store.markAttentionUnseen(id, Date.now());
   } else {
     // Anything else means the wait is over (the user answered, or the turn went on),
     // so a latch from before must not outlive it.

@@ -82,10 +82,25 @@ export type AgentFamily = {
 // opencode
 // ---------------------------------------------------------------------------
 
-/** Seen in the captures: the footer hints stay put while the TUI works. */
+/** The footer hints that are on screen whenever the TUI is at rest. */
+const OPENCODE_FOOTER: readonly Pattern[] = [contains("ctrl+p"), contains("· tokens")];
+
+/**
+ * Anything on screen that says this is opencode.
+ *
+ * The family test takes **any** of these, so this is also where a screen that hides the usual
+ * footer has to be named.
+ */
 const OPENCODE_IDENTIFY: readonly Pattern[] = [
-  contains("ctrl+p"),
-  contains("· tokens"),
+  ...OPENCODE_FOOTER,
+  // The question panel replaces the footer, so neither hint above is on screen while it is open.
+  // Measured on this machine with `scripts/dev/probes/state-dot-watch.mjs --once`: the whole footer
+  // read `↑↓ select  enter submit  esc dismiss`, and with no other marker matching, a session
+  // sitting on a question was reported as having no agent at all.
+  //
+  // Deliberately not in `OPENCODE_FOOTER`: the idle rule requires every footer hint, and a question
+  // panel is the opposite of idle.
+  contains("enter submit"),
 ];
 
 const OPENCODE_RULES: readonly AgentRule[] = [
@@ -101,7 +116,7 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     allOf: [contains("permission"), contains("allow")],
     noneOf: [contains("allow me to explain")],
   }),
-  // A question with options: the selected row is marked with the same caret the
+  // A question with options, older shape: the selected row is marked with the same caret the
   // other TUIs use.
   rule({
     id: "opencode_question",
@@ -109,6 +124,21 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     priority: 990,
     region: BOTTOM,
     allOf: [lineStartsWith("❯ 1.")],
+  }),
+  // A question panel, the shape this machine's opencode actually draws. Measured with
+  // `state-dot-watch.mjs --once`: the options carry **no** caret - `1. 火锅`, not `❯ 1. 火锅` - so the
+  // rule above never matched, and a session waiting on an answer was drawn as idle (green) instead
+  // of as the blue that means "it is asking you something".
+  //
+  // Identified by the panel's own footer rather than by its content. The footer reads
+  // `↑↓ select  enter submit  esc dismiss`, which is chrome: an option line pasted into a
+  // conversation looks exactly like a real option, and this does not.
+  rule({
+    id: "opencode_questions_panel",
+    state: "blocked",
+    priority: 995,
+    region: BOTTOM,
+    allOf: [contains("enter submit"), contains("esc dismiss")],
   }),
   // Working, and saying so for the whole time: the footer carries the interrupt hint and a
   // progress bar for as long as a turn runs, unlike the spinner glyph, which the TUI paints on
@@ -165,7 +195,9 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     state: "idle",
     priority: 500,
     region: BOTTOM,
-    allOf: OPENCODE_IDENTIFY,
+    // The usual footer, not the family's whole identify list: that one also names the question
+    // panel, and a panel waiting on an answer is the one screen that is certainly not idle.
+    allOf: OPENCODE_FOOTER,
     noneOf: [
       anyChar(SPINNER_FRAMES),
       contains("thinking"),

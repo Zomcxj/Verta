@@ -58,11 +58,10 @@ export function useAgentStateJudge({ tabs }: { tabs: readonly Tab[] }): void {
         const ptyId = ptyIdForLeaf(leafId);
         if (ptyId === null) continue;
         store.setLeafPty(leafId, ptyId);
-        // The user is on this leaf, so anything it was waiting on has been seen. It
-        // is done here rather than only on a tab switch because a session can appear
-        // (or be resumed) while its tab is already the active one.
+        // Only an *ending* is cleared by looking: a turn that finished while the user was
+        // elsewhere becomes news they have now seen. A question is not - it is still waiting for an
+        // answer, and the phase leaving `attention` is what clears that latch (see `applySignal`).
         if (store.foregroundLeaves.has(leafId)) {
-          store.markAttentionSeen([ptyId]);
           store.markDoneSeen([ptyId]);
         }
         const tail = leafScreenTail(leafId);

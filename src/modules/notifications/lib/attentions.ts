@@ -105,6 +105,34 @@ const BARE_PROMPT = /^[$#>%]\s*$/;
 const PROMPT_LINE = /^[^\s@]+@[^\s@]+\s+\S+/;
 /** A row that is nothing but the rule an agent draws across its interface. */
 const SEPARATOR = /^[─═━—–\-_·…\s]+$/;
+/** The opencode question panel's own header, drawn above the question it asks. */
+const QUESTIONS_HEADER = "Questions";
+/** The panel's box drawing, which sits between the words on every panel row. */
+const PANEL_BOX = /[┃┆│|]/g;
+/** Where the panel's first option starts: `1. something`. */
+const FIRST_OPTION = /\b1\.\s/;
+
+/**
+ * The question an opencode question panel is asking, or "" when this is not that panel.
+ *
+ * Read from the panel's own layout rather than line by line, because an agent that owns the
+ * alternate screen does not write newlines: the whole screen arrives as one long string with the
+ * panel's rows marked only by its box characters. Splitting that by lines leaves a single
+ * thousands-of-characters "line", so a line-based pick returned the middle of the conversation -
+ * measured on this machine, the notification read "? daily task + · help 输出是 UTF-16LE 编码…"
+ * while the panel was plainly asking "你喜欢吃什么？".
+ *
+ * The question is what sits between the panel's header and its first option: the header says the
+ * panel exists, the options are its furniture, and the words in between are the thing to answer.
+ */
+export function panelQuestion(tail: string): string {
+  const start = tail.lastIndexOf(QUESTIONS_HEADER);
+  if (start < 0) return "";
+  const after = tail.slice(start + QUESTIONS_HEADER.length);
+  const option = after.search(FIRST_OPTION);
+  const body = option < 0 ? after : after.slice(0, option);
+  return body.replace(PANEL_BOX, " ").replace(/\s+/g, " ").trim();
+}
 
 /**
  * What the session is asking, read from the bottom of its screen.
@@ -126,6 +154,9 @@ export function questionExcerpt(
   maxChars = 160,
 ): string {
   if (!tail) return "";
+  // A question panel owns the screen and draws it without newlines, so it is answered from its own
+  // layout first; the line-by-line pick below only makes sense for a screen that has lines.
+  const panel = panelQuestion(tail);
   const lines = tail
     .split("\n")
     .map((line) => line.replace(/\s+/g, " ").trim())
@@ -137,7 +168,7 @@ export function questionExcerpt(
         !SEPARATOR.test(line),
     );
   const question = lines.slice(-8).find((line) => /[?？]$/.test(line));
-  const text = (question ?? lines.slice(-3).join(" · ")).trim();
+  const text = (panel || question || lines.slice(-3).join(" · ")).trim();
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars - 1)}…`;
 }

@@ -185,6 +185,25 @@ describe("questionExcerpt", () => {
     expect(questionExcerpt(tail)).toBe("该删掉 a.txt 还是 b.txt？");
   });
 
+  it("reads the question out of a panel drawn on one screen-long line", () => {
+    // The opencode question panel owns the alternate screen and writes no newlines: the whole
+    // screen arrives as one string whose rows are marked only by box characters. Copied from
+    // `scripts/dev/probes/state-dot-watch.mjs --once` on 2026-10-30, trimmed in the middle.
+    // A line-based pick took the middle of the conversation ("? daily task + · help 输出是
+    // UTF-16LE ...") while the panel was asking this.
+    const pad = " ".repeat(40);
+    const tail =
+      " ? daily task                    +" +
+      "┃  Questions  ┃" + pad +
+      "┃  你喜欢吃什么？  ┃" + pad +
+      "┃  1. 火锅  ┃" + pad +
+      "┃      经典中式美食  ┃" + pad +
+      "┃  2. 牛排  ┃" + pad +
+      "┃  5. Type your own answer  ┃" + pad +
+      "┃  ↑↓ select  enter submit  esc dismiss  ┃";
+    expect(questionExcerpt(tail)).toBe("你喜欢吃什么？");
+  });
+
   it("does not read the user's own shell back as the agent's words", () => {
     // A prompt is the terminal, not the session asking anything: a card that has just been
     // cleared leaves a screen like this, and a toast that quotes the user's own prompt back

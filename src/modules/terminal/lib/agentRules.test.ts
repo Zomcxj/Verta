@@ -202,6 +202,19 @@ describe("identifyAgent", () => {
   });
 });
 
+/** The question panel as this machine drew it (2026-10-30, `state-dot-watch.mjs --once`). */
+const OPENCODE_QUESTIONS_PANEL = [
+  " ? daily task                    +",
+  "→ Asked 1 question",
+  "┃  Questions  ┃",
+  "┃  你喜欢吃什么？  ┃",
+  "┃  1. 火锅  ┃",
+  "┃      经典中式美食  ┃",
+  "┃  2. 牛排  ┃",
+  "┃  5. Type your own answer  ┃",
+  "┃  ↑↓ select  enter submit  esc dismiss  ┃",
+].join("\n");
+
 describe("opencode", () => {
   it("tells working and idle apart", () => {
     expect(judge("opencode", OPENCODE_WORKING)).toBe("working");
@@ -235,6 +248,25 @@ describe("opencode", () => {
     const tail =
       "? Which model should I use\n❯ 1. Fast\n  2. Smart\nctrl+p commands";
     expect(judge("opencode", tail)).toBe("blocked");
+  });
+
+  it("reads the question panel this machine actually draws as blocked", () => {
+    // Verbatim rows from `scripts/dev/probes/state-dot-watch.mjs --once`, taken while a session sat
+    // waiting on an answer. Two things differ from the card above: the options carry no `❯`, and
+    // the footer's hints are the panel's own. That session was drawn green (idle) at the time.
+    expect(judge("opencode", OPENCODE_QUESTIONS_PANEL)).toBe("blocked");
+  });
+
+  it("still recognizes the question panel as opencode at all", () => {
+    // Its footer replaces the usual `ctrl+p` and `· tokens` hints, so nothing else on that screen
+    // identifies the tool - without a marker of its own the session reads as having no agent.
+    expect(identifyAgent(OPENCODE_QUESTIONS_PANEL)?.tool).toBe("opencode");
+  });
+
+  it("does not turn a pasted footer into a question", () => {
+    // The panel is recognized by two chrome phrases together; either alone is ordinary text.
+    const tail = "we could make enter submit do something else\nctrl+p commands   · Tokens 1k";
+    expect(judge("opencode", tail)).not.toBe("blocked");
   });
 
   it("does not read a pasted transcript as a permission card", () => {
