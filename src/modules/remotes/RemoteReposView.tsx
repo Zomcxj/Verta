@@ -18,7 +18,12 @@ import { Input } from "@/components/ui/input";
 import { SortHeader } from "@/components/ui/sort-header";
 import { ownershipLabelKey } from "@/lib/ownership";
 import { cn } from "@/lib/utils";
-import { native, type WireRemoteReposPayload, type WireRepoCiPayload } from "@/lib/native";
+import {
+  native,
+  type WireRepoActivityPayload,
+  type WireRemoteReposPayload,
+  type WireRepoCiPayload,
+} from "@/lib/native";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -40,9 +45,12 @@ import { TONE_CLASS, ciView, type CiView } from "./lib/ci";
 import { cloneDestFromProjects } from "./lib/repoAdmin";
 import { ciFromRuns } from "./lib/runs";
 import {
+  readActivityCursor,
   readRepoSnapshot,
+  rememberActivityCursor,
   rememberRepoSnapshot,
 } from "./lib/listStore";
+import { type ActivityCursor, advanceCursor, isNewer } from "./lib/activity";
 import {
   cloneUrlOf,
   copyTextOf,
@@ -58,6 +66,15 @@ type Props = {
   /** Inactive tabs just sit in the background; they should not keep hitting the network. */
   active: boolean;
 };
+
+/**
+ * How long an answer to "anything new here" is worth trusting.
+ *
+ * Long enough that moving the pointer across a list does not fire a gh call per row, short enough
+ * that coming back to a repository a minute later asks again. Without it the answer would only
+ * ever be refreshed by restarting the window.
+ */
+const ACTIVITY_FRESH_MS = 60_000;
 
 /**
  * Remote repo list (account-level repos read by the local gh). A center-area tab
@@ -115,6 +132,19 @@ export function RemoteReposView({ active }: Props) {
   /** Whether the "new repository" dialog is open. */
   const [createOpen, setCreateOpen] = useState(false);
   const [ciBusy, setCiBusy] = useState<Record<string, boolean>>({});
+  /**
+   * Newest open PR / issue update per repository, already asked for, and when it was asked.
+   *
+   * The time is part of the answer because this one goes stale while the CI badge does not: a
+   * cached "nothing new" from an hour ago would hide everything that happened since, and caching
+   * without an expiry would only clear on the next restart.
+   */
+  const [activity, setActivity] = useState<
+    Record<string, { at: number; payload: WireRepoActivityPayload }>
+  >({});
+  const [activityBusy, setActivityBusy] = useState<Record<string, boolean>>({});
+  /** When each repository was last looked at; loaded from the previous window. */
+  const [seen, setSeen] = useState<ActivityCursor>({});
 
   /**
    * Check CI for one repo.
@@ -159,6 +189,83 @@ export function RemoteReposView({ active }: Props) {
     },
     [ci, ciBusy],
   );
+
+  /**
+   * Ask one repository whether anything is new, and only when the row is touched.
+   *
+   * Same on-demand shape as the CI check, for the same reason: a list of every repository the
+   * account can reach, asked all at once, is a burst of gh calls for repositories nobody is
+   * looking at. Nothing is asked at startup, so no dot is drawn at startup either.
+   */
+  const checkActivity = useCallback(
+    async (fullName: string, force = false) => {
+      if (!fullName) return;
+      if (activityBusy[fullName]) return;
+      const cached = activity[fullName];
+      if (
+        !force &&
+        cached &&
+        cached.payload.kind !== "error" &&
+        Date.now() - cached.at < ACTIVITY_FRESH_MS
+      ) {
+        return;
+      }
+      setActivityBusy((prev) => ({ ...prev, [fullName]: true }));
+      try {
+        const result = await native.githubRepoActivity(fullName);
+        setActivity((prev) => ({
+          ...prev,
+          [fullName]: { at: Date.now(), payload: result },
+        }));
+      } catch (e) {
+        setActivity((prev) => ({
+          ...prev,
+          [fullName]: {
+            at: Date.now(),
+            payload: {
+              kind: "error",
+              repo: fullName,
+              latest: null,
+              error: String(e),
+            },
+          },
+        }));
+      } finally {
+        setActivityBusy((prev) => {
+          const next = { ...prev };
+          delete next[fullName];
+          return next;
+        });
+      }
+    },
+    [activity, activityBusy],
+  );
+
+  /**
+   * An entry was opened: this repository has been read up to now.
+   *
+   * "Now" rather than the item's own timestamp: being in the detail means the list as it stands
+   * has been seen, and anything that arrives while the detail is open is still news afterwards.
+   */
+  const recordSeen = useCallback((fullName: string) => {
+    setSeen((prev) => {
+      const next = advanceCursor(prev, fullName, new Date().toISOString());
+      if (next !== prev) rememberActivityCursor(next);
+      return next;
+    });
+  }, []);
+
+  // The marks from the window before this one. Read once: they describe when things were looked
+  // at, which does not change under this window until this window looks at something.
+  useEffect(() => {
+    let live = true;
+    void readActivityCursor().then((stored) => {
+      if (live) setSeen((prev) => ({ ...stored, ...prev }));
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   /** The rows on screen, read inside `read` without making it depend on them. */
   const heldPayload = useRef(payload);
@@ -568,6 +675,11 @@ export function RemoteReposView({ active }: Props) {
                   ci={ci[row.fullName] ?? null}
                   ciBusy={Boolean(ciBusy[row.fullName])}
                   onCheckCi={checkCi}
+                  hasNew={isNewer(
+                    activity[row.fullName]?.payload.latest,
+                    seen[row.fullName],
+                  )}
+                  onCheckActivity={checkActivity}
                   onOpenRuns={setRunsFor}
                   onOpenReleases={setReleasesFor}
                   onOpenIssues={setIssuesFor}
@@ -604,6 +716,7 @@ export function RemoteReposView({ active }: Props) {
         onOpenChange={(open) => {
           if (!open) setIssuesFor(null);
         }}
+        onDetailOpened={recordSeen}
       />
       <RepoAdminDialog
         repo={adminFor}
@@ -720,6 +833,8 @@ function RepoRow({
   ci,
   ciBusy,
   onCheckCi,
+  hasNew,
+  onCheckActivity,
   onOpenRuns,
   onOpenReleases,
   onOpenIssues,
@@ -734,6 +849,9 @@ function RepoRow({
   ci: WireRepoCiPayload | null;
   ciBusy: boolean;
   onCheckCi: (fullName: string, force?: boolean) => void;
+  /** Whether anything here is newer than the last time this repository was read. */
+  hasNew: boolean;
+  onCheckActivity: (fullName: string, force?: boolean) => void;
   onOpenRuns: (fullName: string) => void;
   onOpenReleases: (fullName: string) => void;
   onOpenIssues: (fullName: string) => void;
@@ -748,10 +866,13 @@ function RepoRow({
     void openUrl(row.webUrl).catch(console.error);
   }, [row.webUrl]);
   const view = ciView(ci);
-  // Check on hover: we never batch the whole list, only rows the user touches.
+  // Check on hover: we never batch the whole list, only rows the user touches. Two questions share
+  // this one trigger - the latest run, and whether anything is new - because they are both "tell me
+  // what is going on with this row" and a second hover listener would only fire twice.
   const onHover = useCallback(() => {
     void onCheckCi(row.fullName);
-  }, [onCheckCi, row.fullName]);
+    void onCheckActivity(row.fullName);
+  }, [onCheckCi, onCheckActivity, row.fullName]);
 
   return (
     <tr
@@ -768,6 +889,18 @@ function RepoRow({
           </span>
           {row.isFork ? <Flag label={t("remotes.flag.fork")} /> : null}
           {row.isArchived ? <Flag label={t("remotes.flag.archived")} /> : null}
+          {/* Beside the name rather than in a column of its own: it belongs to this repository,
+              not to a field, and the name is what it is read next to. `shrink-0` because the name
+              is `truncate`d and would otherwise squeeze a 6px dot to nothing. */}
+          {hasNew ? (
+            <span
+              data-repo-activity="new"
+              role="img"
+              aria-label={t("remotes.activity.new")}
+              title={t("remotes.activity.new")}
+              className="mb-px size-1.5 shrink-0 self-center rounded-full bg-amber-500"
+            />
+          ) : null}
         </span>
       </td>
       <td className="py-1.5 pr-2 text-muted-foreground">

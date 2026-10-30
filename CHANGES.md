@@ -17,6 +17,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-30</strong></summary>
 
+**A dot beside a repository's name when something there is newer than the last look**
+
+- `src/modules/remotes/RemoteReposView.tsx`: the dot sits in the name cell, cannot be squeezed away by a long name, and is decided by comparing the newest update against the repository's mark. The question is asked on the row's existing hover, alongside the CI one, so nothing is asked at startup and no dot is drawn at startup; a cached answer expires after a minute, because "nothing new" from an hour ago would hide everything since.
+- `src/modules/remotes/IssuesDialog.tsx`: opening an entry - not opening the list - is what marks a repository as read. The list shows what is there without anyone having read it, so marking it there would clear the dot for entries nobody looked at.
+- `src/modules/i18n/messages.ts`: the dot's own wording, in both languages.
+
 **When each repository was last looked at, kept beside the repository list**
 
 - `src/modules/remotes/lib/listStore.ts`: the marks live in the same file as the list, under their own key, and are read back through the same validation the rest of the file gets. Written even when empty: clearing a mark is the normal case, and skipping that write would leave the file claiming things were read that this window never saw.

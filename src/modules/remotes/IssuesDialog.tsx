@@ -53,6 +53,14 @@ type Props = {
   /** Full name of the repo whose issues / PRs are shown; null when the dialog is closed. */
   repo: string | null;
   onOpenChange: (open: boolean) => void;
+  /**
+   * An entry was opened, so this repository is being read right now.
+   *
+   * Deliberately not "the list was opened": the list shows what is there without anyone having
+   * read it, and marking that as seen would clear the row's dot for entries the person never
+   * looked at.
+   */
+  onDetailOpened?: (repo: string) => void;
 };
 
 type Pending = {
@@ -84,7 +92,7 @@ type Pending = {
  * merging and deleting confirm first; on a read-only repo the comment box is not
  * rendered at all.
  */
-export function IssuesDialog({ repo, onOpenChange }: Props) {
+export function IssuesDialog({ repo, onOpenChange, onDetailOpened }: Props) {
   const t = useT();
   const language = useLanguage();
   const [payload, setPayload] = useState<WireIssueListPayload | null>(null);
@@ -202,6 +210,9 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
 
   const openDetail = useCallback(async (number: number) => {
     if (!repo) return;
+    // Tell the row before the detail is read, not after: a read that fails still means the person
+    // looked, and an entry they saw should not keep the dot lit because gh answered slowly.
+    onDetailOpened?.(repo);
     setDetailReading(true);
     setDetail(null);
     setDetailNumber(number);
@@ -217,7 +228,7 @@ export function IssuesDialog({ repo, onOpenChange }: Props) {
     } finally {
       setDetailReading(false);
     }
-  }, [repo]);
+  }, [repo, onDetailOpened]);
 
   const rows = useMemo(
     () =>
