@@ -50,7 +50,14 @@ import {
   rememberActivityCursor,
   rememberRepoSnapshot,
 } from "./lib/listStore";
-import { type ActivityCursor, advanceCursor, isNewer } from "./lib/activity";
+import {
+  type ActivityCursor,
+  advanceCursor,
+  answerFresh,
+  isNewer,
+  laterOf,
+  renameRepo,
+} from "./lib/activity";
 import {
   cloneUrlOf,
   copyTextOf,
@@ -66,15 +73,6 @@ type Props = {
   /** Inactive tabs just sit in the background; they should not keep hitting the network. */
   active: boolean;
 };
-
-/**
- * How long an answer to "anything new here" is worth trusting.
- *
- * Long enough that moving the pointer across a list does not fire a gh call per row, short enough
- * that coming back to a repository a minute later asks again. Without it the answer would only
- * ever be refreshed by restarting the window.
- */
-const ACTIVITY_FRESH_MS = 60_000;
 
 /**
  * Remote repo list (account-level repos read by the local gh). A center-area tab
@@ -198,18 +196,10 @@ export function RemoteReposView({ active }: Props) {
    * looking at. Nothing is asked at startup, so no dot is drawn at startup either.
    */
   const checkActivity = useCallback(
-    async (fullName: string, force = false) => {
+    async (fullName: string) => {
       if (!fullName) return;
       if (activityBusy[fullName]) return;
-      const cached = activity[fullName];
-      if (
-        !force &&
-        cached &&
-        cached.payload.kind !== "error" &&
-        Date.now() - cached.at < ACTIVITY_FRESH_MS
-      ) {
-        return;
-      }
+      if (answerFresh(activity[fullName]?.at, Date.now())) return;
       setActivityBusy((prev) => ({ ...prev, [fullName]: true }));
       try {
         const result = await native.githubRepoActivity(fullName);
@@ -242,25 +232,56 @@ export function RemoteReposView({ active }: Props) {
   );
 
   /**
+   * The marks as the next write needs to see them.
+   *
+   * State alone is not enough here: the write has to happen where the decision was made rather than
+   * inside a state updater, which React is free to call more than once.
+   */
+  const seenRef = useRef<ActivityCursor>({});
+  /** The activity answers, for the same reason: the mark reads the newest one it knows. */
+  const activityRef = useRef(activity);
+  activityRef.current = activity;
+
+  /** Keep a new set of marks: state, ref and disk in one step. */
+  const commitSeen = useCallback((next: ActivityCursor) => {
+    if (next === seenRef.current) return;
+    seenRef.current = next;
+    setSeen(next);
+    rememberActivityCursor(next);
+  }, []);
+
+  /**
    * An entry was opened: this repository has been read up to now.
    *
    * "Now" rather than the item's own timestamp: being in the detail means the list as it stands
    * has been seen, and anything that arrives while the detail is open is still news afterwards.
+   * Never *before* the newest update it knows about, though: the answer comes from GitHub's clock
+   * and the mark from this machine's, and a machine running behind would write a mark older than
+   * the item just read - leaving a dot lit on it with nothing to clear it.
    */
-  const recordSeen = useCallback((fullName: string) => {
-    setSeen((prev) => {
-      const next = advanceCursor(prev, fullName, new Date().toISOString());
-      if (next !== prev) rememberActivityCursor(next);
-      return next;
-    });
-  }, []);
+  const recordSeen = useCallback(
+    (fullName: string) => {
+      const known = activityRef.current[fullName]?.payload.latest;
+      commitSeen(
+        advanceCursor(
+          seenRef.current,
+          fullName,
+          laterOf(new Date().toISOString(), known),
+        ),
+      );
+    },
+    [commitSeen],
+  );
 
   // The marks from the window before this one. Read once: they describe when things were looked
   // at, which does not change under this window until this window looks at something.
   useEffect(() => {
     let live = true;
     void readActivityCursor().then((stored) => {
-      if (live) setSeen((prev) => ({ ...stored, ...prev }));
+      if (!live) return;
+      const merged = { ...stored, ...seenRef.current };
+      seenRef.current = merged;
+      setSeen(merged);
     });
     return () => {
       live = false;
@@ -423,30 +444,36 @@ export function RemoteReposView({ active }: Props) {
    * Derived from the new slug rather than a re-read, the same way the rest of the panel
    * builds a GitHub URL.
    */
-  const applyRename = useCallback((repo: string, newSlug: string) => {
-    const owner = newSlug.split("/")[0] ?? "";
-    const name = newSlug.split("/").pop() ?? "";
-    const webUrl = `https://github.com/${newSlug}`;
-    setPayload((prev) =>
-      prev
-        ? {
-            ...prev,
-            repos: prev.repos.map((item) =>
-              item.fullName === repo
-                ? {
-                    ...item,
-                    fullName: newSlug,
-                    owner,
-                    name,
-                    webUrl,
-                    cloneUrl: cloneUrlOf(webUrl),
-                  }
-                : item,
-            ),
-          }
-        : prev,
-    );
-  }, []);
+  const applyRename = useCallback(
+    (repo: string, newSlug: string) => {
+      // The mark belongs to the repository, not to the name it had: moved here, or the new name
+      // looks like somewhere nobody has ever read.
+      commitSeen(renameRepo(seenRef.current, repo, newSlug));
+      const owner = newSlug.split("/")[0] ?? "";
+      const name = newSlug.split("/").pop() ?? "";
+      const webUrl = `https://github.com/${newSlug}`;
+      setPayload((prev) =>
+        prev
+          ? {
+              ...prev,
+              repos: prev.repos.map((item) =>
+                item.fullName === repo
+                  ? {
+                      ...item,
+                      fullName: newSlug,
+                      owner,
+                      name,
+                      webUrl,
+                      cloneUrl: cloneUrlOf(webUrl),
+                    }
+                  : item,
+              ),
+            }
+          : prev,
+      );
+    },
+    [commitSeen],
+  );
 
   /**
    * Switch one repo's visibility from the list.

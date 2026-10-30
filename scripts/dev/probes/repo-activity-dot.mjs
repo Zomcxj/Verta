@@ -8,6 +8,7 @@
 // What is measured, per repository row: the name, whether a `[data-repo-activity="new"]` dot
 // exists, its box, its colour converted to sRGB (Tailwind ships oklch, so the computed value is
 // not a plain rgb string), and its position relative to the right edge of the name it belongs to.
+// The attribute is written only when the dot is drawn, so a row without it has no dot.
 //
 // Usage (a window started with --remote-debugging-port=9222, remote repositories showing):
 //   node scripts/dev/probes/repo-activity-dot.mjs --match=http://tauri.localhost/
@@ -61,15 +62,20 @@ const evalIn = async (body) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Rows of the remote layer as an expression: the table whose head starts with the ownership
- * column, and only while that layer is the one being shown.
+ * Rows of the remote layer as an expression.
+ *
+ * Found through the repository filter box rather than through a column heading, so the probe works
+ * in either interface language; and only while that layer is the one on screen, because the local
+ * projects list is its own table in the same document.
  */
 const ROWS = `(() => {
-  const table = [...document.querySelectorAll("table")].find((t) =>
-    /^仓库归属可见性/.test((t.querySelector("thead")?.textContent || "").replace(/\\s+/g, "")));
-  if (!table) return null;
-  const layer = table.closest("[aria-hidden]");
+  const filter = [...document.querySelectorAll("input[placeholder]")].find((i) =>
+    /筛选仓库|Filter repositories/.test(i.getAttribute("placeholder") || ""));
+  if (!filter) return null;
+  const layer = filter.closest("[aria-hidden]");
   if (layer && layer.getAttribute("aria-hidden") !== "false") return null;
+  const table = (layer ?? document).querySelector("table");
+  if (!table) return null;
   return [...table.querySelectorAll("tbody tr")];
 })()`;
 
@@ -103,7 +109,7 @@ const READ = `
 
 const first = await evalIn(READ);
 if (!first) {
-  console.error("远程仓库层不是当前层（或没有这张表）：先把「本地项目与远程仓库」面板开到远程仓库，再跑这个探针。");
+  console.error("远程仓库层不是当前层（或没有这张表）：先把「本地项目与远程仓库 / Local and remote repositories」面板开到远程仓库，再跑这个探针。");
   process.exit(2);
 }
 

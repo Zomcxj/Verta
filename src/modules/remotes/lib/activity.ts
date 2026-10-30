@@ -73,3 +73,61 @@ export function parseActivityCursor(raw: unknown): ActivityCursor {
   }
   return out;
 }
+/** Repository full name -> when it was last looked at, ISO8601. */
+export type ActivityMark = string;
+
+/**
+ * How long an answer to "anything new here" is worth trusting.
+ *
+ * Long enough that moving the pointer across a list does not fire a gh call per row, short enough
+ * that coming back to a repository a minute later asks again. It applies to failures too: a row
+ * whose read failed would otherwise spawn a gh process on every hover pass.
+ */
+export const ACTIVITY_FRESH_MS = 60_000;
+
+/** Is a stored answer still worth using, or is it time to ask again? */
+export function answerFresh(
+  cachedAt: number | null | undefined,
+  now: number,
+): boolean {
+  if (typeof cachedAt !== "number" || !Number.isFinite(cachedAt)) return false;
+  return now - cachedAt < ACTIVITY_FRESH_MS;
+}
+
+/**
+ * Whichever of the two is later, falling back to `fallback` when `other` is not a time.
+ *
+ * The two sides come from different clocks: a mark is this machine's, the activity answer is
+ * GitHub's. A machine whose clock lags would otherwise write a mark *older* than the item it just
+ * read, leaving the dot lit on something already seen with nothing to clear it.
+ */
+export function laterOf(
+  fallback: string,
+  other: string | null | undefined,
+): string {
+  const otherAt = timeOf(other);
+  if (otherAt === null) return fallback;
+  const fallbackAt = timeOf(fallback);
+  if (fallbackAt === null || fallbackAt >= otherAt) return fallback;
+  return other as string;
+}
+
+/**
+ * Move one repository's mark when the repository is renamed.
+ *
+ * Marks are keyed by `owner/name`, and a rename is a different name. Without this the old key sits
+ * in the file forever and the new name looks like a repository nobody has ever read - a dot that
+ * appears out of nothing on something already seen.
+ */
+export function renameRepo(
+  cursor: ActivityCursor,
+  from: string,
+  to: string,
+): ActivityCursor {
+  if (!from || !to || from === to) return cursor;
+  const mark = cursor[from];
+  if (mark === undefined) return cursor;
+  const next: ActivityCursor = { ...cursor, [to]: mark };
+  delete next[from];
+  return next;
+}

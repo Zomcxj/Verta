@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { advanceCursor, isNewer, parseActivityCursor } from "./activity";
+import {
+  ACTIVITY_FRESH_MS,
+  advanceCursor,
+  answerFresh,
+  isNewer,
+  laterOf,
+  parseActivityCursor,
+  renameRepo,
+} from "./activity";
 
 /**
  * The three questions the dot asks, kept apart from any React or Tauri code so they can be
@@ -82,5 +90,49 @@ describe("parseActivityCursor", () => {
     expect(parseActivityCursor("x")).toEqual({});
     expect(parseActivityCursor([])).toEqual({});
     expect(parseActivityCursor(42)).toEqual({});
+  });
+});
+describe("laterOf", () => {
+  it("picks whichever of the two is later", () => {
+    expect(laterOf("2026-10-29T03:00:00Z", "2026-10-29T04:00:00Z")).toBe("2026-10-29T04:00:00Z");
+    expect(laterOf("2026-10-29T05:00:00Z", "2026-10-29T04:00:00Z")).toBe("2026-10-29T05:00:00Z");
+  });
+
+  it("keeps the fallback when the other side is not a time at all", () => {
+    // This is the clock-skew case: the mark is this machine's clock and the other value is
+    // GitHub's, so the mark must be at least as new as the newest thing it knows about.
+    expect(laterOf("2026-10-29T05:00:00Z", null)).toBe("2026-10-29T05:00:00Z");
+    expect(laterOf("2026-10-29T05:00:00Z", "nonsense")).toBe("2026-10-29T05:00:00Z");
+  });
+});
+
+describe("answerFresh", () => {
+  it("an answer is good for the window and then is not", () => {
+    const now = Date.parse("2026-10-29T03:00:00Z");
+    expect(answerFresh(now - 1000, now)).toBe(true);
+    expect(answerFresh(now - ACTIVITY_FRESH_MS + 1, now)).toBe(true);
+    expect(answerFresh(now - ACTIVITY_FRESH_MS, now)).toBe(false);
+  });
+
+  it("never having asked is never fresh", () => {
+    expect(answerFresh(null, Date.now())).toBe(false);
+    expect(answerFresh(undefined, Date.now())).toBe(false);
+  });
+});
+
+describe("renameRepo", () => {
+  it("moves one repository's mark to its new name", () => {
+    const before = { "a/b": "2026-10-01T00:00:00Z", "c/d": "2026-10-02T00:00:00Z" };
+    expect(renameRepo(before, "a/b", "a/bb")).toEqual({
+      "a/bb": "2026-10-01T00:00:00Z",
+      "c/d": "2026-10-02T00:00:00Z",
+    });
+  });
+
+  it("leaves the map alone when there was no mark to move", () => {
+    const before = { "c/d": "2026-10-02T00:00:00Z" };
+    expect(renameRepo(before, "a/b", "a/bb")).toBe(before);
+    expect(renameRepo(before, "a/b", "a/b")).toBe(before);
+    expect(renameRepo({}, "a/b", "")).toEqual({});
   });
 });

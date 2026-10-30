@@ -39,6 +39,13 @@ describe("the dot on a repository row", () => {
     expect(view).toContain("isNewer(");
   });
 
+  it("is asked once a minute at most, failures included", () => {
+    // A failed read that skipped the window would spawn a gh process on every hover pass over that
+    // row; the answer is stale, not wrong, so the same window applies to it.
+    expect(view).toContain("answerFresh(");
+    expect(view).not.toContain("cached.payload.kind");
+  });
+
   it("asks when the row is touched, not before", () => {
     // The existing hover callback is the only trigger; that is what keeps startup quiet.
     const hover = view.slice(view.indexOf("const onHover = useCallback"));
@@ -50,6 +57,16 @@ describe("the dot on a repository row", () => {
 });
 
 describe("what counts as having seen it", () => {
+  it("never marks a repository as read earlier than the newest thing it knows", () => {
+    // The mark is this machine's clock, the answer is GitHub's. A machine running behind would
+    // write a mark older than the item just read and leave a dot lit on it for good.
+    expect(view).toContain("laterOf(");
+  });
+
+  it("moves a mark when its repository is renamed", () => {
+    expect(view).toContain("renameRepo(");
+  });
+
   it("advances when a detail opens, inside openDetail and nowhere else", () => {
     const start = dialog.indexOf("const openDetail");
     expect(start).toBeGreaterThan(-1);

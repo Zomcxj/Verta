@@ -24,17 +24,18 @@ swap in the new date, and drop the `open` from the day before.
 
 **A dot beside a repository's name when something there is newer than the last look**
 
-- `src/modules/remotes/RemoteReposView.tsx`: the dot sits in the name cell, cannot be squeezed away by a long name, and is decided by comparing the newest update against the repository's mark. The question is asked on the row's existing hover, alongside the CI one, so nothing is asked at startup and no dot is drawn at startup; a cached answer expires after a minute, because "nothing new" from an hour ago would hide everything since.
+- `src/modules/remotes/RemoteReposView.tsx`: the dot sits in the name cell, cannot be squeezed away by a long name, and is decided by comparing the newest update against the repository's mark. The question is asked on the row's existing hover, alongside the CI one, so nothing is asked at startup and no dot is drawn at startup; an answer expires after a minute, because "nothing new" from an hour ago would hide everything since, and that window covers a failed read too - a row whose read failed would otherwise start a gh process on every pass of the pointer. A mark is never written earlier than the newest update already known for that repository, since the mark comes from this machine's clock and the answer from GitHub's and a machine running behind would otherwise leave a dot lit on something just read. Renaming a repository moves its mark with it, because the marks are keyed by name.
 - `src/modules/remotes/IssuesDialog.tsx`: opening an entry - not opening the list - is what marks a repository as read. The list shows what is there without anyone having read it, so marking it there would clear the dot for entries nobody looked at.
+- `src/modules/remotes/lib/repoActivityDot.test.ts` (new): pins where the dot is drawn and what clears it, because both halves of that wiring can fail silently - a dot sharing the row's flexible width gets squeezed away by a long name, and a mark advanced when the list opens reads every entry nobody opened.
 - `src/modules/i18n/messages.ts`: the dot's own wording, in both languages.
 
 **When each repository was last looked at, kept beside the repository list**
 
-- `src/modules/remotes/lib/listStore.ts`: the marks live in the same file as the list, under their own key, and are read back through the same validation the rest of the file gets. Written even when empty: clearing a mark is the normal case, and skipping that write would leave the file claiming things were read that this window never saw.
+- `src/modules/remotes/lib/listStore.ts`, `src/modules/remotes/lib/listStore.test.ts`: the marks live in the same file as the list, under their own key, and are read back through validation of their own - the list's validator describes a list. The store writes whatever it is handed, an empty map included; the caller writes only when a mark actually moved, so the file never claims something was read that this window never saw.
 
 **The rule for "something new", and the frontend wrapper for the read behind it**
 
-- `src/modules/remotes/lib/activity.ts` (new): three pure answers - is the newest update later than the last look, what does a mark become after something is read, and what is kept when the stored marks turn out to be junk. Everything that is not a real timestamp is treated as "never looked at", since one extra mark is recoverable while a mark suppressed by a corrupt value is not; a read that produced no timestamp is never drawn as something new.
+- `src/modules/remotes/lib/activity.ts` (new), `src/modules/remotes/lib/activity.test.ts` (new): the pure answers - is the newest update later than the last look, what does a mark become after something is read, and what is kept when the stored marks turn out to be junk. Everything that is not a real timestamp is treated as "never looked at", since one extra mark is recoverable while a mark suppressed by a corrupt value is not; a read that produced no timestamp is never drawn as something new.
 - `src/lib/native.ts`: the wrapper for the new read, with its own payload type so an empty repository and a failed read stay distinguishable.
 
 **A read that answers whether a repository has new activity**
@@ -47,7 +48,7 @@ swap in the new date, and drop the `open` from the day before.
 <details>
 <summary><strong>2026-10-29</strong></summary>
 
-**The settings window always opens in the middle of the screen**
+**The settings window always opens in the middle of the screen it is on**
 
 - `src-tauri/src/lib.rs`: opening settings now centres the window every time - both when it is built and when it is shown again after having been dragged somewhere. The window-state plugin saves and restores each window's position, so the first open landed in the middle and every open after that landed wherever it had last been moved. The placement is now the same on every platform instead of being a macOS-only calculation against the main window.
 
