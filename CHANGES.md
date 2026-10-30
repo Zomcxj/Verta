@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-30</strong></summary>
 
+**When each repository was last looked at, kept beside the repository list**
+
+- `src/modules/remotes/lib/listStore.ts`: the marks live in the same file as the list, under their own key, and are read back through the same validation the rest of the file gets. Written even when empty: clearing a mark is the normal case, and skipping that write would leave the file claiming things were read that this window never saw.
+
 **The rule for "something new", and the frontend wrapper for the read behind it**
 
 - `src/modules/remotes/lib/activity.ts` (new): three pure answers - is the newest update later than the last look, what does a mark become after something is read, and what is kept when the stored marks turn out to be junk. Everything that is not a real timestamp is treated as "never looked at", since one extra mark is recoverable while a mark suppressed by a corrupt value is not; a read that produced no timestamp is never drawn as something new.

@@ -111,3 +111,46 @@ describe("listStore", () => {
     expect(await store.readRepoSnapshot()).toBeNull();
   });
 });
+
+describe("activity cursor", () => {
+  it("keeps the marks across a restart", async () => {
+    const store = await import("./listStore");
+    store.rememberActivityCursor({ "me/verta": "2026-10-29T00:00:00Z" });
+    await Promise.resolve();
+    expect(await store.readActivityCursor()).toEqual({
+      "me/verta": "2026-10-29T00:00:00Z",
+    });
+  });
+
+  it("writes into the same file as the list, under its own key", async () => {
+    const store = await import("./listStore");
+    store.rememberActivityCursor({ "me/verta": "2026-10-29T00:00:00Z" });
+    await Promise.resolve();
+    expect(state.writes).toContain("verta-remotes.json:activityCursor");
+  });
+
+  it("a broken cursor on disk reads as no cursor, never as a crash", async () => {
+    const file = new Map<string, unknown>([
+      ["activityCursor", ["not", "an", "object"]],
+    ]);
+    state.files.set("verta-remotes.json", file);
+    vi.resetModules();
+    const store = await import("./listStore");
+    expect(await store.readActivityCursor()).toEqual({});
+  });
+
+  it("nothing on disk is no cursor, not a failure", async () => {
+    const store = await import("./listStore");
+    expect(await store.readActivityCursor()).toEqual({});
+  });
+
+  it("emptying every mark is a write too, not a skipped one", async () => {
+    const store = await import("./listStore");
+    store.rememberActivityCursor({});
+    await Promise.resolve();
+    // Clearing is the normal case, not the exception: writing only non-empty maps would leave
+    // the file claiming things were read that this window never saw.
+    expect(state.writes).toContain("verta-remotes.json:activityCursor");
+    expect(await store.readActivityCursor()).toEqual({});
+  });
+});

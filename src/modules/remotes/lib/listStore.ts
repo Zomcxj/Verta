@@ -1,5 +1,6 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import type { WireRemoteReposPayload } from "@/lib/native";
+import { type ActivityCursor, parseActivityCursor } from "./activity";
 
 /**
  * The repository list as it was last read, kept in `verta-remotes.json` for the next window.
@@ -48,4 +49,32 @@ export function parseRepoSnapshot(raw: unknown): RepoSnapshot | null {
   const candidate = payload as WireRemoteReposPayload;
   if (candidate.kind !== "ready" || !Array.isArray(candidate.repos)) return null;
   return { at, payload: candidate };
+}
+
+/**
+ * When each repository was last looked at, in the same file as the list.
+ *
+ * A mark answers "has anything happened here since I last looked", which is a fact about this
+ * person rather than about the account, so it outlives the window the way the list does. It sits
+ * beside the list rather than in its own file so that the two are written together and cannot
+ * describe different moments.
+ *
+ * Empty maps are written too: clearing a mark is a normal thing to do (the window read the
+ * repository and found nothing new), and skipping that write would leave the file claiming
+ * something was read that this window never saw.
+ */
+const KEY_ACTIVITY_CURSOR = "activityCursor";
+
+/** Last look per repository, from the window before this one. */
+export async function readActivityCursor(): Promise<ActivityCursor> {
+  const raw = await store.get<unknown>(KEY_ACTIVITY_CURSOR).catch(() => null);
+  return parseActivityCursor(raw);
+}
+
+/** Keep the marks for the next window. */
+export function rememberActivityCursor(cursor: ActivityCursor): void {
+  void store
+    .set(KEY_ACTIVITY_CURSOR, cursor)
+    .then(() => store.save())
+    .catch(() => undefined);
 }
