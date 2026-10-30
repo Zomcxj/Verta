@@ -83,9 +83,11 @@ fn parse_launch_target() -> LaunchTarget {
 
 /// The window label of the settings window.
 ///
-/// One definition, because it is compared against in two places (the plugin's restore skip and the
-/// window lookup): a typo in one of them would silently stop the other from working, with no error
-/// anywhere.
+/// One definition inside this crate, because it is used in several places (the window lookup, the
+/// window-state restore skip, the teardown loop) and a typo in one of them would silently stop the
+/// other from working, with no error anywhere. It is spelled out again in the capability files
+/// (`capabilities/default.json`, `capabilities/desktop.json`), which give this window its
+/// permissions: renaming this constant without those would compile and strip them.
 const SETTINGS_WINDOW: &str = "settings";
 
 const fn settings_always_on_top(is_macos: bool) -> bool {

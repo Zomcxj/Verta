@@ -23,21 +23,21 @@ swap in the new date, and drop the `open` from the day before.
 
 **A session left running outside this window now shows an orange dot**
 
-- `src/modules/terminal/AgentStateDot.tsx`: a fifth state, orange like work in flight but with its own wording. The process table can only say that an agent exists, never that a turn is in flight, so borrowing the wording of the state that claims the second thing would be the dot telling the reader something nobody read.
+- `src/modules/terminal/AgentStateDot.tsx`: a fifth state, orange like work in flight but with its own wording, which says an agent process is running out there without naming the tool - the rest of this vocabulary does not name tools either. The process table can only say that an agent exists, never that a turn is in flight, so borrowing the wording of the state that claims the second thing would be the dot telling the reader something nobody read.
 - `src/modules/launcher/lib/sessionActivity.ts`: the merge - a session open in a tab keeps the pty's reading (a question waiting stays blue), a session with no tab and a live process gets the new state, and subagent sessions are left to their parent so one agent cannot light two rows.
-- `src/modules/launcher/components/LauncherPanel.tsx`, `src/modules/launcher/lib/sessions.ts`: asked every four seconds while the sessions panel is on screen, and never after it unmounts. A failed read leaves the rows unmarked rather than marking them on a guess.
+- `src/modules/launcher/components/LauncherPanel.tsx`, `src/modules/launcher/lib/sessions.ts`: asked every four seconds while the sessions panel is on screen, never after it unmounts, and never while the window is put away in the tray. The last set read is kept at module scope, because the sidebar remounts this panel and a remount that started empty would drop every background dot for the frames before the first read came back. A failed read leaves the rows unmarked rather than marking them on a guess.
 - `src/lib/native.ts`, `src/modules/i18n/messages.ts`: the wrapper and the wording, in both languages.
 
 **Sessions that have an opencode process behind them, read from the process table**
 
-- `src-tauri/src/modules/agent_sessions/background.rs` (new): finds the sessions a live `opencode.exe` names in its command line, so a session left running without a terminal here is not invisible. `PROCESSENTRY32` carries no command line, so the id is read out of the target process with `NtQueryInformationProcess`; on this Windows the kernel copies the command line into the caller's own buffer, and the other documented shape (a pointer into the target) is covered too, because a build where this quietly returned nothing would show no dots at all. Nothing is spawned and nothing is written.
+- `src-tauri/src/modules/agent_sessions/background.rs` (new): finds the sessions a live `opencode.exe` names in its command line, so a session left running without a terminal here is not invisible. `PROCESSENTRY32` carries no command line, so the id is read out of the target process with `NtQueryInformationProcess`; on this Windows the kernel copies the command line into the caller's own buffer, and the other documented shape (a pointer into the target, which needs a second handle that may read that memory) is covered too, because a build where this quietly returned nothing would show no dots at all. That second branch is the one this machine does not take; the first is measured. Nothing is spawned and nothing is written.
 - `src-tauri/src/modules/agent_sessions/mod.rs`, `src-tauri/src/lib.rs`: the command and its registration.
 - `src-tauri/Cargo.toml`: the two `windows-sys` features this needs.
 - `src-tauri/src/modules/pty/foreground.rs`: the ToolHelp snapshot is shared with this check instead of being written a second time.
 
 **The settings window no longer takes its size and place from the last run**
 
-- `src-tauri/src/lib.rs`: the window-state plugin is told to skip the settings window's saved geometry, so it opens where the code puts it (centred) and at the size it asks for. Restoring used to hand it back a too-tall size that an old shadow bug wrote once and every later open inherited. The plugin still saves the window, so the file keeps describing it as it is; the window label also lives in one place now, because two spellings of it would silently stop matching.
+- `src-tauri/src/lib.rs`: the window-state plugin is told to skip the settings window's saved geometry, so it opens where the code puts it (centred) and at the size it asks for. Restoring used to hand it back a too-tall size that an old shadow bug wrote once and every later open inherited. The plugin still saves the window, so the file keeps describing it as it is; the window label also has one definition inside the Rust side now, because two spellings of it would silently stop matching. The capability files still spell it out, so renaming that constant means touching them too.
 
 **Renaming a session from its row menu now opens the name box**
 

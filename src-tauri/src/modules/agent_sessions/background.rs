@@ -74,7 +74,7 @@ mod windows {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
     use windows_sys::Win32::System::Diagnostics::Debug::ReadProcessMemory;
     use windows_sys::Win32::System::Threading::{
-        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
     };
     use windows_sys::Wdk::System::Threading::{
         NtQueryInformationProcess, ProcessCommandLineInformation,
@@ -83,11 +83,10 @@ mod windows {
     use super::session_id_from_command_line;
     use crate::modules::pty::foreground::process_list;
 
-    /// `UNICODE_STRING`: a byte length, a capacity, and a pointer. Here the pointer is ours, which
-    /// is what makes the kernel copy the string into this process instead of pointing elsewhere.
     /// The longest command line copied out, in UTF-16 code units.
     const MAX_COMMAND_LINE_CHARS: usize = 16 * 1024;
 
+    /// `UNICODE_STRING`: a byte length, a capacity, and a pointer.
     #[repr(C)]
     struct UnicodeString {
         length: u16,
@@ -97,12 +96,6 @@ mod windows {
 
     /// The command line of one process, or None when it cannot be read.
     ///
-    /// `ProcessCommandLineInformation` copies the command line into a buffer the caller supplies:
-    /// the `UNICODE_STRING` handed in carries the destination pointer and its capacity, and comes
-    /// back with `Length` filled in. (Asking with an empty description fails with
-    /// `STATUS_INFO_LENGTH_MISMATCH`, which is how this shape was found.)
-    /// The command line of one process, or None when it cannot be read.
-    ///
     /// `ProcessCommandLineInformation` takes one block from the caller: the `UNICODE_STRING`
     /// descriptor at the front, the string's room right behind it. Asking with a bare descriptor
     /// fails with `STATUS_INFO_LENGTH_MISMATCH` and reports the total it wants, which is how this
@@ -110,7 +103,13 @@ mod windows {
     /// pointer into the target process; that case is copied out, because a build where this
     /// silently returned nothing would show no dots at all and look like "no agents".
     ///
-    /// Only `PROCESS_QUERY_LIMITED_INFORMATION` is asked for, and nothing is written anywhere.
+    /// The first handle asks only for `PROCESS_QUERY_LIMITED_INFORMATION`: reading the memory of
+    /// another process needs `PROCESS_VM_READ`, and a fallback that failed to ask for it would be
+    /// code claiming a safeguard it does not provide (it did, until this was pointed out). So that
+    /// branch opens its own handle with the wider right, and the branch itself is unverified here -
+    /// this machine takes the first one.
+    ///
+    /// Nothing is written anywhere.
     pub(super) fn command_line(pid: u32) -> Option<String> {
         let handle: HANDLE = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
         if handle.is_null() {
@@ -133,7 +132,9 @@ mod windows {
             return None;
         }
 
-        let descriptor = unsafe { &*(raw.as_ptr().cast::<UnicodeString>()) };
+        // `read_unaligned`: the block is a byte buffer, and assuming a heap allocation happens to be
+        // aligned for a struct with a pointer in it is true in practice and undefined in theory.
+        let descriptor = unsafe { raw.as_ptr().cast::<UnicodeString>().read_unaligned() };
         let chars = (descriptor.length as usize) / size_of::<u16>();
         // A command line longer than the room we gave it is a misread descriptor, not a real one.
         if chars == 0 || chars > MAX_COMMAND_LINE_CHARS || descriptor.buffer.is_null() {
@@ -149,23 +150,38 @@ mod windows {
             let slice = unsafe { std::slice::from_raw_parts(descriptor.buffer, chars) };
             Some(String::from_utf16_lossy(slice))
         } else {
-            // The other documented shape: the descriptor points into the target process.
-            let mut wide = vec![0u16; chars];
-            let mut read: usize = 0;
-            let copied = unsafe {
-                ReadProcessMemory(
-                    handle,
-                    descriptor.buffer.cast::<c_void>(),
-                    wide.as_mut_ptr().cast::<c_void>(),
-                    chars * 2,
-                    &mut read,
+            // The other documented shape: the descriptor points into the target process, which
+            // needs a handle that may read its memory.
+            let reader: HANDLE = unsafe {
+                OpenProcess(
+                    PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+                    0,
+                    pid,
                 )
             };
-            if copied == 0 || read < chars * 2 {
+            let text = if reader.is_null() {
                 None
             } else {
-                Some(String::from_utf16_lossy(&wide))
-            }
+                let mut wide = vec![0u16; chars];
+                let mut read: usize = 0;
+                let copied = unsafe {
+                    ReadProcessMemory(
+                        reader,
+                        descriptor.buffer.cast::<c_void>(),
+                        wide.as_mut_ptr().cast::<c_void>(),
+                        chars * 2,
+                        &mut read,
+                    )
+                };
+                unsafe { CloseHandle(reader) };
+                if copied == 0 || read < chars * 2 {
+                    None
+                } else {
+                    Some(String::from_utf16_lossy(&wide))
+                }
+            };
+            unsafe { CloseHandle(handle) };
+            return text;
         };
         unsafe { CloseHandle(handle) };
         text

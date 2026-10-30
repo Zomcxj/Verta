@@ -38,6 +38,7 @@ import type { AgentSession, AgentTool, SessionTarget } from "../lib/types";
 import { topLevelSessions } from "../lib/visibleSessions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useAgentActivityStore } from "@/modules/terminal";
+import { useWindowHidden } from "@/modules/theme/WindowActivityBridge";
 import type { Tab } from "@/modules/tabs/lib/useTabs";
 import { useWorkspaceEnvStore } from "@/modules/workspace";
 import {
@@ -58,6 +59,13 @@ const TOOLS: AgentTool[] = AGENT_TOOLS;
  * Only a display cache: nothing decides anything from it, and a read replaces it.
  */
 let cachedSessions: AgentSession[] = [];
+
+/**
+ * The last set of live background sessions, kept at module scope for the same reason the list is:
+ * the sidebar remounts this panel, and a remount that started from an empty set would drop every
+ * background dot for the frames before the first read came back.
+ */
+let cachedLiveSessions: ReadonlySet<string> = new Set();
 
 /**
  * Copy to the clipboard, and say something either way: a menu item that does
@@ -280,13 +288,18 @@ export function LauncherPanel({
    * than one drawn on a guess.
    */
   const [liveSessions, setLiveSessions] = useState<ReadonlySet<string>>(
-    () => new Set(),
+    () => cachedLiveSessions,
   );
+  const windowHidden = useWindowHidden();
   useEffect(() => {
     let live = true;
     const ask = async () => {
+      // A window in the tray still has this panel mounted, and nobody can see a dot in it.
+      if (windowHidden) return;
       const ids = await liveBackgroundSessionIds();
-      if (live) setLiveSessions(new Set(ids));
+      if (!live) return;
+      cachedLiveSessions = new Set(ids);
+      setLiveSessions(cachedLiveSessions);
     };
     void ask();
     const timer = setInterval(() => void ask(), 4000);
@@ -294,7 +307,7 @@ export function LauncherPanel({
       live = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [windowHidden]);
 
   const topLevel = useMemo(() => topLevelSessions(sessions), [sessions]);
 

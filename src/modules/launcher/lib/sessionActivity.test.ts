@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import type { AgentStateDot } from "@/modules/terminal/AgentStateDot";
 import type { Tab } from "@/modules/tabs/lib/useTabs";
 import {
@@ -180,6 +181,26 @@ describe("waitingFirst", () => {
     ]);
   });
 });
+describe("the background read", () => {
+  const panel = readFileSync(
+    new URL("../components/LauncherPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  it("stops asking while the window is put away", () => {
+    // "Only when somebody could see it" has to include the window sitting in the tray, where the
+    // panel stays mounted and nothing can be looked at.
+    expect(panel).toContain("useWindowHidden()");
+    expect(panel).toMatch(/windowHidden/);
+  });
+
+  it("starts from the last set it read, so a remount does not blink the dots off", () => {
+    // The rows themselves are drawn from a module-scope cache; the marks have to be cached the same
+    // way or they vanish for the frames before the first read comes back.
+    expect(panel).toMatch(/let cachedLiveSessions[\s\S]{0,120}/);
+  });
+});
+
 describe("backgroundStateById", () => {
   const row = (id: string, parentId: string | null = null) => ({ id, parentId });
 
