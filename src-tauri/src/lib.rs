@@ -81,6 +81,13 @@ fn parse_launch_target() -> LaunchTarget {
     resolve_launch_target(entries)
 }
 
+/// The window label of the settings window.
+///
+/// One definition, because it is compared against in two places (the plugin's restore skip and the
+/// window lookup): a typo in one of them would silently stop the other from working, with no error
+/// anywhere.
+const SETTINGS_WINDOW: &str = "settings";
+
 const fn settings_always_on_top(is_macos: bool) -> bool {
     !is_macos
 }
@@ -92,7 +99,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         _ => "settings.html".to_string(),
     };
 
-    if let Some(window) = app.get_webview_window("settings") {
+    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW) {
         #[cfg(not(target_os = "macos"))]
         let _ = window.set_always_on_top(true);
         // Centre on every open, not only when the window is built: the window-state plugin saves
@@ -109,7 +116,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         return Ok(());
     }
 
-    let builder = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App(url_path.into()))
+    let builder = WebviewWindowBuilder::new(&app, SETTINGS_WINDOW, WebviewUrl::App(url_path.into()))
         .title("Settings")
         .inner_size(900.0, 700.0)
         .min_inner_size(820.0, 620.0)
@@ -219,6 +226,12 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)
+                // The settings window's geometry is decided by the code that opens it (always
+                // centred, at the size it asks for) rather than by the file from the last run.
+                // Restoring the size is what made it come back taller than it is designed to be,
+                // with the too-tall number written once by an old bug and inherited ever since.
+                // Saving is untouched: the file goes on describing the window as it actually is.
+                .skip_initial_state(SETTINGS_WINDOW)
                 .build(),
         )
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -283,7 +296,7 @@ pub fn run() {
                         // Both of these are hidden rather than destroyed. On their own they
                         // would leave the process running with no window on screen, which is
                         // what "I quit it hours ago and verta.exe is still there" was.
-                        for label in ["settings", "screenshot"] {
+                        for label in [SETTINGS_WINDOW, "screenshot"] {
                             if let Some(window) = handle.get_webview_window(label) {
                                 let _ = window.destroy();
                             }
@@ -608,6 +621,37 @@ mod launch_target_tests {
         assert!(settings_always_on_top(false));
     }
 
+    /// The settings window's geometry is never taken from the previous run's state file.
+    ///
+    /// Its position is decided by `open_settings_window` (always centred), and the size it asks for
+    /// is the designed one. Letting the plugin restore either caused exactly the kind of bug this
+    /// file keeps meeting: a window that grew every open wrote a taller-than-designed size into the
+    /// state file, and every later open inherited it. `skip_initial_state` stops the restore and
+    /// leaves the saving alone, so the file goes on describing the window as it actually is.
+    #[test]
+    fn settings_does_not_inherit_geometry_from_the_last_run() {
+        // Only the part that ships. `include_str!` reads this test's own text as well, so a search
+        // over the whole file would find the very string the assertion is looking for and pass
+        // whatever the code did - the first version of this test did exactly that.
+        let source = include_str!("lib.rs");
+        let shipping = source.split("#[cfg(test)]").next().unwrap_or("");
+        assert!(
+            shipping.contains("skip_initial_state(SETTINGS_WINDOW)"),
+            "the settings window is still restored from the state file"
+        );
+        // The label is spelled out exactly once, in its own definition. A second spelling would
+        // mean one of the two places silently stopped matching.
+        assert_eq!(
+            shipping.matches("\"settings\"").count(),
+            1,
+            "the settings window label is written out somewhere besides its definition"
+        );
+        assert_eq!(
+            shipping.matches("const SETTINGS_WINDOW: &str = \"settings\";").count(),
+            1
+        );
+    }
+
     /// The settings window is centred every time it is opened, not only the first time.
     ///
     /// The window-state plugin saves and restores every window's position, so a window that was
@@ -626,8 +670,10 @@ mod launch_target_tests {
         let body = &source[start..end];
 
         // The already-open branch shows and focuses; it has to centre too.
+        // By constant, not by the label literal: the label lives in one place now, and a test that
+        // spells it out would break the moment that place is renamed.
         let existing = body
-            .find("get_webview_window(\"settings\")")
+            .find("get_webview_window(SETTINGS_WINDOW)")
             .expect("the already-open branch is gone");
         let branch_end = body[existing..]
             .find("return Ok(());")

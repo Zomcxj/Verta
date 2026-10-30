@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-30</strong></summary>
 
+**The settings window no longer takes its size and place from the last run**
+
+- `src-tauri/src/lib.rs`: the window-state plugin is told to skip the settings window's saved geometry, so it opens where the code puts it (centred) and at the size it asks for. Restoring used to hand it back a too-tall size that an old shadow bug wrote once and every later open inherited. The plugin still saves the window, so the file keeps describing it as it is; the window label also lives in one place now, because two spellings of it would silently stop matching.
+
 **Renaming a session from its row menu now opens the name box**
 
 - `src/modules/launcher/lib/selection.ts`, `src/modules/launcher/components/SessionList.tsx`, `src/modules/launcher/components/LauncherPanel.tsx`: the menu item wrote a session key (`tool::source::id`) into the state and the list compared that state against a bare session id, so the two were never equal and the rename box was never drawn - the menu closed and nothing happened. It had been that way since the feature was added. Both sides now go through one function, and the key carries a type that a bare id does not satisfy, so the two cannot drift apart again without a compile error.
