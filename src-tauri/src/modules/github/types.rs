@@ -188,6 +188,57 @@ fn or_no_detail(error: String) -> String {
     }
 }
 
+/// Whether one repository has anything new to look at.
+///
+/// The answer is a single timestamp: the newest update among the repository's open pull requests
+/// and issues. The frontend keeps a per-repository mark of when it last looked, and a newer
+/// timestamp than that mark is what lights the dot. `kind` shares the repository list's semantics,
+/// plus `none` (nothing is open at all).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoActivityPayload {
+    pub kind: &'static str,
+    /// Which repository was queried (`owner/name`); the frontend puts the answer back on the
+    /// matching row.
+    pub repo: String,
+    /// ISO8601 of the newest open pull request / issue update; null when nothing is open.
+    pub latest: Option<String>,
+    pub error: Option<String>,
+}
+
+impl RepoActivityPayload {
+    pub fn found(repo: impl Into<String>, latest: impl Into<String>) -> Self {
+        Self {
+            kind: KIND_READY,
+            repo: repo.into(),
+            latest: Some(latest.into()),
+            error: None,
+        }
+    }
+
+    pub fn empty(repo: impl Into<String>) -> Self {
+        Self {
+            kind: KIND_NONE,
+            repo: repo.into(),
+            latest: None,
+            error: None,
+        }
+    }
+
+    pub fn failed(kind: &'static str, repo: impl Into<String>, error: impl Into<String>) -> Self {
+        Self {
+            kind,
+            repo: repo.into(),
+            latest: None,
+            error: Some(or_no_detail(error.into())),
+        }
+    }
+
+    pub fn not_installed(repo: impl Into<String>) -> Self {
+        Self::failed(KIND_NOT_INSTALLED, repo, "未安装 gh CLI（找不到 gh 命令）")
+    }
+}
+
 /// One workflow run (a row in the run list).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]

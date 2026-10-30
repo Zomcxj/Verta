@@ -368,6 +368,7 @@ pub fn run() {
             projects::commands::projects_pull,
             github::commands::github_repos,
             github::commands::github_repo_ci,
+            github::commands::github_repo_activity,
             github::commands::github_repo_permission,
             github::commands::github_repo_settings,
             github::commands::github_repo_set_description,

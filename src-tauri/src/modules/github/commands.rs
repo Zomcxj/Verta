@@ -19,6 +19,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::modules::fs::blocking;
 use crate::modules::proc::hide_console;
 
+use super::activity::parse_latest_activity;
 use super::actions::{
     cap_lines, clamp_limit, classify_run_probe, parse_jobs, parse_log, parse_runs, RunProbe,
     MAX_LOG_LINES,
@@ -40,8 +41,8 @@ use super::types::{
     AuthActionPayload, AuthLoginProgress, AuthStatusPayload, IssueActionResult, IssueDetailPayload,
     IssueListPayload, PullRequestCommit, ReleaseDownloadProgress, ReleaseDownloadResult,
     ReleaseEditResult, RemoteRepo, RemoteReposPayload, RepoActionRunsPayload, RepoActionResult,
-    RepoCiPayload, RepoPermissionPayload, RepoReleasesPayload, RepoRunActionResult,
-    RepoRunJobsPayload, RepoRunLogPayload, RepoSettingsPayload, KIND_ERROR,
+    RepoActivityPayload, RepoCiPayload, RepoPermissionPayload, RepoReleasesPayload,
+    RepoRunActionResult, RepoRunJobsPayload, RepoRunLogPayload, RepoSettingsPayload, KIND_ERROR,
 };
 
 /// Repositories the current account can reach (own + collaborator + visible to
@@ -173,6 +174,59 @@ fn read_repo_ci(repo: &str) -> RepoCiPayload {
             KIND_ERROR,
             &slug,
             format!("gh 返回的运行记录无法解析：{error}"),
+        ),
+    }
+}
+
+/// Whether one repository has anything new to look at: the newest update among its open pull
+/// requests and issues.
+///
+/// Triggered on demand by the UI, one repository at a time and only when the repository is
+/// touched, for the same reason CI status is: asking about every repository in the list would
+/// burn through the API quota, and it would ask about repositories nobody was looking at.
+#[tauri::command]
+pub async fn github_repo_activity(repo: String) -> Result<RepoActivityPayload, String> {
+    blocking(move || Ok(read_repo_activity(&repo))).await
+}
+
+fn read_repo_activity(repo: &str) -> RepoActivityPayload {
+    let slug = match parse_repo_slug(repo) {
+        Ok(slug) => slug,
+        // The name itself is invalid: say so without asking gh.
+        Err(message) => return RepoActivityPayload::failed(KIND_ERROR, repo.trim(), message),
+    };
+
+    // GitHub's issue list covers pull requests too, and `sort=updated` puts the newest change
+    // first, so the first entry carries the answer in one request.
+    //
+    // Only open items are asked about: a closed pull request's timestamp moves when it is closed,
+    // and an item nobody can act on should not keep a dot lit.
+    let path = format!("repos/{slug}/issues?state=open&sort=updated&direction=desc&per_page=1");
+    let output = match gh::run(&["api", &path], gh::ISSUES_TIMEOUT_SECS) {
+        Ok(output) => output,
+        Err(GhRunError::NotInstalled) => return RepoActivityPayload::not_installed(&slug),
+        Err(GhRunError::Io(error)) => {
+            return RepoActivityPayload::failed(KIND_ERROR, &slug, format!("运行 gh 失败：{error}"))
+        }
+    };
+
+    if !output.is_ok() {
+        let text = output.failure_text();
+        return RepoActivityPayload::failed(
+            classify_failure(&text).kind(),
+            &slug,
+            error_excerpt(&text),
+        );
+    }
+
+    match parse_latest_activity(&output.stdout) {
+        Ok(Some(latest)) => RepoActivityPayload::found(&slug, latest),
+        // Definite answer: nothing is open here.
+        Ok(None) => RepoActivityPayload::empty(&slug),
+        Err(error) => RepoActivityPayload::failed(
+            KIND_ERROR,
+            &slug,
+            format!("gh 返回的 PR / issue 列表无法解析：{error}"),
         ),
     }
 }

@@ -15,6 +15,16 @@ swap in the new date, and drop the `open` from the day before.
 ---
 
 <details open>
+<summary><strong>2026-10-30</strong></summary>
+
+**A read that answers whether a repository has new activity**
+
+- `src-tauri/src/modules/github/activity.rs` (new): reads the newest update out of a one-item listing of a repository's open pull requests and issues. An empty list is a definite "nothing is open"; an entry without a timestamp is an error rather than a guess, because an invented time would either light the mark forever or hide a real one.
+- `src-tauri/src/modules/github/types.rs`: the answer is its own payload, with the same `kind` vocabulary as the CI one, so a failed read can never be mistaken for "nothing new".
+- `src-tauri/src/modules/github/commands.rs`: the read itself - one request per repository, open items only, asked on demand rather than for the whole list.
+- `src-tauri/src/modules/github/mod.rs`, `src-tauri/src/lib.rs`: the module declared and the command registered.
+
+<details>
 <summary><strong>2026-10-29</strong></summary>
 
 **The settings window always opens in the middle of the screen**

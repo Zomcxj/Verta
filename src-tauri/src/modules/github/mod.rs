@@ -5,6 +5,7 @@
 //! Releases and asset downloads come in a later slice.
 
 mod actions;
+mod activity;
 mod auth;
 mod ci;
 pub mod commands;
