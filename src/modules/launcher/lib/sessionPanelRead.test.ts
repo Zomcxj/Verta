@@ -30,10 +30,19 @@ describe("the sessions panel while it reads", () => {
   it("distinguishes a list that was never read from a list that is empty", () => {
     // The bug in one sentence: `sessions.length === 0` drew "no sessions" before any read finished.
     expect(panel).toContain("hasRead");
-    expect(panel).toContain("reading={!hasRead}");
+    expect(panel).toContain("reading={!hasRead || pendingSources.size > 0}");
     // The panel that draws the emptiness asks first, and only says "no sessions" once a read is in.
     expect(empty).toContain('t("launcher.loading")');
     expect(empty).toContain('t("launcher.empty")');
     expect(empty).toContain('data-session-empty={reading ? "reading" : "empty"}');
+  });
+
+  it("keeps saying it is reading while a source is still outstanding", () => {
+    // A distro is read by running a query inside it, so its rows arrive seconds after this
+    // machine's. Drawing the list as complete in between showed it missing its WSL block with
+    // nothing to say why - which reads as "the switch did nothing". A finished read therefore clears
+    // the pending sets per source, and the list stays in "reading" until the last one settles.
+    expect(panel).toContain("setPendingSources(pendingFor(requests))");
+    expect(panel).toContain("next.delete(key)");
   });
 });

@@ -14,10 +14,7 @@ import { type MessageKey, useT } from "@/modules/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { renameAgentSession } from "../lib/sessions";
-import {
-  type SessionGroupBy,
-  groupByTool,
-} from "../lib/sessionGroups";
+import { type SessionGroupBy, groupBySource } from "../lib/sessionGroups";
 import { relativeToRoot } from "../lib/sessionPaths";
 import { AGENT_TOOLS } from "../lib/tools";
 import {
@@ -29,7 +26,11 @@ import {
   toggleSelection,
   updateSelection,
 } from "../lib/selection";
-import { deleteAgentSessions, listAgentSessions } from "../lib/sessions";
+import {
+  deleteAgentSessions,
+  listAgentSessions,
+  runningAgentSessionIds,
+} from "../lib/sessions";
 import type { AgentSession, AgentTool, SessionTarget } from "../lib/types";
 import { topLevelSessions } from "../lib/visibleSessions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -41,6 +42,7 @@ import {
   ACTIVE_TICK_MS,
   ACTIVE_WINDOW_BY_TOOL,
   activeByWindow,
+  activeWithService,
   backgroundStateById,
   sessionStateById,
   waitingFirst,
@@ -58,6 +60,19 @@ const TOOLS: AgentTool[] = AGENT_TOOLS;
  * Only a display cache: nothing decides anything from it, and a read replaces it.
  */
 let cachedSessions: AgentSession[] = [];
+
+/** One source the list reads from: a tool on this machine, or in one distro. */
+type SessionRequest = { tool: AgentTool; distro: string | null };
+
+/** Identity of a source, for tracking which ones are still being read. */
+function sourceKeyOf(request: SessionRequest): string {
+  return `${request.distro ?? ""}::${request.tool}`;
+}
+
+/** The sources a read has not answered yet, as a set of `sourceKeyOf` values. */
+function pendingFor(requests: readonly SessionRequest[]): Set<string> {
+  return new Set(requests.map(sourceKeyOf));
+}
 
 /**
  * Copy to the clipboard, and say something either way: a menu item that does
@@ -98,6 +113,18 @@ export function LauncherPanel({
   const [sessions, setSessions] = useState<AgentSession[]>(() => cachedSessions);
   /** Whether a read has finished at least once: an unread empty list is not an empty list. */
   const [hasRead, setHasRead] = useState(() => cachedSessions.length > 0);
+  /**
+   * Sources whose read has not come back yet.
+   *
+   * Not the same as "no rows yet". A distro is read by running a query inside it, which takes
+   * seconds on a large store, so this machine's rows arrive long before the distro's. Rendering the
+   * list as soon as one source answers showed a list that was missing its WSL block with nothing to
+   * say why - which reads as "the switch did not work", the one thing enabling it was meant to
+   * change. A source counts as read when its request settles, whether it succeeded or failed.
+   */
+  const [pendingSources, setPendingSources] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -145,28 +172,41 @@ export function LauncherPanel({
       const requests = sources.flatMap((distro) =>
         TOOLS.map((tool) => ({ tool, distro })),
       );
-      const results = await Promise.allSettled(
-        requests.map((request) =>
-          listAgentSessions(request.tool, request.distro),
-        ),
-      );
+      // Every source starts out unanswered. A distro is read by running a query inside it, so its
+      // rows arrive seconds after this machine's; until they do, the list is missing a block it is
+      // about to have, and drawing it as complete reads as "the switch did nothing".
+      setPendingSources(pendingFor(requests));
       const merged: AgentSession[] = [];
       const nextWarnings: string[] = [];
       const failures: string[] = [];
-      results.forEach((result, index) => {
-        const { tool, distro } = requests[index];
-        if (result.status === "fulfilled") {
-          merged.push(...result.value.sessions);
-          nextWarnings.push(...result.value.warnings);
-        } else {
-          // One unreadable store must not hide the others.
-          const source = distro ? `${tool}（${distro}）` : tool;
-          failures.push(`${source}：${String(result.reason)}`);
-        }
-      });
-      merged.sort((left, right) => right.updatedAtMs - left.updatedAtMs);
-      cachedSessions = merged;
-      setSessions(merged);
+      // Settled per source rather than all at once: a slow distro no longer holds back the rows
+      // that are already answered.
+      await Promise.all(
+        requests.map(async (request) => {
+          const key = sourceKeyOf(request);
+          try {
+            const value = await listAgentSessions(request.tool, request.distro);
+            merged.push(...value.sessions);
+            nextWarnings.push(...value.warnings);
+          } catch (error) {
+            // One unreadable store must not hide the others.
+            const source = request.distro
+              ? `${request.tool}（${request.distro}）`
+              : request.tool;
+            failures.push(`${source}：${String(error)}`);
+          } finally {
+            setPendingSources((prev) => {
+              if (!prev.has(key)) return prev;
+              const next = new Set(prev);
+              next.delete(key);
+              return next;
+            });
+            merged.sort((left, right) => right.updatedAtMs - left.updatedAtMs);
+            cachedSessions = merged;
+            setSessions([...merged]);
+          }
+        }),
+      );
       setHasRead(true);
       setWarnings(nextWarnings);
       setError(failures.length > 0 ? failures.join("\n") : null);
@@ -287,6 +327,39 @@ export function LauncherPanel({
     return () => clearInterval(timer);
   }, [windowHidden]);
 
+  /**
+   * Sessions the opencode service says are mid-turn, refreshed on the same slow tick.
+   *
+   * The write times go quiet during a long tool call; the service knows the turn has not finished.
+   * Asked on the tick rather than pushed, because the service is a local HTTP endpoint and this is
+   * the one place that already wakes up on a schedule. A source that cannot be asked contributes
+   * nothing, and the write times carry the list alone.
+   */
+  const [serviceRunning, setServiceRunning] = useState<ReadonlySet<string> | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` is the re-ask trigger; the effect reads nothing from it, and without it the answer would be the one from mount forever
+  useEffect(() => {
+    if (windowHidden) return;
+    let live = true;
+    void (async () => {
+      const answers = await Promise.all(
+        sources.map((distro) => runningAgentSessionIds(distro)),
+      );
+      if (!live) return;
+      // `null` from every source means the question could not be asked at all; that is not the
+      // same as "nothing is running", so it is kept distinct.
+      if (answers.every((ids) => ids === null)) {
+        setServiceRunning(null);
+        return;
+      }
+      const ids = new Set<string>();
+      for (const answer of answers) for (const id of answer ?? []) ids.add(id);
+      setServiceRunning(ids);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [sources, tick, windowHidden]);
+
   const topLevel = useMemo(() => topLevelSessions(sessions), [sessions]);
 
   /** What the rows draw: the tab's own reading where there is one, recent writes elsewhere. */
@@ -297,10 +370,13 @@ export function LauncherPanel({
     () =>
       backgroundStateById(
         states,
-        activeByWindow(topLevel, Date.now(), ACTIVE_WINDOW_BY_TOOL),
+        activeWithService(
+          activeByWindow(topLevel, Date.now(), ACTIVE_WINDOW_BY_TOOL),
+          serviceRunning,
+        ),
         topLevel,
       ),
-    [states, topLevel, tick],
+    [states, topLevel, tick, serviceRunning],
   );
   // Managing deliberately shows the subagent sessions this list otherwise hides.
   const listed = managing ? sessions : topLevel;
@@ -326,22 +402,10 @@ export function LauncherPanel({
    * small-inside-large because local and WSL sessions are separate stores;
    * lumping them under one "opencode" heading leaves no way to tell which is read.
    */
-  const groups = useMemo(() => {
-    const bySource = new Map<string, AgentSession[]>();
-    for (const session of visible) {
-      const key = session.distro ?? "";
-      const bucket = bySource.get(key);
-      if (bucket) bucket.push(session);
-      else bySource.set(key, [session]);
-    }
-    const entries = [...bySource.entries()].map(([key, sessions]) => ({
-      distro: key === "" ? null : key,
-      sections: groupByTool(sessions, TOOLS, groupBy),
-    }));
-    return entries.length > 0
-      ? entries
-      : [{ distro: null, sections: groupByTool([], TOOLS, groupBy) }];
-  }, [visible, groupBy]);
+  const groups = useMemo(
+    () => groupBySource(visible, TOOLS, groupBy),
+    [visible, groupBy],
+  );
 
   /** Source headings only earn their space with multiple sources or per-agent
    * sections; otherwise they are a wasted line. */
@@ -507,7 +571,9 @@ export function LauncherPanel({
                       onToggle={toggleRow}
                       // Only the first read counts: a refresh over an empty list the user has
                       // already seen is not news.
-                      reading={!hasRead}
+                      // "Reading" covers a source still outstanding, not only the very first read:
+                      // the list is incomplete until every source it asked has answered.
+                      reading={!hasRead || pendingSources.size > 0}
                     />
                   </div>
                 ))}

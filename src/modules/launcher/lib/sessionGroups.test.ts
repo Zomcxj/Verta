@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { groupByTool, sortByRecent } from "./sessionGroups";
+import { groupBySource, groupByTool, sortByRecent } from "./sessionGroups";
 import type { AgentSession } from "./types";
 
 function session(
@@ -82,5 +82,56 @@ describe("groupByTool", () => {
     const groups = groupByTool([], TOOLS, "tool");
     expect(groups).toHaveLength(1);
     expect(groups[0].sessions).toEqual([]);
+  });
+});
+
+/** A session in a distro: same shape, `distro` set instead of null. */
+function inDistro(session: AgentSession, distro: string): AgentSession {
+  return { ...session, distro };
+}
+
+describe("groupBySource", () => {
+  it("keeps this machine first even when a distro session is the newest", () => {
+    // The reported bug: a WSL session written to a second ago lifted the whole WSL block above this
+    // machine's, because the groups were built by walking the time-sorted list.
+    const wsl = inDistro(session("wsl-hottest", "opencode", 9_000), "Ubuntu-22.04");
+    const groups = groupBySource([wsl, ...LIST], TOOLS, "all");
+    expect(groups.map((g) => g.distro)).toEqual([null, "Ubuntu-22.04"]);
+    // And the distro block is still newest-first inside itself.
+    expect(groups[1].sections[0].sessions.map((s) => s.id)).toEqual(["wsl-hottest"]);
+    // This machine's rows are untouched by the distro session's age.
+    expect(groups[0].sections[0].sessions.map((s) => s.id)).toEqual([
+      "pi-new",
+      "oc-new",
+      "oc-old",
+      "pi-old",
+    ]);
+  });
+
+  it("orders several distros by name, not by when they were last written", () => {
+    const groups = groupBySource(
+      [
+        inDistro(session("b-new", "opencode", 900), "Ubuntu-24.04"),
+        inDistro(session("a-old", "opencode", 100), "Debian"),
+        ...LIST,
+      ],
+      TOOLS,
+      "all",
+    );
+    expect(groups.map((g) => g.distro)).toEqual([null, "Debian", "Ubuntu-24.04"]);
+  });
+
+  it("keeps the agent sections' fixed order inside each source", () => {
+    const wsl = inDistro(session("w-pi", "pi", 800), "Ubuntu-22.04");
+    const groups = groupBySource([wsl, ...LIST], TOOLS, "tool");
+    expect(groups[1].sections.map((g) => g.tool)).toEqual(["pi"]);
+    expect(groups[0].sections.map((g) => g.tool)).toEqual(["opencode", "pi"]);
+  });
+
+  it("an empty list still yields one empty block for this machine", () => {
+    const groups = groupBySource([], TOOLS, "all");
+    expect(groups).toHaveLength(1);
+    expect(groups[0].distro).toBeNull();
+    expect(groups[0].sections[0].sessions).toEqual([]);
   });
 });
