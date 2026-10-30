@@ -17,6 +17,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-30</strong></summary>
 
+**A probe for the dots, and what it measured**
+
+- `scripts/dev/probes/background-agent-dot.mjs` (new): reads every session row's state marker out of the live page and counts them by state, so "did the background dot appear, and did it keep out of the way of a session's own reading" is measured rather than read off the source. Measured on the dev instance: two rows marked while two `opencode` command lines on this machine name sessions; starting one more (`opencode --session <id>`) in the app's own terminal made a third row appear within the polling window, quitting it took it away again, and opening that session as a tab turned its row into the tab's own reading instead of the background one.
+
 **A session left running outside this window now shows an orange dot**
 
 - `src/modules/terminal/AgentStateDot.tsx`: a fifth state, orange like work in flight but with its own wording. The process table can only say that an agent exists, never that a turn is in flight, so borrowing the wording of the state that claims the second thing would be the dot telling the reader something nobody read.
