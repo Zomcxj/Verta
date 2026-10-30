@@ -4,7 +4,6 @@ import { WindowControls } from "@/components/WindowControls";
 import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import type { Tab } from "@/modules/tabs";
 import { TabBar, type TerminalChoice } from "@/modules/tabs";
-import { AgentActivityBadge } from "./AgentActivityBadge";
 import { NotificationBell } from "@/modules/notifications/NotificationBell";
 import {
   CommandIcon,
@@ -189,7 +188,6 @@ export function Header({
           onOverrideLanguage={onOverrideLanguage}
           compact={compact}
         />
-        <AgentActivityBadge />
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
       </div>
 

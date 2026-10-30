@@ -682,7 +682,6 @@ const zh = {
   "tabs.agentState.idle": "空闲",
 
   "header.settings": "设置",
-  "header.agentWaiting": "在等 {count}",
   "header.agentWorking": "在跑 {count}",
   "notifications.title": "等待你的会话",
   "notifications.empty": "没有等待你的会话。",
@@ -2091,7 +2090,6 @@ const en: Record<MessageKey, string> = {
   "tabs.agentState.idle": "Idle",
 
   "header.settings": "Settings",
-  "header.agentWaiting": "{count} waiting",
   "header.agentWorking": "{count} working",
   "notifications.title": "Waiting for you",
   "notifications.empty": "Nothing is waiting for you.",

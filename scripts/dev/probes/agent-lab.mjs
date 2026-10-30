@@ -325,7 +325,6 @@ try {
         const leaf = visible ? visible.leafId : null;
         const pty = leaf === null ? null : api.ptyIdForLeaf(leaf);
         const store = activity.useAgentActivityStore.getState();
-        const badge = document.querySelector("[data-agent-counts]");
         return JSON.stringify({
           leaf,
           pty,
@@ -333,7 +332,6 @@ try {
           phase: pty === null ? null : (store.phases[pty] ?? null),
           // The kernel's own answer, for comparison with what the screen says.
           hasChild: leaf === null ? null : await api.leafHasForegroundProcess(leaf),
-          badge: badge ? (badge.textContent || "").trim() : null,
           tabs: [...document.querySelectorAll("[role=tab]")].map((tab) => {
             const dot = tab.querySelector("[data-agent-state]");
             return {

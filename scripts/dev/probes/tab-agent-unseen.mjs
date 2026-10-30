@@ -61,7 +61,6 @@ const MODULES = `
 /** The strip as the user sees it: each chip's dot, its unseen bar and its title. */
 const strip = () =>
   pageEval(`
-    const currency = document.querySelector("[data-agent-counts]");
     return JSON.stringify({
       tabs: [...document.querySelectorAll("[role=tab]")].map((tab) => ({
         id: tab.getAttribute("data-tab-id"),
@@ -79,7 +78,6 @@ const strip = () =>
           };
         })()
       })),
-      badge: currency ? (currency.textContent || "").trim() : null
     });
   `);
 

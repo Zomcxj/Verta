@@ -1,11 +1,11 @@
 // Does the tab strip actually show the agent's state, and does the header count it?
 // The judge writing the store is one thing; a dot a user can see is another, and the
 // path between them (the store's leaf map, the tab selector, the chip's render, the
-// header badge) is what this checks.
+// and its unseen bar) is what this checks.
 //
 // It opens a plain terminal of its own, puts each screen on it, and reads the
 // interface's own DOM: which chip carries a dot, with what state and what label, and
-// what the header badge says. The screenshot is for the eye; the DOM is the evidence.
+// what the tab strip draws. The screenshot is for the eye; the DOM is the evidence.
 // The tab is closed again, and the user's other tabs are read too, since a dot must
 // not appear on them.
 //
@@ -61,10 +61,9 @@ const MODULES = `
   const activity = await import(find("modules/terminal/lib/agentActivity.ts"));
 `;
 
-/** Every chip in the strip, with the dot it carries (if any), and the header badge. */
+/** Every chip in the strip, with the dot it carries (if any). */
 const tabStrip = () =>
   pageEval(`
-    const badge = document.querySelector("[data-agent-counts]");
     // What the classes put on screen, not just what they are called: the colour and the
     // breathing are the contract here, and both can be broken by a stylesheet alone.
     const look = (el) => {
@@ -95,16 +94,6 @@ const tabStrip = () =>
           unseenBar: bar ? look(bar) : null
         };
       }),
-      badge: badge
-        ? {
-            text: (badge.textContent || "").trim(),
-            title: badge.getAttribute("title"),
-            width: badge.getBoundingClientRect().width,
-            states: [...badge.querySelectorAll("[data-agent-state]")].map((d) =>
-              d.getAttribute("data-agent-state")
-            )
-          }
-        : null
     });
   `);
 

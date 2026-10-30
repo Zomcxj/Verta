@@ -17,6 +17,45 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-30</strong></summary>
 
+**A session mid-turn, asked of the service that runs it**
+
+- `src-tauri/src/modules/agent_sessions/service_turns.rs` (new): opencode runs a background service that holds its sessions and knows, per session, when the current turn started (`busy`) and when the last one ended (`idle`). A session with `busy` later than `idle` has a turn still running. The service's endpoint and password are written to `~/.local/state/opencode/service.json`, which is how the tool's own command-line client finds them; the file is read at call time, nothing is stored, and only a loopback URL is accepted, since that is the only thing the password opens. A missing file, a stopped service or an answer that is not `/api/session` all read as "could not ask", which is kept distinct from "nothing is running".
+- `src-tauri/src/modules/agent_sessions/mod.rs`, `src-tauri/src/lib.rs`: the command, on the blocking pool because it is a network call that may sit until its timeout.
+- `src-tauri/src/modules/agent_sessions/wsl.rs`: the same question asked from inside a distro, since each one runs its own service on its own loopback interface.
+- `src/modules/launcher/lib/sessionActivity.ts`, `src/modules/launcher/components/LauncherPanel.tsx`: the two readings are merged - either one saying "yes" is enough. The write times go quiet during a long tool call (measured: eight and a half minutes inside one turn while the agent was plainly working), and the service says a session is between turns for the seconds before the next one starts. The service is asked on the panel's existing slow tick, and a source that cannot be asked contributes nothing, leaving the write times to carry the list alone.
+- `src/modules/launcher/lib/sessionActivity.test.ts`, `src/modules/launcher/lib/sessions.ts`: the merge pinned in both directions, the fallback when the service cannot be asked, and the wrapper that tells "could not ask" apart from "nothing running".
+
+**A question is blue, and it stays counted while it is being asked**
+
+- `src/modules/terminal/lib/agentRules.ts`: two shapes of the opencode question panel. The panel this machine draws has **no caret** on its options (`1. 火锅`, not `❯ 1. 火锅`), and its footer replaces the usual `ctrl+p` / `· tokens` hints with its own, so nothing on that screen identified the tool and the session read as having no agent at all - drawn green while it was waiting for an answer. The panel is now identified by its own footer (`enter submit`, `esc dismiss`), which is chrome rather than content: an option line pasted into a conversation looks exactly like a real option, and this does not. The idle rule keeps reading the usual footer, since a panel waiting on an answer is the one screen that is certainly not idle.
+- `src/modules/terminal/lib/agentActivity.ts`, `src/app/hooks/useAgentStateJudge.ts`: a waiting session is counted wherever it is drawn. Clearing the latch when the tab came to the front made the count honest about "not seen" and useless about "still unanswered" - a question on the active tab was counted for one tick and then vanished while still on screen. The phase leaving `attention` is what clears it now; an *ending* is still cleared by looking, which is what it means.
+- `src/modules/notifications/lib/attentions.ts`: a question panel owns the alternate screen and writes no newlines - the whole screen arrives as one string whose rows are marked only by box characters. The line-based excerpt therefore took the middle of the conversation: the notification read `? daily task + · help 输出是 UTF-16LE 编码…` while the panel was asking `你喜欢吃什么？`. The panel's question is now read from its own layout, between its header and its first option.
+- `src/modules/terminal/lib/agentRules.test.ts`, `src/modules/notifications/lib/attentions.test.ts`: the measured screens kept verbatim.
+
+**The list says it is reading while a source is still out**
+
+- `src/modules/launcher/components/LauncherPanel.tsx`: a distro is read by running a query inside it, so its rows arrive seconds after this machine's. Waiting for all of them held back the rows that were already answered; drawing the list as soon as one source answered showed it missing its WSL block with nothing to say why, which reads as "the switch did nothing". Sources now settle one at a time and each cleared as it answers, and the list counts as reading until the last one has.
+- `src/modules/launcher/lib/sessionPanelRead.test.ts`: pins that a source still outstanding keeps the list in "reading".
+
+**This machine's sessions stay above the distros', each newest-first**
+
+- `src/modules/launcher/lib/sessionGroups.ts`: the groups were built by walking the time-sorted list, so their order followed whatever happened to be newest - a distro session written to a second ago lifted the whole WSL block above this machine's. The source order is fixed now (this machine, then each distro by name) and only the rows inside a source are ordered by recency.
+- `src/modules/launcher/components/LauncherPanel.tsx`: uses that instead of grouping inline.
+- `src/modules/launcher/lib/sessionGroups.test.ts`: pins the order, including the case that started it.
+
+**A distro having no pi sessions is not reported**
+
+- `src-tauri/src/modules/agent_sessions/wsl.rs`: the platform's `pi` is the Windows binary, which WSL resolves to the same program, so its sessions stay on the Windows side and are listed there. That is a fixed fact about the tool rather than a condition to look into, and saying it made the list's footer carry "1 more notice" on every read with the WSL switch on.
+
+**The settings window opens over the window it is for, and a third taller**
+
+- `src-tauri/src/lib.rs`: the window asks for 910 rather than 700 - the settings pages have grown and 700 showed about one page and a half - and it is centred on the main window rather than on the screen, clamped to the work area so a main window against an edge cannot place it partly off. A screen centre drifts away from the main window as soon as that window is moved or is not maximised.
+
+**The count of waiting sessions beside the tab strip is gone**
+
+- `src/modules/header/AgentActivityBadge.tsx` (deleted), `src/modules/header/Header.tsx`, `src/modules/i18n/messages.ts`: the badge and its wording, in both languages. Each tab already carries its own dot, and the sessions list carries the row's.
+- `scripts/dev/probes/tab-agent-dot.mjs`, `scripts/dev/probes/tab-agent-unseen.mjs`, `scripts/dev/probes/agent-lab.mjs`: stopped reading the badge.
+
 **A probe for the dots, and what it measured**
 
 - `scripts/dev/probes/background-agent-dot.mjs` (new): reads every session row's state marker out of the live page and counts them by state, so "did the background dot appear, and did it keep out of the way of a session's own reading" is measured rather than read off the source. `--expect-active=<text>` fails the run when no row whose title contains that text carries a mark, which is the assertion this reading most needs: the row it must catch is the one a command line cannot name. Measured on the dev instance: a session left running in a bare `opencode` (no `--session`, so nothing in the process table names it) shows the orange mark, and the same run showed a session marked a few minutes earlier go back to no mark once its writes stopped; a row whose title does not match reports "no mark", so the assertion is not passing by accident. A session opened as a tab is drawn from the tab - a stale row read as no mark went to the tab's own `idle` - but the case where a tab and a recent write disagree is covered by the unit tests rather than measured here, since the sessions inside the window at the time were the ones this window's own agent was using.
