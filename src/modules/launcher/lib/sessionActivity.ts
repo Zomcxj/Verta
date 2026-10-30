@@ -6,6 +6,7 @@ import type { AgentStateDot } from "@/modules/terminal/AgentStateDot";
 import { leafIds } from "@/modules/terminal";
 import { ptyIdsForLeaves } from "@/modules/tabs/lib/tabAgentStatus";
 import type { Tab } from "@/modules/tabs/lib/useTabs";
+import type { AgentTool } from "./types";
 
 /**
  * What the session list shows about the sessions that are running right now.
@@ -115,21 +116,31 @@ export function backgroundStateById(
 }
 
 /**
- * How recently a session must have been written to for the list to call it active.
+ * How recently a session must have been written to for the list to call it active, per tool.
  *
  * A session nobody has a tab open for is still doing something, and nothing else names it cheaply:
  * an `opencode` started without `--session` carries no session id in its command line, and one
  * hosted by the background service carries none at all. What is available is when the session's
- * messages were last written - the same number the row already shows as "last talked" - and writes
- * only happen while something is going on.
+ * store was last written - the same number the row already shows as "last talked" - and writes only
+ * happen while something is going on.
  *
- * The window is measured rather than guessed. Polling three sessions that were generating at the
- * time, the gap between one write and the next was usually 5 to 34 seconds, with a median near 15
- * seconds; the longest gaps were 127 and 141 seconds, a model thinking or running a long tool
- * before it writes again. Three minutes covers those with room to spare, and is still short enough
- * that a session which stopped stops showing soon after.
+ * The window is measured rather than guessed: polling sessions that were running on this machine,
+ * the gap between one write and the next was 5 to 35 seconds with a median near 10, and the longest
+ * single gap inside a turn was 129 seconds on an `opencode` session and 123 on a `pi` one. Three
+ * minutes covers those with room to spare.
+ *
+ * Both tools share one window because that measurement says they behave alike. An earlier reading
+ * gave `pi` a wider one, taken from the timestamps inside its session file - but pi stamps a
+ * message with the time its turn *started*, so those gaps only ever grow and said nothing about how
+ * often it writes. Measured by watching the file itself, pi writes at the same rhythm as opencode.
+ *
+ * A tool nobody has measured keeps this window too: a dot that is missing is a smaller lie than one
+ * drawn on a guess.
  */
-export const ACTIVE_WINDOW_MS = 3 * 60_000;
+export const ACTIVE_WINDOW_BY_TOOL: Readonly<Record<AgentTool, number>> = {
+  opencode: 3 * 60_000,
+  pi: 3 * 60_000,
+};
 
 /**
  * How often the list re-answers "is anything still recent" with nobody writing.
@@ -141,28 +152,37 @@ export const ACTIVE_WINDOW_MS = 3 * 60_000;
 export const ACTIVE_TICK_MS = 20_000;
 
 /**
- * Sessions written to inside the window, by id.
+ * Sessions written to inside their tool's window, by id.
  *
  * Subagent sessions are left out: they write through their parent, so counting them would put a
  * mark on two rows for one piece of work. A time in the future counts as active - the alternative
  * is a negative age that silently excludes it forever.
+ *
+ * The two times a row carries can disagree, and the later one is the one that happened last: pi
+ * stamps a message with the time its turn *started* and appends it when the turn ends, so its
+ * message time can sit minutes behind the file's own last-write time. Reading only the first would
+ * call an agent idle in the middle of a turn it was plainly working on.
  */
 export function activeByWindow(
   sessions: readonly {
     id: string;
     parentId: string | null;
+    tool: AgentTool;
     lastAtMs?: number | null;
     updatedAtMs?: number;
   }[],
   now: number,
-  windowMs: number,
+  windows: Readonly<Record<AgentTool, number>>,
 ): Set<string> {
   const active = new Set<string>();
   for (const session of sessions) {
     if (session.parentId !== null) continue;
-    const last = session.lastAtMs ?? session.updatedAtMs ?? null;
+    const talked = session.lastAtMs ?? null;
+    const touched = session.updatedAtMs ?? null;
+    const last = talked === null ? touched : touched === null ? talked : Math.max(talked, touched);
     if (last === null) continue;
-    if (now - last < windowMs) active.add(session.id);
+    const window = windows[session.tool];
+    if (window !== undefined && now - last < window) active.add(session.id);
   }
   return active;
 }

@@ -39,7 +39,7 @@ import type { Tab } from "@/modules/tabs/lib/useTabs";
 import { useWorkspaceEnvStore } from "@/modules/workspace";
 import {
   ACTIVE_TICK_MS,
-  ACTIVE_WINDOW_MS,
+  ACTIVE_WINDOW_BY_TOOL,
   activeByWindow,
   backgroundStateById,
   sessionStateById,
@@ -297,7 +297,7 @@ export function LauncherPanel({
     () =>
       backgroundStateById(
         states,
-        activeByWindow(topLevel, Date.now(), ACTIVE_WINDOW_MS),
+        activeByWindow(topLevel, Date.now(), ACTIVE_WINDOW_BY_TOOL),
         topLevel,
       ),
     [states, topLevel, tick],

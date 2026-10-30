@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import type { AgentStateDot } from "@/modules/terminal/AgentStateDot";
 import type { Tab } from "@/modules/tabs/lib/useTabs";
 import {
+  ACTIVE_WINDOW_BY_TOOL,
   activeByWindow,
   backgroundStateById,
   sessionStateById,
@@ -199,7 +200,7 @@ describe("the background read", () => {
     // The whole point of this signal is that it is already in the list: a read of its own would be a
     // second source of truth for the same fact.
     expect(panel).toContain("activeByWindow(");
-    expect(panel).toContain("ACTIVE_WINDOW_MS");
+    expect(panel).toContain("ACTIVE_WINDOW_BY_TOOL");
     expect(panel).not.toContain("agentBackgroundSessions");
   });
 });
@@ -244,46 +245,49 @@ describe("backgroundStateById", () => {
 
 describe("activeByWindow", () => {
   const MINUTE = 60_000;
-  const row = (id: string, lastAtMs: number | null, parentId: string | null = null) => ({
-    id,
-    parentId,
-    lastAtMs,
-  });
+  /** One window for both tools, so the arithmetic below is about the boundary and not the table. */
+  const SAME = { opencode: MINUTE, pi: MINUTE } as const;
+  const row = (
+    id: string,
+    lastAtMs: number | null,
+    parentId: string | null = null,
+    tool: "opencode" | "pi" = "opencode",
+  ) => ({ id, parentId, tool, lastAtMs });
 
   it("counts a session written to inside the window", () => {
     const now = 1_000_000;
-    const active = activeByWindow([row("a", now - 3_000), row("b", now - 5 * MINUTE)], now, MINUTE);
+    const active = activeByWindow([row("a", now - 3_000), row("b", now - 5 * MINUTE)], now, SAME);
     expect([...active]).toEqual(["a"]);
   });
 
   it("is a window, not a threshold on 'the newest session'", () => {
     // Two sessions writing at the same time are both active: this is not a ranking.
     const now = 1_000_000;
-    const active = activeByWindow([row("a", now - 1_000), row("b", now - 2_000)], now, MINUTE);
+    const active = activeByWindow([row("a", now - 1_000), row("b", now - 2_000)], now, SAME);
     expect([...active].sort()).toEqual(["a", "b"]);
   });
 
   it("excludes the exact boundary and anything older", () => {
     const now = 1_000_000;
-    expect(activeByWindow([row("a", now - MINUTE)], now, MINUTE).size).toBe(0);
-    expect(activeByWindow([row("a", now - MINUTE + 1)], now, MINUTE).size).toBe(1);
+    expect(activeByWindow([row("a", now - MINUTE)], now, SAME).size).toBe(0);
+    expect(activeByWindow([row("a", now - MINUTE + 1)], now, SAME).size).toBe(1);
   });
 
   it("treats a missing time as not active", () => {
     const now = 1_000_000;
-    expect(activeByWindow([row("a", null)], now, MINUTE).size).toBe(0);
+    expect(activeByWindow([row("a", null)], now, SAME).size).toBe(0);
   });
 
   it("counts a time in the future as active rather than arithmetically impossible", () => {
     // The clock going backwards, or the tool writing a time slightly ahead of ours, must not
     // produce a negative age that quietly stops the mark from ever being drawn.
     const now = 1_000_000;
-    expect(activeByWindow([row("a", now + 5_000)], now, MINUTE).size).toBe(1);
+    expect(activeByWindow([row("a", now + 5_000)], now, SAME).size).toBe(1);
   });
 
   it("leaves subagent sessions alone", () => {
     const now = 1_000_000;
-    expect(activeByWindow([row("child", now, "parent")], now, MINUTE).size).toBe(0);
+    expect(activeByWindow([row("child", now, "parent")], now, SAME).size).toBe(0);
   });
 
   it("falls back to the session's own update time when it has no conversation time", () => {
@@ -291,10 +295,50 @@ describe("activeByWindow", () => {
     // whichever of the two moved.
     const now = 1_000_000;
     const active = activeByWindow(
-      [{ id: "a", parentId: null, updatedAtMs: now - 1_000 }],
+      [{ id: "a", parentId: null, tool: "opencode", updatedAtMs: now - 1_000 }],
       now,
-      MINUTE,
+      SAME,
     );
     expect([...active]).toEqual(["a"]);
+  });
+
+  it("gives both tools the same window, because they were measured to write alike", () => {
+    // Watching the files themselves, both wrote every 5-35 seconds with a longest gap inside a turn
+    // of 129 seconds (opencode) and 123 (pi). A wider window for pi came from the timestamps inside
+    // its session file, which are stamped when a turn starts and so only ever grow.
+    expect(ACTIVE_WINDOW_BY_TOOL.opencode).toBe(ACTIVE_WINDOW_BY_TOOL.pi);
+    const window = ACTIVE_WINDOW_BY_TOOL.opencode;
+    // Covers the longest gap measured on either tool, with room to spare.
+    expect(window).toBeGreaterThan(129_000);
+    // And a session quiet for longer than a window is let go, whichever tool it is.
+    const now = 1_000_000;
+    const stale = now - window - 1_000;
+    expect(
+      activeByWindow(
+        [row("o", stale, null, "opencode"), row("p", stale, null, "pi")],
+        now,
+        ACTIVE_WINDOW_BY_TOOL,
+      ).size,
+    ).toBe(0);
+  });
+
+  it("uses whichever of the two times is later", () => {
+    // pi appends a message when its turn ends but stamps it with the time the turn started, so the
+    // conversation time can be minutes behind the file's last write. Reading only the conversation
+    // time would report a working agent as idle for the rest of its turn.
+    const now = 1_000_000;
+    const active = activeByWindow(
+      [{ id: "a", parentId: null, tool: "opencode", lastAtMs: now - 10 * MINUTE, updatedAtMs: now - 1_000 }],
+      now,
+      SAME,
+    );
+    expect([...active]).toEqual(["a"]);
+    // And the other way round: a row whose file time is stale but whose conversation is fresh.
+    const other = activeByWindow(
+      [{ id: "b", parentId: null, tool: "opencode", lastAtMs: now - 1_000, updatedAtMs: now - 10 * MINUTE }],
+      now,
+      SAME,
+    );
+    expect([...other]).toEqual(["b"]);
   });
 });
