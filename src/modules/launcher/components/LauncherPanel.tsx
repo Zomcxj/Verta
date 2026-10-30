@@ -29,14 +29,22 @@ import {
   toggleSelection,
   updateSelection,
 } from "../lib/selection";
-import { deleteAgentSessions, listAgentSessions } from "../lib/sessions";
+import {
+  deleteAgentSessions,
+  listAgentSessions,
+  liveBackgroundSessionIds,
+} from "../lib/sessions";
 import type { AgentSession, AgentTool, SessionTarget } from "../lib/types";
 import { topLevelSessions } from "../lib/visibleSessions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useAgentActivityStore } from "@/modules/terminal";
 import type { Tab } from "@/modules/tabs/lib/useTabs";
 import { useWorkspaceEnvStore } from "@/modules/workspace";
-import { sessionStateById, waitingFirst } from "../lib/sessionActivity";
+import {
+  backgroundStateById,
+  sessionStateById,
+  waitingFirst,
+} from "../lib/sessionActivity";
 import { SessionList, type SessionRowActions } from "./SessionList";
 
 const TOOLS: AgentTool[] = AGENT_TOOLS;
@@ -263,7 +271,38 @@ export function LauncherPanel({
     [tabs, leafPty, phases, agents, unseenDone],
   );
 
+  /**
+   * Sessions with a live process and no tab, refreshed while this panel is on screen.
+   *
+   * Four seconds: the panel unmounts when the sidebar switches to another view, so the timer only
+   * runs while somebody could see the dots, and one pass is a process snapshot rather than a
+   * spawned process. A failed read leaves the set empty - a dot that is missing is a smaller lie
+   * than one drawn on a guess.
+   */
+  const [liveSessions, setLiveSessions] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  useEffect(() => {
+    let live = true;
+    const ask = async () => {
+      const ids = await liveBackgroundSessionIds();
+      if (live) setLiveSessions(new Set(ids));
+    };
+    void ask();
+    const timer = setInterval(() => void ask(), 4000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, []);
+
   const topLevel = useMemo(() => topLevelSessions(sessions), [sessions]);
+
+  /** What the rows draw: the tab's own reading where there is one, the process table elsewhere. */
+  const rowStates = useMemo(
+    () => backgroundStateById(states, liveSessions, topLevel),
+    [states, liveSessions, topLevel],
+  );
   // Managing deliberately shows the subagent sessions this list otherwise hides.
   const listed = managing ? sessions : topLevel;
 
@@ -458,10 +497,10 @@ export function LauncherPanel({
                       sessions={
                         managing
                           ? section.sessions
-                          : waitingFirst(section.sessions, states)
+                          : waitingFirst(section.sessions, rowStates)
                       }
                       activeId={activeSessionId}
-                      states={states}
+                      states={rowStates}
                       onOpen={onOpenSession}
                       selectable={managing}
                       actions={rowActions}

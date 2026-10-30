@@ -789,6 +789,10 @@ export const native = {
    */
   githubRepos: (limit?: number) =>
     invoke<WireRemoteReposPayload>("github_repos", { limit: limit ?? null }),
+  /** Session ids with a live opencode process on this machine. Read-only and cheap;
+   * the session list asks while it is open, and only draws "an agent is there". */
+  agentBackgroundSessions: () =>
+    invoke<string[]>("agent_background_sessions"),
   /** Latest CI run for one repo; the UI calls it on demand, never for a whole list. */
   githubRepoCi: (repo: string) =>
     invoke<WireRepoCiPayload>("github_repo_ci", { repo }),

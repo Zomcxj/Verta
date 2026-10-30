@@ -4,6 +4,7 @@ import {
   MARQUEE_SWEEP_CLASS,
   MARQUEE_TRACK_CLASS,
   STATE_COLOUR,
+  agentStateLabelKey,
 } from "./AgentStateDot";
 
 /**
@@ -14,7 +15,7 @@ import {
  * session, and that agreement is this table.
  */
 
-const STATES = ["attention", "working", "idle", "finished"] as const;
+const STATES = ["attention", "working", "idle", "finished", "background"] as const;
 
 describe("the state appearance", () => {
   it("puts one colour on a state, and only three colours exist", () => {
@@ -47,5 +48,23 @@ describe("the state appearance", () => {
       // And the sweep is the part that moves.
       expect(MARQUEE_SWEEP_CLASS[state]).toContain("verta-state-marquee");
     }
+  });
+});
+describe("the background state", () => {
+  it("is orange, like work in flight, because it is the same colour of news", () => {
+    // A live process we cannot see inside: the vocabulary's orange already means "an agent is
+    // here", and a second colour for a weaker reading of the same fact would be one colour too many.
+    expect(STATE_COLOUR.background).toBe("orange-500");
+  });
+
+  it("says what was actually read, not what was guessed", () => {
+    // `working` claims a turn is in flight. The process table cannot see that; it can only see that
+    // an agent exists. Two states, two sentences, one colour.
+    expect(agentStateLabelKey("background")).not.toBe(
+      agentStateLabelKey("working"),
+    );
+    expect(agentStateLabelKey("background")).not.toBe(
+      agentStateLabelKey("idle"),
+    );
   });
 });

@@ -17,7 +17,12 @@ import { type MessageKey, useT } from "@/modules/i18n";
  * that says "an ending nobody has looked at yet" is kept - that latch is what the tray icon and the
  * notifications read, and it is not drawn here.
  */
-export type AgentStateDot = "attention" | "working" | "idle" | "finished";
+export type AgentStateDot =
+  | "attention"
+  | "working"
+  | "idle"
+  | "finished"
+  | "background";
 
 /**
  * The colour a state is drawn in, as the bare token, so that one table is the single answer and a
@@ -32,6 +37,9 @@ export const STATE_COLOUR: Record<
   working: "orange-500",
   idle: "emerald-500",
   finished: "emerald-500",
+  // A live process the window cannot see inside. Orange because "an agent is here" is what orange
+  // means; a fourth colour would make the vocabulary ask the reader for one more distinction.
+  background: "orange-500",
 };
 
 /**
@@ -50,6 +58,7 @@ export const DOT_CLASS: Record<AgentStateDot, string> = {
   working: "bg-orange-500 verta-state-breathe verta-state-indicator",
   idle: "bg-emerald-500 verta-state-breathe verta-state-indicator",
   finished: "bg-emerald-500 verta-state-breathe verta-state-indicator",
+  background: "bg-orange-500 verta-state-breathe verta-state-indicator",
 };
 
 const STATE_LABEL: Record<AgentStateDot, MessageKey> = {
@@ -57,6 +66,8 @@ const STATE_LABEL: Record<AgentStateDot, MessageKey> = {
   working: "tabs.agentState.working",
   idle: "tabs.agentState.idle",
   finished: "tabs.agentState.finished",
+  // Deliberately not "working": a process that exists is all we know.
+  background: "tabs.agentState.background",
 };
 
 /**
@@ -70,6 +81,7 @@ export const MARQUEE_TRACK_CLASS: Record<AgentStateDot, string> = {
   working: "bg-orange-500/25 verta-state-indicator",
   idle: "bg-emerald-500/25 verta-state-indicator",
   finished: "bg-emerald-500/25 verta-state-indicator",
+  background: "bg-orange-500/25 verta-state-indicator",
 };
 
 export const MARQUEE_SWEEP_CLASS: Record<AgentStateDot, string> = {
@@ -77,6 +89,7 @@ export const MARQUEE_SWEEP_CLASS: Record<AgentStateDot, string> = {
   working: "bg-orange-500 verta-state-marquee",
   idle: "bg-emerald-500 verta-state-marquee",
   finished: "bg-emerald-500 verta-state-marquee",
+  background: "bg-orange-500 verta-state-marquee",
 };
 
 /** The state's wording, for any surface that needs to say it in words. */

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { AgentStateDot } from "@/modules/terminal/AgentStateDot";
 import type { Tab } from "@/modules/tabs/lib/useTabs";
-import { sessionStateById, waitingFirst } from "./sessionActivity";
+import {
+  backgroundStateById,
+  sessionStateById,
+  waitingFirst,
+} from "./sessionActivity";
 
 /** A terminal tab with one leaf, opened for a session. */
 function terminalTab(
@@ -173,5 +178,42 @@ describe("waitingFirst", () => {
       "a",
       "c",
     ]);
+  });
+});
+describe("backgroundStateById", () => {
+  const row = (id: string, parentId: string | null = null) => ({ id, parentId });
+
+  it("fills in a session that has a live process but no tab", () => {
+    // The case the user asked for: an opencode left running without a terminal in this window.
+    const merged = backgroundStateById(
+      new Map(),
+      new Set(["ses_live"]),
+      [row("ses_live"), row("ses_quiet")],
+    );
+    expect(merged.get("ses_live")).toBe("background");
+    expect(merged.has("ses_quiet")).toBe(false);
+  });
+
+  it("lets the tab's own reading win, whatever it says", () => {
+    // A question waiting is blue; a live process must never paint over it orange.
+    const states = new Map<string, AgentStateDot>([["ses_live", "attention"]]);
+    const merged = backgroundStateById(states, new Set(["ses_live"]), [row("ses_live")]);
+    expect(merged.get("ses_live")).toBe("attention");
+    // And the map it was given is not mutated.
+    expect([...states.entries()]).toEqual([["ses_live", "attention"]]);
+  });
+
+  it("leaves subagent sessions to their parent", () => {
+    // A subagent runs inside its parent's process: marking it separately would light two rows for
+    // one agent.
+    const merged = backgroundStateById(new Map(), new Set(["ses_child"]), [
+      row("ses_child", "ses_parent"),
+    ]);
+    expect(merged.has("ses_child")).toBe(false);
+  });
+
+  it("ignores ids that are not in the list at all", () => {
+    const merged = backgroundStateById(new Map(), new Set(["ses_gone"]), [row("ses_other")]);
+    expect(merged.size).toBe(0);
   });
 });

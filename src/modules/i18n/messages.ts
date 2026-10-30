@@ -678,6 +678,7 @@ const zh = {
   "tabs.agentState.working": "正在工作",
   "tabs.agentState.attention": "在等你",
   "tabs.agentState.finished": "刚做完",
+  "tabs.agentState.background": "后台有 opencode 进程",
   "tabs.agentState.idle": "空闲",
 
   "header.settings": "设置",
@@ -2086,6 +2087,7 @@ const en: Record<MessageKey, string> = {
   "tabs.agentState.working": "Working",
   "tabs.agentState.attention": "Waiting for you",
   "tabs.agentState.finished": "Just finished",
+  "tabs.agentState.background": "An opencode process is running in the background",
   "tabs.agentState.idle": "Idle",
 
   "header.settings": "Settings",

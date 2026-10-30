@@ -88,3 +88,28 @@ export function waitingFirst<T extends { id: string }>(
   }
   return out;
 }
+/**
+ * The states above, plus the sessions that have a live process but no tab.
+ *
+ * A session that is open in a tab is described by its pty's output, which knows far more than the
+ * process table does, so that reading always wins - a question waiting must stay blue even though
+ * its process is plainly alive. What this adds is the row that used to say nothing at all: an
+ * `opencode` running in somebody's terminal, or one left over from a window that is gone.
+ *
+ * Subagent sessions are skipped: they run inside their parent's process, so marking them too would
+ * light two rows for one agent.
+ */
+export function backgroundStateById(
+  states: ReadonlyMap<string, AgentStateDot>,
+  liveIds: ReadonlySet<string>,
+  sessions: readonly { id: string; parentId: string | null }[],
+): Map<string, AgentStateDot> {
+  const out = new Map(states);
+  if (liveIds.size === 0) return out;
+  for (const session of sessions) {
+    if (session.parentId !== null) continue;
+    if (out.has(session.id)) continue;
+    if (liveIds.has(session.id)) out.set(session.id, "background");
+  }
+  return out;
+}
