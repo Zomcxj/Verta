@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-30</strong></summary>
 
+**Two more probes, and the numbers they produced**
+
+- `scripts/dev/probes/repo-activity-dot.mjs` (new): reads every repository row's name and whether a dot is drawn next to it, plus the dot's size, colour painted onto a canvas (Tailwind ships oklch, so the computed value is not an rgb string) and its distance from the name. Moves the real pointer onto a named row first, because the question is only asked when a row is touched. Measured on the installed build: the dot is 6x6, amber, six pixels right of the name, and it appears only once a repository has something newer than the last look.
+- `scripts/dev/probes/settings-window-center.mjs` (new): compares the live settings window's box against the middle of the screen and of the work area, both on the pure measure of "always centred" - a window that is centred when built but restored elsewhere by the window-state plugin looks identical in the source.
+
 **A dot beside a repository's name when something there is newer than the last look**
 
 - `src/modules/remotes/RemoteReposView.tsx`: the dot sits in the name cell, cannot be squeezed away by a long name, and is decided by comparing the newest update against the repository's mark. The question is asked on the row's existing hover, alongside the CI one, so nothing is asked at startup and no dot is drawn at startup; a cached answer expires after a minute, because "nothing new" from an hour ago would hide everything since.
