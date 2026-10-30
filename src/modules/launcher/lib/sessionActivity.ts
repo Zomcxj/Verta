@@ -89,27 +89,80 @@ export function waitingFirst<T extends { id: string }>(
   return out;
 }
 /**
- * The states above, plus the sessions that have a live process but no tab.
+ * The states above, plus the sessions that have been written to but have no tab.
  *
  * A session that is open in a tab is described by its pty's output, which knows far more than the
- * process table does, so that reading always wins - a question waiting must stay blue even though
- * its process is plainly alive. What this adds is the row that used to say nothing at all: an
- * `opencode` running in somebody's terminal, or one left over from a window that is gone.
+ * write times do, so that reading always wins - a question waiting must stay blue rather than be
+ * repainted. What this adds is the row that used to say nothing at all: an `opencode` running in
+ * somebody's terminal, or one left over from a window that is gone.
  *
- * Subagent sessions are skipped: they run inside their parent's process, so marking them too would
- * light two rows for one agent.
+ * Subagent sessions are skipped: they write through their parent, so marking them too would light
+ * two rows for one agent.
  */
 export function backgroundStateById(
   states: ReadonlyMap<string, AgentStateDot>,
-  liveIds: ReadonlySet<string>,
+  activeIds: ReadonlySet<string>,
   sessions: readonly { id: string; parentId: string | null }[],
 ): Map<string, AgentStateDot> {
   const out = new Map(states);
-  if (liveIds.size === 0) return out;
+  if (activeIds.size === 0) return out;
   for (const session of sessions) {
     if (session.parentId !== null) continue;
     if (out.has(session.id)) continue;
-    if (liveIds.has(session.id)) out.set(session.id, "background");
+    if (activeIds.has(session.id)) out.set(session.id, "background");
   }
   return out;
+}
+
+/**
+ * How recently a session must have been written to for the list to call it active.
+ *
+ * A session nobody has a tab open for is still doing something, and nothing else names it cheaply:
+ * an `opencode` started without `--session` carries no session id in its command line, and one
+ * hosted by the background service carries none at all. What is available is when the session's
+ * messages were last written - the same number the row already shows as "last talked" - and writes
+ * only happen while something is going on.
+ *
+ * The window is measured rather than guessed. Polling three sessions that were generating at the
+ * time, the gap between one write and the next was usually 5 to 34 seconds, with a median near 15
+ * seconds; the longest gaps were 127 and 141 seconds, a model thinking or running a long tool
+ * before it writes again. Three minutes covers those with room to spare, and is still short enough
+ * that a session which stopped stops showing soon after.
+ */
+export const ACTIVE_WINDOW_MS = 3 * 60_000;
+
+/**
+ * How often the list re-answers "is anything still recent" with nobody writing.
+ *
+ * Writes stop silently, so nothing pushes an update when a session finishes; without a slow tick the
+ * last mark would stay lit until something else changed. Twenty seconds is often enough to look
+ * prompt and rare enough to be free - no queries, just a re-render.
+ */
+export const ACTIVE_TICK_MS = 20_000;
+
+/**
+ * Sessions written to inside the window, by id.
+ *
+ * Subagent sessions are left out: they write through their parent, so counting them would put a
+ * mark on two rows for one piece of work. A time in the future counts as active - the alternative
+ * is a negative age that silently excludes it forever.
+ */
+export function activeByWindow(
+  sessions: readonly {
+    id: string;
+    parentId: string | null;
+    lastAtMs?: number | null;
+    updatedAtMs?: number;
+  }[],
+  now: number,
+  windowMs: number,
+): Set<string> {
+  const active = new Set<string>();
+  for (const session of sessions) {
+    if (session.parentId !== null) continue;
+    const last = session.lastAtMs ?? session.updatedAtMs ?? null;
+    if (last === null) continue;
+    if (now - last < windowMs) active.add(session.id);
+  }
+  return active;
 }

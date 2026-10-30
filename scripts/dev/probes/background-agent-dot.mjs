@@ -2,10 +2,10 @@
 //
 // Two sources can mark a row and they mean different things: a session open in a tab is described by
 // its pty (blue question, orange work, green at rest), while a session with no tab is described by
-// the process table, which only knows a process exists. The dot for that second case has to be drawn
-// and has to say what it read. This reads the rows out of the live page and reports the state
-// markers, so "did the background dot appear, and did it stay out of the way of a tab's reading" is
-// a measurement rather than a reading of the source.
+// its write times, which only know that something wrote recently. The dot for that second case has
+// to be drawn and has to say what it read. This reads the rows out of the live page and reports the
+// state markers, so "did the background dot appear, and did it stay out of the way of a tab's
+// reading" is a measurement rather than a reading of the source.
 //
 // Usage (dev instance with --remote-debugging-port=9222, the sessions panel showing):
 //   node scripts/dev/probes/background-agent-dot.mjs
@@ -13,6 +13,9 @@
 //   node scripts/dev/probes/background-agent-dot.mjs --expect-background=2
 //
 // `--expect-background=N` fails the run when the number of rows marked `background` is not N.
+// `--expect-active=<text>` fails the run when no row whose title contains <text> carries any mark:
+// that is the assertion the write-time reading most needs, since the row it must catch is the one a
+// command line cannot name.
 // Exits 2 when the sessions panel is not on screen: nothing measured is not a pass.
 const arg = (name) => {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
@@ -21,6 +24,7 @@ const arg = (name) => {
 
 const match = arg("match") ?? "http://localhost:1420/";
 const expectBackground = arg("expect-background");
+const expectActive = arg("expect-active");
 
 const target = (await (await fetch("http://127.0.0.1:9222/json")).json()).find(
   (t) => t.type === "page" && t.url === match,
@@ -94,6 +98,11 @@ console.log(
 const failures = [];
 if (expectBackground !== null && counts.background !== Number(expectBackground)) {
   failures.push(`background 行数是 ${counts.background}，期望 ${expectBackground}`);
+}
+if (expectActive !== null) {
+  const hit = rows.find((row) => row.title.includes(expectActive));
+  if (!hit) failures.push(`没有标题包含「${expectActive}」的行`);
+  else if (hit.state === null) failures.push(`「${expectActive}」那一行没有点（title: ${hit.title}）`);
 }
 
 if (failures.length === 0) {

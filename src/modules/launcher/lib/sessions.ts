@@ -12,22 +12,6 @@ import type {
 } from "./types";
 
 /**
- * Session ids that have a live `opencode` process on this machine.
- *
- * The list asks this while it is open, so a session that was left running without a terminal here is
- * not silently invisible. It says only that a process exists: the caller draws that as "an agent is
- * there", never as "work in flight". A failure reads as "nothing is running", which is the quiet
- * way to be wrong.
- */
-export async function liveBackgroundSessionIds(): Promise<string[]> {
-  try {
-    return await invoke<string[]>("agent_background_sessions");
-  } catch {
-    return [];
-  }
-}
-
-/**
  * `distro` picks whose store to read: `null` is this machine, a name is that
  * WSL distro's, which the backend reads by running the query inside it. The
  * source is stamped on every row here, so a row can never travel on without

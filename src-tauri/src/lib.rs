@@ -467,7 +467,6 @@ pub fn run() {
             get_launch_dir,
             get_launch_files,
             open_settings_window,
-            agent_sessions::agent_background_sessions,
             agent_sessions::agent_sessions_list,
             agent_sessions::agent_sessions_delete,
             agent_sessions::agent_sessions_rename,

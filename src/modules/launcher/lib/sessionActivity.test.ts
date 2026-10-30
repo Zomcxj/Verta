@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import type { AgentStateDot } from "@/modules/terminal/AgentStateDot";
 import type { Tab } from "@/modules/tabs/lib/useTabs";
 import {
+  activeByWindow,
   backgroundStateById,
   sessionStateById,
   waitingFirst,
@@ -194,17 +195,19 @@ describe("the background read", () => {
     expect(panel).toMatch(/windowHidden/);
   });
 
-  it("starts from the last set it read, so a remount does not blink the dots off", () => {
-    // The rows themselves are drawn from a module-scope cache; the marks have to be cached the same
-    // way or they vanish for the frames before the first read comes back.
-    expect(panel).toMatch(/let cachedLiveSessions[\s\S]{0,120}/);
+  it("takes its times from the rows, with no query of its own", () => {
+    // The whole point of this signal is that it is already in the list: a read of its own would be a
+    // second source of truth for the same fact.
+    expect(panel).toContain("activeByWindow(");
+    expect(panel).toContain("ACTIVE_WINDOW_MS");
+    expect(panel).not.toContain("agentBackgroundSessions");
   });
 });
 
 describe("backgroundStateById", () => {
   const row = (id: string, parentId: string | null = null) => ({ id, parentId });
 
-  it("fills in a session that has a live process but no tab", () => {
+  it("fills in a session that was written to but has no tab", () => {
     // The case the user asked for: an opencode left running without a terminal in this window.
     const merged = backgroundStateById(
       new Map(),
@@ -216,7 +219,7 @@ describe("backgroundStateById", () => {
   });
 
   it("lets the tab's own reading win, whatever it says", () => {
-    // A question waiting is blue; a live process must never paint over it orange.
+    // A question waiting is blue; a recent write must never paint over it orange.
     const states = new Map<string, AgentStateDot>([["ses_live", "attention"]]);
     const merged = backgroundStateById(states, new Set(["ses_live"]), [row("ses_live")]);
     expect(merged.get("ses_live")).toBe("attention");
@@ -225,8 +228,8 @@ describe("backgroundStateById", () => {
   });
 
   it("leaves subagent sessions to their parent", () => {
-    // A subagent runs inside its parent's process: marking it separately would light two rows for
-    // one agent.
+    // A subagent writes through its parent: marking it separately would light two rows for one
+    // agent.
     const merged = backgroundStateById(new Map(), new Set(["ses_child"]), [
       row("ses_child", "ses_parent"),
     ]);
@@ -236,5 +239,62 @@ describe("backgroundStateById", () => {
   it("ignores ids that are not in the list at all", () => {
     const merged = backgroundStateById(new Map(), new Set(["ses_gone"]), [row("ses_other")]);
     expect(merged.size).toBe(0);
+  });
+});
+
+describe("activeByWindow", () => {
+  const MINUTE = 60_000;
+  const row = (id: string, lastAtMs: number | null, parentId: string | null = null) => ({
+    id,
+    parentId,
+    lastAtMs,
+  });
+
+  it("counts a session written to inside the window", () => {
+    const now = 1_000_000;
+    const active = activeByWindow([row("a", now - 3_000), row("b", now - 5 * MINUTE)], now, MINUTE);
+    expect([...active]).toEqual(["a"]);
+  });
+
+  it("is a window, not a threshold on 'the newest session'", () => {
+    // Two sessions writing at the same time are both active: this is not a ranking.
+    const now = 1_000_000;
+    const active = activeByWindow([row("a", now - 1_000), row("b", now - 2_000)], now, MINUTE);
+    expect([...active].sort()).toEqual(["a", "b"]);
+  });
+
+  it("excludes the exact boundary and anything older", () => {
+    const now = 1_000_000;
+    expect(activeByWindow([row("a", now - MINUTE)], now, MINUTE).size).toBe(0);
+    expect(activeByWindow([row("a", now - MINUTE + 1)], now, MINUTE).size).toBe(1);
+  });
+
+  it("treats a missing time as not active", () => {
+    const now = 1_000_000;
+    expect(activeByWindow([row("a", null)], now, MINUTE).size).toBe(0);
+  });
+
+  it("counts a time in the future as active rather than arithmetically impossible", () => {
+    // The clock going backwards, or the tool writing a time slightly ahead of ours, must not
+    // produce a negative age that quietly stops the mark from ever being drawn.
+    const now = 1_000_000;
+    expect(activeByWindow([row("a", now + 5_000)], now, MINUTE).size).toBe(1);
+  });
+
+  it("leaves subagent sessions alone", () => {
+    const now = 1_000_000;
+    expect(activeByWindow([row("child", now, "parent")], now, MINUTE).size).toBe(0);
+  });
+
+  it("falls back to the session's own update time when it has no conversation time", () => {
+    // `statsOf` already treats the two as one number, and a session touched seconds ago is active
+    // whichever of the two moved.
+    const now = 1_000_000;
+    const active = activeByWindow(
+      [{ id: "a", parentId: null, updatedAtMs: now - 1_000 }],
+      now,
+      MINUTE,
+    );
+    expect([...active]).toEqual(["a"]);
   });
 });

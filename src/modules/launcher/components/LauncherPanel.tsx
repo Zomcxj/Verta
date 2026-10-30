@@ -29,11 +29,7 @@ import {
   toggleSelection,
   updateSelection,
 } from "../lib/selection";
-import {
-  deleteAgentSessions,
-  listAgentSessions,
-  liveBackgroundSessionIds,
-} from "../lib/sessions";
+import { deleteAgentSessions, listAgentSessions } from "../lib/sessions";
 import type { AgentSession, AgentTool, SessionTarget } from "../lib/types";
 import { topLevelSessions } from "../lib/visibleSessions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -42,6 +38,9 @@ import { useWindowHidden } from "@/modules/theme/WindowActivityBridge";
 import type { Tab } from "@/modules/tabs/lib/useTabs";
 import { useWorkspaceEnvStore } from "@/modules/workspace";
 import {
+  ACTIVE_TICK_MS,
+  ACTIVE_WINDOW_MS,
+  activeByWindow,
   backgroundStateById,
   sessionStateById,
   waitingFirst,
@@ -59,13 +58,6 @@ const TOOLS: AgentTool[] = AGENT_TOOLS;
  * Only a display cache: nothing decides anything from it, and a read replaces it.
  */
 let cachedSessions: AgentSession[] = [];
-
-/**
- * The last set of live background sessions, kept at module scope for the same reason the list is:
- * the sidebar remounts this panel, and a remount that started from an empty set would drop every
- * background dot for the frames before the first read came back.
- */
-let cachedLiveSessions: ReadonlySet<string> = new Set();
 
 /**
  * Copy to the clipboard, and say something either way: a menu item that does
@@ -280,41 +272,35 @@ export function LauncherPanel({
   );
 
   /**
-   * Sessions with a live process and no tab, refreshed while this panel is on screen.
+   * Sessions written to recently, from the times the list already carries.
    *
-   * Four seconds: the panel unmounts when the sidebar switches to another view, so the timer only
-   * runs while somebody could see the dots, and one pass is a process snapshot rather than a
-   * spawned process. A failed read leaves the set empty - a dot that is missing is a smaller lie
-   * than one drawn on a guess.
+   * No query of its own: `lastAtMs` arrives with the rows, and the rows are re-read whenever the
+   * session watcher says something changed. What the tick is for is the other direction - writes
+   * stop silently, and without re-answering "is anything still recent" the last mark would stay lit
+   * until something unrelated moved. It stops while the window is put away, where nobody can see it.
    */
-  const [liveSessions, setLiveSessions] = useState<ReadonlySet<string>>(
-    () => cachedLiveSessions,
-  );
+  const [tick, setTick] = useState(0);
   const windowHidden = useWindowHidden();
   useEffect(() => {
-    let live = true;
-    const ask = async () => {
-      // A window in the tray still has this panel mounted, and nobody can see a dot in it.
-      if (windowHidden) return;
-      const ids = await liveBackgroundSessionIds();
-      if (!live) return;
-      cachedLiveSessions = new Set(ids);
-      setLiveSessions(cachedLiveSessions);
-    };
-    void ask();
-    const timer = setInterval(() => void ask(), 4000);
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
+    if (windowHidden) return;
+    const timer = setInterval(() => setTick((n) => n + 1), ACTIVE_TICK_MS);
+    return () => clearInterval(timer);
   }, [windowHidden]);
 
   const topLevel = useMemo(() => topLevelSessions(sessions), [sessions]);
 
-  /** What the rows draw: the tab's own reading where there is one, the process table elsewhere. */
+  /** What the rows draw: the tab's own reading where there is one, recent writes elsewhere. */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` is the manual re-answer trigger; nothing in the callback reads it, and without it the last mark would stay lit after writes stop
   const rowStates = useMemo(
-    () => backgroundStateById(states, liveSessions, topLevel),
-    [states, liveSessions, topLevel],
+    // A remount starts from the list it had, so the rows and their times are there on the first
+    // frame; nothing has to be cached on the marks' behalf.
+    () =>
+      backgroundStateById(
+        states,
+        activeByWindow(topLevel, Date.now(), ACTIVE_WINDOW_MS),
+        topLevel,
+      ),
+    [states, topLevel, tick],
   );
   // Managing deliberately shows the subagent sessions this list otherwise hides.
   const listed = managing ? sessions : topLevel;
