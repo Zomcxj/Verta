@@ -88,6 +88,48 @@ for row in rows:
     }))
 "#;
 
+/// Asks a distro's own opencode service which sessions are mid-turn.
+///
+/// The service listens on that distro's loopback interface, which this machine cannot reach, so the
+/// question is asked from inside it: the distro's python3 reads the same `service.json` and makes
+/// the request. `None` when there is nothing to ask, in the same sense as the local read.
+pub(crate) fn running_ids(distro: &str) -> Option<Vec<String>> {
+    let script = r#"
+import base64, json, os, sys, urllib.request
+path = os.path.expanduser("~/.local/state/opencode/service.json")
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        service = json.load(handle)
+except Exception:
+    sys.exit(0)
+url, password = service.get("url"), service.get("password")
+if not url or not password:
+    sys.exit(0)
+url = url.rstrip("/")
+if not (url.startswith("http://127.0.0.1:") or url.startswith("http://localhost:")):
+    sys.exit(0)
+token = base64.b64encode(("opencode:" + password).encode()).decode()
+request = urllib.request.Request(url + "/api/session", headers={"Authorization": "Basic " + token})
+try:
+    with urllib.request.urlopen(request, timeout=3) as answer:
+        payload = json.load(answer)
+except Exception:
+    sys.exit(0)
+ids = []
+for row in payload.get("data") or []:
+    time = row.get("time") or {}
+    busy, idle = time.get("busy"), time.get("idle")
+    if busy is None and idle is None:
+        continue
+    running = (busy > idle) if (busy is not None and idle is not None) else (busy is not None)
+    if running:
+        ids.append(row.get("id"))
+print(json.dumps(ids))
+"#;
+    let out = crate::modules::workspace::wsl_exec_capture(distro, "python3", &["-c", script]).ok()?;
+    serde_json::from_str::<Vec<String>>(out.trim()).ok()
+}
+
 /// The list of sessions one distro has, or an error to show as-is.
 pub(crate) fn list(distro: &str) -> Result<AgentSessionsPayload, String> {
     #[cfg(not(windows))]
@@ -112,12 +154,16 @@ pub(crate) fn list(distro: &str) -> Result<AgentSessionsPayload, String> {
 /// WSL resolves the platform's own `pi` to the Windows binary, so a distro has
 /// no `~/.pi` store of its own. Saying so is the honest answer; an empty list
 /// would read as "nothing there yet".
-pub(crate) fn pi_is_absent(distro: &str) -> AgentSessionsPayload {
+/// A distro has no pi sessions of its own, and saying so every time is noise.
+///
+/// The platform's `pi` is the Windows binary, which WSL resolves to the same program; the sessions
+/// it writes stay on the Windows side and are listed there. That is a fixed fact about the tool, not
+/// a condition that changes: reporting it made the list's footer carry a notice ("N more notices")
+/// on every read with the WSL switch on, which reads as a fault to look into.
+pub(crate) fn pi_is_absent(_distro: &str) -> AgentSessionsPayload {
     AgentSessionsPayload {
         sessions: Vec::new(),
-        warnings: vec![format!(
-            "发行版 {distro} 里没有 pi 的会话：WSL 内的 pi 指向 Windows 上的同一个程序，会话仍在 Windows 侧"
-        )],
+        warnings: Vec::new(),
     }
 }
 
@@ -309,9 +355,11 @@ mod tests {
     }
 
     #[test]
-    fn says_why_a_distro_has_no_pi_sessions() {
+    fn a_distro_reports_no_pi_sessions_and_does_not_announce_it() {
+        // Empty, and quiet: the tool's sessions are Windows-side by design, so a notice about it on
+        // every read was noise the footer carried for as long as the WSL switch was on.
         let payload = pi_is_absent("Ubuntu-22.04");
         assert!(payload.sessions.is_empty());
-        assert!(payload.warnings[0].contains("Ubuntu-22.04"));
+        assert!(payload.warnings.is_empty());
     }
 }

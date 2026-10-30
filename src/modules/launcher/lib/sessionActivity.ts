@@ -153,7 +153,6 @@ export const ACTIVE_TICK_MS = 20_000;
 
 /**
  * Sessions written to inside their tool's window, by id.
- *
  * Subagent sessions are left out: they write through their parent, so counting them would put a
  * mark on two rows for one piece of work. A time in the future counts as active - the alternative
  * is a negative age that silently excludes it forever.
@@ -184,5 +183,26 @@ export function activeByWindow(
     const window = windows[session.tool];
     if (window !== undefined && now - last < window) active.add(session.id);
   }
+  return active;
+}
+
+/**
+ * The two readings of "something is happening here", as one set.
+ *
+ * Neither answers it alone. The write times go quiet during a long tool call - measured here, a
+ * turn wrote nothing for eight and a half minutes while the agent was plainly working - and the
+ * service's own `busy`/`idle` times say a session is between turns for the seconds before the next
+ * one starts, which is exactly when a session that just answered is still worth watching. Either
+ * one saying "yes" is the answer the list wants, so they are merged rather than ranked.
+ *
+ * `fromService` is `null` when that question could not be asked at all (no opencode running); the
+ * write times are then all there is, which is the behaviour without the service.
+ */
+export function activeWithService(
+  fromWrites: ReadonlySet<string>,
+  fromService: ReadonlySet<string> | null,
+): Set<string> {
+  const active = new Set(fromWrites);
+  if (fromService) for (const id of fromService) active.add(id);
   return active;
 }

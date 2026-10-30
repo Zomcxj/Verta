@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::{InvokeBody, JavaScriptChannelId, Request, Response};
 use tauri::{State, WebviewWindow};
 
-mod clients;
+pub(crate) mod clients;
 mod ip;
 mod stream;
 use super::ipc_body;

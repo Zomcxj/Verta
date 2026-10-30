@@ -116,7 +116,11 @@ static CRYPTO: OnceLock<()> = OnceLock::new();
 
 /// reqwest is built without a bundled provider, so the process needs exactly
 /// one installed default. The updater installs the same `ring` provider.
-fn ensure_crypto_provider() {
+///
+/// `pub(crate)` because every reqwest client in this crate has to go through it: a client built
+/// before the provider is installed fails, and a caller that treated that failure as "nothing to
+/// say" (a localhost probe does) would report silence rather than an error.
+pub(crate) fn ensure_crypto_provider() {
     CRYPTO.get_or_init(|| {
         let _ = rustls::crypto::ring::default_provider().install_default();
     });

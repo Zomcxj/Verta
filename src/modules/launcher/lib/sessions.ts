@@ -12,6 +12,26 @@ import type {
 } from "./types";
 
 /**
+ * Sessions the opencode service says are in the middle of a turn.
+ *
+ * `null` when the question could not be asked at all - no opencode running, or one without a
+ * service file - which is different from an empty list (the service answered and nothing is
+ * running). The caller keeps its write times for the first case: a stopped service must not make
+ * every row unmarked.
+ *
+ * `distro` picks whose service: each distro runs its own on its own loopback interface.
+ */
+export async function runningAgentSessionIds(
+  distro: string | null,
+): Promise<string[] | null> {
+  try {
+    return await invoke<string[] | null>("agent_sessions_running", { distro });
+  } catch {
+    return null;
+  }
+}
+
+/**
  * `distro` picks whose store to read: `null` is this machine, a name is that
  * WSL distro's, which the backend reads by running the query inside it. The
  * source is stamped on every row here, so a row can never travel on without

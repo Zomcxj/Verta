@@ -4,12 +4,43 @@ mod delete;
 mod image;
 mod opencode;
 mod pi;
+mod service_turns;
 pub mod stats;
 pub mod watch;
 mod wsl;
 
 use delete::{DeleteReport, SessionTarget};
 use types::AgentSessionsPayload;
+
+/// Which sessions are in the middle of a turn, according to the opencode service that runs them.
+///
+/// `None` when the service could not be asked at all - which is the normal case for an opencode
+/// that is not running - and the caller then keeps the write times it already has. An empty list is
+/// a real answer: the service is up and nothing is running.
+///
+/// This hits the network, so it runs off the main thread: a service that is stopping can hold the
+/// connection for the whole timeout.
+#[tauri::command]
+pub async fn agent_sessions_running(
+    distro: Option<String>,
+) -> Result<Option<Vec<String>>, String> {
+    // The inner value is already an `Option`: `None` means "could not ask", which the caller
+    // treats differently from an empty list. A failure of the blocking pool itself reads the same
+    // as "could not ask", so it is flattened rather than surfaced as an error the list would show.
+    let asked = crate::modules::fs::blocking(move || match distro {
+        None => match dirs::home_dir() {
+            // `running_ids` does the HTTP read itself; the blocking pool is where a network call
+            // that may sit until its timeout belongs, so it is driven to completion here.
+            Some(home) => Ok(tauri::async_runtime::block_on(service_turns::running_ids(
+                &service_turns::service_file_under(&home),
+            ))),
+            None => Ok(None),
+        },
+        Some(distro) => Ok(wsl::running_ids(&distro)),
+    })
+    .await;
+    Ok(asked.ok().flatten())
+}
 
 /// Reads sqlite and session files, so it runs on the blocking pool: Tauri runs a
 /// non-async command inline in the IPC handler (the main thread on macOS).

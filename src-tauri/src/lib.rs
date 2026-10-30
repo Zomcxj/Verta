@@ -94,6 +94,45 @@ const fn settings_always_on_top(is_macos: bool) -> bool {
     !is_macos
 }
 
+/// Puts the settings window in the middle of the main window rather than the middle of the screen.
+///
+/// The settings window is a child of the main window (see the parent relationship above), so the
+/// thing a person means by "centred" while it is open is "over the window I am working in". A screen
+/// centre drifts away from the main window as soon as that window is moved or is not maximised -
+/// on a wide display the settings then opens over empty desktop.
+///
+/// The result is clamped to the screen so a main window pushed against an edge cannot place the
+/// settings partly off it. Falls back to the screen centre when there is no main window to centre
+/// on, which is the honest answer rather than a guess.
+fn centre_on_main(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
+    let Some(main) = app.get_webview_window("main") else {
+        let _ = window.center();
+        return;
+    };
+    let (Ok(origin), Ok(main_size), Ok(own_size)) = (
+        main.outer_position(),
+        main.outer_size(),
+        window.outer_size(),
+    ) else {
+        let _ = window.center();
+        return;
+    };
+    // Only left/top are set: the size is the one the builder asked for, and setting it here as well
+    // would overwrite a size the user had just resized to.
+    let x = origin.x + (main_size.width as i32 - own_size.width as i32) / 2;
+    let y = origin.y + (main_size.height as i32 - own_size.height as i32) / 2;
+    let mut x = x;
+    let mut y = y;
+    if let Ok(Some(monitor)) = main.current_monitor() {
+        let area = monitor.work_area();
+        let max_x = area.position.x + area.size.width as i32 - own_size.width as i32;
+        let max_y = area.position.y + area.size.height as i32 - own_size.height as i32;
+        x = x.clamp(area.position.x, max_x.max(area.position.x));
+        y = y.clamp(area.position.y, max_y.max(area.position.y));
+    }
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
 #[tauri::command]
 async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<(), String> {
     let url_path = match tab.as_deref() {
@@ -106,8 +145,9 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         let _ = window.set_always_on_top(true);
         // Centre on every open, not only when the window is built: the window-state plugin saves
         // and restores each window's position, so a window that was centred the first time came
-        // back wherever it had been dragged since.
-        let _ = window.center();
+        // back wherever it had been dragged since. Centred on the main window rather than the
+        // screen, so it lands over the window it is for.
+        centre_on_main(&app, &window);
         let _ = window.show();
         let _ = window.set_focus();
         if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
@@ -120,7 +160,9 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
 
     let builder = WebviewWindowBuilder::new(&app, SETTINGS_WINDOW, WebviewUrl::App(url_path.into()))
         .title("Settings")
-        .inner_size(900.0, 700.0)
+        // 1.3x the 700 this used to ask for: the settings pages have grown since (editor, themes,
+        // shortcuts) and 700 showed roughly one page and a half, so most opens began with a scroll.
+        .inner_size(900.0, 910.0)
         .min_inner_size(820.0, 620.0)
         .resizable(true)
         .visible(false)
@@ -183,10 +225,9 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         let _ = window.set_decorations(false);
     }
 
-    // Centred on every platform: the window is always opened to be looked at straight away, and
-    // where it lands has nothing to do with where the main window is. macOS keeps the parent
-    // relationship above, which is about stacking rather than placement.
-    let _ = window.center();
+    // Centred on the main window, not on the screen, and on every platform: see
+    // `centre_on_main`. macOS keeps the parent relationship above, which is about stacking.
+    centre_on_main(&app, &window);
 
     Ok(())
 }
@@ -467,6 +508,7 @@ pub fn run() {
             get_launch_dir,
             get_launch_files,
             open_settings_window,
+            agent_sessions::agent_sessions_running,
             agent_sessions::agent_sessions_list,
             agent_sessions::agent_sessions_delete,
             agent_sessions::agent_sessions_rename,
@@ -659,8 +701,12 @@ mod launch_target_tests {
     /// The window-state plugin saves and restores every window's position, so a window that was
     /// centred when it was built came back wherever it was last dragged. Centring is therefore a
     /// property of "open", not of "create", and both halves of that function have to do it.
+    ///
+    /// "Centred" now means the middle of the main window, not of the screen: the settings window is
+    /// a child of the main window, and a screen centre drifts away from it the moment the main
+    /// window is moved or is not maximised.
     #[test]
-    fn settings_is_centred_every_time_it_opens() {
+    fn settings_is_centred_on_the_main_window_every_time_it_opens() {
         let source = include_str!("lib.rs");
         let start = source
             .find("async fn open_settings_window")
@@ -681,18 +727,52 @@ mod launch_target_tests {
             .find("return Ok(());")
             .expect("the already-open branch's return is gone");
         assert!(
-            body[existing..existing + branch_end].contains("center()"),
-            "reopening settings does not centre it"
+            body[existing..existing + branch_end].contains("centre_on_main("),
+            "reopening settings does not centre it on the main window"
         );
 
-        // And a fresh open is centred on every platform, not only macOS.
+        // A fresh open centres too, on every platform rather than only macOS.
+        let built = body
+            .find("builder.build()")
+            .expect("the builder's build call is gone");
         assert!(
-            body.contains("window.center()"),
+            body[built..].contains("centre_on_main("),
             "a freshly built settings window does not centre"
         );
         assert!(
             !body.contains("#[cfg(target_os = \"macos\")]\n    if let Some(main)"),
             "centring is still macOS-only: every platform has to land in the middle"
+        );
+
+        // The helper itself has to measure against the main window; a `window.center()` in there
+        // would be the screen again under a new name.
+        let helper = source
+            .find("fn centre_on_main(")
+            .expect("centre_on_main is gone");
+        let helper_end = helper + source[helper..].find("\n}\n").expect("its end is gone");
+        let helper_body = &source[helper..helper_end];
+        assert!(
+            helper_body.contains("get_webview_window(\"main\")"),
+            "centre_on_main does not look at the main window"
+        );
+        assert!(
+            helper_body.contains("outer_position()"),
+            "centre_on_main does not read the main window's position"
+        );
+    }
+
+    /// The settings window asks for 1.3x the height it used to, so a page fits without scrolling.
+    ///
+    /// The size is a designed number rather than whatever was last dragged, which is why the state
+    /// file is not allowed to restore it (see the test above). Pinned here because it is a number
+    /// nothing else reads: shrinking it back would only show up as "settings scrolls again".
+    #[test]
+    fn settings_asks_for_the_taller_size() {
+        let source = include_str!("lib.rs");
+        let shipping = source.split("#[cfg(test)]").next().unwrap_or("");
+        assert!(
+            shipping.contains(".inner_size(900.0, 910.0)"),
+            "the settings window no longer asks for the 1.3x height"
         );
     }
 }

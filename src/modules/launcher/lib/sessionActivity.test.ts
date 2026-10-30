@@ -5,6 +5,7 @@ import type { Tab } from "@/modules/tabs/lib/useTabs";
 import {
   ACTIVE_WINDOW_BY_TOOL,
   activeByWindow,
+  activeWithService,
   backgroundStateById,
   sessionStateById,
   waitingFirst,
@@ -340,5 +341,29 @@ describe("activeByWindow", () => {
       SAME,
     );
     expect([...other]).toEqual(["b"]);
+  });
+});
+
+describe("activeWithService", () => {
+  it("lets either reading light a session", () => {
+    // The write times go quiet during a long tool call; the service knows the turn is still on.
+    expect([...activeWithService(new Set(), new Set(["a"]))]).toEqual(["a"]);
+    // And the service says a session is between turns for the seconds before the next one starts,
+    // while the writes still have it.
+    expect([...activeWithService(new Set(["b"]), new Set())]).toEqual(["b"]);
+    expect([...activeWithService(new Set(["b"]), new Set(["a"]))].sort()).toEqual(["a", "b"]);
+  });
+
+  it("falls back to the write times when the service could not be asked", () => {
+    // `null` is "no opencode running", not "nothing is running": a stopped service must not empty
+    // the list of marks.
+    expect([...activeWithService(new Set(["b"]), null)]).toEqual(["b"]);
+    expect(activeWithService(new Set(), null).size).toBe(0);
+  });
+
+  it("never mutates the set it was given", () => {
+    const writes = new Set(["b"]);
+    activeWithService(writes, new Set(["a"]));
+    expect([...writes]).toEqual(["b"]);
   });
 });
