@@ -17,6 +17,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-10-30</strong></summary>
 
+**The rule for "something new", and the frontend wrapper for the read behind it**
+
+- `src/modules/remotes/lib/activity.ts` (new): three pure answers - is the newest update later than the last look, what does a mark become after something is read, and what is kept when the stored marks turn out to be junk. Everything that is not a real timestamp is treated as "never looked at", since one extra mark is recoverable while a mark suppressed by a corrupt value is not; a read that produced no timestamp is never drawn as something new.
+- `src/lib/native.ts`: the wrapper for the new read, with its own payload type so an empty repository and a failed read stay distinguishable.
+
 **A read that answers whether a repository has new activity**
 
 - `src-tauri/src/modules/github/activity.rs` (new): reads the newest update out of a one-item listing of a repository's open pull requests and issues. An empty list is a definite "nothing is open"; an entry without a timestamp is an error rather than a guess, because an invented time would either light the mark forever or hide a real one.

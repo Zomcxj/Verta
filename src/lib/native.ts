@@ -142,6 +142,21 @@ export type WireRepoCiPayload = {
 };
 
 /**
+ * Whether one repository has anything new to look at: the newest update among its open pull
+ * requests and issues.
+ *
+ * `none` is a confirmed "nothing is open here", not a failure - the difference matters, because a
+ * failed read must not be drawn as "nothing new".
+ */
+export type WireRepoActivityPayload = {
+  kind: "ready" | "none" | "notInstalled" | "notLoggedIn" | "error";
+  repo: string;
+  /** ISO8601 of the newest open PR / issue update; null when nothing is open. */
+  latest: string | null;
+  error: string | null;
+};
+
+/**
  * Current account permission on a repository.
  *
  * When `canWrite` is false the UI hides write actions. When the lookup itself
@@ -777,6 +792,10 @@ export const native = {
   /** Latest CI run for one repo; the UI calls it on demand, never for a whole list. */
   githubRepoCi: (repo: string) =>
     invoke<WireRepoCiPayload>("github_repo_ci", { repo }),
+  /** Newest open PR / issue update in one repo; also on demand, and only when the
+   * row is touched - nothing asks about repositories nobody is looking at. */
+  githubRepoActivity: (repo: string) =>
+    invoke<WireRepoActivityPayload>("github_repo_activity", { repo }),
   /** Current account permission on one repo; also on demand, it decides whether
    * write buttons show. */
   githubRepoPermission: (repo: string) =>
