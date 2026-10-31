@@ -27,11 +27,12 @@ if (__VERTA_BENCH__) {
   await installBenchEarly();
 }
 
-// Reap PTY sessions orphaned by a prior webview load before any tab spawns.
-await invoke("pty_close_all").catch(() => {});
-
-// Seed before first paint so default tab mounts at target cwd (no flicker).
-await initLaunchDir();
+// Reap PTY sessions orphaned by a prior webview load before any tab spawns, and seed the launch
+// directory before the first paint so the default tab mounts at target cwd (no flicker). Neither
+// needs the other's answer: one drains the sessions of a webview that is gone, the other reads the
+// directory this launch was handed. Nothing paints until both are in, so they are issued together and
+// the wait is the longer of the two rather than their sum.
+await Promise.all([invoke("pty_close_all").catch(() => {}), initLaunchDir()]);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <AppErrorBoundary>
