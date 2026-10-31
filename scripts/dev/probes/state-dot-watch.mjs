@@ -37,7 +37,14 @@ const socket = new WebSocket(page.webSocketDebuggerUrl);
 let id = 1;
 const pending = new Map();
 const collected = [];
-const PREFIX = "VERTA-DOT-WATCH ";
+// Each run tags its own lines with a tag only it knows, and ignores every other tag. A window that
+// has been open a while has console lines in it already, and attaching hands the new client all of
+// them again before the first new line arrives. With a fixed tag those replays counted as this
+// run's own entries: a five second run reported 923 of them, some timestamped 22.8 seconds, which
+// is an earlier run's. Splitting a long watch into short ones re-listed every earlier chunk that
+// way, and the accumulated count read exactly like the watched thing changing far more often than
+// it did. Measured 2026-10-31: nine 25 second chunks turned five verdict changes into "45".
+const PREFIX = `VERTA-DOT-WATCH ${Math.random().toString(36).slice(2, 10)} `;
 await new Promise((r) => socket.addEventListener("open", () => r()));
 socket.addEventListener("message", (e) => {
   const m = JSON.parse(e.data);
