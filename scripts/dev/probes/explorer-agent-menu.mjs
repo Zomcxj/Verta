@@ -134,13 +134,29 @@ const rowListing = () =>
       .filter((row) => row.inView);
   `);
 
-/** Every item the menu drew, in the order it drew them, with the icon it carries. */
+/**
+ * Every item the menu drew, in the order it drew them, with the icon it carries and how tall it is.
+ *
+ * The height matters for the icon row: it is a row of icon-only items inside a wrapper, and the
+ * wrapper's padding is added to the items' own, so a row that is meant to look like the rows around
+ * it can come out taller without anything in the stylesheet saying so. `rowBlockHeight` is the
+ * wrapper when the item sits in one (the icon row) and null when it sits straight in the menu.
+ */
 const menuListing = () =>
   pageEval(`
-    return [...document.querySelectorAll("[role=menuitem]")].map((el) => ({
-      label: el.getAttribute("aria-label") || (el.textContent || "").trim(),
-      icon: el.querySelector("svg, img") !== null,
-    }));
+    return [...document.querySelectorAll("[role=menuitem]")].map((el) => {
+      const r = el.getBoundingClientRect();
+      const parent = el.parentElement;
+      const pr = parent ? parent.getBoundingClientRect() : null;
+      const inRow = parent !== null && parent.getAttribute("role") !== "menu" && parent.children.length > 1;
+      return {
+        label: el.getAttribute("aria-label") || (el.textContent || "").trim(),
+        icon: el.querySelector("svg, img") !== null,
+        height: Math.round(r.height * 10) / 10,
+        rowBlockHeight: inRow && pr ? Math.round(pr.height * 10) / 10 : null,
+        rowItems: inRow ? parent.children.length : null,
+      };
+    });
   `);
 
 const { statSync } = await import("node:fs");
@@ -194,7 +210,10 @@ console.log(`\n右键文件夹：${folder.path}`);
 await rightClick(folder.x, folder.y);
 const folderMenu = await menuListing();
 for (const [i, item] of folderMenu.entries()) {
-  console.log(`  ${i + 1}. ${item.label || "(无文案)"}${item.icon ? "  [图标]" : ""}`);
+  const row = item.rowBlockHeight === null ? "" : `  行块高 ${item.rowBlockHeight}（${item.rowItems} 个）`;
+  console.log(
+    `  ${i + 1}. ${item.label || "(无文案)"}${item.icon ? "  [图标]" : ""}  高 ${item.height}${row}`,
+  );
 }
 if (folderMenu.length === 0) {
   failures.push("文件夹上右键，菜单一条都没画出来");
@@ -223,6 +242,21 @@ if (folderMenu.length === 0) {
   }
   if (!folderMenu.some((item) => /在终端中打开|Open in terminal/i.test(item.label))) {
     console.log("  （注意：这个菜单里没有「在终端中打开」，说明它不是文件夹的菜单？）");
+  }
+  // The row of icons is one row of this menu, so it has to be as tall as the entries under it. It
+  // was not: the items carried the menu's own item padding and the wrapper carried vertical padding
+  // of its own on top, which made that row taller than every entry below it.
+  const others = folderMenu.filter((item) => !isAgentItem(item.label));
+  if (agents.length > 0 && others.length > 0) {
+    const rowHeight = others[0].height;
+    const tooTall = agents.filter(
+      (item) => item.height !== rowHeight || (item.rowBlockHeight !== null && item.rowBlockHeight !== rowHeight),
+    );
+    if (tooTall.length > 0) {
+      failures.push(
+        `「用 agent 打开」那一行和下面的条目不一样高：图标 ${tooTall.map((i) => `${i.height}${i.rowBlockHeight === null ? "" : `/行块 ${i.rowBlockHeight}`}`).join(", ")}，条目 ${rowHeight}`,
+      );
+    }
   }
 }
 

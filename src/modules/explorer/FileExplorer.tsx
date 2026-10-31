@@ -960,14 +960,17 @@ export const FileExplorer = memo(
                       drift apart. Only for a folder - an agent's session is a project directory. */}
                   {agentEntries.length > 0 ? (
                     <>
-                      <div className="flex items-center gap-1 px-1 py-1">
+                      {/* One row of icons, and it is a row of this menu: no vertical padding of its
+                          own, since each item carries the menu's own item padding. Padding on both
+                          the wrapper and the items made this row taller than every entry under it. */}
+                      <div className="flex items-center gap-1 px-1">
                         {agentEntries.map((action) => (
                           <ContextMenuItem
                             key={action.tool}
                             onSelect={action.onSelect}
                             title={action.label}
                             aria-label={action.label}
-                            className="justify-center px-2"
+                            className="justify-center px-2 py-1.5"
                           >
                             <AgentIcon agent={action.tool} size={14} />
                           </ContextMenuItem>
