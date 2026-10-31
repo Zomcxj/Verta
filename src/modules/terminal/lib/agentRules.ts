@@ -126,21 +126,27 @@ const OPENCODE_RULES: readonly AgentRule[] = [
   // tree. The wording is written from the tool's prompt style and has NOT been
   // confirmed against a live screen yet; the counter-example keeps a pasted line
   // from looking like one.
+  //
+  // The region is the footer and not the bottom dozen lines, for the reason measured twice on this
+  // machine: a reply that mentioned `permission` and `allow` in prose was drawn into an opencode
+  // transcript, both words landed inside the bottom twelve lines, and this rule turned that
+  // session's tab blue while it was mid-turn and asking nothing. A card is drawn at the bottom of
+  // the screen; prose is anywhere.
   rule({
     id: "opencode_permission",
     state: "blocked",
     priority: 1000,
-    region: BOTTOM,
+    region: bottom(6),
     allOf: [contains("permission"), contains("allow")],
     noneOf: [contains("allow me to explain")],
   }),
   // A question with options, older shape: the selected row is marked with the same caret the
-  // other TUIs use.
+  // other TUIs use. Same region as the card above, for the same reason.
   rule({
     id: "opencode_question",
     state: "blocked",
     priority: 990,
-    region: BOTTOM,
+    region: bottom(6),
     allOf: [lineStartsWith("❯ 1.")],
   }),
   // A question panel, the shape this machine's opencode actually draws. Measured with
