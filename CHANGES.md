@@ -15,6 +15,18 @@ swap in the new date, and drop the `open` from the day before.
 ---
 
 <details open>
+<summary><strong>2026-10-31</strong></summary>
+
+**The opencode service credential only goes to the one place it opens**
+
+- `src-tauri/src/modules/agent_sessions/service_turns.rs`: the service file's URL is validated by parsing it rather than by its text. `http://127.0.0.1:42000@host` starts with the loopback address and connects to `host`, so the earlier prefix check let a file point the service's password at another machine; the host now comes from the parsed URL and has to be a loopback address itself, `localhost` is normalized to `127.0.0.1`, and only `scheme://host:port` survives, so embedded credentials, another path, a query and a fragment are all refused. The client also refuses the two transports that could carry that header somewhere else: proxies (`no_proxy`, which includes the system proxy this build reads on Windows) and redirects (a policy that follows none). The service file is read only below 64 KiB and the answer only below 4 MiB.
+- `src-tauri/src/modules/agent_sessions/service_turns.rs`: an answer that is not `/api/session`'s shape now reads as "could not ask" instead of as an empty list. A row without a string id, a `time` that is not an object and stamps that are not integers all count as unreadable, because an empty list is the one answer the list trusts enough to stop falling back to its write times. The credential-bearing struct lost its derived debug formatting, since that is how a password reaches a log without anyone deciding to put it there, and the fixture stopped carrying the measured password. Regression coverage added for the loopback-looking URL, the path, query and fragment overrides, an oversized service file, an oversized answer, a malformed answer, a redirect that must not reach a second listener, and the request that a real answer still produces.
+- `src-tauri/src/modules/agent_sessions/wsl.rs`: the reader a distro runs applies the same rules in Python: `urlsplit` with an `ipaddress` loopback check on the parsed host, no credentials inside the URL, no other path, and an opener with no proxy handler and a redirect handler that declines every redirect. Its payload is validated the same way, an unreadable answer prints nothing, and the request goes to `/api/session` on the validated base rather than to whatever the file said.
+- `scripts/dev/probes/wsl-service-credentials.mjs` (new): runs the distro-side Python program (taken out of `wsl.rs`, which is the transport rather than the assertion) against a synthetic `service.json` in a temporary home and two throwaway loopback servers, one of them the place a redirect would send the request. Measured before the change: the redirect reached the second server with the authorization header on it, and a file naming another path had the request land on that path. Measured after: neither is contacted, a real answer is still read, an idle service still reads as an empty list, and an unreadable one prints nothing. The child is spawned asynchronously on purpose, because a synchronous spawn blocks this process's own event loop and every case then looks like a timeout.
+
+</details>
+
+<details>
 <summary><strong>2026-10-30</strong></summary>
 
 **A session mid-turn, asked of the service that runs it**

@@ -88,45 +88,107 @@ for row in rows:
     }))
 "#;
 
-/// Asks a distro's own opencode service which sessions are mid-turn.
+/// The question asked from inside a distro, by that distro's own python3.
 ///
 /// The service listens on that distro's loopback interface, which this machine cannot reach, so the
-/// question is asked from inside it: the distro's python3 reads the same `service.json` and makes
-/// the request. `None` when there is nothing to ask, in the same sense as the local read.
-pub(crate) fn running_ids(distro: &str) -> Option<Vec<String>> {
-    let script = r#"
-import base64, json, os, sys, urllib.request
+/// request is made from inside it. The URL rules mirror the ones the local reader applies: only
+/// `http://<loopback>:<port>`, no credentials inside the URL, no other path, no proxy and no
+/// redirect, because the password in that file opens one service on one endpoint.
+const SERVICE_TURNS_PY: &str = r#"
+import base64, ipaddress, json, os, sys, urllib.parse, urllib.request
+
+MAX_BYTES = 4 * 1024 * 1024
 path = os.path.expanduser("~/.local/state/opencode/service.json")
 try:
+    if os.path.getsize(path) > 64 * 1024:
+        sys.exit(0)
     with open(path, "r", encoding="utf-8") as handle:
         service = json.load(handle)
 except Exception:
     sys.exit(0)
+
 url, password = service.get("url"), service.get("password")
-if not url or not password:
+if not isinstance(url, str) or not isinstance(password, str) or not password:
     sys.exit(0)
-url = url.rstrip("/")
-if not (url.startswith("http://127.0.0.1:") or url.startswith("http://localhost:")):
+
+parts = urllib.parse.urlsplit(url)
+if parts.scheme != "http" or parts.path not in ("", "/") or parts.query or parts.fragment:
     sys.exit(0)
-token = base64.b64encode(("opencode:" + password).encode()).decode()
-request = urllib.request.Request(url + "/api/session", headers={"Authorization": "Basic " + token})
+if parts.username or parts.password:
+    sys.exit(0)
 try:
-    with urllib.request.urlopen(request, timeout=3) as answer:
-        payload = json.load(answer)
+    port = parts.port
+except ValueError:
+    sys.exit(0)
+host = parts.hostname
+if not port or not host:
+    sys.exit(0)
+if host == "localhost":
+    host = "127.0.0.1"
+try:
+    if not ipaddress.ip_address(host).is_loopback:
+        sys.exit(0)
+except ValueError:
+    sys.exit(0)
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+token = base64.b64encode(("opencode:" + password).encode()).decode()
+request = urllib.request.Request(
+    "http://{}:{}/api/session".format(host, port),
+    headers={"Authorization": "Basic " + token},
+)
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+try:
+    with opener.open(request, timeout=3) as answer:
+        body = answer.read(MAX_BYTES + 1)
 except Exception:
     sys.exit(0)
+if len(body) > MAX_BYTES:
+    sys.exit(0)
+
+try:
+    rows = json.loads(body.decode("utf-8"))["data"]
+except Exception:
+    sys.exit(0)
+if not isinstance(rows, list):
+    sys.exit(0)
+
 ids = []
-for row in payload.get("data") or []:
-    time = row.get("time") or {}
-    busy, idle = time.get("busy"), time.get("idle")
-    if busy is None and idle is None:
-        continue
+for row in rows:
+    if not isinstance(row, dict) or not isinstance(row.get("id"), str):
+        sys.exit(0)
+    time = row.get("time")
+    if time is None:
+        time = {}
+    if not isinstance(time, dict):
+        sys.exit(0)
+    stamps = []
+    for key in ("busy", "idle"):
+        value = time.get(key)
+        if value is None:
+            stamps.append(None)
+        elif isinstance(value, bool) or not isinstance(value, int):
+            sys.exit(0)
+        else:
+            stamps.append(value)
+    busy, idle = stamps
     running = (busy > idle) if (busy is not None and idle is not None) else (busy is not None)
     if running:
-        ids.append(row.get("id"))
+        ids.append(row["id"])
 print(json.dumps(ids))
 "#;
-    let out = crate::modules::workspace::wsl_exec_capture(distro, "python3", &["-c", script]).ok()?;
+
+/// Asks a distro's own opencode service which sessions are mid-turn.
+///
+/// `None` when there is nothing to ask, in the same sense as the local read.
+pub(crate) fn running_ids(distro: &str) -> Option<Vec<String>> {
+    let out = crate::modules::workspace::wsl_exec_capture(distro, "python3", &["-c", SERVICE_TURNS_PY])
+        .ok()?;
     serde_json::from_str::<Vec<String>>(out.trim()).ok()
 }
 

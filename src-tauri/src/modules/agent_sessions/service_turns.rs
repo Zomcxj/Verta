@@ -24,6 +24,12 @@ const SERVICE_FILE: &str = ".local/state/opencode/service.json";
 /// empty string and `admin` are both refused, so the value is not a guess that happened to work.
 const SERVICE_USER: &str = "opencode";
 
+/// The service file is a handful of fields; a larger one is not this file.
+const MAX_SERVICE_FILE_BYTES: u64 = 64 * 1024;
+
+/// `/api/session` answers one bounded page, well inside this.
+const MAX_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
+
 /// One session's view of the service, reduced to the two times that answer the question.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TurnTimes {
@@ -48,7 +54,10 @@ impl TurnTimes {
 }
 
 /// How to reach one service.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// No `Debug` on purpose: this holds the service's password, and a derived formatter is how a
+/// credential reaches a log without anyone deciding to put it there.
+#[derive(Clone, PartialEq, Eq)]
 pub struct ServiceEndpoint {
     pub url: String,
     pub password: String,
@@ -60,6 +69,9 @@ pub struct ServiceEndpoint {
 /// one whose service is stopped, simply has nothing to say about its sessions, and the caller falls
 /// back to the write times it already has.
 pub fn read_endpoint(state_dir: &std::path::Path) -> Option<ServiceEndpoint> {
+    if std::fs::metadata(state_dir).ok()?.len() > MAX_SERVICE_FILE_BYTES {
+        return None;
+    }
     let text = std::fs::read_to_string(state_dir).ok()?;
     endpoint_from_json(&text)
 }
@@ -67,16 +79,46 @@ pub fn read_endpoint(state_dir: &std::path::Path) -> Option<ServiceEndpoint> {
 /// The same, from the JSON as text, so the parsing can be tested without a file.
 pub fn endpoint_from_json(text: &str) -> Option<ServiceEndpoint> {
     let value: serde_json::Value = serde_json::from_str(text).ok()?;
-    let url = value.get("url")?.as_str()?.trim_end_matches('/').to_string();
     let password = value.get("password")?.as_str()?.to_string();
-    if url.is_empty() || password.is_empty() {
+    if password.is_empty() {
         return None;
     }
-    // Only the loopback interface: a password from this file is not for anywhere else.
-    if !(url.starts_with("http://127.0.0.1:") || url.starts_with("http://localhost:")) {
-        return None;
-    }
+    let url = loopback_base(value.get("url")?.as_str()?)?;
     Some(ServiceEndpoint { url, password })
+}
+
+/// The base URL of a loopback service, or `None` for anything that is not exactly that.
+///
+/// The host comes from the parsed URL rather than from its text: `http://127.0.0.1:42000@host`
+/// starts with the loopback address and connects to `host`, and this password opens one service on
+/// one machine. Only `scheme://host:port` survives, so no file can steer the request at another
+/// path, query or fragment while carrying that credential.
+fn loopback_base(raw: &str) -> Option<String> {
+    let url = reqwest::Url::parse(raw).ok()?;
+    if url.scheme() != "http"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    let port = url.port()?;
+    if port == 0 {
+        return None;
+    }
+    let host = url.host_str()?;
+    let host = if host.eq_ignore_ascii_case("localhost") {
+        "127.0.0.1"
+    } else {
+        host
+    };
+    let address: std::net::IpAddr = host.trim_matches(['[', ']']).parse().ok()?;
+    if !address.is_loopback() {
+        return None;
+    }
+    Some(format!("http://{host}:{port}"))
 }
 
 /// `/api/session`'s answer, reduced to the sessions whose turn has not finished.
@@ -84,30 +126,39 @@ pub fn endpoint_from_json(text: &str) -> Option<ServiceEndpoint> {
 /// The payload nests each session's times under `time`, and subagent sessions carry a `parentID`.
 /// Subagents are kept here rather than dropped: their parent is what the list shows, and a parent
 /// can spend its whole turn waiting on one of them.
-pub fn running_ids_from_json(text: &str) -> Vec<String> {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
-        return Vec::new();
-    };
-    let Some(rows) = value.get("data").and_then(|data| data.as_array()) else {
-        return Vec::new();
-    };
+///
+/// `None` when the answer is not the shape this endpoint returns, which the caller keeps apart from
+/// an empty list: an answer nobody can read has to leave the write times in charge instead of being
+/// taken as "nothing is running" and unmarking every row.
+pub fn running_ids_from_json(text: &str) -> Option<Vec<String>> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let rows = value.get("data")?.as_array()?;
     let mut ids = Vec::new();
     for row in rows {
-        let Some(id) = row.get("id").and_then(|id| id.as_str()) else {
-            continue;
+        let id = row.get("id")?.as_str()?;
+        let time = match row.get("time") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(value) if value.is_object() => Some(value),
+            Some(_) => return None,
         };
-        let time = row.get("time");
-        let read = |key: &str| time.and_then(|t| t.get(key)).and_then(|v| v.as_i64());
+        // A missing time and an explicit null both mean "no such stamp"; anything present has to
+        // be a number, because a stamp of another type is an answer this code cannot read.
+        let read = |key: &str| -> Option<Option<i64>> {
+            match time.and_then(|value| value.get(key)) {
+                None | Some(serde_json::Value::Null) => Some(None),
+                Some(value) => value.as_i64().map(Some),
+            }
+        };
         let times = TurnTimes {
             id: id.to_string(),
-            busy_ms: read("busy"),
-            idle_ms: read("idle"),
+            busy_ms: read("busy")?,
+            idle_ms: read("idle")?,
         };
         if times.mid_turn() {
             ids.push(times.id);
         }
     }
-    ids
+    Some(ids)
 }
 
 /// Where a tool keeps the record of how to reach its service.
@@ -135,6 +186,11 @@ pub async fn running_ids(state_dir: &std::path::Path) -> Option<Vec<String>> {
     // without one fails and the failure would read as "the service said nothing".
     crate::modules::net::clients::ensure_crypto_provider();
     let client = reqwest::Client::builder()
+        // The service is on this machine's own loopback interface. A proxy would carry the
+        // password elsewhere, and a redirect would carry the authorization header to another
+        // origin, so neither is allowed to be negotiated on this request.
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(3))
         .build()
         .ok()?;
@@ -147,22 +203,31 @@ pub async fn running_ids(state_dir: &std::path::Path) -> Option<Vec<String>> {
     if !response.status().is_success() {
         return None;
     }
-    let text = response.text().await.ok()?;
-    Some(running_ids_from_json(&text))
+    if response
+        .content_length()
+        .is_some_and(|len| len > MAX_RESPONSE_BYTES)
+    {
+        return None;
+    }
+    let body = response.bytes().await.ok()?;
+    if body.len() as u64 > MAX_RESPONSE_BYTES {
+        return None;
+    }
+    running_ids_from_json(std::str::from_utf8(&body).ok()?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const REAL: &str = r#"{"id":"d1578675-3407-4165-ac46-c08d5f0ea93b","version":"2.2.2","url":"http://127.0.0.1:42000","pid":13300,"password":"LIKDAEBsXG0piNHwmUdwFWSOe7b7Tf4Ksa2oBSn9ojQ"}"#;
+    const REAL: &str = r#"{"id":"synthetic-service","version":"2.2.2","url":"http://127.0.0.1:42000","pid":1,"password":"synthetic-password"}"#;
 
     #[test]
     fn reads_the_endpoint_the_service_wrote() {
         // The shape this machine's service.json actually had.
         let endpoint = endpoint_from_json(REAL).expect("an endpoint");
         assert_eq!(endpoint.url, "http://127.0.0.1:42000");
-        assert_eq!(endpoint.password, "LIKDAEBsXG0piNHwmUdwFWSOe7b7Tf4Ksa2oBSn9ojQ");
+        assert_eq!(endpoint.password, "synthetic-password");
     }
 
     #[test]
@@ -221,21 +286,192 @@ mod tests {
             {"id":"ses_child","parentID":"ses_running","time":{"busy":1793342971895,"idle":1793343126756}},
             {"id":"ses_never","time":{"created":1,"updated":2}}
         ]}"#;
-        assert_eq!(running_ids_from_json(text), vec!["ses_running".to_string()]);
+        assert_eq!(running_ids_from_json(text), Some(vec!["ses_running".to_string()]));
     }
 
     #[test]
     fn an_unreadable_answer_is_no_answer_rather_than_an_error() {
-        // The list has write times to fall back on, so a broken answer must not stop it drawing.
-        assert!(running_ids_from_json("").is_empty());
-        assert!(running_ids_from_json("not json").is_empty());
-        assert!(running_ids_from_json(r#"{"data":"nope"}"#).is_empty());
-        assert!(running_ids_from_json(r#"{"data":[{"time":{}}]}"#).is_empty());
+        // The list has write times to fall back on, so a broken answer must not stop it drawing,
+        // and it must not read as "nothing is running" either: that would unmark every row.
+        assert_eq!(running_ids_from_json(""), None);
+        assert_eq!(running_ids_from_json("not json"), None);
+        assert_eq!(running_ids_from_json(r#"{"data":"nope"}"#), None);
+        assert_eq!(running_ids_from_json(r#"{"data":[{"time":{}}]}"#), None);
+        assert_eq!(running_ids_from_json(r#"{"data":[{"id":7}]}"#), None);
+        assert_eq!(running_ids_from_json(r#"{"data":[{"id":"a","time":"soon"}]}"#), None);
+        assert_eq!(running_ids_from_json(r#"{"data":[{"id":"a","time":{"busy":"now"}}]}"#), None);
+    }
+
+    #[test]
+    fn an_answer_with_nothing_running_is_an_empty_list() {
+        // The other side of the same line: the service answered, and nothing is in flight.
+        assert_eq!(running_ids_from_json(r#"{"data":[]}"#), Some(Vec::new()));
+        assert_eq!(
+            running_ids_from_json(r#"{"data":[{"id":"a","time":{"busy":1,"idle":2}}]}"#),
+            Some(Vec::new())
+        );
     }
 
     #[test]
     fn the_service_file_sits_under_the_tools_state() {
         let path = service_file_under(std::path::Path::new("/home/x"));
         assert!(path.ends_with(".local/state/opencode/service.json"), "{path:?}");
+    }
+
+    #[test]
+    fn rejects_a_remote_host_hidden_after_loopback_userinfo() {
+        for url in [
+            "http://127.0.0.1:42000@example.invalid:12345",
+            "http://localhost:42000@example.invalid:12345",
+            "http://user:secret@127.0.0.1:42000",
+        ] {
+            let fixture = serde_json::json!({"url": url, "password": "synthetic-password"});
+            assert!(endpoint_from_json(&fixture.to_string()).is_none(), "{url}");
+        }
+    }
+
+    #[test]
+    fn rejects_overrides_of_the_session_endpoint() {
+        for url in [
+            "http://127.0.0.1:42000/other",
+            "http://127.0.0.1:42000?token=unused",
+            "http://127.0.0.1:42000#unused",
+            "http://127.0.0.1:0",
+            "http://127.0.0.1:70000",
+        ] {
+            let fixture = serde_json::json!({"url": url, "password": "synthetic-password"});
+            assert!(endpoint_from_json(&fixture.to_string()).is_none(), "{url}");
+        }
+    }
+
+    #[test]
+    fn does_not_read_an_oversized_service_file() {
+        let file = tempfile::NamedTempFile::new().expect("service file");
+        let contents = format!(
+            "{}{}",
+            " ".repeat(70 * 1024),
+            r#"{"url":"http://127.0.0.1:42000","password":"synthetic-password"}"#
+        );
+        std::fs::write(file.path(), contents).expect("write fixture");
+        assert!(read_endpoint(file.path()).is_none());
+    }
+
+    fn serve_response(
+        status: &str,
+        headers: &str,
+        body: &str,
+    ) -> (String, std::thread::JoinHandle<String>) {
+        use std::io::{Read, Write};
+        use std::time::{Duration, Instant};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback server");
+        // Only the accept loop polls: an accepted socket has to block for the request, or the
+        // non-blocking flag it inherits makes the read fail with `WouldBlock`.
+        listener.set_nonblocking(true).expect("nonblocking accept");
+        let address = listener.local_addr().expect("server address");
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n{body}",
+            body.len()
+        );
+        let handle = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("accept test request: {error}"),
+                }
+            };
+            stream
+                .set_nonblocking(false)
+                .expect("blocking request read");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("request timeout");
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while request.len() < 8192 {
+                let count = stream.read(&mut buffer).expect("read request");
+                if count == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..count]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let _ = stream.write_all(response.as_bytes());
+            String::from_utf8(request).expect("HTTP request text")
+        });
+        (format!("http://{address}"), handle)
+    }
+
+    fn service_fixture(url: &str) -> tempfile::NamedTempFile {
+        let file = tempfile::NamedTempFile::new().expect("service file");
+        let contents = serde_json::json!({"url": url, "password": "secret"});
+        std::fs::write(file.path(), contents.to_string()).expect("write service fixture");
+        file
+    }
+
+    #[tokio::test]
+    async fn authenticates_only_the_validated_session_request() {
+        let (url, server) = serve_response(
+            "200 OK",
+            "Content-Type: application/json\r\n",
+            r#"{"data":[{"id":"ses_running","time":{"busy":200,"idle":100}}]}"#,
+        );
+        let fixture = service_fixture(&url);
+        let ids = running_ids(fixture.path()).await;
+        let request = server.join().expect("server completed");
+        assert_eq!(ids, Some(vec!["ses_running".to_string()]));
+        assert!(request.starts_with("GET /api/session HTTP/1.1\r\n"));
+        let auth = request.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("authorization").then_some(value.trim())
+        });
+        assert_eq!(auth, Some("Basic b3BlbmNvZGU6c2VjcmV0"));
+    }
+
+    #[tokio::test]
+    async fn does_not_follow_a_service_redirect() {
+        let target = std::net::TcpListener::bind("127.0.0.1:0").expect("redirect target");
+        target.set_nonblocking(true).expect("nonblocking target");
+        let location = format!(
+            "Location: http://{}/api/session\r\n",
+            target.local_addr().expect("target address")
+        );
+        let (url, server) = serve_response("302 Found", &location, "");
+        let fixture = service_fixture(&url);
+        let ids = running_ids(fixture.path()).await;
+        server.join().expect("server completed");
+        assert_eq!(ids, None);
+        let error = target.accept().expect_err("no redirected connection");
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+    }
+
+    #[tokio::test]
+    async fn a_malformed_service_response_is_not_an_idle_answer() {
+        for body in ["not json", r#"{"data":"wrong"}"#] {
+            let (url, server) = serve_response("200 OK", "", body);
+            let fixture = service_fixture(&url);
+            let ids = running_ids(fixture.path()).await;
+            server.join().expect("server completed");
+            assert_eq!(ids, None);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_oversized_service_response_is_no_answer() {
+        let body = format!("{}{{\"data\":[]}}", " ".repeat(4 * 1024 * 1024 + 1));
+        let (url, server) = serve_response("200 OK", "", &body);
+        let fixture = service_fixture(&url);
+        let ids = running_ids(fixture.path()).await;
+        server.join().expect("server completed");
+        assert_eq!(ids, None);
     }
 }
