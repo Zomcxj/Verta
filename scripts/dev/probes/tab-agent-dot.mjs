@@ -10,8 +10,11 @@
 // not appear on them.
 //
 // The colour and the breathing are read as computed style rather than as class names:
-// the three states' colours and the fact that all three breathe are a contract with the
+// the states' colours and the fact that they all breathe are a contract with the
 // user, and a stylesheet alone can break either while the classes still read right.
+// The background image is read for the same reason as the colour: the state that is a
+// blend of two colours has nothing in `background-color` at all, so a probe that reads
+// only the colour reports it as transparent and cannot tell a blend from a missing dot.
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const targets = await (await fetch("http://127.0.0.1:9222/json")).json();
@@ -70,6 +73,7 @@ const tabStrip = () =>
       const s = getComputedStyle(el);
       return {
         colour: s.backgroundColor,
+        image: s.backgroundImage,
         animation: s.animationName,
         timing: s.animationTimingFunction,
         play: s.animationPlayState
@@ -145,6 +149,30 @@ try {
       return api.writeToSession(${target}, ${JSON.stringify(`${command}\r`)});
     `);
 
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  mkdirSync(`${process.env.TEMP}/v`, { recursive: true });
+
+  /** The active tab's chip, magnified, so what it looks like is kept and not only what it is called. */
+  const chipShot = async (label) => {
+    const rect = JSON.parse(
+      await pageEval(`
+        const tab = [...document.querySelectorAll("[role=tab]")].find((t) => t.getAttribute("data-tab-active") === "true");
+        const dot = tab?.querySelector("[data-agent-state]");
+        if (!dot) return JSON.stringify(null);
+        const box = dot.getBoundingClientRect();
+        return JSON.stringify({ x: box.x - 3, y: box.y - 3, width: box.width + 6, height: box.height + 6 });
+      `),
+    );
+    if (!rect) return null;
+    const shot = await send("Page.captureScreenshot", {
+      format: "png",
+      clip: { ...rect, scale: 12 },
+    });
+    const path = `${process.env.TEMP}/v/tab-agent-dot-${label}.png`;
+    writeFileSync(path, Buffer.from(shot.result.data, "base64"));
+    return path;
+  };
+
   let ready = false;
   for (let attempt = 0; attempt < 40 && !ready; attempt += 1) {
     await sleep(500);
@@ -166,6 +194,16 @@ try {
     await runCommand(`clear ; ${screen}`);
     await sleep(waitMs);
     report[label] = JSON.parse(await tabStrip());
+    // What the judge was reading when it decided: a fixture that prints the wrong thing and a rule
+    // that reads the right thing wrongly look the same in the states alone.
+    report[`${label}Tail`] = await pageEval(`
+      ${MODULES}
+      return api.leafScreenTail(${target}) ?? "";
+    `);
+    // And a picture of the chip, magnified: a mixed state's colour is only half of what it looks like
+    // (a ring with a hole in it can be read as a solid dot in a computed style), so the pixels are
+    // kept for the eye as well as the numbers for the report.
+    report[`${label}Chip`] = await chipShot(label);
   };
 
   // The three states, in the colours the user asked for, and each of them breathing: an agent
@@ -183,6 +221,27 @@ try {
     "asking",
     'echo "△ Permission required" ; echo "  Allow once" ; echo "ctrl+p commands"',
   );
+  // The turn is over and the tool's own work is not: the footer counts a shell of its own and
+  // nothing on the screen is being painted. Drawn as work in flight this read as an agent that
+  // never finishes; drawn as rest it hid the job. Measured on this machine (2026-10-31,
+  // `idle-screen.log`, 121 screens sampled while nothing was driving the session), and the footer
+  // below is that measurement with the session's own path in front of it.
+  //
+  // The trailing `sleep` is not decoration: a plain shell prints its prompt below whatever it is
+  // told to print, so a fixture without it ends on `$`, and the judge reads the prompt rather than
+  // the footer (measured: the region is the last two non-empty lines, and the reading came out as
+  // the state of a bare prompt). Holding the prompt back for five seconds is what makes these the
+  // last lines on the screen, the way opencode's own drawing does. That is also why the two steps
+  // around it wait as long as they do: this step reads while the prompt is still held back, and the
+  // next one writes its `clear` into a shell that is asleep, where it runs five seconds later - a
+  // wait of 3.5 s then reads the cleared screen 1.7 s after it appeared, which is less than the
+  // 2 s a leaf has to stay unrecognized before the judge lets it go (measured: that run reported
+  // the fixture's state instead of a cleared tab).
+  await step(
+    "trailing",
+    'echo "…\\\\Verta:ma…  命中率 99.8% ↑0.7% · Tokens 2232.6M · 余额 -   ↓ 1 shell · ◎ goal paused · 319.7K (64%)  ctrl+p commands" ; sleep 5',
+    3000,
+  );
 
   for (const [x, y] of [
     [700, 300],
@@ -193,15 +252,15 @@ try {
   }
   await sleep(400);
   const shot = await send("Page.captureScreenshot", { format: "png" });
-  const { mkdirSync, writeFileSync } = await import("node:fs");
   const { dirname } = await import("node:path");
   const shotPath = `${process.env.TEMP}/v/tab-agent-dot.png`;
   mkdirSync(dirname(shotPath), { recursive: true });
   writeFileSync(shotPath, Buffer.from(shot.result.data, "base64"));
   report.shot = shotPath;
 
-  // The agent leaves: no dot on a shell prompt again.
-  await step("cleared", "", 3500);
+  // The agent leaves: no dot on a shell prompt again. The wait is longer than this step's own work
+  // needs, because the `clear` it writes lands in a shell that is still holding the prompt back.
+  await step("cleared", "", 5000);
 
   report.closeTarget = await pageEval(`
     const tabs = [...document.querySelectorAll("[role=tab]")];

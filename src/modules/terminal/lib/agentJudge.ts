@@ -111,6 +111,10 @@ function signalKindFor(
 ): AgentSignal["kind"] {
   if (state === "working") return "working";
   if (state === "blocked") return "attention";
+  // Background work continuing is its own kind rather than "working" or "idle": the store draws it
+  // as neither, and a turn that ended into background work must not latch as a finished turn the
+  // user has not looked at. See `AgentPhase` for what the two are drawn as.
+  if (state === "trailing") return "trailing";
   if (previous === "working") return "finished";
   return "idle";
 }
@@ -202,14 +206,38 @@ function judgeWithoutAgent(previous: JudgeEntry, nowMs: number): JudgeOutcome {
     lostSince: null,
     idleSince: null,
   };
+  // The agent left the screen, and the store has to be told or the tab goes on describing an agent
+  // that is not there. It used to be told only when the screen had been showing a turn: an agent
+  // that settled to `idle` first (which is what a prompt does) then went away left its name behind,
+  // and a tab whose pane is a bare `$` prompt was drawn green for the rest of the window's life -
+  // measured on this machine, `phases[65] = idle` and `agents[65] = opencode` on a pane whose whole
+  // screen was `special@LAPTOP MINGW64 ~/Desktop` and `$`.
+  //
+  // `exited` clears the phase, the name and both latches, which is exactly what is true here: there
+  // is no agent on this session. `idle` was the signal for "the agent is still there, at its prompt"
+  // and this is the opposite of that.
   if (previous.state === "idle") {
-    // Already reported as finished; only the bookkeeping changes.
-    return { kind: "quiet", entry };
+    // Already reported as finished; the store's bookkeeping is all that is left to clear.
+    return { kind: "report", entry, signals: [{ id: previous.id, kind: "exited" }] };
   }
   if (previous.state === "blocked") {
     // What left the screen was a question, and a question is not a turn: reported as rest, so
     // nothing is latched and no notification follows. See `signalKindFor` for the measurement.
-    return { kind: "report", entry, signals: [{ id: previous.id, kind: "idle" }] };
+    return {
+      kind: "report",
+      entry,
+      signals: [
+        { id: previous.id, kind: "idle" },
+        { id: previous.id, kind: "exited" },
+      ],
+    };
   }
-  return { kind: "report", entry, signals: [{ id: previous.id, kind: "finished" }] };
+  return {
+    kind: "report",
+    entry,
+    signals: [
+      { id: previous.id, kind: "finished" },
+      { id: previous.id, kind: "exited" },
+    ],
+  };
 }

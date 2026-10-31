@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 
-export type AgentPhase = "working" | "attention" | "finished" | "idle";
+export type AgentPhase = "working" | "attention" | "finished" | "idle" | "trailing";
 
 /** The kinds a signal can carry, as the store's own vocabulary. */
 export type AgentSignalKind =
@@ -10,6 +10,7 @@ export type AgentSignalKind =
   | "attention"
   | "finished"
   | "idle"
+  | "trailing"
   | "exited";
 
 export type AgentSignal = {
@@ -207,6 +208,8 @@ export function phaseForSignal(kind: string): AgentPhase | "exited" | null {
       return "working";
     case "attention":
       return "attention";
+    case "trailing":
+      return "trailing";
     case "finished":
       return "finished";
     case "idle":
@@ -397,24 +400,26 @@ export function countAgentPhases(
 /**
  * One tab's agent status.
  *
- * The three states the window draws, and what each one is for: `attention` for a question, which
+ * The states the window draws, and what each one is for: `attention` for a question, which
  * is the one thing that has to reach the user wherever they are looking; `finished` for a turn
  * that ended and that the user has not looked at yet, which is news and is why it is the one
- * state that goes away by itself; and `working` for everything else with an agent on it - a turn
- * in flight, and a session sitting at its prompt, which read the same because a session that has
- * just been opened has ended no turn and has nothing to say beyond "there is an agent here".
+ * state that goes away by itself; `trailing` for a turn that ended with the tool's own background
+ * work still running, which is neither work in flight nor rest; and `working` for everything else
+ * with an agent on it - a turn in flight, and a session sitting at its prompt, which read the same
+ * because a session that has just been opened has ended no turn and has nothing to say beyond
+ * "there is an agent here".
  *
  * An agent sitting at its prompt keeps its name, so the tab keeps the brand icon, and a shell
  * with no agent on it is not a state at all.
  */
 export type AgentTabStatus = {
-  state: "attention" | "working" | "idle" | "finished" | null;
+  state: "attention" | "working" | "idle" | "finished" | "trailing" | null;
   agent: string | null;
 };
 
 /**
  * Highest-severity state across the tab's ptys wins: attention > an ending the user has not seen
- * > work in flight > an agent at its prompt.
+ * > work in flight > background work the turn left behind > an agent at its prompt.
  *
  * The ending is read from the latch rather than from the phase, because that is what makes it
  * news: the phase settles to `idle` a few seconds after the turn ends, while "you have not looked
@@ -429,6 +434,7 @@ export function tabAgentStatus(
   let attention = false;
   let ended = false;
   let working = false;
+  let trailing = false;
   let resting = false;
   let agentName: string | null = null;
   for (const id of ptyIds) {
@@ -447,6 +453,10 @@ export function tabAgentStatus(
       working = true;
       continue;
     }
+    if (phase === "trailing") {
+      trailing = true;
+      continue;
+    }
     // At rest: an agent with no turn in flight. A shell with no agent on it has no state at all,
     // which is why this one asks for the name and the two above do not.
     if (agent !== null) resting = true;
@@ -454,6 +464,7 @@ export function tabAgentStatus(
   if (attention) return { state: "attention", agent: null };
   if (ended) return { state: "finished", agent: agentName };
   if (working) return { state: "working", agent: agentName };
+  if (trailing) return { state: "trailing", agent: agentName };
   if (resting) return { state: "idle", agent: agentName };
   return { state: null, agent: null };
 }

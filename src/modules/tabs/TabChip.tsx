@@ -341,7 +341,9 @@ export const TabChip = memo(function TabChip({
         <span className={cn("truncate", isPreview && "italic")}>
           {labelFor(tab)}
         </span>
-        {agentStatus.state !== null ? (
+        {/* The state marker rides the icon's kind, not the store: only a tab whose icon is an
+            agent's says "an agent is on this session", and only that tab is marked. */}
+        {agentStatus.state !== null && hasAgentIcon(tab) ? (
           <AgentStateDot state={agentStatus.state} />
         ) : null}
         {tab.kind === "editor" && tab.dirty ? (
@@ -474,6 +476,21 @@ function TerminalTabIcon({ tab }: { tab: TerminalTab }) {
       className="shrink-0"
     />
   );
+}
+
+/**
+ * Whether this tab's icon is an agent's, which is what earns the state marker.
+ *
+ * The marker says "an agent is on this session", so it belongs on the tabs that say that: a tab
+ * opened for an agent keeps that agent's icon, and a plain shell keeps the terminal one. A shell an
+ * agent was *typed into* is deliberately not marked here - its icon is still the terminal's, and the
+ * person this is drawn for asked for the two to agree ("图标是 agent 的才有呼吸灯").
+ *
+ * The state itself is read from the activity store, which is keyed by pty and knows about agents
+ * found by the judge rather than by the launch: this is only the condition for drawing it.
+ */
+function hasAgentIcon(tab: Tab): boolean {
+  return tab.kind === "terminal" && tab.agent !== null;
 }
 
 export function TabIcon({ tab }: { tab: Tab }) {

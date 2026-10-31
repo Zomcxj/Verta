@@ -42,7 +42,8 @@ describe("the sessions panel while it reads", () => {
     // machine's. Drawing the list as complete in between showed it missing its WSL block with
     // nothing to say why - which reads as "the switch did nothing". A finished read therefore clears
     // the pending sets per source, and the list stays in "reading" until the last one settles.
-    expect(panel).toContain("setPendingSources(pendingFor(requests))");
+    expect(panel).toContain("const asked = pendingFor(requests)");
+    expect(panel).toContain("setPendingSources(asked)");
     expect(panel).toContain("next.delete(key)");
   });
 });

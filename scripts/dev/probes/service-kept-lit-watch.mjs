@@ -14,6 +14,17 @@
 // older than the window, and its row is still drawn as running: at that moment the write times alone
 // would have left the row dark.
 //
+// The reverse is recorded too, because it needs a real turn to end and nothing can arrange that: every
+// session once seen mid-turn is watched afterwards, and the sample where its row stops carrying a
+// state is kept with what the service said about it then and how old its last write was. "The turn
+// ended and the row went dark" and "the row went dark while the service still said it was running" are
+// the same event on screen and different answers, so the difference is written down.
+//
+// A row that is missing from the document is neither of those. Measured on this machine, a session
+// that was mid-turn was absent for one sample while the panel redrew and back on the next, with the
+// same store and the same service answer on either side of it. Those samples are counted and set
+// aside rather than read as the row going dark, which would invent the very event this is for.
+//
 // Usage:
 //   node scripts/dev/probes/service-kept-lit-watch.mjs
 //   node scripts/dev/probes/service-kept-lit-watch.mjs --minutes=6 --every=30
@@ -21,7 +32,8 @@
 // Exit codes: 0 the row stayed lit on the service's word (and the number of samples is reported),
 // 1 the row went dark while the service still said the turn was running, 2 nothing to watch (no panel,
 // or no session was mid-turn at all), 3 the situation never arose within the time given - which is not
-// a pass, and says so rather than reporting the claim as verified.
+// a pass, and says so rather than reporting the claim as verified, 4 the row was seen going dark but
+// no sample showed a row outsitting the write window, which is the other half of the same question.
 const arg = (name, fallback) => {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
   return hit === undefined ? fallback : hit.slice(name.length + 3);
@@ -129,6 +141,35 @@ if (panelWidth < 60) {
   process.exit(2);
 }
 
+// A row that stops being lit is the other half of the same question, and it is the half that needs a
+// real turn to end rather than anything this probe can arrange. Every session the service reported
+// mid-turn is tracked afterwards, and the sample where its row first stops carrying a state is
+// recorded with what the service said about it at that moment and how old its last write was. That
+// is the difference between "the turn ended and the row went dark" and "the row went dark while the
+// service still said the turn was running", which is a failure below.
+//
+// A row that is not in the document at all is a third thing, and it is not a dark row: measured on
+// this machine, a session mid-turn was absent from the list for one sample while the panel was
+// redrawing and back in it on the next, with the same store and the same service answer either side.
+// So absence is recorded as its own reading and the last state the row was seen in is carried over;
+// reading "the row is gone" as "the row went dark" would invent the event this half exists to catch.
+const LIT = new Set([
+  "background",
+  "working",
+  "attention",
+  "idle",
+  "finished",
+  "trailing",
+]);
+const tracked = new Map();
+const wasLit = new Map();
+const darkenings = [];
+const rowOf = (rows, id) => {
+  const row = rows.find((r) => r.id === id);
+  return row === undefined ? { drawn: false, state: null } : { drawn: true, state: row.state };
+};
+let notDrawn = 0;
+
 const deadline = Date.now() + minutes * 60_000;
 const samples = [];
 let sawAnyMidTurn = false;
@@ -139,15 +180,48 @@ try {
     const store = storeStamp();
     const midTurn = raw.sessions
       .filter((s) => ids.has(s.id) && s.parentId === null)
-      .map((s) => ({
-        id: s.id,
-        title: s.title,
-        writeAgeMinutes: Math.round((s.writeAgeMs / 60000) * 10) / 10,
-        rowState: raw.rows.find((r) => r.id === s.id)?.state ?? "no-row",
-        beyondWindow: s.writeAgeMs > raw.windowMs,
-      }));
+      .map((s) => {
+        const row = rowOf(raw.rows, s.id);
+        if (!row.drawn) notDrawn += 1;
+        return {
+          id: s.id,
+          title: s.title,
+          writeAgeMinutes: Math.round((s.writeAgeMs / 60000) * 10) / 10,
+          drawn: row.drawn,
+          rowState: row.drawn ? row.state : "not-drawn",
+          beyondWindow: s.writeAgeMs > raw.windowMs,
+        };
+      });
+    for (const m of midTurn) {
+      tracked.set(m.id, m.title);
+      if (!wasLit.has(m.id) && m.drawn) wasLit.set(m.id, m.rowState);
+    }
+    // Sessions that were mid-turn once and are not any more are still watched: this is where a row
+    // that stayed lit by the write times alone is expected to go dark, three minutes after its last
+    // write. The moment is recorded either way, with the reason attached.
+    const at = new Date().toISOString().slice(11, 19);
+    for (const [id, title] of tracked) {
+      const session = raw.sessions.find((s) => s.id === id);
+      const row = rowOf(raw.rows, id);
+      if (!row.drawn) continue;
+      const previous = wasLit.get(id);
+      if (previous !== undefined && LIT.has(previous) && !LIT.has(row.state)) {
+        darkenings.push({
+          at,
+          id,
+          title,
+          from: previous,
+          to: row.state === null ? "无标记" : row.state,
+          serviceStillReports: ids.has(id),
+          writeAgeMinutes:
+            session === undefined ? null : Math.round((session.writeAgeMs / 60000) * 10) / 10,
+        });
+      }
+      if (LIT.has(row.state)) wasLit.set(id, row.state);
+      else wasLit.delete(id);
+    }
     const sample = {
-      at: new Date().toISOString().slice(11, 19),
+      at,
       serviceIds: raw.serviceIds,
       store,
       midTurn,
@@ -172,23 +246,67 @@ try {
   console.error(`采样中断：${String(error?.message ?? error)}`);
 }
 
-// The decisive samples: mid-turn, past the write window, and drawn as running anyway.
+// The decisive samples: mid-turn, past the write window, and drawn as running anyway. A sample where
+// the row was not drawn at all decides nothing and is counted on its own.
+//
+// Which state the row was drawn in is kept, because the claim this probe makes is about the
+// service's word keeping the row lit: `background` is the row the panel folds out of the write times
+// and the service answer, so that is the decisive one. A row drawn as work in flight or as
+// background work is lit for a reason of its own (the screen says so), which is worth reporting but
+// is not this claim; a row drawn green, or drawn with no marker at all, while the service says a
+// turn is running is the fault this probe exists for.
 const decisive = [];
+const litByScreen = [];
 const failures = [];
+let undecided = 0;
 for (const sample of samples) {
   for (const m of sample.midTurn) {
+    if (!m.drawn) {
+      if (m.beyondWindow) undecided += 1;
+      continue;
+    }
     if (!m.beyondWindow) continue;
     if (m.rowState === "background") decisive.push({ at: sample.at, ...m });
+    else if (
+      m.rowState === "working" ||
+      m.rowState === "attention" ||
+      m.rowState === "trailing"
+    )
+      litByScreen.push({ at: sample.at, ...m });
     else failures.push({ at: sample.at, ...m });
   }
 }
 
 console.log(`\n采样 ${samples.length} 次，其中 ${samples.filter((s) => s.midTurn.length > 0).length} 次有已在跑的顶层会话。`);
 console.log(
+  `这些采样里有 ${notDrawn} 行次「这一格根本没画出来」（面板重绘的瞬间，不是灭）` +
+    (undecided > 0 ? `，其中 ${undecided} 行次已超写窗口、因此这一遍判不了` : "") +
+    "。",
+);
+console.log(
   decisive.length > 0
     ? `写窗口之外仍亮着（只可能因为服务判据）共 ${decisive.length} 次：${decisive.map((d) => `${d.at} ${d.title} 写龄 ${d.writeAgeMinutes}min`).join("；")}`
     : "没有出现「写龄超出写窗口」的采样。",
 );
+if (litByScreen.length > 0) {
+  console.log(
+    `另外有 ${litByScreen.length} 行次在写窗口之外仍亮，但亮的原因是**屏幕自己**说的（行上是 ${[...new Set(litByScreen.map((m) => m.rowState))].join("/")}）：` +
+      litByScreen
+        .map((m) => `${m.at} ${m.title} 行上 ${m.rowState}`)
+        .join("；"),
+  );
+}
+if (darkenings.length > 0) {
+  console.log(`\n看到 ${darkenings.length} 次「行由亮转灭」，每次都带当时服务怎么说与写龄：`);
+  for (const d of darkenings) {
+    console.log(
+      `  - ${d.at} ${d.title}（${d.from} → ${d.to}）  服务此刻${d.serviceStillReports ? "仍报在跑" : "已不报在跑"}  ` +
+        `最后写盘 ${d.writeAgeMinutes === null ? "未知" : `${d.writeAgeMinutes}min 前`}`,
+    );
+  }
+} else {
+  console.log("\n这一次没有看到「行由亮转灭」（要等某条真跑完并过了写窗口）。");
+}
 
 socket.close();
 if (failures.length > 0) {
@@ -199,6 +317,13 @@ if (failures.length > 0) {
 if (decisive.length > 0) {
   console.log("\n通过：服务说在跑的会话，写盘早已超出写窗口，行依旧亮着。");
   process.exit(0);
+}
+if (darkenings.length > 0) {
+  console.log(
+    "\n这一遍证到的是反向那一半：行确实由亮转灭，并且每一刻都记下了当时服务怎么说、写龄多久；" +
+      "但「写龄超出写窗口时服务仍报在跑、行依旧亮着」这一幕没有出现，所以那一条没有被这一遍证到。",
+  );
+  process.exit(4);
 }
 console.error(
   sawAnyMidTurn

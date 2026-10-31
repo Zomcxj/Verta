@@ -679,6 +679,7 @@ const zh = {
   "tabs.agentState.attention": "在等你",
   "tabs.agentState.finished": "刚做完",
   "tabs.agentState.background": "后台有 agent 在跑，没有标签页",
+  "tabs.agentState.trailing": "回合结束了，后台任务还在跑",
   "tabs.agentState.idle": "空闲",
 
   "header.settings": "设置",
@@ -2087,6 +2088,7 @@ const en: Record<MessageKey, string> = {
   "tabs.agentState.attention": "Waiting for you",
   "tabs.agentState.finished": "Just finished",
   "tabs.agentState.background": "An agent is working here, with no tab open",
+  "tabs.agentState.trailing": "The turn ended, background tasks are still running",
   "tabs.agentState.idle": "Idle",
 
   "header.settings": "Settings",

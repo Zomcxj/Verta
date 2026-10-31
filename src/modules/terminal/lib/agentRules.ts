@@ -101,6 +101,23 @@ const OPENCODE_IDENTIFY: readonly Pattern[] = [
   // Deliberately not in `OPENCODE_FOOTER`: the idle rule requires every footer hint, and a question
   // panel is the opposite of idle.
   contains("enter submit"),
+  // And the same panel with more than one question, whose footer navigates between them and says
+  // `enter choose  tab next` instead. Without this, a session sitting on a two-question panel was
+  // reported as having no agent at all, which is how the tab stayed green with a panel open on it.
+  contains("enter choose"),
+];
+
+/**
+ * What a screen showing background work must *not* have on it.
+ *
+ * The interrupt hint in any spelling (`rupt` covers `esc interrupt` and the elided `esc...rupt`),
+ * the status word a running turn paints, and a spinner glyph. Any of them means the screen is being
+ * worked on right now, which is work in flight rather than work left behind.
+ */
+const OPENCODE_NOT_TRAILING: readonly Pattern[] = [
+  contains("rupt"),
+  contains("thinking"),
+  anyChar(SPINNER_FRAMES),
 ];
 
 const OPENCODE_RULES: readonly AgentRule[] = [
@@ -140,6 +157,18 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     region: BOTTOM,
     allOf: [contains("enter submit"), contains("esc dismiss")],
   }),
+  // The same panel asked with more than one question. It then navigates between them, and the footer
+  // becomes `↑↓ select  enter choose  tab next  esc dismiss` - both spellings are in the installed
+  // opencode's own strings, and this one was on screen while the tab stayed green: the rule above
+  // matches `enter submit`, which this footer does not contain. Its options carry the same shape, so
+  // it is the same panel and the same answer: the agent is waiting on the user.
+  rule({
+    id: "opencode_questions_panel_multi",
+    state: "blocked",
+    priority: 995,
+    region: BOTTOM,
+    allOf: [contains("enter choose"), contains("esc dismiss")],
+  }),
   // Working, and saying so for the whole time: the footer carries the interrupt hint and a
   // progress bar for as long as a turn runs, unlike the spinner glyph, which the TUI paints on
   // some frames and not others. Measured on this machine (2026-10-27, with
@@ -157,18 +186,52 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     region: bottom(1),
     allOf: [contains("esc interrupt")],
   }),
-  // The turn is over but a background shell is not: opencode goes on counting them on that same
-  // footer line, and a turn that ended is not work that is done. Measured on this machine: the
-  // count fell from three to two as background commands finished, while the session carried on
-  // with another turn in front of them. Read as the footer line rather than as the word alone,
-  // because the word is ordinary in a conversation; `shell` without a plural covers a count of
-  // one, which that footer spells `1 shell`.
+  // Background work outlives the turn: opencode keeps counting its own shells and the subagents a
+  // turn started on that same footer line, and a job still running is not a session at rest.
+  // Measured on this machine (2026-10-31, `idle-screen.log`, 121 screens sampled while nothing was
+  // driving the session):
+  //
+  //   F:\…\Verta:ma…  命中率 99.8% ↑0.7% · Tokens 2232.6M · 余额 -   ↓ 1 shell · ◎ goal paused · 319.7K (64%)  ctrl+p commands
+  //   ⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt 命中率 99.8% · Tokens 78.3M · 余额 - · ↓ 3 subagents · ◎ goal · 317.6K (64%) ctrl+p commands
+  //   ⬝⬝⬝⬝⬝⬝■■esc...rupt 命中率 99.8% · Tokens 78.3M · 余 ↓ 3 subagents · 1 shell · ◎ goal · 317.6K (64%) ctrl+p commands
+  //
+  // Four things those three lines settle, each of which a rule written from the first one alone
+  // would have got wrong:
+  //
+  // - the count is singular for one shell and plural after that, and a shell that follows a subagent
+  //   count is spelled `1 shell` with no arrow of its own, so the match is on the word rather than on
+  //   the `↓` beside it.
+  // - subagents are counted in the same place and are the same kind of thing: work the turn left
+  //   running. They are matched as `subagent` rather than as `agent`, because `agent` is also the
+  //   name opencode prints for its model router on the line above (`gpt-6.1-sol openai_agentrouter`).
+  // - the footer **wraps**, so the count is often on the line *above* the last one (the last line is
+  //   the remainder, `·`). Read from `bottom(1)` the idle screen matched nothing and fell through to
+  //   the spinner rule, which read the same situation as `working` - the same session, the same one
+  //   shell, two different answers depending on how wide the pane happened to be. This reads the last
+  //   two non-empty lines.
+  // - the interrupt hint is what separates "a turn is in flight" from "the turn is over": while a
+  //   turn runs the footer carries `esc interrupt` *and* the counts. So the hint is excluded rather
+  //   than merely outranked: `opencode_interruptible` sits above these rules anyway, but it matches
+  //   the literal words, and the same hint is drawn elided (`esc...rupt`) on some frames, which would
+  //   let these read a working screen as background work.
+  //
+  // The spinner is excluded for the same reason: a glyph anywhere in the region means something is
+  // being painted right now, and that is work rather than background work.
   rule({
-    id: "opencode_background_shell",
-    state: "working",
-    priority: 810,
-    region: bottom(1),
+    id: "opencode_trailing_shell",
+    state: "trailing",
+    priority: 815,
+    region: bottom(2),
     allOf: [contains("shell"), contains("ctrl+p")],
+    noneOf: OPENCODE_NOT_TRAILING,
+  }),
+  rule({
+    id: "opencode_trailing_subagent",
+    state: "trailing",
+    priority: 815,
+    region: bottom(2),
+    allOf: [contains("subagent"), contains("ctrl+p")],
+    noneOf: OPENCODE_NOT_TRAILING,
   }),
   // Working: the spinner frames. Seen in the captures (`⠋`, `⠙`, `⠏`).
   rule({

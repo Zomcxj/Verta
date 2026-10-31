@@ -28,8 +28,16 @@
  *   flipping the state.
  */
 
-/** The three states worth showing, plus "we do not know". */
-export type AgentState = "working" | "blocked" | "idle" | "unknown";
+/**
+ * The states worth showing, plus "we do not know".
+ *
+ * `trailing` is the one that is not a turn: the turn is over and the tool still counts background
+ * work of its own (opencode's footer carries the count). It is a state rather than plain `working`
+ * because the two ask different things of the reader - one says "the agent is on it", the other says
+ * "nothing is being thought about, something is still running" - and it is a state rather than
+ * `idle` because a session with a job still going is not at rest.
+ */
+export type AgentState = "working" | "blocked" | "idle" | "trailing" | "unknown";
 
 /** Which part of the tail a rule looks at. */
 export type Region =
@@ -81,6 +89,12 @@ export type AgentRule = {
   readonly visibleBlocker: boolean;
   /** The screen is showing the agent at its prompt. */
   readonly visibleIdle: boolean;
+  /**
+   * The screen is showing work that outlived the turn: the agent is not painting anything and the
+   * tool still counts jobs of its own. Not `visibleIdle` (something is running) and not
+   * `visibleWorking` (nothing is being thought about), which is why it is its own flag.
+   */
+  readonly visibleTrailing: boolean;
   /** A match is real, but it is not live state (a transcript view, a pager). */
   readonly skipStateUpdate: boolean;
 };
@@ -91,6 +105,7 @@ export type AgentDetection = {
   readonly visibleWorking: boolean;
   readonly visibleBlocker: boolean;
   readonly visibleIdle: boolean;
+  readonly visibleTrailing: boolean;
   /** A match was found, but it is not live state; the caller keeps the state it had. */
   readonly skipStateUpdate: boolean;
   /** The rule that decided, for logs and tests. `null` when nothing matched. */
@@ -127,6 +142,7 @@ export type RuleSpec = {
   visibleWorking?: boolean;
   visibleBlocker?: boolean;
   visibleIdle?: boolean;
+  visibleTrailing?: boolean;
   skipStateUpdate?: boolean;
 };
 
@@ -148,6 +164,7 @@ export function rule(spec: RuleSpec): AgentRule {
     visibleWorking: spec.visibleWorking ?? spec.state === "working",
     visibleBlocker: spec.visibleBlocker ?? spec.state === "blocked",
     visibleIdle: spec.visibleIdle ?? spec.state === "idle",
+    visibleTrailing: spec.visibleTrailing ?? spec.state === "trailing",
     skipStateUpdate: spec.skipStateUpdate ?? spec.state === "unknown",
   };
 }
@@ -201,6 +218,7 @@ export const UNKNOWN_DETECTION: AgentDetection = {
   visibleWorking: false,
   visibleBlocker: false,
   visibleIdle: false,
+  visibleTrailing: false,
   skipStateUpdate: false,
   rule: null,
 };
@@ -225,6 +243,7 @@ export function evaluate(
     visibleWorking: best.visibleWorking,
     visibleBlocker: best.visibleBlocker,
     visibleIdle: best.visibleIdle,
+    visibleTrailing: best.visibleTrailing,
     skipStateUpdate: best.skipStateUpdate,
     rule: best.id,
   };

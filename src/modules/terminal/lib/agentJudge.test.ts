@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { applySignal, useAgentActivityStore } from "./agentActivity";
 import type { AgentSignal } from "./agentActivity";
 import {
   AGENT_GONE_MS,
@@ -14,6 +15,16 @@ const OPENCODE_IDLE = "Where to next?\nctrl+p commands   · Tokens 12.4k";
 const OPENCODE_BLOCKED =
   "△ Permission required\n  Allow once\n  Allow always\n  Deny\nctrl+p commands";
 const SHELL_PROMPT = "special@LAPTOP MINGW64 /f/VibeCoding/work (main)\n$ ";
+
+/**
+ * A turn over, one background shell left, and the footer wrapped so the count sits on the line
+ * above the last one (2026-10-31, `idle-screen.log`; see `agentRules.test.ts` for the full screen).
+ */
+const OPENCODE_TRAILING = [
+  "  ┃  Build auto · deepseek-v4.1-flash workbuddy · max",
+  "  F:\\…\\Verta:ma…  命中率 99.8% ↑0.7% · Tokens 2232.6M · 余额 -   ↓ 1 shell · ◎ goal paused · 319.7K (64%)  ctrl+p commands",
+  "                  ·",
+].join("\n");
 
 const kinds = (signals: readonly AgentSignal[]) =>
   signals.map((signal) => signal.kind);
@@ -46,6 +57,29 @@ describe("judgeTail", () => {
   it("does not repeat an announcement or a state that has not changed", () => {
     const working = first(OPENCODE_WORKING);
     expect(judgeTail(working.entry, OPENCODE_WORKING, 2_000).kind).toBe("quiet");
+  });
+
+  it("reports a turn that ended into background work as trailing, not as an ending", () => {
+    // The session is not at rest (something is still running) and this is not "a turn finished"
+    // either: the latch that says an ending nobody has looked at is kept by the caller, and the
+    // phase it draws is neither of the two states around it.
+    const working = first(OPENCODE_WORKING);
+    const trailing = judgeTail(working.entry, OPENCODE_TRAILING, 2_000);
+    if (trailing.kind !== "report") {
+      throw new Error(`expected a report, got ${trailing.kind}`);
+    }
+    expect(kinds(trailing.signals)).toEqual(["trailing"]);
+    expect(trailing.entry.state).toBe("trailing");
+  });
+
+  it("reports the background work finishing as rest", () => {
+    const working = first(OPENCODE_WORKING);
+    const trailing = judgeTail(working.entry, OPENCODE_TRAILING, 2_000);
+    if (trailing.kind !== "report") throw new Error("report");
+    const idle = judgeTail(trailing.entry, OPENCODE_IDLE, 3_000);
+    if (idle.kind !== "report") throw new Error(`report, got ${idle.kind}`);
+    expect(kinds(idle.signals)).toEqual(["idle"]);
+    expect(idle.entry.state).toBe("idle");
   });
 
   it("reports a question as attention", () => {
@@ -132,7 +166,10 @@ describe("an agent that leaves the screen", () => {
     const gone = judgeTail(firstMiss.entry, SHELL_PROMPT, 5_000 + AGENT_GONE_MS);
     expect(gone.kind).toBe("report");
     if (gone.kind !== "report") return;
-    expect(kinds(gone.signals)).toEqual(["finished"]);
+    // `exited` after `finished`: the turn ended, and then there is no agent on this session at all,
+    // which is what clears the store's name for it. Without that the tab went on drawing a green dot
+    // over a bare shell prompt for the rest of the window's life.
+    expect(kinds(gone.signals)).toEqual(["finished", "exited"]);
     expect(gone.entry).toEqual({
       id: 7,
       tool: null,
@@ -152,7 +189,9 @@ describe("an agent that leaves the screen", () => {
     const gone = judgeTail(firstMiss.entry, SHELL_PROMPT, 6_000 + AGENT_GONE_MS);
     expect(gone.kind).toBe("report");
     if (gone.kind !== "report") return;
-    expect(kinds(gone.signals)).toEqual(["idle"]);
+    // Rest first (a question is not a turn), then `exited` for the same reason as above: the
+    // session has no agent on it any more, so nothing may keep describing one.
+    expect(kinds(gone.signals)).toEqual(["idle", "exited"]);
     expect(gone.entry.tool).toBeNull();
   });
 
@@ -164,15 +203,42 @@ describe("an agent that leaves the screen", () => {
     if (back.kind !== "report") return;
     expect(back.entry.lostSince).toBeNull();
     expect(kinds(back.signals)).toEqual(["attention"]);
-    // And the agent is not called gone a second time for a screen that has already
-    // been reported as finished.
+    // An agent already reported as settled still has to be cleared when its screen goes: the
+    // sentence this replaces said the opposite, and it is the reason a tab whose pane is a bare
+    // `$` prompt kept a green dot. Measured on this machine: `phases[65] = idle` and
+    // `agents[65] = opencode` on a pane whose whole screen was a prompt.
     const gone = judgeTail(
       { id: 7, tool: "opencode", state: "idle", lostSince: 6_000, idleSince: null },
       SHELL_PROMPT,
       6_000 + AGENT_GONE_MS,
     );
-    expect(gone.kind).toBe("quiet");
-    if (gone.kind === "quiet") expect(gone.entry.tool).toBeNull();
+    expect(gone.kind).toBe("report");
+    if (gone.kind !== "report") return;
+    expect(kinds(gone.signals)).toEqual(["exited"]);
+    expect(gone.entry.tool).toBeNull();
+  });
+
+  it("leaves no agent name behind when a settled agent's screen becomes a bare prompt", () => {
+    // The reported case, end to end: a pane that showed opencode at rest, then became an empty shell
+    // prompt, kept `agents[pty] = "opencode"` for the rest of the window's life - and the tab's
+    // green asks only whether that name is there, not what the phase is. Replayed here with the
+    // real judge: the name is set by `started`, and only an `exited` takes it away.
+    const store = useAgentActivityStore.getState();
+    store.clear(7);
+    let entry = emptyJudgeEntry(7);
+    let now = 1_000;
+    for (const tail of [OPENCODE_IDLE, SHELL_PROMPT, SHELL_PROMPT, SHELL_PROMPT, SHELL_PROMPT]) {
+      const outcome = judgeTail(entry, tail, now);
+      entry = outcome.entry;
+      if (outcome.kind === "report") {
+        for (const signal of outcome.signals) applySignal(signal);
+      }
+      now += AGENT_GONE_MS / 2;
+    }
+    const after = useAgentActivityStore.getState();
+    // Nothing on this session describes an agent any more, which is what the tab and the row read.
+    expect(after.agents[7]).toBeUndefined();
+    expect(after.phases[7]).toBeUndefined();
   });
 
   it("never asks about a screen that was never an agent", () => {

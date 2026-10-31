@@ -9,30 +9,34 @@ import { type MessageKey, useT } from "@/modules/i18n";
  * a state have to be the same in both or the two places would describe one session two different
  * ways.
  *
- * There are three colours and four states. `working` and `idle` are two states and one colour
+ * Four colours, one of them a mix. `working` and `idle` are two states and one colour
  * because neither is news about the user, and `idle` and `finished` are two states and one colour
  * because a turn that ended and an agent sitting back down at its prompt are the same thing to look
  * at: green says an agent is there and nothing is in flight, and it goes on saying it until the next
  * turn starts. Which of them it is only matters to the wording, and to the store, where the latch
  * that says "an ending nobody has looked at yet" is kept - that latch is what the tray icon and the
  * notifications read, and it is not drawn here.
+ *
+ * `trailing` is the mix, and deliberately so: a turn that ended with the tool's own background work
+ * still running is both halves of the vocabulary at once - nothing is being thought about (green),
+ * something is still running (orange) - and picking either one of them would say something untrue.
  */
 export type AgentStateDot =
   | "attention"
   | "working"
   | "idle"
   | "finished"
-  | "background";
+  | "background"
+  | "trailing";
 
 /**
  * The colour a state is drawn in, as the bare token, so that one table is the single answer and a
- * test can pin it. A question is blue, work in flight is orange, and an agent at rest - however it
- * got there - is green.
+ * test can pin it. A question is blue, work in flight is orange, an agent at rest - however it got
+ * there - is green, and a turn that has ended with its tool's own work still running is purple: it
+ * is neither of the two states it sits between, and every attempt to draw it as both at once said
+ * the wrong thing (see `DOT_CLASS`).
  */
-export const STATE_COLOUR: Record<
-  AgentStateDot,
-  "sky-500" | "orange-500" | "emerald-500"
-> = {
+export const STATE_COLOUR: Record<AgentStateDot, string> = {
   attention: "sky-500",
   working: "orange-500",
   idle: "emerald-500",
@@ -40,6 +44,7 @@ export const STATE_COLOUR: Record<
   // A live process the window cannot see inside. Orange because "an agent is here" is what orange
   // means; a fourth colour would make the vocabulary ask the reader for one more distinction.
   background: "orange-500",
+  trailing: "purple-500",
 };
 
 /**
@@ -52,6 +57,21 @@ export const STATE_COLOUR: Record<
  * `verta-state-breathe` is the animation and `verta-state-indicator` is the marker the stylesheet
  * looks for when it decides whether the window being seen matters: an indicator keeps moving while
  * the window is on screen and stops when nobody can see it.
+ *
+ * The state that is neither working nor at rest has a colour of its own, and it took three attempts
+ * to settle that, each decided by the person who has to look at it:
+ *
+ * - a gradient from orange to green read as khaki, which is what that blend is: orange (hue 48) and
+ *   green (hue 162) interpolate through the yellows, and on a dot six pixels across the transition
+ *   is most of the marker, so neither colour is ever seen at its own strength.
+ * - a hard stop inside the dot at 65% of its radius read as the wrong way round: a ring one pixel
+ *   thick on a six pixel dot is 58% of its area, so what the eye saw was a green dot with an orange
+ *   middle however the two were named.
+ * - an orange dot with one pixel of green around it was a ring, and was still not what was wanted.
+ *
+ * So it is drawn in a colour nothing else uses. The lesson written down rather than the sequence:
+ * on a marker this small, two colours cannot both be read, and a state that means two things at once
+ * is better told apart by a colour of its own than by a picture of the two.
  */
 export const DOT_CLASS: Record<AgentStateDot, string> = {
   attention: "bg-sky-500 verta-state-breathe verta-state-indicator",
@@ -59,6 +79,7 @@ export const DOT_CLASS: Record<AgentStateDot, string> = {
   idle: "bg-emerald-500 verta-state-breathe verta-state-indicator",
   finished: "bg-emerald-500 verta-state-breathe verta-state-indicator",
   background: "bg-orange-500 verta-state-breathe verta-state-indicator",
+  trailing: "bg-purple-500 verta-state-breathe verta-state-indicator",
 };
 
 const STATE_LABEL: Record<AgentStateDot, MessageKey> = {
@@ -68,6 +89,7 @@ const STATE_LABEL: Record<AgentStateDot, MessageKey> = {
   finished: "tabs.agentState.finished",
   // Deliberately not "working": a process that exists is all we know.
   background: "tabs.agentState.background",
+  trailing: "tabs.agentState.trailing",
 };
 
 /**
@@ -75,6 +97,10 @@ const STATE_LABEL: Record<AgentStateDot, MessageKey> = {
  *
  * Two tables because a bar and the highlight crossing it are drawn by two elements, and Tailwind
  * reads class names as text. Both are held to `STATE_COLOUR` by the test beside this file.
+ *
+ * Every state's bar is its own colour, held back: the bed at a quarter and the light crossing it at
+ * full strength. The state that is neither working nor at rest is purple here for the same reason
+ * it is purple on the dot, and this is the same table read by the other surface.
  */
 export const MARQUEE_TRACK_CLASS: Record<AgentStateDot, string> = {
   attention: "bg-sky-500/25 verta-state-indicator",
@@ -82,6 +108,7 @@ export const MARQUEE_TRACK_CLASS: Record<AgentStateDot, string> = {
   idle: "bg-emerald-500/25 verta-state-indicator",
   finished: "bg-emerald-500/25 verta-state-indicator",
   background: "bg-orange-500/25 verta-state-indicator",
+  trailing: "bg-purple-500/25 verta-state-indicator",
 };
 
 export const MARQUEE_SWEEP_CLASS: Record<AgentStateDot, string> = {
@@ -90,6 +117,7 @@ export const MARQUEE_SWEEP_CLASS: Record<AgentStateDot, string> = {
   idle: "bg-emerald-500 verta-state-marquee",
   finished: "bg-emerald-500 verta-state-marquee",
   background: "bg-orange-500 verta-state-marquee",
+  trailing: "bg-purple-500 verta-state-marquee",
 };
 
 /** The state's wording, for any surface that needs to say it in words. */

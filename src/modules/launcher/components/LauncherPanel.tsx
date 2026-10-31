@@ -16,6 +16,15 @@ import { toast } from "sonner";
 import { renameAgentSession } from "../lib/sessions";
 import { type SessionGroupBy, groupBySource } from "../lib/sessionGroups";
 import { relativeToRoot } from "../lib/sessionPaths";
+import {
+  type SourceRows,
+  allRows,
+  byNewestFirst,
+  keptSources,
+  noSourceRows,
+  withSourceRows,
+  withoutSource,
+} from "../lib/sessionSources";
 import { AGENT_TOOLS } from "../lib/tools";
 import {
   type DeletionSummary,
@@ -60,6 +69,23 @@ const TOOLS: AgentTool[] = AGENT_TOOLS;
  * Only a display cache: nothing decides anything from it, and a read replaces it.
  */
 let cachedSessions: AgentSession[] = [];
+
+/**
+ * The same rows, still split by the source that answered with them.
+ *
+ * `cachedSessions` alone cannot survive a read: rebuilding the list out of the sources that have
+ * answered so far made the slow source's rows leave the list for the seconds the fast one did not
+ * need (measured: four local pi rows out of a 13 row list for 2.6 s, every time the session store
+ * was written to). Keeping the rows per source lets a read replace the one that answered. Both
+ * caches live at module scope and are written together, so they cannot drift apart.
+ */
+let cachedSourceRows: SourceRows<AgentSession> = noSourceRows<AgentSession>();
+
+/** Take the rows the sources have answered with so far as the list to draw. */
+function drawCachedRows(): readonly AgentSession[] {
+  cachedSessions = allRows(cachedSourceRows, byNewestFirst);
+  return cachedSessions;
+}
 
 /** One source the list reads from: a tool on this machine, or in one distro. */
 type SessionRequest = { tool: AgentTool; distro: string | null };
@@ -175,8 +201,12 @@ export function LauncherPanel({
       // Every source starts out unanswered. A distro is read by running a query inside it, so its
       // rows arrive seconds after this machine's; until they do, the list is missing a block it is
       // about to have, and drawing it as complete reads as "the switch did nothing".
-      setPendingSources(pendingFor(requests));
-      const merged: AgentSession[] = [];
+      const asked = pendingFor(requests);
+      setPendingSources(asked);
+      // A source this read is not asking for goes with its rows: the WSL toggle went off, and rows
+      // from a distro nobody asked about must not stay in the list. The sources still being read
+      // keep the rows they had, so nothing leaves the list to come back.
+      cachedSourceRows = keptSources(cachedSourceRows, asked);
       const nextWarnings: string[] = [];
       const failures: string[] = [];
       // Settled per source rather than all at once: a slow distro no longer holds back the rows
@@ -186,10 +216,20 @@ export function LauncherPanel({
           const key = sourceKeyOf(request);
           try {
             const value = await listAgentSessions(request.tool, request.distro);
-            merged.push(...value.sessions);
+            // This source's rows, and only this source's. The others go on being drawn from the
+            // last answer each of them gave, which is what stops the list losing them for the
+            // seconds between one source settling and the next.
+            cachedSourceRows = withSourceRows(
+              cachedSourceRows,
+              key,
+              value.sessions,
+            );
             nextWarnings.push(...value.warnings);
           } catch (error) {
-            // One unreadable store must not hide the others.
+            // One unreadable store must not hide the others, and it must not leave its own rows
+            // drawn either: they are the previous read's, and saying they are current would claim
+            // a store that could not be read at all is unchanged.
+            cachedSourceRows = withoutSource(cachedSourceRows, key);
             const source = request.distro
               ? `${request.tool}（${request.distro}）`
               : request.tool;
@@ -201,9 +241,7 @@ export function LauncherPanel({
               next.delete(key);
               return next;
             });
-            merged.sort((left, right) => right.updatedAtMs - left.updatedAtMs);
-            cachedSessions = merged;
-            setSessions([...merged]);
+            setSessions([...drawCachedRows()]);
           }
         }),
       );

@@ -36,6 +36,9 @@ describe("phaseForSignal", () => {
     expect(phaseForSignal("attention")).toBe("attention");
     expect(phaseForSignal("finished")).toBe("finished");
     expect(phaseForSignal("idle")).toBe("idle");
+    // Work the turn left running is a phase of its own, drawn in the colour that is the two states
+    // it is made of rather than as either of them.
+    expect(phaseForSignal("trailing")).toBe("trailing");
     expect(phaseForSignal("exited")).toBe("exited");
   });
 
@@ -62,7 +65,7 @@ describe("tabAgentStatus", () => {
     });
   });
 
-  it("orders attention > an ending not yet seen > working > at rest", () => {
+  it("orders attention > an ending not yet seen > working > background work > at rest", () => {
     const phases = { 1: "working", 2: "finished", 3: "attention" } as const;
     expect(tabAgentStatus(phases, { 2: "codex" }, [1, 2, 3], DONE)).toEqual({
       state: "attention",
@@ -75,6 +78,35 @@ describe("tabAgentStatus", () => {
     expect(
       tabAgentStatus({ 1: "working", 2: "finished" }, { 2: "codex" }, [1, 2], {}),
     ).toEqual({ state: "working", agent: "codex" });
+  });
+
+  it("draws a turn that ended into background work as its own thing", () => {
+    // Not `working`: nothing is being thought about. Not `idle`: something is still running.
+    expect(tabAgentStatus({ 7: "trailing" }, { 7: "opencode" }, [7], {})).toEqual({
+      state: "trailing",
+      agent: "opencode",
+    });
+  });
+
+  it("puts a turn in flight above background work, and an unseen ending above both", () => {
+    const phases = { 1: "trailing", 2: "working" } as const;
+    expect(tabAgentStatus(phases, { 2: "codex" }, [1, 2], {})).toEqual({
+      state: "working",
+      agent: "codex",
+    });
+    // An ending nobody has looked at is the louder news, and it also means the background work
+    // belongs to a turn the user has not seen the end of.
+    expect(tabAgentStatus(phases, { 2: "codex" }, [1, 2], { 2: 1_000 })).toEqual({
+      state: "finished",
+      agent: "codex",
+    });
+  });
+
+  it("puts background work above an agent at rest", () => {
+    const phases = { 1: "idle", 2: "trailing" } as const;
+    expect(tabAgentStatus(phases, { 1: "codex", 2: "codex" }, [1, 2], {})).toEqual(
+      { state: "trailing", agent: "codex" },
+    );
   });
 
   it("surfaces the working agent name for its icon", () => {

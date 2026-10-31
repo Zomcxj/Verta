@@ -32,18 +32,41 @@ const OPENCODE_INTERRUPTIBLE = [
 ].join("\n");
 
 /**
- * The same footer with the interrupt hint gone: the turn has ended but the background shells on
- * that footer have not. Measured, the count falls as those commands finish (three to two on this
- * machine while the session carried on); that the two go together on a real screen has not been
- * captured yet, and this sample is that footer with the turn's hint removed. A rule that reads it
- * as work is what the case needs, and the cost of being wrong is a session that reads as busy a
- * moment longer - not the false alarm the other direction would give.
+ * The same session with the turn over and one background shell still running (2026-10-31,
+ * `idle-screen.log`: 121 screens sampled while nothing was driving the session). The footer has
+ * **wrapped**: the count is on the line above the last one, which is only the remainder `·`. That
+ * wrap is why this was read from the last line alone and came out as work in flight, while the
+ * same situation on a wider pane came out as rest.
  */
-const OPENCODE_BACKGROUND_SHELL = [
-  "     + 3 commands, 1 thought",
+const OPENCODE_TRAILING_SHELL = [
   "  ┃",
   "  ┃  Build auto · deepseek-v4.1-flash workbuddy · max",
-  "   命中率 99.5% ↑0.2% · Tokens 1061.4M · 余额 - ·   ↓ 2 shells · 258.6K (52%)  ctrl+p commands",
+  "  F:\\…\\Verta:ma…  命中率 99.8% ↑0.7% · Tokens 2232.6M · 余额 -   ↓ 1 shell · ◎ goal paused · 319.7K (64%)  ctrl+p commands",
+  "                  ·",
+].join("\n");
+
+/** The same situation as it was drawn without the wrap, two shells left (2026-10-31, same run). */
+const OPENCODE_TRAILING_SHELL_UNWRAPPED = [
+  "     + 3 commands, 1 thought",
+  "  ┃  Build auto · deepseek-v4.1-flash workbuddy · max",
+  "  F:\\…\\V…\\Verta:main  命中率 99.6% · Tokens 2228.5M · 余额 - · ↓ 2 shells · ◎ goal paused · 255.6K (51%)  ctrl+p commands",
+].join("\n");
+
+/**
+ * Subagents are counted in the same place and are the same kind of thing: work the turn left
+ * running. The line is the one this machine drew (2026-10-31) with the turn's interrupt hint taken
+ * off it, because every capture of a subagent count so far was taken during a turn - the hint is on
+ * the measured line below, and that one is the case that must stay `working`.
+ */
+const OPENCODE_TRAILING_SUBAGENT = [
+  "  ┃  Build auto · gpt-6.1-sol openai_agentrouter · xhigh",
+  "  命中率 99.8% · Tokens 78.3M · 余额 - · ↓ 3 subagents · ◎ goal · 317.6K (64%) ctrl+p commands",
+].join("\n");
+
+/** As measured, interrupt hint and all: a turn in flight that started three subagents. */
+const OPENCODE_RUNNING_SUBAGENT = [
+  "  ┃  Build auto · gpt-6.1-sol openai_agentrouter · xhigh",
+  "  ⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt 命中率 99.8% · Tokens 78.3M · 余额 - · ↓ 3 subagents · ◎ goal · 317.6K (64%) ctrl+p commands",
 ].join("\n");
 
 /** Written from herdr's rules; not yet seen on this machine. */
@@ -215,6 +238,18 @@ const OPENCODE_QUESTIONS_PANEL = [
   "┃  ↑↓ select  enter submit  esc dismiss  ┃",
 ].join("\n");
 
+/**
+ * The same question panel asked with more than one question, which navigates between them and says
+ * so on its footer. Captured from the dev build while a two-question panel was open on the tab being
+ * watched, and it is the one that was on screen while that tab stayed green.
+ */
+const OPENCODE_QUESTIONS_PANEL_MULTI = [
+  " ? 复现",
+  " 1. 橙色加一圈绿色吧  现在还是不对",
+  " 2. COFFEE CLI 的会话管理 (GitProject/Coffee-CLI)",
+  "↑↓ select   enter choose   tab next   esc dismiss",
+].join("\n");
+
 describe("opencode", () => {
   it("tells working and idle apart", () => {
     expect(judge("opencode", OPENCODE_WORKING)).toBe("working");
@@ -227,8 +262,29 @@ describe("opencode", () => {
     expect(judge("opencode", OPENCODE_INTERRUPTIBLE)).toBe("working");
   });
 
-  it("keeps a session busy while a background shell on its footer is still running", () => {
-    expect(judge("opencode", OPENCODE_BACKGROUND_SHELL)).toBe("working");
+  it("reads a turn that ended into background work as its own state, not as working", () => {
+    // Both of these were drawn by the same session with the same one shell left (2026-10-31): the
+    // first wrapped, the second did not. Reading only the last line made them two different states,
+    // which is the bug this pair is here to keep shut.
+    expect(judge("opencode", OPENCODE_TRAILING_SHELL)).toBe("trailing");
+    expect(judge("opencode", OPENCODE_TRAILING_SHELL_UNWRAPPED)).toBe(
+      "trailing",
+    );
+  });
+
+  it("counts subagents as background work too", () => {
+    expect(judge("opencode", OPENCODE_TRAILING_SUBAGENT)).toBe("trailing");
+  });
+
+  it("still reads a running turn as working while those jobs are counted", () => {
+    // Measured on this machine: the same footer with the interrupt hint on it is a turn in flight,
+    // and the shells and subagents on it are that turn's own work.
+    expect(judge("opencode", OPENCODE_INTERRUPTIBLE)).toBe("working");
+    expect(judge("opencode", OPENCODE_RUNNING_SUBAGENT)).toBe("working");
+  });
+
+  it("keeps background jobs off a footer that has none", () => {
+    expect(judge("opencode", OPENCODE_IDLE)).toBe("idle");
   });
 
   it("keeps a moving frame out of idle", () => {
@@ -255,6 +311,17 @@ describe("opencode", () => {
     // waiting on an answer. Two things differ from the card above: the options carry no `❯`, and
     // the footer's hints are the panel's own. That session was drawn green (idle) at the time.
     expect(judge("opencode", OPENCODE_QUESTIONS_PANEL)).toBe("blocked");
+  });
+
+  it("reads a panel with more than one question as blocked too", () => {
+    // Reported while a two-question panel was open and the tab was not blue. That panel navigates
+    // between its questions, so its footer says `enter choose  tab next` instead of `enter submit`,
+    // and the rule written for the single-question footer matched nothing. The options and the
+    // dismissing hint are the same, so it is the same panel and the same answer.
+    expect(judge("opencode", OPENCODE_QUESTIONS_PANEL_MULTI)).toBe("blocked");
+    // The two footers have to be told apart from a transcript that merely quotes one of them: the
+    // phrases are the panel's chrome and the surrounding lines are what makes them chrome.
+    expect(identifyAgent(OPENCODE_QUESTIONS_PANEL_MULTI)?.tool).toBe("opencode");
   });
 
   it("still recognizes the question panel as opencode at all", () => {
@@ -374,6 +441,7 @@ describe("the family table", () => {
           candidate.visibleWorking,
           candidate.visibleBlocker,
           candidate.visibleIdle,
+          candidate.visibleTrailing,
           candidate.skipStateUpdate,
         ];
         expect(flags.filter(Boolean)).toHaveLength(1);
