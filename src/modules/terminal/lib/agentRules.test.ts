@@ -244,10 +244,27 @@ const OPENCODE_QUESTIONS_PANEL = [
  * watched, and it is the one that was on screen while that tab stayed green.
  */
 const OPENCODE_QUESTIONS_PANEL_MULTI = [
-  " ? 复现",
-  " 1. 橙色加一圈绿色吧  现在还是不对",
-  " 2. COFFEE CLI 的会话管理 (GitProject/Coffee-CLI)",
-  "↑↓ select   enter choose   tab next   esc dismiss",
+  "    1. 蓝了，我看到了 ✓",
+  "    2. 打开时没蓝",
+  "    3. Type your own answer",
+  "    ⇆ tab  ↑↓ select  enter confirm  esc dismiss",
+].join("\n");
+
+/**
+ * A session mid-turn whose transcript **quotes the panel's footer words as prose**, far above its
+ * real footer. Measured on this machine (2026-10-31): a reply that named these words was drawn into
+ * an opencode transcript and turned that session's tab blue while it was working and asking nothing.
+ * Every phrase the panel rules look for is on this screen and none of them is the footer.
+ */
+const OPENCODE_TRANSCRIPT_QUOTING_THE_PANEL = [
+  "     你截图那屏是多问题面板，页脚是 ↑↓ select   enter choose   tab next   esc dismiss，而我的规则只认",
+  "     单问题版的 enter submit。",
+  "     + 1 command",
+  "     这就是原因：我上一条回复的正文里就写着 enter choose   tab next   esc dismiss 和 enter submit。",
+  "     ⠧ Running command…",
+  "  ┃",
+  "  ┃  Build auto · deepseek-v4.1-flash workbuddy · max",
+  "   ⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt      命中率 0.0% · Tokens 2328.7M · 余额 - ·   ↓ 1 shell · ◎ goal paused · 278.2K (56%)  ctrl+p commands",
 ].join("\n");
 
 describe("opencode", () => {
@@ -322,6 +339,13 @@ describe("opencode", () => {
     // The two footers have to be told apart from a transcript that merely quotes one of them: the
     // phrases are the panel's chrome and the surrounding lines are what makes them chrome.
     expect(identifyAgent(OPENCODE_QUESTIONS_PANEL_MULTI)?.tool).toBe("opencode");
+    // And the region is the footer, not the bottom of the transcript. Measured on this machine
+    // (2026-10-31): a reply of the assistant's that quoted these footer words as prose was drawn
+    // into an opencode transcript and turned that session's tab blue while it was mid-turn and
+    // asking nothing. Every phrase the rules look for is on that screen, and none is the footer.
+    expect(judge("opencode", OPENCODE_TRANSCRIPT_QUOTING_THE_PANEL)).toBe(
+      "working",
+    );
   });
 
   it("still recognizes the question panel as opencode at all", () => {

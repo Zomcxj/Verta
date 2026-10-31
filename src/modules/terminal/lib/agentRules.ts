@@ -101,10 +101,11 @@ const OPENCODE_IDENTIFY: readonly Pattern[] = [
   // Deliberately not in `OPENCODE_FOOTER`: the idle rule requires every footer hint, and a question
   // panel is the opposite of idle.
   contains("enter submit"),
-  // And the same panel with more than one question, whose footer navigates between them and says
-  // `enter choose  tab next` instead. Without this, a session sitting on a two-question panel was
-  // reported as having no agent at all, which is how the tab stayed green with a panel open on it.
-  contains("enter choose"),
+  // And the same panel with more than one question, whose footer says `enter confirm  esc dismiss`
+  // while a question is being filled in (`⇆ tab` navigates). Without this, a session sitting on a
+  // two-question panel was reported as having no agent at all, which is how the tab stayed orange
+  // with a panel open on it.
+  contains("enter confirm"),
 ];
 
 /**
@@ -150,24 +151,34 @@ const OPENCODE_RULES: readonly AgentRule[] = [
   // Identified by the panel's own footer rather than by its content. The footer reads
   // `↑↓ select  enter submit  esc dismiss`, which is chrome: an option line pasted into a
   // conversation looks exactly like a real option, and this does not.
+  //
+  // The region is the **last three lines**, not the bottom dozen, and that is the difference between
+  // reading the footer and reading the conversation. Measured on this machine: a reply of mine that
+  // quoted these footer words as text - `enter choose   tab next   esc dismiss` and `enter submit` -
+  // was drawn into an opencode transcript, the rule read them out of the bottom twelve lines, and the
+  // tab turned blue over a session that was mid-turn and asking nothing. The real footer is the last
+  // line (`⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt … ctrl+p commands`); the quoted words were at lines 10 and 46 of a
+  // 54 line screen. Three lines leaves room for a wrapped footer and no room for prose.
   rule({
     id: "opencode_questions_panel",
     state: "blocked",
     priority: 995,
-    region: BOTTOM,
+    region: bottom(3),
     allOf: [contains("enter submit"), contains("esc dismiss")],
   }),
   // The same panel asked with more than one question. It then navigates between them, and the footer
-  // becomes `↑↓ select  enter choose  tab next  esc dismiss` - both spellings are in the installed
-  // opencode's own strings, and this one was on screen while the tab stayed green: the rule above
-  // matches `enter submit`, which this footer does not contain. Its options carry the same shape, so
-  // it is the same panel and the same answer: the agent is waiting on the user.
+  // becomes `⇆ tab  ↑↓ select  enter confirm  esc dismiss` while a question is being filled in, and
+  // `⇆ tab  enter submit  esc dismiss` once the last one is - both are in the installed opencode's
+  // own strings, and both were captured on this machine from the same panel, one second apart
+  // (11:40:49 and 11:41:04). Its options carry the same shape, so it is the same panel and the same
+  // answer: the agent is waiting on the user. `enter confirm` is the verb that was missing, which is
+  // why the tab stayed orange while the panel was on screen.
   rule({
     id: "opencode_questions_panel_multi",
     state: "blocked",
     priority: 995,
-    region: BOTTOM,
-    allOf: [contains("enter choose"), contains("esc dismiss")],
+    region: bottom(3),
+    allOf: [contains("enter confirm"), contains("esc dismiss")],
   }),
   // Working, and saying so for the whole time: the footer carries the interrupt hint and a
   // progress bar for as long as a turn runs, unlike the spinner glyph, which the TUI paints on
