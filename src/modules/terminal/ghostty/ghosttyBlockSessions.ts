@@ -1,6 +1,7 @@
 import { subscribeWindowPresentation } from "@/modules/terminal/ghostty/windowPresentation";
 import type { GhosttyTerminalModelApi } from "@/modules/terminal/ghostty/GhosttyTerminalModel";
 import type { GhosttyBlocks } from "@/modules/terminal/ghostty/GhosttyBlocks";
+import { isModelLive } from "@/modules/terminal/ghostty/modelLiveness";
 import type { BlockMode } from "@/modules/terminal/block/lib/modeMachine";
 import {
   type BlockViewportSignature,
@@ -47,7 +48,7 @@ export class GhosttyBlockSession {
     const { GhosttyBlocks } = await import(
       "@/modules/terminal/ghostty/GhosttyBlocks"
     );
-    if (generation !== this.generation || model.isDisposed?.()) return;
+    if (generation !== this.generation || !isModelLive(model)) return;
     this.model = model;
     this.requestFrame = requestFrame;
     this.controller = new GhosttyBlocks(model);

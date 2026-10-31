@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { isModelLive } from "./modelLiveness";
 
@@ -33,5 +36,37 @@ describe("isModelLive", () => {
     // treating "cannot say" as dead would stop its terminal from working at all. This is the one place
     // where guessing wrong has to fail towards the terminal still working.
     expect(isModelLive({})).toBe(true);
+  });
+});
+
+/**
+ * The same question, asked in one place.
+ *
+ * Asking it inline was how five call sites ended up spelling out their own version of it, and the two
+ * deliberate answers above only hold if there is one implementation of them. A new call site that
+ * writes `isDisposed?.()` out again would not fail any behaviour test - it would decide the edge cases
+ * for itself, silently, in the direction of whichever way it was written.
+ */
+describe("liveness is asked through this module", () => {
+  it("is the only file that calls isDisposed", () => {
+    const dir = fileURLToPath(new URL("./", import.meta.url));
+    const callers: string[] = [];
+    const walk = (path: string): void => {
+      for (const entry of readdirSync(path, { withFileTypes: true })) {
+        const full = join(path, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!/\.tsx?$/.test(entry.name) || /\.test\./.test(entry.name)) continue;
+        if (full.endsWith("modelLiveness.ts")) continue;
+        // The interface declares it and one implementation defines it; a *call* is what this is
+        // about, so neither of those is a match.
+        const calls = [...readFileSync(full, "utf8").matchAll(/\.isDisposed\?\.\(\)/g)];
+        if (calls.length > 0) callers.push(`${full} (${calls.length})`);
+      }
+    };
+    walk(dir);
+    expect(callers).toEqual([]);
   });
 });

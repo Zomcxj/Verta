@@ -27,6 +27,7 @@ import { LatestClipboardWrite } from "@/modules/terminal/lib/LatestClipboardWrit
 import { GhosttySemanticEventRouter } from "./core/GhosttySemanticEventRouter";
 import { getGhosttyCoreRuntime } from "./GhosttyCoreRuntime";
 import type { GhosttyTerminalModelApi } from "./GhosttyTerminalModel";
+import { isModelLive } from "./modelLiveness";
 import { TerminalSizeReports } from "./terminalSizeReports";
 import {
   measureTerminalFont,
@@ -485,7 +486,7 @@ export function ghosttyLeafOutputBytes(leafId: number): number {
  */
 export function ghosttyLeafScreenTail(leafId: number): string | null {
   const model = sessions.get(leafId)?.model;
-  if (!model || model.isDisposed?.() || !model.readTextRange) return null;
+  if (!model || !isModelLive(model) || !model.readTextRange) return null;
   const rows = Math.min(model.rows, 256);
   if (rows <= 0) return "";
   const origin = model.viewportOriginLine();
@@ -505,7 +506,7 @@ export function ghosttyLeafScreenTail(leafId: number): string | null {
  */
 export function ghosttyLeafUsesAlternateScreen(leafId: number): boolean {
   const model = sessions.get(leafId)?.model;
-  if (!model || model.isDisposed?.()) return false;
+  if (!model || !isModelLive(model)) return false;
   return model.modes().alternateScreen;
 }
 

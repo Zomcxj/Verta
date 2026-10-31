@@ -7,6 +7,7 @@ import type {
 } from "@/modules/terminal/block/lib/blockTypes";
 import type { BlockMode } from "@/modules/terminal/block/lib/modeMachine";
 import type { GhosttyTerminalModelApi } from "@/modules/terminal/ghostty/GhosttyTerminalModel";
+import { isModelLive } from "@/modules/terminal/ghostty/modelLiveness";
 
 const MAX_BLOCKS = 1000;
 const MAX_METADATA_UNITS = 256 * 1024;
@@ -353,7 +354,7 @@ export class GhosttyBlocks {
         if (
           signal?.aborted ||
           generation !== this.clearGeneration ||
-          this.model.isDisposed?.()
+          !isModelLive(this.model)
         )
           return [];
         if (
@@ -389,7 +390,7 @@ export class GhosttyBlocks {
   }
 
   dispose(): void {
-    if (!this.model.isDisposed?.()) this.model.enableSemanticMarkers(false);
+    if (isModelLive(this.model)) this.model.enableSemanticMarkers(false);
   }
 }
 
