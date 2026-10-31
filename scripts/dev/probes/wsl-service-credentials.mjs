@@ -11,6 +11,10 @@
 // The child is spawned asynchronously on purpose: a synchronous spawn blocks this process's event
 // loop, so the servers below cannot answer and every case would time out instead of measuring.
 //
+// This machine's python is the point of this file: the boundary rules can be driven here cheaply.
+// The same program under a distro's own python, through the application's own `wsl.exe` invocation,
+// is `wsl-service-credentials-in-distro.mjs`.
+//
 // Usage:
 //   node scripts/dev/probes/wsl-service-credentials.mjs
 //   node scripts/dev/probes/wsl-service-credentials.mjs --python=python
