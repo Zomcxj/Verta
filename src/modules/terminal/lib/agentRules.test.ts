@@ -365,6 +365,27 @@ describe("opencode", () => {
       "> allow me to explain what happened\n  permission was granted earlier\nctrl+p commands";
     expect(judge("opencode", tail)).not.toBe("blocked");
   });
+
+  it("does not read a running turn that mentions the card's words as a card", () => {
+    // The card rule's `allOf` is two words, so any reply that repeats them - "the permission card
+    // offers allow once or allow always" - carries both. That is the false blue measured on this
+    // machine (2026-10-31): a reply that was *about* the card was drawn into an opencode transcript,
+    // both words landed inside the bottom six lines, and the tab turned blue while the turn was
+    // running and asking nothing. No region can separate these two screens, because a card is four
+    // or five lines tall; the footer separates them.
+    //
+    // The two prose lines below are written to carry both words - they are not a capture. The footer
+    // is verbatim from the capture the panel fixture above came from, and it is the whole difference:
+    // a turn whose footer offers to interrupt it is not a turn waiting on an answer.
+    const tail = [
+      "     这条规则只看 permission 和 allow 两个词，所以正文里提一句就会被它认成卡片。",
+      "     + 1 command",
+      "  ┃",
+      "  ┃  Build auto · deepseek-v4.1-flash workbuddy · max",
+      "   ⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt      命中率 0.0% · Tokens 2328.7M · 余额 - ·   ↓ 1 shell · ◎ goal paused · 278.2K (56%)  ctrl+p commands",
+    ].join("\n");
+    expect(judge("opencode", tail)).toBe("working");
+  });
 });
 
 describe("claude", () => {
