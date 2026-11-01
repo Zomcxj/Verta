@@ -4,6 +4,11 @@ import {
   type GitStatusSnapshot,
 } from "@/lib/native";
 import { useT } from "@/modules/i18n";
+import {
+  getRepoSnapshot,
+  rememberRepoSnapshot,
+  repoSnapshotKey,
+} from "@/modules/source-control/repoSnapshots";
 import { useWorkspaceEnvStore, workspaceScopeKey } from "@/modules/workspace";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -12,7 +17,14 @@ const AUTO_FETCH_LRU_LIMIT = 16;
 const FOCUS_REFRESH_MIN_INTERVAL_MS = 1500;
 // Skip the context-change refetch when the data is this fresh and the new path
 // is still inside the loaded repo (cd-within-repo produces identical status).
-const SC_STATUS_TTL_MS = 2000;
+//
+// Raised from 2 s to match what a switch actually costs: `git status` on a repository with 64
+// changed files measured 0.41 s end to end, while the panel took 2-3 s to show them, because a
+// switch back inside the same repository re-ran the read every two seconds. A short window like
+// that only ever means "ask again" for the one interaction this is here to make fast - moving
+// between tabs. The status is still re-read on every context change that leaves the repository,
+// on focus, and by the panel's own refresh, so nothing here makes the numbers stale.
+const SC_STATUS_TTL_MS = 30_000;
 
 type SourceControlRefreshMode = "auto" | "always" | "never";
 type SourceControlRemoteAction = "fetch" | "pull" | "push";
@@ -324,9 +336,34 @@ export function useSourceControl(
         ? activeRoot
         : null;
 
-      setState((current) =>
-        beginSourceControlRefresh(current, contextPath, !!reusableRoot),
-      );
+      // A snapshot of this repository already exists: paint it before asking git anything.
+      //
+      // `reusableRoot` is the same-repository case and already keeps the current state. The other
+      // case - a switch into a repository this window has seen before - is what the snapshot cache
+      // is for; without it the panel is blank until the live read lands, which is the 5.7 s the
+      // user reported. The live read below still runs and replaces this when it arrives.
+      const cachedSnapshot = reusableRoot
+        ? null
+        : getRepoSnapshot(repoSnapshotKey(contextPath, workspaceKey));
+      if (cachedSnapshot) {
+        // `repo` and `status` are set from the same snapshot, so they always describe one
+        // repository; the older `beginSourceControlRefresh(current, ..., true)` shape reused
+        // `current.repo` and would have paired the previous repository with this context path.
+        setState({
+          contextPath,
+          repo: cachedSnapshot.repo,
+          status: cachedSnapshot.status,
+          hasRepo: true,
+          isLoading: true,
+          busyAction: null,
+          localError: null,
+          lastRemoteError: null,
+        });
+      } else {
+        setState((current) =>
+          beginSourceControlRefresh(current, contextPath, !!reusableRoot),
+        );
+      }
 
       try {
         let repo: GitRepoInfo | null;
@@ -401,20 +438,16 @@ export function useSourceControl(
               (autoFetchByRepoRef.current.get(repo.repoRoot) ?? 0) >=
               AUTO_FETCH_THROTTLE_MS);
 
-        if (shouldAutoFetch) {
-          try {
-            await native.gitFetch(repo.repoRoot);
-            touchAutoFetch(autoFetchByRepoRef.current, repo.repoRoot);
-            nextRemoteError = null;
-            if (!isCurrentRequest()) return;
-            status = await native.gitStatus(repo.repoRoot);
-            if (!isCurrentRequest()) return;
-          } catch (error) {
-            nextRemoteError = normalizeError(error, unknownErrorRef.current);
-          }
+        // The list is shown from `git status` first, and the fetch lands behind it.
+        //
+        // Measured on this machine: `git status` costs 0.11 s, while the automatic fetch in front
+        // of it made a switch into another repository take **5.7 s** with an empty panel the whole
+        // time - the user is switching sessions, not asking to talk to a remote. The fetch still
+        // runs (it is what makes "behind 3" mean the remote as it is now), it just no longer stands
+        // between the user and their file list; its result replaces the counts when it arrives.
+        if (!repo) {
+          return;
         }
-
-        if (!isCurrentRequest()) return;
         setState((current) => ({
           ...current,
           repo,
@@ -424,6 +457,45 @@ export function useSourceControl(
           localError: null,
           lastRemoteError: nextRemoteError,
         }));
+        // Kept for the next switch to this repository, so that tab paints instead of waiting.
+        rememberRepoSnapshot(repoSnapshotKey(repo.repoRoot, workspaceKey), {
+          repo,
+          status,
+          at: Date.now(),
+        });
+
+        if (!shouldAutoFetch) return;
+
+        // Every update below re-checks `isCurrentRequest`: the user may have switched away again
+        // while the fetch was in flight, and a stale repository must not overwrite the new one.
+        try {
+          await native.gitFetch(repo.repoRoot);
+          touchAutoFetch(autoFetchByRepoRef.current, repo.repoRoot);
+          nextRemoteError = null;
+          if (!isCurrentRequest()) return;
+          const fetched = await native.gitStatus(repo.repoRoot);
+          if (!isCurrentRequest()) return;
+          setState((current) => ({
+            ...current,
+            status: fetched,
+            hasRepo: true,
+            isLoading: false,
+            localError: null,
+            lastRemoteError: nextRemoteError,
+          }));
+          // The fetch moved the remote-tracking refs, so the remembered ahead/behind is now wrong.
+          rememberRepoSnapshot(repoSnapshotKey(repo.repoRoot, workspaceKey), {
+            repo,
+            status: fetched,
+            at: Date.now(),
+          });
+        } catch (error) {
+          if (!isCurrentRequest()) return;
+          setState((current) => ({
+            ...current,
+            lastRemoteError: normalizeError(error, unknownErrorRef.current),
+          }));
+        }
       } catch (error) {
         if (!isCurrentRequest()) return;
         setState((current) => ({
@@ -440,7 +512,7 @@ export function useSourceControl(
         }
       }
     },
-    [contextKey, contextPath],
+    [contextKey, contextPath, workspaceKey],
   );
 
   const refresh = useCallback(
