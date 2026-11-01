@@ -1237,6 +1237,8 @@ const EntryRow = memo(function EntryRow({
         {/* biome-ignore lint/a11y/useFocusableInteractive: the listbox above holds DOM focus and points at the active row with aria-activedescendant, so the option must not be focusable */}
         <div
           id={`scm-row-${row.key}`}
+          data-scm-row=""
+          data-scm-path={entry.path}
           data-focused={focused || undefined}
           data-selected={isSelected || undefined}
           role="option"
@@ -1293,10 +1295,9 @@ const EntryRow = memo(function EntryRow({
           {counts ? (
             // aria-label rather than two bare spans: "+13 -0" is read as "plus thirteen minus
             // zero" otherwise, which is not a sentence. `data-scm-counts` is the probe's handle on
-            // the two numbers, and `data-scm-path` names the row they belong to.
+            // the two numbers; the row above carries `data-scm-path` to name them.
             <span
               data-scm-counts=""
-              data-scm-path={entry.path}
               role="img"
               aria-label={t("scm.lineCounts", {
                 added: String(entry.added),
