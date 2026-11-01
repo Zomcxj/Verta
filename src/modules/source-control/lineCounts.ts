@@ -19,3 +19,49 @@ export function lineCounts(
   if (added === null || removed === null) return null;
   return { added: `+${added}`, removed: `${MINUS}${removed}` };
 }
+
+/**
+ * The one letter a changed-file row shows after its counts: `M`, `D`, `A`, `U`, or `R`.
+ *
+ * The row already colours a bar by this code, but a colour alone does not say what happened to the
+ * file - amber could be an edit or a rename. The letter says it, in the same slot every row, so a
+ * column of them reads at a glance. It sits after the counts (`+12 −3 M`) because the counts are
+ * what the row is mostly about and the letter is the annotation.
+ */
+export function statusLetter(code: string): string {
+  switch (code) {
+    case "A":
+      return "A";
+    case "M":
+      return "M";
+    case "D":
+      return "D";
+    case "R":
+      return "R";
+    case "U":
+      return "U";
+    default:
+      // An untracked file is reported as `?` by git and normalised to `U` before it reaches here,
+      // so this only catches a code this build does not know: show nothing rather than a wrong
+      // letter.
+      return "";
+  }
+}
+
+/** What the letter is called, for the row's tooltip and its accessible label. */
+export function statusLetterLabel(code: string): string {
+  switch (code) {
+    case "A":
+      return "Added";
+    case "M":
+      return "Modified";
+    case "D":
+      return "Deleted";
+    case "R":
+      return "Renamed";
+    case "U":
+      return "Untracked";
+    default:
+      return "";
+  }
+}

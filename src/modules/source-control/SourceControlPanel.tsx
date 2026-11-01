@@ -51,7 +51,7 @@ import {
 } from "@/modules/explorer/lib/menuItemClass";
 import { joinPath } from "@/modules/explorer/lib/useFileTree";
 import { useT } from "@/modules/i18n";
-import { lineCounts } from "@/modules/source-control/lineCounts";
+import { lineCounts, statusLetter, statusLetterLabel } from "@/modules/source-control/lineCounts";
 import {
   Alert02Icon,
   ArrowDown01Icon,
@@ -163,6 +163,24 @@ function statusAccent(code: string): string {
       return "bg-sky-500/85";
     default:
       return "bg-muted-foreground/40";
+  }
+}
+
+/// The letter's colour, matched to the bar beside it so the two read as one statement.
+function statusLetterColor(code: string): string {
+  switch (code) {
+    case "A":
+      return "text-emerald-500/90";
+    case "U":
+      return "text-teal-500/90";
+    case "M":
+      return "text-amber-500/90";
+    case "D":
+      return "text-rose-500/90";
+    case "R":
+      return "text-sky-500/90";
+    default:
+      return "text-muted-foreground/70";
   }
 }
 
@@ -1229,6 +1247,8 @@ const EntryRow = memo(function EntryRow({
     ? joinPath(repoRoot.replace(/\\/g, "/"), entry.path.replace(/\\/g, "/"))
     : null;
   const isDeleted = entry.statusCode === "D";
+  const statusLetterOf = statusLetter(entry.statusCode);
+  const statusLetterLabelOf = statusLetterLabel(entry.statusCode);
   const revealLabel = IS_MAC ? t("scm.revealFinder") : t("scm.revealManager");
 
   return (
@@ -1311,6 +1331,21 @@ const EntryRow = memo(function EntryRow({
             >
               <span className="text-emerald-500">{counts.added}</span>
               <span className="text-rose-500">{counts.removed}</span>
+            </span>
+          ) : null}
+
+          {statusLetterOf ? (
+            // After the counts, in a fixed-width slot so a column of letters lines up down the
+            // list. The bar on the left already carries this colour; the letter says what it means.
+            <span
+              data-scm-status={statusLetterOf}
+              title={statusLetterLabelOf}
+              className={cn(
+                "w-3 shrink-0 text-center text-[10px] font-semibold leading-none",
+                statusLetterColor(entry.statusCode),
+              )}
+            >
+              {statusLetterOf}
             </span>
           ) : null}
 

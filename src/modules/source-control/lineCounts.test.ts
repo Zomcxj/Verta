@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lineCounts } from "./lineCounts";
+import { lineCounts, statusLetter, statusLetterLabel } from "./lineCounts";
 
 describe("lineCounts", () => {
   it("shows both numbers, zero included", () => {
@@ -26,5 +26,31 @@ describe("lineCounts", () => {
     // The two arrive together, so half a pair means the read is not trustworthy.
     expect(lineCounts(4, null)).toBeNull();
     expect(lineCounts(null, 4)).toBeNull();
+  });
+});
+
+describe("statusLetter", () => {
+  it("names each status git reports", () => {
+    expect(statusLetter("A")).toBe("A");
+    expect(statusLetter("M")).toBe("M");
+    expect(statusLetter("D")).toBe("D");
+    expect(statusLetter("R")).toBe("R");
+    expect(statusLetter("U")).toBe("U");
+  });
+
+  it("shows nothing for a code it does not know", () => {
+    // A blank slot is better than a wrong letter, and the bar still carries the colour.
+    expect(statusLetter("")).toBe("");
+    expect(statusLetter("X")).toBe("");
+  });
+
+  it("labels each letter in words, for the tooltip", () => {
+    expect(statusLetterLabel("A")).toBe("Added");
+    expect(statusLetterLabel("M")).toBe("Modified");
+    expect(statusLetterLabel("D")).toBe("Deleted");
+    expect(statusLetterLabel("R")).toBe("Renamed");
+    // git reports an untracked file as `?`, which the panel normalises to `U`.
+    expect(statusLetterLabel("U")).toBe("Untracked");
+    expect(statusLetterLabel("X")).toBe("");
   });
 });

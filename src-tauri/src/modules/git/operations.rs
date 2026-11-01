@@ -150,7 +150,8 @@ fn status_inner(repo_root: &ResolvedGitDirectory) -> Result<GitStatusSnapshot> {
     let files = untracked::expand_untracked_dirs(parsed.files, |dir, budget| {
         list_untracked_in(repo_root, dir, budget)
     });
-    let files = with_line_counts(files, working_tree_line_counts(repo_root));
+    let counts = working_tree_line_counts(repo_root, &files);
+    let files = with_line_counts(files, counts);
 
     Ok(GitStatusSnapshot {
         repo_root: repo_root.git_path.clone(),
@@ -1108,8 +1109,12 @@ fn merge_numstat(into: &mut HashMap<String, (u32, u32)>, bytes: &[u8]) {
 /// Two reads, because `git diff` alone only compares the working tree with the index: a fully
 /// staged file would come back empty. Merging both into one map makes a file that is staged and
 /// then edited again read as its total difference from HEAD.
+///
+/// Untracked files are not in either read - `git diff` only reports paths git already knows - so
+/// they are counted separately, as every line being added.
 fn working_tree_line_counts(
     repo_root: &ResolvedGitDirectory,
+    files: &[GitChangedFile],
 ) -> Option<HashMap<String, (u32, u32)>> {
     let worktree = run_git(
         &repo_root.workspace,
@@ -1135,7 +1140,46 @@ fn working_tree_line_counts(
     let mut counts = HashMap::new();
     merge_numstat(&mut counts, &worktree.stdout);
     merge_numstat(&mut counts, &staged.stdout);
+    for file in files {
+        if !file.untracked {
+            continue;
+        }
+        if let Some(added) = untracked_line_count(&repo_root.local_path, &file.path) {
+            counts.insert(file.path.clone(), (added, 0));
+        }
+    }
     Some(counts)
+}
+
+/// Every line of an untracked file counts as added.
+///
+/// The file is read rather than diffed: `git diff --no-index` against an empty file reports the
+/// same number, but it costs a process per file (~130 ms measured) and the status refresh already
+/// runs on a timer. A binary file answers `None` - git reports `-` for it too, and a wrong `+0`
+/// would be worse than no number.
+///
+/// The read is capped: a file past `MAX_FILE_BYTES` is left without a count rather than read whole,
+/// which matches what `git diff` does for a binary or an enormous file.
+fn untracked_line_count(workspace: &std::path::Path, path: &str) -> Option<u32> {
+    use std::io::Read;
+    let full = workspace.join(path);
+    let metadata = std::fs::metadata(&full).ok()?;
+    if !metadata.is_file() || metadata.len() > crate::modules::git::types::MAX_FILE_BYTES {
+        return None;
+    }
+    let mut file = std::fs::File::open(&full).ok()?;
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.read_to_end(&mut bytes).ok()?;
+    // git treats a file with a NUL byte as binary and reports no counts for it.
+    if bytes.contains(&0) {
+        return None;
+    }
+    let mut lines = bytes.iter().filter(|byte| **byte == b'\n').count() as u32;
+    // A last line without a trailing newline is still a line.
+    if bytes.last().is_some_and(|byte| *byte != b'\n') {
+        lines += 1;
+    }
+    Some(lines)
 }
 
 /// Attaches the counts to the rows `git status` reported. Paths the read did not mention keep
@@ -1795,6 +1839,52 @@ mod tests {
         assert_eq!(applied[0].path, "src/a.ts");
         assert_eq!(applied[0].added, None);
         assert_eq!(applied[0].removed, None);
+    }
+
+    #[test]
+    fn an_untracked_file_counts_every_line_as_added() {
+        // The case the user reported: a new file shows no numbers, because `git diff` never reports
+        // an untracked path. It is read instead, and every line in it is an added line.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new.ts");
+        std::fs::write(&path, "a\nb\nc\n").unwrap();
+        assert_eq!(untracked_line_count(dir.path(), "new.ts"), Some(3));
+    }
+
+    #[test]
+    fn a_last_line_without_a_newline_still_counts() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("no-eol.ts"), "a\nb").unwrap();
+        assert_eq!(untracked_line_count(dir.path(), "no-eol.ts"), Some(2));
+    }
+
+    #[test]
+    fn an_untracked_binary_file_has_no_count() {
+        // git reports "-" for a binary file too; a made-up `+0` would be a wrong number.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("logo.png"), b"\x89PNG\x00\x01").unwrap();
+        assert_eq!(untracked_line_count(dir.path(), "logo.png"), None);
+    }
+
+    #[test]
+    fn an_untracked_file_that_is_not_there_has_no_count() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(untracked_line_count(dir.path(), "missing.ts"), None);
+    }
+
+    #[test]
+    fn an_untracked_file_past_the_size_cap_has_no_count() {
+        // Reading a huge untracked file whole would stall the refresh; it gets no number instead.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.ts");
+        let mut file = std::fs::File::create(&path).unwrap();
+        use std::io::Write;
+        // One byte past the cap, written without holding it all in memory here.
+        let chunk = vec![b'a'; 1024 * 1024];
+        for _ in 0..=crate::modules::git::types::MAX_FILE_BYTES / (1024 * 1024) {
+            file.write_all(&chunk).unwrap();
+        }
+        assert_eq!(untracked_line_count(dir.path(), "big.ts"), None);
     }
 
     #[test]
