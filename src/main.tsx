@@ -57,3 +57,15 @@ if (terminalDiagnosticsEnabled()) {
     (diagnostics) => diagnostics.installTerminalDiagnostics(),
   );
 }
+
+// DEV-only: what the session-opening cover waits on, so a probe can watch one open instead of
+// inferring it from the code. Reads the same accessors the cover itself uses.
+if (import.meta.env.DEV) {
+  void import("@/modules/terminal/lib/terminalSessionApi").then((api) => {
+    Object.assign(window, {
+      __vertaLeafScreenTail: api.leafScreenTail,
+      __vertaLeafUsesAlternateScreen: api.leafUsesAlternateScreen,
+      __vertaLeafOutputBytes: api.leafOutputBytes,
+    });
+  });
+}

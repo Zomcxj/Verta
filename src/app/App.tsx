@@ -1,3 +1,4 @@
+import { coverRuleFor } from "@/app/coverRule";
 import { RunCommandProvider } from "@/components/chat-code";
 import {
   ResizableHandle,
@@ -161,18 +162,17 @@ const BenchBridge = __VERTA_BENCH__
 /** Session-opening overlay: lift it once the agent has taken the screen over. */
 const AGENT_UI_POLL_MS = 120;
 /**
- * Paint threshold, for the agents that do **not** take the screen over.
- *
- * A full-screen TUI is several KB, while the command echoed by the shell is only
- * tens of bytes. Measured by **cumulative** output, not by quiet time: a live TUI
- * keeps repainting and is never quiet (measured: opencode never stops emitting
- * for more than 420ms once up).
+ * The hard cap on the cover, for the case where the wait ends with the launch command still
+ * displayed. Lifting there shows the user a line typed on their behalf, so the cover stays up
+ * instead - but not forever: an agent that never takes over must still hand the pane back.
  */
-const AGENT_UI_PAINT_BYTES = 900;
-const AGENT_UI_TIMEOUT_MS = 8000;
-/** Fallback: never cover the terminal forever when the wait is inconclusive (a
- * bit longer than the timeout above; the poll usually finishes first). */
-const SESSION_OPENING_FALLBACK_MS = 8500;
+const AGENT_UI_HARD_CAP_MS = 45000;
+/** Fallback: never cover the terminal forever when the wait is inconclusive.
+ *
+ * This is a separate timer from the wait above, so it has to outlast it: at 8.5s it lifted the
+ * cover while the launch command was still on screen, which is the flicker the cover exists to
+ * prevent. It now matches the hard cap, which is the longest the wait itself will ever take. */
+const SESSION_OPENING_FALLBACK_MS = AGENT_UI_HARD_CAP_MS + 500;
 
 /** @returns a promise that resolves after `ms` milliseconds. */
 function delay(ms: number): Promise<void> {
@@ -209,40 +209,111 @@ function delay(ms: number): Promise<void> {
  * alone can land on a pane that has not been painted since, and that frame is the
  * previous screen - the one with the command on it.
  */
+/**
+ * Paints, then re-reads the screen and reports whether the launch command is still on it.
+ *
+ * `whenLeafPaints` only promises that *a* frame was drawn; it says nothing about what that frame
+ * shows. Every exit below has to be sure about the second, so the check is repeated after the
+ * paint rather than trusted from the tick that decided: the tick read the screen before the
+ * renderer caught up, and the frame that arrives can be the agent clearing its screen - a blank
+ * one, where `showsLaunch` was conveniently false. That is the other half of the flicker.
+ */
+async function paintsWithoutLaunchLine(
+  leafId: number,
+  command: string,
+): Promise<boolean> {
+  await whenLeafPaints(leafId);
+  const after = leafScreenTail(leafId);
+  return after === null || !screenShowsLaunchLine(after, command);
+}
+
 async function waitForAgentUi(
   leafId: number,
   base: number,
   command: string,
 ): Promise<void> {
-  const deadline = Date.now() + AGENT_UI_TIMEOUT_MS;
+  const hardCap = Date.now() + AGENT_UI_HARD_CAP_MS;
   /** The echo has been seen, so a screen without it means the agent replaced it. */
   let echoed = false;
-  while (Date.now() < deadline) {
+  /** When the output last grew, for the silence rule below. */
+  let lastGrowthAt = Date.now();
+  let lastBytes = 0;
+  const startedAt = Date.now();
+  // DEV-only trace: what each tick saw and which rule ended the wait. A probe reads this
+  // after opening a session, so the moment the cover lifts can be judged from measurements
+  // rather than from re-reading the loop.
+  const trace =
+    import.meta.env.DEV
+      ? (() => {
+          const w = window as unknown as { __vertaOpenTrace?: unknown[] };
+          if (!w.__vertaOpenTrace) w.__vertaOpenTrace = [];
+          return w.__vertaOpenTrace;
+        })()
+      : null;
+  while (Date.now() < hardCap) {
     const bytes = leafOutputBytes(leafId) - base;
+    if (bytes > lastBytes) {
+      lastBytes = bytes;
+      lastGrowthAt = Date.now();
+    }
+    const elapsed = Date.now() - startedAt;
+    const silentFor = Date.now() - lastGrowthAt;
     const screen = leafScreenTail(leafId);
     const showsLaunch = screen !== null && screenShowsLaunchLine(screen, command);
     // The agent's own screen has to be there: an empty one is an agent that has just
     // cleared or switched buffers and has not painted yet, and lifting onto that trades
     // a visible command line for a blank pane.
     const hasOwnScreen = screen !== null && screen.trim().length > 0;
+    const alt = leafUsesAlternateScreen(leafId);
+    trace?.push({
+      t: elapsed,
+      bytes,
+      alt,
+      echoed,
+      showsLaunch,
+      hasOwnScreen,
+      silentFor,
+      screenTail: screen === null ? null : screen.slice(-160),
+    });
     if (showsLaunch) echoed = true;
-    if (hasOwnScreen && !showsLaunch && (echoed || leafUsesAlternateScreen(leafId))) {
-      await whenLeafPaints(leafId);
+    // Which rule (if any) lifts the cover. The decision is a pure function so it can be tested
+    // tick by tick; see `coverRule.ts` for what each rule requires and why.
+    const rule = coverRuleFor({
+      elapsed,
+      bytes,
+      silentFor,
+      showsLaunch,
+      hasOwnScreen,
+      alt,
+      echoed,
+    });
+    // `coverRuleFor` already refuses when the command is on screen. The paint is awaited and the
+    // screen read a second time because the tick read it before the renderer caught up: the frame
+    // that lands can be a cleared buffer, and that frame is the one the user would see.
+    if (
+      rule !== null &&
+      (await paintsWithoutLaunchLine(leafId, command))
+    ) {
+      trace?.push(
+        rule === "silence"
+          ? { t: elapsed, exit: rule, bytes, silentFor }
+          : rule === "bytes-fallback"
+            ? { t: elapsed, exit: rule, bytes }
+            : { t: elapsed, exit: rule },
+      );
       return;
     }
-    // The byte count may only decide when the screen cannot: if the echo was seen, the
-    // command is on screen and nothing else counts. A banner is several KB, so this
-    // branch would otherwise lift the cover onto exactly the line it exists to hide.
-    // The shell's "has a child process" query is deliberately not consulted here either:
-    // it was measured to answer false while an agent was running (a launcher that exits
-    // immediately leaves the agent recorded against a pid that no longer exists), so
-    // requiring it only ever delayed the fallback.
-    if (bytes >= AGENT_UI_PAINT_BYTES && !echoed) {
-      await whenLeafPaints(leafId);
-      return;
+    if (rule !== null) {
+      // The rule said lift, but the frame that arrived put the command back (or cleared to
+      // nothing). Recorded so a run that keeps bouncing here is visible in the trace rather than
+      // looking like an agent that simply takes a long time.
+      trace?.push({ t: elapsed, heldBy: rule, showsLaunch, hasOwnScreen });
     }
     await delay(AGENT_UI_POLL_MS);
   }
+  // Past the hard cap the command may still be on screen. Lifting here would show it, so the
+  // cover stays and the caller's own fallback timer hands the pane back instead.
+  trace?.push({ t: Date.now() - startedAt, exit: "hard-cap" });
 }
 
 export default function App() {
