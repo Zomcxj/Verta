@@ -44,42 +44,81 @@ const everySeconds = Number(arg("every", "30"));
 const match = arg("match", null);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const targets = await (await fetch("http://127.0.0.1:9222/json")).json();
-const target = targets.find((t) => {
-  if (t.type !== "page") return false;
-  if (match === null) return t.url.endsWith("1420/") || t.url.endsWith("tauri.localhost/");
-  return match.endsWith("/") ? t.url.endsWith(match) : t.url.includes(match);
-});
-if (!target) {
-  console.error("没找到主窗口的 page 目标（dev 起来了吗？--match 对吗？）");
+const findTarget = async () => {
+  const targets = await (await fetch("http://127.0.0.1:9222/json")).json();
+  return targets.find((t) => {
+    if (t.type !== "page") return false;
+    if (match === null) return t.url.endsWith("1420/") || t.url.endsWith("tauri.localhost/");
+    return match.endsWith("/") ? t.url.endsWith(match) : t.url.includes(match);
+  });
+};
+
+// The page can be reloaded underneath a long watch - writing any file the app imports makes Vite
+// redraw it, and a reload destroys the evaluation context, which ended this watch after seven
+// samples the first time it was run for forty minutes. The window is reopened and the sample taken
+// again; nothing is lost, because a sample imports everything it needs on every call and holds no
+// state of its own.
+let socket = null;
+let id = 1;
+let pending = new Map();
+let reloads = 0;
+const connect = async () => {
+  const target = await findTarget();
+  if (!target) throw new Error("没找到主窗口的 page 目标（dev 起来了吗？--match 对吗？）");
+  const fresh = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => {
+    fresh.addEventListener("open", () => resolve());
+    fresh.addEventListener("error", () => reject(new Error("WebSocket 打不开")));
+  });
+  fresh.addEventListener("message", (e) => {
+    const m = JSON.parse(e.data);
+    const q = pending.get(m.id);
+    if (q) {
+      pending.delete(m.id);
+      q(m);
+    }
+  });
+  socket = fresh;
+  pending = new Map();
+};
+try {
+  await connect();
+} catch (error) {
+  console.error(String(error?.message ?? error));
   process.exit(2);
 }
-const socket = new WebSocket(target.webSocketDebuggerUrl);
-let id = 1;
-const pending = new Map();
-await new Promise((r) => socket.addEventListener("open", () => r()));
-socket.addEventListener("message", (e) => {
-  const m = JSON.parse(e.data);
-  const q = pending.get(m.id);
-  if (q) {
-    pending.delete(m.id);
-    q(m);
-  }
-});
+
 const send = (method, params) =>
   new Promise((res, rej) => {
     const i = id++;
     pending.set(i, (m) => (m.error ? rej(new Error(JSON.stringify(m.error))) : res(m.result)));
     socket.send(JSON.stringify({ id: i, method, params }));
   });
+const CONTEXT_GONE =
+  /Execution context was destroyed|Cannot find context|Target closed|Session closed|navigated|WebSocket is not open/;
 const evalIn = async (body) => {
-  const r = await send("Runtime.evaluate", {
-    expression: `(async () => {\n${body}\n})()`,
-    awaitPromise: true,
-    returnByValue: true,
-  });
-  if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
-  return r.result.value;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const r = await send("Runtime.evaluate", {
+        expression: `(async () => {\n${body}\n})()`,
+        awaitPromise: true,
+        returnByValue: true,
+      });
+      if (r.exceptionDetails) {
+        throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
+      }
+      return r.result.value;
+    } catch (error) {
+      if (attempt >= 3 || !CONTEXT_GONE.test(String(error?.message ?? error))) throw error;
+      reloads += 1;
+      console.log(`（页面被重载了，重开一次调试目标再采这一格：第 ${reloads} 次）`);
+      try {
+        socket?.close();
+      } catch {}
+      await sleep(1500);
+      await connect();
+    }
+  }
 };
 
 /** What the app knows right now: the service's answer, the store's rows, and what the panel drew. */
@@ -126,14 +165,25 @@ const storeStamp = () => {
   }
 };
 
-const panelWidth = Number(
-  await evalIn(`
-    const row = document.querySelector("[data-session-id]");
-    return row ? String(Math.round(row.getBoundingClientRect().width)) : "0";
-  `),
-);
+const readPanelWidth = async () =>
+  Number(
+    await evalIn(`
+      const row = document.querySelector("[data-session-id]");
+      return row ? String(Math.round(row.getBoundingClientRect().width)) : "0";
+    `),
+  );
+// A watch is normally started right after a reload, and right after a reload the panel has not read
+// its sources yet: the list is empty for a few seconds on this machine, the slowest source being pi
+// at about 3.3s. Looking once and exiting on an empty list confuses "you never opened the panel" with
+// "you were a second early", which is what a forty minute run did the first time it was started this
+// way. So the first row is waited for, and only its absence for twenty seconds is a refusal.
+let panelWidth = 0;
+for (let attempt = 0; attempt < 20 && panelWidth === 0; attempt += 1) {
+  if (attempt > 0) await sleep(1000);
+  panelWidth = await readPanelWidth();
+}
 if (panelWidth === 0) {
-  console.error("会话面板没开（找不到 [data-session-id]）：先把左栏切到「会话」再跑这个探针。");
+  console.error("会话面板没开（等了 20 秒也没有 [data-session-id]）：先把左栏切到「会话」再跑这个探针。");
   process.exit(2);
 }
 if (panelWidth < 60) {
@@ -171,8 +221,10 @@ const rowOf = (rows, id) => {
 let notDrawn = 0;
 
 const deadline = Date.now() + minutes * 60_000;
+const startedAt = Date.now();
 const samples = [];
 let sawAnyMidTurn = false;
+let cutShort = false;
 try {
   while (Date.now() < deadline) {
     const raw = JSON.parse(await evalIn(SAMPLE));
@@ -243,8 +295,10 @@ try {
     await sleep(everySeconds * 1000);
   }
 } catch (error) {
+  cutShort = true;
   console.error(`采样中断：${String(error?.message ?? error)}`);
 }
+const observedMinutes = Math.round(((Date.now() - startedAt) / 60000) * 10) / 10;
 
 // The decisive samples: mid-turn, past the write window, and drawn as running anyway. A sample where
 // the row was not drawn at all decides nothing and is counted on its own.
@@ -277,7 +331,10 @@ for (const sample of samples) {
   }
 }
 
-console.log(`\n采样 ${samples.length} 次，其中 ${samples.filter((s) => s.midTurn.length > 0).length} 次有已在跑的顶层会话。`);
+console.log(
+  `\n采样 ${samples.length} 次（实际盯了 ${observedMinutes} 分钟，要的是 ${minutes} 分钟${reloads > 0 ? `，期间页面被重载 ${reloads} 次并各重采一次` : ""}），` +
+    `其中 ${samples.filter((s) => s.midTurn.length > 0).length} 次有已在跑的顶层会话。`,
+);
 console.log(
   `这些采样里有 ${notDrawn} 行次「这一格根本没画出来」（面板重绘的瞬间，不是灭）` +
     (undecided > 0 ? `，其中 ${undecided} 行次已超写窗口、因此这一遍判不了` : "") +
@@ -308,7 +365,13 @@ if (darkenings.length > 0) {
   console.log("\n这一次没有看到「行由亮转灭」（要等某条真跑完并过了写窗口）。");
 }
 
-socket.close();
+socket?.close();
+// What actually happened, not what was asked for: the watch used to be ended early by a page reload
+// and then report the configured window as if it had been watched, which reads as "nothing happened
+// in forty minutes" when only two had passed.
+const windowText = cutShort
+  ? `这一遍只盯了 ${observedMinutes} 分钟就断了（要的是 ${minutes} 分钟）`
+  : `${observedMinutes} 分钟里`;
 if (failures.length > 0) {
   console.log("\n不通过：服务还报在跑，行却已经灭了：");
   for (const f of failures) console.log(`  - ${f.at} ${f.title} 写龄 ${f.writeAgeMinutes}min 行上 ${f.rowState}`);
@@ -327,7 +390,7 @@ if (darkenings.length > 0) {
 }
 console.error(
   sawAnyMidTurn
-    ? `\n没有通过：${minutes} 分钟里没有出现「写龄超过写窗口而服务仍在报在跑」的采样，所以这一条还没被证到。`
-    : `\n没有通过：${minutes} 分钟里服务一次都没报「有会话在跑」，没有可盯的对象。`,
+    ? `\n没有通过：${windowText}没有出现「写龄超过写窗口而服务仍在报在跑」的采样，所以这一条还没被证到。`
+    : `\n没有通过：${windowText}服务一次都没报「有会话在跑」，没有可盯的对象。`,
 );
 process.exit(3);
