@@ -54,6 +54,9 @@ export type GitChangedFile = {
   unstaged: boolean;
   untracked: boolean;
   statusLabel: string;
+  /** Lines added and removed against HEAD; `null` when git cannot say (a binary or untracked file, or a read that failed). */
+  added: number | null;
+  removed: number | null;
 };
 
 /** Projects list: wire format for discovery and status queries. */

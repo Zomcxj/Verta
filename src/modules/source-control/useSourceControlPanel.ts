@@ -46,6 +46,9 @@ export type SourceControlFileEntry = {
   originalPath: string | null;
   statusCode: string;
   statusLabel: string;
+  /** Lines added and removed against HEAD; `null` when there is nothing to show. */
+  added: number | null;
+  removed: number | null;
   checkState: CheckState;
   staged: boolean;
   unstaged: boolean;
@@ -211,6 +214,10 @@ function optimisticUnstage(
         unstaged: true,
         untracked: false,
         statusLabel: "Deleted",
+        // A guess at the shape of the change, not a count: the refresh that follows the unstage
+        // replaces this whole entry with what git says.
+        added: null,
+        removed: null,
       });
       next.push({
         path: file.path,
@@ -221,6 +228,8 @@ function optimisticUnstage(
         unstaged: true,
         untracked: true,
         statusLabel: "Untracked",
+        added: null,
+        removed: null,
       });
       continue;
     }
@@ -338,6 +347,8 @@ export function useSourceControlPanel(
         originalPath: file.originalPath,
         statusCode,
         statusLabel: file.statusLabel,
+        added: file.added,
+        removed: file.removed,
         checkState,
         staged: file.staged,
         unstaged: file.unstaged,
