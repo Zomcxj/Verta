@@ -3,8 +3,8 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent_sessions, control, fonts, fs, git, github, history, lsp, net, projects, pty, screenshot,
-    secrets, shell, vibrancy, workspace,
+    agent_sessions, agent_versions, control, fonts, fs, git, github, history, lsp, net, projects,
+    pty, screenshot, secrets, shell, vibrancy, workspace,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -513,6 +513,8 @@ pub fn run() {
             agent_sessions::agent_sessions_delete,
             agent_sessions::agent_sessions_rename,
             agent_sessions::agent_sessions_image,
+            agent_versions::agent_versions_check,
+            agent_versions::agent_versions_upgrade,
             secrets::secrets_get,
             secrets::secrets_set,
             secrets::secrets_delete,

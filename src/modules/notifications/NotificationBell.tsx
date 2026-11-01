@@ -4,14 +4,19 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
 import { useLanguage, useT } from "@/modules/i18n";
 import { AgentIcon, relativeTime } from "@/modules/launcher";
 import { pendingAttentions, questionExcerpt } from "@/modules/notifications/lib/attentions";
+import {
+  upgradable,
+  useAgentVersions,
+} from "@/modules/notifications/lib/useAgentVersions";
 import { leafScreenTail, useAgentActivityStore } from "@/modules/terminal";
 import type { Tab } from "@/modules/tabs";
-import { BellIcon } from "@hugeicons/core-free-icons";
+import { ArrowUp01Icon, BellIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 /**
@@ -47,7 +52,20 @@ export function NotificationBell({
     () => pendingAttentions(tabs, slices),
     [tabs, slices],
   );
-  if (items.length === 0) return null;
+  const versions = useAgentVersions();
+  const updates = useMemo(
+    () => upgradable(versions.components),
+    [versions.components],
+  );
+  // Checked once when the header mounts, so the badge can count an available update before the
+  // popover is ever opened. Opening it checks again (see `UpdatesSection`), which is where a fresh
+  // answer matters; both call the same stable callback.
+  useEffect(() => {
+    versions.check();
+  }, [versions.check]);
+  // The bell is part of the window's chrome now, not something that appears with a session: it
+  // stays, and the badge counts what is inside it. A quiet window shows the plain icon.
+  const count = items.length + updates.length;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -59,18 +77,130 @@ export function NotificationBell({
           className="relative shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <HugeiconsIcon icon={BellIcon} size={18} strokeWidth={1.75} />
-          <span
-            data-agent-bell-count
-            className="absolute -top-0.5 -right-0.5 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-semibold leading-none text-amber-950 tabular-nums"
-          >
-            {items.length > 9 ? "9+" : items.length}
-          </span>
+          {count > 0 ? (
+            <span
+              data-agent-bell-count
+              className="absolute -top-0.5 -right-0.5 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-semibold leading-none text-amber-950 tabular-nums"
+            >
+              {count > 9 ? "9+" : count}
+            </span>
+          ) : null}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={6} className="w-80 p-1">
-        <NotificationList items={items} onJump={onJump} />
+        {items.length > 0 ? (
+          <NotificationList items={items} onJump={onJump} />
+        ) : (
+          <p className="px-2.5 py-3 text-center text-[11px] text-muted-foreground">
+            {t("notifications.empty")}
+          </p>
+        )}
+        <UpdatesSection versions={versions} />
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * The "what can be upgraded" half of the bell.
+ *
+ * Only rows with a newer published version are listed (the caller's choice): a row that is current
+ * has nothing to do, and listing it would make the popover read like a version report rather than a
+ * call to action. When nothing is behind, the section says so in one line.
+ *
+ * The check runs when this mounts, which is when the popover opens: it costs a registry read per
+ * component, so nothing needs it before the user looks.
+ */
+function UpdatesSection({
+  versions,
+}: {
+  versions: ReturnType<typeof useAgentVersions>;
+}) {
+  const t = useT();
+  useEffect(() => {
+    // On mount, which is when the popover opens: reopening re-runs it, which is the cadence we
+    // want. `check` is a stable callback, so listing it keeps this to one run per open.
+    versions.check();
+  }, [versions.check]);
+  const updates = upgradable(versions.components);
+  return (
+    <div className="mt-0.5 flex flex-col gap-0.5 border-t border-border/50 pt-1">
+      <span className="flex items-center gap-1.5 px-2.5 pt-1 pb-1 text-[10px] text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate">
+          {t("notifications.updates.title")}
+        </span>
+        {versions.checking ? <Spinner className="size-2.5" /> : null}
+      </span>
+      {versions.checkError ? (
+        <p className="px-2.5 pb-1.5 text-[10px] text-rose-500">
+          {t("notifications.updates.checkFailed", {
+            error: versions.checkError,
+          })}
+        </p>
+      ) : null}
+      {updates.length === 0 ? (
+        <p className="px-2.5 pb-1.5 text-[11px] text-muted-foreground">
+          {versions.checking
+            ? t("notifications.updates.checking")
+            : t("notifications.updates.none")}
+        </p>
+      ) : (
+        updates.map((component) => (
+          <div
+            key={component.id}
+            data-agent-update={component.id}
+            className="flex items-center gap-2 rounded-md px-2.5 py-1.5"
+          >
+            <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+              {component.name}
+            </span>
+            <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+              {component.current} → {component.latest}
+            </span>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              title={t("notifications.updates.upgrade", {
+                name: component.name,
+              })}
+              disabled={versions.upgrading !== null}
+              onClick={() => versions.upgrade(component.id)}
+              className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              {versions.upgrading === component.id ? (
+                <Spinner className="size-3" />
+              ) : (
+                <HugeiconsIcon icon={ArrowUp01Icon} size={14} strokeWidth={1.9} />
+              )}
+            </Button>
+          </div>
+        ))
+      )}
+      {versions.upgradeError ? (
+        <p className="px-2.5 pb-1.5 text-[10px] text-rose-500">
+          {t("notifications.updates.upgradeFailed", {
+            error: versions.upgradeError,
+          })}
+        </p>
+      ) : null}
+      {versions.upgraded ? (
+        // The row leaves the list once it is current, so this is the confirmation: without it a
+        // successful upgrade looks like the component disappearing.
+        <p
+          data-agent-updated
+          className="px-2.5 pb-1.5 text-[10px] text-emerald-500"
+        >
+          {versions.upgraded.version
+            ? t("notifications.updates.upgraded", {
+                name: versions.upgraded.name,
+                version: versions.upgraded.version,
+              })
+            : t("notifications.updates.upgradedNoVersion", {
+                name: versions.upgraded.name,
+              })}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
