@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
@@ -1059,6 +1060,47 @@ fn apply_numstat(files: &mut [GitCommitFileChange], bytes: &[u8]) {
     }
 }
 
+/// Added and removed line counts per path, keyed by the path the **status** reports (the new one
+/// for a rename).
+///
+/// The two sides are summed because they answer the same question as the row: how much this file
+/// differs from HEAD. A file that is staged and then edited again appears in both reads, and
+/// showing only one of them would understate it. Binary files report `-` for both counts and are
+/// left out of the map, so a row with a binary change shows no numbers rather than a wrong `+0`.
+fn merge_numstat(into: &mut HashMap<String, (u32, u32)>, bytes: &[u8]) {
+    let s = std::str::from_utf8(bytes).unwrap_or("");
+    let tokens: Vec<&str> = s.split('\0').filter(|t| !t.is_empty()).collect();
+    let mut idx = 0;
+    while idx < tokens.len() {
+        let header = tokens[idx];
+        idx += 1;
+        let mut cols = header.splitn(3, '\t');
+        let added_raw = cols.next().unwrap_or("0");
+        let removed_raw = cols.next().unwrap_or("0");
+        let inline_path = cols.next().unwrap_or("");
+        if added_raw == "-" || removed_raw == "-" {
+            continue;
+        }
+        let added: u32 = added_raw.parse().unwrap_or(0);
+        let removed: u32 = removed_raw.parse().unwrap_or(0);
+        let path = if inline_path.is_empty() {
+            // `-z` puts a rename's two paths in their own tokens: the original, then the new one.
+            idx += 1;
+            let new_path = tokens.get(idx).copied().unwrap_or("");
+            idx += 1;
+            new_path
+        } else {
+            inline_path
+        };
+        if path.is_empty() {
+            continue;
+        }
+        let entry = into.entry(path.to_string()).or_insert((0, 0));
+        entry.0 += added;
+        entry.1 += removed;
+    }
+}
+
 fn status_label_for(c: char) -> String {
     match c {
         'A' => "Added".into(),
@@ -1671,6 +1713,44 @@ pub fn clone_repo(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merge_numstat_sums_a_path_the_two_reads_both_report() {
+        let mut out = HashMap::new();
+        // An ordinary modification, from `git diff --numstat`.
+        merge_numstat(&mut out, b"3\t1\tsrc/a.ts\0");
+        // The same path again from `git diff --cached --numstat`: staged and then edited further,
+        // which is one file's difference from HEAD and has to read as one number.
+        merge_numstat(&mut out, b"2\t4\tsrc/a.ts\0");
+        assert_eq!(out.get("src/a.ts"), Some(&(5, 5)));
+    }
+
+    #[test]
+    fn merge_numstat_keys_a_rename_by_its_new_path() {
+        let mut out = HashMap::new();
+        // `-z` puts a rename's two paths in their own tokens: the original, then the new one. The
+        // status reports the new path, so that is the key the counts have to land on.
+        merge_numstat(&mut out, b"5\t0\t\0src/old.ts\0src/new.ts\0");
+        assert_eq!(out.get("src/new.ts"), Some(&(5, 0)));
+        assert_eq!(out.get("src/old.ts"), None);
+    }
+
+    #[test]
+    fn merge_numstat_leaves_binary_files_out() {
+        // git reports "-" for both counts. Zero added lines is a different fact from "cannot be
+        // counted", and a row showing "+0" for a PNG would be wrong.
+        let mut out = HashMap::new();
+        merge_numstat(&mut out, b"-\t-\tassets/logo.png\0");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn merge_numstat_ignores_an_empty_read() {
+        let mut out = HashMap::new();
+        merge_numstat(&mut out, b"");
+        merge_numstat(&mut out, b"\0\0");
+        assert!(out.is_empty());
+    }
 
     #[test]
     fn sha_is_safe_accepts_hex() {
