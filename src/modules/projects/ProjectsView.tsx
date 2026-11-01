@@ -26,6 +26,7 @@ import {
 import { CloneRepoDialog } from "./CloneRepoDialog";
 import { Input } from "@/components/ui/input";
 import { SortHeader } from "@/components/ui/sort-header";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { useLanguage, useT, type MessageKey } from "@/modules/i18n";
 import {
@@ -129,6 +130,14 @@ export function ProjectsView({
   const [cloneOpen, setCloneOpen] = useState(false);
   /** Normalized path of the project being pulled right now; null when idle. */
   const [pulling, setPulling] = useState<string | null>(null);
+  /**
+   * Normalized path of the row whose own refresh button was pressed.
+   *
+   * The refresh itself re-reads every row (it fetches first, then compares), so there is nothing
+   * to make per-row on the back end. What has to be per-row is the *feedback*: the ⟳ the user
+   * clicked is the one that has to spin, not the whole panel's button.
+   */
+  const [refreshingRow, setRefreshingRow] = useState<string | null>(null);
 
   // The list is read once and every later change is written back to the same file.
   useEffect(() => {
@@ -416,11 +425,15 @@ export function ProjectsView({
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 text-xs"
+          className="h-7 gap-1.5 text-xs"
           onClick={() => void refresh()}
           disabled={checking}
+          aria-busy={checking || undefined}
         >
-          {checking ? t("projects.checking") : t("projects.refresh")}
+          {/* A spinner beside the word, not the word swapping to `检查中…`: the label changing
+              width under the cursor makes the neighbouring controls move. */}
+          {checking ? <Spinner className="size-3" /> : null}
+          {t("projects.refresh")}
         </Button>
         {checkedAt ? (
           <span className="text-xs text-muted-foreground">
@@ -529,9 +542,20 @@ export function ProjectsView({
                   onRemove={
                     row.managed ? () => setPendingRemove(row) : undefined
                   }
-                  onRefresh={() => void refresh()}
+                  onRefresh={() => {
+                    const key = normalizePath(row.path);
+                    setRefreshingRow(key);
+                    void refresh().finally(() => {
+                      // Only clear if this row is still the one in flight: a second click on
+                      // another row must not be cleared by the first one finishing.
+                      setRefreshingRow((current) =>
+                        current === key ? null : current,
+                      );
+                    });
+                  }}
                   onPull={() => void handlePull(row)}
                   pulling={pulling === normalizePath(row.path)}
+                  refreshing={refreshingRow === normalizePath(row.path)}
                 />
               ))}
             </tbody>
@@ -585,6 +609,7 @@ function ProjectRowView({
   onRefresh,
   onPull,
   pulling,
+  refreshing,
 }: {
   row: ProjectRow;
   onOpenWorkspace: (entry: ProjectEntry) => void;
@@ -594,6 +619,7 @@ function ProjectRowView({
   onRefresh: () => void;
   onPull: () => void;
   pulling: boolean;
+  refreshing: boolean;
 }) {
   const t = useT();
   const state = stateOf(row.status);
@@ -715,23 +741,38 @@ function ProjectRowView({
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                title={t("projects.action.refreshOne")}
-                className="rounded px-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                title={
+                  refreshing
+                    ? t("projects.checking")
+                    : t("projects.action.refreshOne")
+                }
+                aria-busy={refreshing || undefined}
+                disabled={refreshing}
+                className="inline-flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-progress"
                 onClick={onRefresh}
               >
-                ⟳
+                {/* A spinner in place of the glyph rather than beside it: the button is one cell of
+                    a table row, so anything that changes its size reflows the whole row. */}
+                {refreshing ? (
+                  <Spinner className="size-3" />
+                ) : (
+                  <span aria-hidden>⟳</span>
+                )}
               </button>
               <button
                 type="button"
                 title={
-                  pullBlocked
-                    ? t(pullBlocked.key, pullBlocked.params)
-                    : t("projects.pull.one", {
-                        branch: row.status?.branch ?? "",
-                      })
+                  pulling
+                    ? t("projects.pull.running")
+                    : pullBlocked
+                      ? t(pullBlocked.key, pullBlocked.params)
+                      : t("projects.pull.one", {
+                          branch: row.status?.branch ?? "",
+                        })
                 }
+                aria-busy={pulling || undefined}
                 className={cn(
-                  "rounded px-1",
+                  "inline-flex size-5 items-center justify-center rounded",
                   pullBlocked
                     ? "cursor-not-allowed text-muted-foreground/40"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -739,7 +780,15 @@ function ProjectRowView({
                 disabled={pullBlocked !== null || pulling}
                 onClick={onPull}
               >
-                {pulling ? t("projects.pull.running") : "⇣"}
+                {/* The glyph is one character and the button is one cell: the running state is a
+                    spinner of the same size, not the word `正在拉取…`. The word used to wrap inside
+                    a `px-1` button and turn the row's action area into a column. The title and the
+                    `aria-busy` flag still say what is happening. */}
+                {pulling ? (
+                  <Spinner className="size-3" />
+                ) : (
+                  <span aria-hidden>⇣</span>
+                )}
               </button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
