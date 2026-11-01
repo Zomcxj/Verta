@@ -51,6 +51,7 @@ import {
 } from "@/modules/explorer/lib/menuItemClass";
 import { joinPath } from "@/modules/explorer/lib/useFileTree";
 import { useT } from "@/modules/i18n";
+import { lineCounts } from "@/modules/source-control/lineCounts";
 import {
   Alert02Icon,
   ArrowDown01Icon,
@@ -1213,6 +1214,7 @@ const EntryRow = memo(function EntryRow({
 }) {
   const t = useT();
   const entry = row.entry;
+  const counts = lineCounts(entry.added, entry.removed);
   const isSelected = selectedPath === entry.path;
   const fileName = basename(entry.path);
   const pathLabel = entryPathLabel(entry);
@@ -1287,6 +1289,29 @@ const EntryRow = memo(function EntryRow({
               ) : null}
             </div>
           </button>
+
+          {counts ? (
+            // aria-label rather than two bare spans: "+13 -0" is read as "plus thirteen minus
+            // zero" otherwise, which is not a sentence. `data-scm-counts` is the probe's handle on
+            // the two numbers, and `data-scm-path` names the row they belong to.
+            <span
+              data-scm-counts=""
+              data-scm-path={entry.path}
+              role="img"
+              aria-label={t("scm.lineCounts", {
+                added: String(entry.added),
+                removed: String(entry.removed),
+              })}
+              title={t("scm.lineCounts", {
+                added: String(entry.added),
+                removed: String(entry.removed),
+              })}
+              className="flex shrink-0 items-center gap-1.5 text-[10.5px] font-medium tabular-nums"
+            >
+              <span className="text-emerald-500">{counts.added}</span>
+              <span className="text-rose-500">{counts.removed}</span>
+            </span>
+          ) : null}
 
           {showDiscard ? (
             <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 data-[focused=true]:opacity-100 data-[selected=true]:opacity-100">
