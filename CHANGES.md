@@ -64,6 +64,48 @@ swap in the new date, and drop the `open` from the day before.
 
 - `src-tauri/src/modules/agent_sessions/pi.rs`: `session_stats` reads the whole session file. It used to stop at 8 MiB, and on a session that is still being written that cut showed up twice over - measured on this machine on `ModelHarber`: the file was 44.9 MiB, the list said 103 turns and a last activity of 2026-10-02, while the whole file holds 262 turns and ends on 2026-11-01. The comment above the function already promised "the whole file has to be read"; only the code disagreed. A prefix is a window on the *beginning* of a transcript, and turns and last-talk are both facts about its end. The timestamp extraction moved into `message_stamp` so both the reader and a test can name the same rule.
 - `src-tauri/src/modules/agent_sessions/pi.rs`: a regression case builds a file larger than the old window (9 MiB of user messages) and asserts the turn count covers all of it and that the last activity is the end of the file. Putting the 8 MiB cap back makes it fail with `left: Some(6579) right: Some(7403)`, which is the measured shape of the bug.
+
+**A reply that mentions PowerShell no longer marks its tab as having background work**
+
+- `src/modules/terminal/lib/agentState.ts`, `agentRules.ts`: the `trailing` rule matches `shell` as a whole word. Reported as "这会话打开呼吸灯是紫色？没后台啊" with a screenshot of a session whose turn had ended and which had nothing running. The footer of that session read `396.6K (79%) · $0.21 ctrl+p commands` and carried no shell count at all, but the rule reads the bottom two non empty lines, and a full screen TUI draws a reply's paragraphs into the same logical lines, so the sentence `用管理员 PowerShell 做设备级重建` supplied `shell` while the footer supplied `ctrl+p`. A new `containsWord` pattern bounds the match, and the footer's own spellings still answer: `↓ 1 shell`, `↓ 2 shells` and `↓ 3 subagents` are the measured lines and all three are asserted.
+- `src/modules/terminal/lib/agentRules.test.ts`: the scanned sentence is a case now, and it must not read as `trailing`.
+
+**The cover that hides a session's launch command stays up until the command is gone**
+
+- `src/app/coverRule.ts` (new) and `src/app/App.tsx`: which rule may lift the cover is one pure function now, and every rule requires that the launch command is not on the screen. Reported as "会话打开的加载动画结束还是会偶发性出现终端指令". Measured on the dev build by reading the wait's own trace after opening a session: at `t=6148` the silence rule fired with `screenTail` still showing `$ opencode --session ses_e691... 'F:/VibeCoding_workspace/Verta'`, which is the exact line the cover exists to hide.
+- Two more paths could lift onto the wrong frame and are closed. `bytes-fallback` decided on a byte count once the echo had *not* been seen, which is also true of a first poll that lands after a burst of output but before the shell echoes. `timeout-no-command` decided on the clock and accepted a screen with nothing on it, and an agent that has just cleared its buffer shows exactly that, so `showsLaunch` was false about a screen that had not been painted yet.
+- Every rule's answer is confirmed after the paint by reading the screen again (`paintsWithoutLaunchLine`): the tick read the screen before the renderer caught up, and the frame that arrives is the one the user sees.
+- `src/app/coverRule.test.ts` (new): the thresholds each rule needs, the floor that keeps a branding flash from ending the wait, and an exhaustive case over every combination of the four thresholds and the three flags, asserting that no rule fires while `showsLaunch` is true.
+- Measured on the dev build after the change: a real session (`daily talk`) lifted at `t=4967` on `own-screen` with the agent's own footer on screen, and the trace held by a rule zero times, so the tightened rules do not make a normal open wait longer.
+
+**The bell lists the agent tools that can be upgraded**
+
+- `src-tauri/src/modules/agent_versions.rs` (new): which tools this machine has, what versions they are on, and whether a newer one is published. opencode and pi answer for themselves, pi's npm extensions come from pi's own settings file, and every registry read runs at once.
+- The registry is read over plain HTTPS against the URL `npm` is configured with rather than by running `npm view`, measured at 187 ms for nine packages against 2.7 s per package for `npm view`: the difference is npm's own startup, and nine of them took 14.8 s in a row and 9.4 s even in parallel. The address comes from the same setting `npm install` would use, so a mirror answers consistently.
+- On Windows the tools are `npm`, `opencode` and `pi` shims, which `CreateProcess` refuses to run, so the updater goes through `cmd /C`. The upgrade command is looked up by component id among the commands this module knows and is never built from the renderer's text.
+- `src/modules/notifications/lib/useAgentVersions.ts` (new) and `NotificationBell.tsx`: the header bell stays visible and counts what is in it. Only components with a newer published version are listed; when nothing is behind, one line says so. The check runs when the header mounts and again when the popover opens.
+- An upgrade that succeeds says which version the component landed on. Asked for after a real upgrade: the row leaves the list once it is current, so without the confirmation a successful upgrade looks exactly like the component disappearing.
+- `src-tauri/src/lib.rs`, `src-tauri/src/modules/mod.rs`: the two commands registered.
+- Measured on this machine: `pi-lens 4.4.7 -> 4.4.8` was the only row behind, a real click ran `pi update --extensions`, and the row then gave way to `pi-lens 已升级到 4.4.8`.
+
+**Each changed file in source control says what happened to it**
+
+- `src/modules/source-control/lineCounts.ts`, `SourceControlPanel.tsx`: a `M`, `D`, `A`, `U` or `R` after the counts, in a fixed width slot, in the colour of the bar beside it and with the word in its tooltip. Asked for as "提交的加减对于新增删除文件都要写 跟踪状态文字也要 M D A". The bar already carried the colour, but a colour alone does not say what happened to the file.
+- `src-tauri/src/modules/git/operations.rs`: an untracked file is counted as every line being added. Reported as "新增文件没有加减": neither `git diff` nor `git diff --cached` mentions a path git does not track yet, so those rows had no numbers at all. The file is read directly, which matched `git diff --no-index` on every shape tried (a trailing newline or none, CRLF, an empty file, a binary one) and costs 4 ms for 48 files instead of a process per file. A binary file answers no count rather than a wrong `+0`, and a file past the size cap is left without one rather than read whole.
+- Measured on the dev build: 21 rows, 10 `M` and 11 `U`, and no row left without numbers where there had been 11.
+
+**The projects panel spins rather than writing a word into a one glyph button**
+
+- `src/modules/projects/ProjectsView.tsx`: the pull control keeps its size and shows a spinner while it runs. Reported as "拉取项目图标点击后正在拉取布局有问题，不然就不要显示文字": the word was written into a `px-1` button sized for one character, so it wrapped and turned the row's actions into a column. The row's own refresh button spins in place for the same reason, and the panel's refresh button shows a spinner beside its fixed label so the controls next to it do not move.
+- The row's refresh button was reading the pull state, so pressing refresh showed a pull in progress. It has its own per row state now.
+
+**Switching to another repository paints its file list instead of waiting for a fetch**
+
+- `src/modules/source-control/useSourceControl.ts`: the automatic fetch runs after the list is shown rather than in front of it. Measured on this machine, a switch into another repository took **5.7 s** with an empty panel the whole time, while `git status` plus the two `numstat` reads cost 0.32 s; the fetch is what stood in between, and the user is changing tabs rather than asking to talk to a remote. Its result still replaces the ahead and behind counts when it arrives, and each update re-checks that the request is still current.
+- `src/modules/source-control/repoSnapshots.ts` (new): the last status of each repository, so switching back paints it before the live read lands. A snapshot is a rendering cache and never the answer: the caller always starts a live read afterwards. Bounded to twelve repositories by least recent use.
+- `src/modules/source-control/useSourceControl.ts`: the context change window for data that is already fresh goes from two seconds to thirty, which is what a switch into the same repository used to re-read for no reason.
+- `src/modules/source-control/repoSnapshots.test.ts` (new): a repository is identified by its root rather than by how it was spelled, a POSIX path keeps its case while a Windows drive path does not, two workspaces stay apart, and eviction drops the least recently used entry.
+- Measured on the dev build with real tab clicks between two repositories: the switch lands in 2 to 3 seconds against 5.7 before.
 </details>
 
 <details>
