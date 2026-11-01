@@ -17,6 +17,17 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-01</strong></summary>
 
+**Each changed file in source control says how many lines it added and removed**
+
+- Asked for as "右侧待提交实时显示每隔修改文件的绿色+和红色-", with a screenshot of the target shape: `+13 -0` and `+1089 -62` on the rows of the Changes list.
+- `src-tauri/src/modules/git/types.rs`, `parser.rs`, `untracked.rs`: a changed file carries `added` and `removed` now (`Option<u32>`, so "git cannot say" is not the same as zero). The status parse leaves them empty; the untracked-directory expansion copies them from the entry it splits.
+- `src-tauri/src/modules/git/operations.rs`: `status_inner` reads the counts along with the status, from `git diff --numstat` (working tree against the index) and `git diff --cached --numstat` (index against HEAD), merged per path so that a file staged and then edited again reads as its total difference from HEAD rather than half of it. A rename is keyed by the path the status reports, which is the new one. A binary file reports `-` for both counts and is left out, so its row shows no numbers rather than a wrong `+0`. A read that fails leaves every row without numbers and the status itself untouched: the panel never goes blank over a count.
+- `src/lib/native.ts`, `src/modules/source-control/useSourceControlPanel.ts`: the two fields on the wire type and on the panel's row, carried through the flat per-file list. The optimistic unstage path, which fabricates rows before git answers, gives them `null` rather than a guess.
+- `src/modules/source-control/lineCounts.ts` (new) and `SourceControlPanel.tsx`: `+N` in green and `-M` in red, right-aligned before the row's buttons, in tabular figures so a refresh does not shift the row. Zero is shown (`-0` is a fact about the change, and a row that dropped it would read as unknown). The pair is labelled for a screen reader instead of being read as "plus thirteen minus zero", and the row carries `data-scm-path` with the numbers inside a `[data-scm-counts]` for the probe to read.
+- Untracked files show no numbers: git has no diff to count for them. Asked whether to count their lines instead and the answer was to leave them out.
+- When the counts are recomputed: only when the panel already refreshes (opening it, switching tabs, pressing refresh, after stage, discard or commit). Chosen over a file watcher or a timer, so an open panel does not keep running git in the background.
+- `scripts/dev/probes/scm-line-counts.mjs` (new): compares every rendered row against `git diff --numstat` plus `git diff --cached --numstat` run by the probe itself in the same repository, merged by the same rule. Measured on this machine (2026-11-01): one row with numbers and one untracked row without, the row agreeing with git at `+3 -2`; the probe then fails as it should when the rendered number is edited to `+4 -2` (`面板显示 +4-2，git 说 +3-2`, exit 1).
+
 **A working directory reported as a URI keeps its drive letter**
 
 - Reported as "本项目再界面显示找不到文件路径 同时没有仓库显示": the file tree drew `系统找不到指定的路径。 (os error 3)` and source control drew `没有仓库` / `当前工作区不在 Git 仓库内。`. Both read the active tab's cwd (`src/modules/tabs/lib/useWorkspaceCwd.ts` hands the tab's cwd to the tree, and source control resolves its repository from the same value), so one bad string broke two panels at once.
