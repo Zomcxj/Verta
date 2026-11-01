@@ -3,11 +3,19 @@ import { lineCounts } from "./lineCounts";
 
 describe("lineCounts", () => {
   it("shows both numbers, zero included", () => {
-    expect(lineCounts(13, 0)).toEqual({ added: "+13", removed: "-0" });
+    // The minus is U+2212 MINUS SIGN, not the ASCII hyphen: the hyphen sits above the baseline and
+    // reads as higher than the plus beside it, while the minus sign is drawn where a minus belongs.
+    expect(lineCounts(13, 0)).toEqual({ added: "+13", removed: "\u22120" });
   });
 
   it("keeps a large count as it is", () => {
-    expect(lineCounts(1089, 62)).toEqual({ added: "+1089", removed: "-62" });
+    expect(lineCounts(1089, 62)).toEqual({ added: "+1089", removed: "\u221262" });
+  });
+
+  it("never emits an ASCII hyphen as the sign", () => {
+    const counts = lineCounts(1, 1);
+    expect(counts?.removed.charCodeAt(0)).toBe(0x2212);
+    expect(counts?.removed.includes("-")).toBe(false);
   });
 
   it("says nothing when git could not count", () => {
