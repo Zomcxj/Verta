@@ -3,11 +3,17 @@
 // path between them (the store's leaf map, the tab selector, the chip's render, the
 // and its unseen bar) is what this checks.
 //
-// It opens a plain terminal of its own, puts each screen on it, and reads the
+// It opens a terminal tab of its own, puts each screen on it, and reads the
 // interface's own DOM: which chip carries a dot, with what state and what label, and
 // what the tab strip draws. The screenshot is for the eye; the DOM is the evidence.
 // The tab is closed again, and the user's other tabs are read too, since a dot must
 // not appear on them.
+//
+// The tab is opened for an agent (through the app's own `newAgentTab`, via its DEV
+// hook) rather than with Ctrl+T: a plain terminal tab has the terminal's icon, and the
+// state marker is only drawn where the icon is the agent's - so the screens below could
+// have been put on a plain tab and read as no dot at all. No agent is started on it: the
+// screens this writes are the only thing the judge can be reading.
 //
 // The colour and the breathing are read as computed style rather than as class names:
 // the states' colours and the fact that they all breathe are a contract with the
@@ -111,25 +117,24 @@ try {
   `);
   report.stripBefore = JSON.parse(await tabStrip());
 
-  await send("Input.dispatchKeyEvent", {
-    type: "rawKeyDown",
-    modifiers: 2,
-    key: "t",
-    code: "KeyT",
-    windowsVirtualKeyCode: 84,
-    nativeVirtualKeyCode: 84,
-  });
-  await send("Input.dispatchKeyEvent", {
-    type: "keyUp",
-    modifiers: 2,
-    key: "t",
-    code: "KeyT",
-    windowsVirtualKeyCode: 84,
-    nativeVirtualKeyCode: 84,
-  });
+  // The tab this drives has to be one whose icon is the agent's, because that is the only tab the
+  // state marker is drawn on (`lib/tabAgentIcon.ts`): a tab opened with Ctrl+T has the terminal's
+  // icon, and no amount of opencode-looking output on it earns a dot. The app's own path for such a
+  // tab is `newAgentTab`, which this reaches through its DEV hook; the agent is *not* started on it,
+  // so the screens this writes are the only thing the judge can be reading. Before this, the probe
+  // opened a plain tab and passed only because the marker's condition read `tab.agent !== null`,
+  // which is true for a tab with no `agent` property at all.
+  const opened = await pageEval(`
+    const open = window.__vertaNewAgentTab;
+    if (!open) return JSON.stringify({ error: "没有 __vertaNewAgentTab（dev 构建才有）" });
+    return JSON.stringify(open(undefined, "probe", "opencode"));
+  `);
+  const openedTab = JSON.parse(opened);
+  if (openedTab.error) throw new Error(openedTab.error);
+  report.openedTab = openedTab;
 
   const known = new Set(JSON.parse(before));
-  let target = null;
+  let target = openedTab.leafId ?? null;
   for (let attempt = 0; attempt < 40 && !target; attempt += 1) {
     await sleep(500);
     const now = JSON.parse(
@@ -262,9 +267,12 @@ try {
   // needs, because the `clear` it writes lands in a shell that is still holding the prompt back.
   await step("cleared", "", 5000);
 
+  // Its own tab, found by the id it was opened with. The last `[role=tab]` in the document is not
+  // this tab: the session panel's filter chips are tabs too and come after it in the DOM, so "the
+  // last one" was the panel's chip and this step reported `no-close-control` while leaving the
+  // fixture in the user's strip - measured, the tab it opened was still there afterwards.
   report.closeTarget = await pageEval(`
-    const tabs = [...document.querySelectorAll("[role=tab]")];
-    const tab = tabs[tabs.length - 1];
+    const tab = document.querySelector('[data-tab-id="${openedTab.tabId}"]');
     const close = tab?.querySelector("[data-no-drag][role=button]");
     if (!close) return "no-close-control";
     close.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, buttons: 1, isPrimary: true, pointerId: 1, pointerType: "mouse" }));

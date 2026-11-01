@@ -10,27 +10,34 @@ import { readFileSync } from "node:fs";
  * finds agents by reading screens, so it also knows about an agent that was typed into a plain
  * shell, and that tab's icon still says terminal.
  *
- * Read as source text, because the condition is one expression in a memoised component and there is
- * no way to render it without a whole tab strip: what is being pinned is which predicate the marker
- * hangs on, and that is visible in the source.
+ * What is left here is the wiring, because the chip cannot be rendered without a whole tab strip.
+ * The decision itself is `tabAgentIcon`, and it has a truth-table test of its own
+ * (`lib/tabAgentIcon.test.ts`). That split is the lesson of the first version of this file: it read
+ * the condition as source text, the text was `tab.agent !== null`, a tab opened with Ctrl+T has no
+ * `agent` property at all - so `undefined !== null` was true, every terminal tab in the window was
+ * marked, and the assertion passed the whole time.
  */
 const chip = readFileSync(new URL("./TabChip.tsx", import.meta.url), "utf8");
 
 describe("the tab's agent marker", () => {
   it("is drawn only on a tab whose icon is an agent's", () => {
     // Both halves of the condition, in the order they are written: the state has to exist, and the
-    // tab's icon has to be the agent's.
-    expect(chip).toContain("agentStatus.state !== null && hasAgentIcon(tab)");
-    // The predicate itself: a terminal tab that was opened for an agent.
-    expect(chip).toMatch(
-      /function hasAgentIcon\(tab: Tab\): boolean \{\s*return tab\.kind === "terminal" && tab\.agent !== null;/,
+    // tab has to be one whose icon is the agent's.
+    expect(chip).toContain(
+      "agentStatus.state !== null && tabAgentIcon(tab) !== null",
     );
   });
 
-  it("is not drawn on a bare terminal tab", () => {
-    // The negative half, spelled out: the marker must not be conditioned on the store alone. That
-    // was the shape before this was asked for, and it marked a plain shell that an agent had been
-    // typed into.
+  it("is not conditioned on the store alone", () => {
+    // The shape before this was asked for, which marked a plain shell that an agent had been typed
+    // into.
     expect(chip).not.toContain("{agentStatus.state !== null ? (");
+  });
+
+  it("asks its question in one place, the same one the icon asks", () => {
+    // Both readers of `tab.agent` go through the predicate. A test of that property written here
+    // instead is how the icon and the marker came apart the first time.
+    expect(chip).toContain('from "./lib/tabAgentIcon"');
+    expect(chip).not.toContain("tab.agent");
   });
 });

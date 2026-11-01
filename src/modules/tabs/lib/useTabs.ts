@@ -751,6 +751,24 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [newAgentGroupTab],
   );
 
+  useEffect(() => {
+    if (!import.meta.env?.DEV || typeof window === "undefined") return;
+    // A probe needs a tab whose icon is an agent's *without* an agent being started on it: the state
+    // marker only shows on such a tab (see `lib/tabAgentIcon.ts`), and the screens that decide what
+    // the marker says have to be the probe's own. `newAgentTab` is the app's own path for that tab;
+    // nothing else in the app reads this.
+    (
+      window as unknown as {
+        __vertaNewAgentTab?: (
+          cwd: string | undefined,
+          title: string,
+          agent: AgentTool,
+        ) => { tabId: number; leafId: number };
+      }
+    ).__vertaNewAgentTab = (cwd, title, agent) =>
+      newAgentTab(cwd, title, undefined, agent);
+  }, [newAgentTab]);
+
   const newPrivateTab = useCallback((cwd?: string) => {
     const tabId = nextIdRef.current++;
     const leafId = nextIdRef.current++;
