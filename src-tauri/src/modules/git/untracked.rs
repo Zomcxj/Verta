@@ -44,6 +44,9 @@ fn file_entry(template: &GitChangedFile, path: String) -> GitChangedFile {
         unstaged: template.unstaged,
         untracked: true,
         status_label: template.status_label.clone(),
+        // Same as the template: an untracked file has no line counts until it is staged.
+        added: template.added,
+        removed: template.removed,
     }
 }
 
@@ -96,6 +99,8 @@ mod tests {
             unstaged: true,
             untracked: true,
             status_label: "Untracked".into(),
+            added: None,
+            removed: None,
         }
     }
 

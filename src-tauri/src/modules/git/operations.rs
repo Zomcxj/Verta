@@ -9,9 +9,9 @@ use crate::modules::git::process::{
     read_text_file, run_git, run_git_capped,
 };
 use crate::modules::git::types::{
-    DiscardEntry, GitBranchEntry, GitBranchListResult, GitCommitFileChange, GitCommitResult,
-    GitDiffContentResult, GitDiffResult, GitLogEntry, GitOutput, GitPanelSnapshot, GitPushResult,
-    GitRepoInfo, GitStashEntry, GitStatusSnapshot, TextSource, CLONE_TIMEOUT_SECS,
+    DiscardEntry, GitBranchEntry, GitBranchListResult, GitChangedFile, GitCommitFileChange,
+    GitCommitResult, GitDiffContentResult, GitDiffResult, GitLogEntry, GitOutput, GitPanelSnapshot,
+    GitPushResult, GitRepoInfo, GitStashEntry, GitStatusSnapshot, TextSource, CLONE_TIMEOUT_SECS,
     DEFAULT_TIMEOUT_SECS, NETWORK_TIMEOUT_SECS,
 };
 use crate::modules::git::untracked;
@@ -150,6 +150,7 @@ fn status_inner(repo_root: &ResolvedGitDirectory) -> Result<GitStatusSnapshot> {
     let files = untracked::expand_untracked_dirs(parsed.files, |dir, budget| {
         list_untracked_in(repo_root, dir, budget)
     });
+    let files = with_line_counts(files, working_tree_line_counts(repo_root));
 
     Ok(GitStatusSnapshot {
         repo_root: repo_root.git_path.clone(),
@@ -1101,6 +1102,63 @@ fn merge_numstat(into: &mut HashMap<String, (u32, u32)>, bytes: &[u8]) {
     }
 }
 
+/// Reads the working tree's line counts against HEAD. `None` means the read itself failed; the
+/// status is still returned, without numbers.
+///
+/// Two reads, because `git diff` alone only compares the working tree with the index: a fully
+/// staged file would come back empty. Merging both into one map makes a file that is staged and
+/// then edited again read as its total difference from HEAD.
+fn working_tree_line_counts(
+    repo_root: &ResolvedGitDirectory,
+) -> Option<HashMap<String, (u32, u32)>> {
+    let worktree = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        ["diff", "--no-ext-diff", "--numstat", "-z", "--"],
+        DEFAULT_TIMEOUT_SECS,
+    )
+    .ok()?;
+    let staged = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        [
+            "diff",
+            "--no-ext-diff",
+            "--cached",
+            "--numstat",
+            "-z",
+            "--",
+        ],
+        DEFAULT_TIMEOUT_SECS,
+    )
+    .ok()?;
+    let mut counts = HashMap::new();
+    merge_numstat(&mut counts, &worktree.stdout);
+    merge_numstat(&mut counts, &staged.stdout);
+    Some(counts)
+}
+
+/// Attaches the counts to the rows `git status` reported. Paths the read did not mention keep
+/// `None`, so their rows simply show no numbers.
+fn with_line_counts(
+    files: Vec<GitChangedFile>,
+    counts: Option<HashMap<String, (u32, u32)>>,
+) -> Vec<GitChangedFile> {
+    let Some(counts) = counts else {
+        return files;
+    };
+    files
+        .into_iter()
+        .map(|mut file| {
+            if let Some((added, removed)) = counts.get(&file.path) {
+                file.added = Some(*added);
+                file.removed = Some(*removed);
+            }
+            file
+        })
+        .collect()
+}
+
 fn status_label_for(c: char) -> String {
     match c {
         'A' => "Added".into(),
@@ -1713,6 +1771,51 @@ pub fn clone_repo(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn file_at(path: &str, index: char, worktree: char) -> GitChangedFile {
+        GitChangedFile {
+            path: path.to_string(),
+            original_path: None,
+            index_status: index.to_string(),
+            worktree_status: worktree.to_string(),
+            staged: index != ' ',
+            unstaged: worktree != ' ',
+            untracked: index == '?' && worktree == '?',
+            status_label: String::new(),
+            added: None,
+            removed: None,
+        }
+    }
+
+    #[test]
+    fn a_failed_numstat_read_leaves_the_files_without_numbers() {
+        // The status must survive a numstat read that answers nothing (a git that timed out, a repo
+        // mid-rebase): the rows stay, they just carry no numbers.
+        let applied = with_line_counts(vec![file_at("src/a.ts", 'M', 'M')], None);
+        assert_eq!(applied[0].path, "src/a.ts");
+        assert_eq!(applied[0].added, None);
+        assert_eq!(applied[0].removed, None);
+    }
+
+    #[test]
+    fn counts_are_attached_to_the_path_the_status_reports() {
+        let mut counts = HashMap::new();
+        counts.insert("src/a.ts".to_string(), (7u32, 2u32));
+        let applied = with_line_counts(vec![file_at("src/a.ts", 'M', 'M')], Some(counts));
+        assert_eq!(applied[0].added, Some(7));
+        assert_eq!(applied[0].removed, Some(2));
+    }
+
+    #[test]
+    fn a_file_the_read_does_not_mention_keeps_no_numbers() {
+        // A path that only `git status` knows about (an untracked file, a mode-only change) has no
+        // entry in the map, and must not be handed a made-up `+0 -0`.
+        let mut counts = HashMap::new();
+        counts.insert("src/other.ts".to_string(), (1u32, 0u32));
+        let applied = with_line_counts(vec![file_at("src/a.ts", 'M', 'M')], Some(counts));
+        assert_eq!(applied[0].added, None);
+        assert_eq!(applied[0].removed, None);
+    }
 
     #[test]
     fn merge_numstat_sums_a_path_the_two_reads_both_report() {

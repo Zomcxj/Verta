@@ -30,6 +30,10 @@ pub struct GitChangedFile {
     pub unstaged: bool,
     pub untracked: bool,
     pub status_label: String,
+    /// Lines added and removed against HEAD, or `None` when git cannot say (a binary file, an
+    /// untracked one) or the numstat read failed.
+    pub added: Option<u32>,
+    pub removed: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -208,6 +212,8 @@ mod serde_shape_tests {
             unstaged: false,
             untracked: false,
             status_label: "renamed".into(),
+            added: Some(3),
+            removed: Some(1),
         };
         let json = serde_json::to_value(&file).unwrap();
         assert_eq!(
@@ -221,6 +227,8 @@ mod serde_shape_tests {
                 "unstaged": false,
                 "untracked": false,
                 "statusLabel": "renamed",
+                "added": 3,
+                "removed": 1,
             })
         );
     }
