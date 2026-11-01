@@ -1,5 +1,11 @@
 import type { LanguagePref } from "@/modules/i18n/language";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
+import {
+  type AgentStateDot,
+  DEFAULT_STATE_COLOURS,
+  STATE_COLOUR_TOKENS,
+  type StateColourToken,
+} from "@/modules/terminal/agentStateColours";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { LazyStore } from "@tauri-apps/plugin-store";
 
@@ -147,6 +153,14 @@ export type Preferences = {
   explorerGitDecorations: boolean;
   /** How much a session row says at rest; see `SessionListDensity`. */
   sessionListDensity: SessionListDensity;
+  /**
+   * The colour each agent state is drawn in, on a tab chip and on a session list row alike.
+   *
+   * A fixed set of hues rather than a colour picker: the marker is six pixels across and the colour
+   * is what the user reads from across the window, so a set known to be legible on both palettes is
+   * worth more here than the freedom to choose anything.
+   */
+  agentStateColours: Record<AgentStateDot, StateColourToken>;
   /** Hide the main window in the tray when its close button is pressed. */
   closeToTray: boolean;
   /** Flash that button when an agent asks for input or finishes. */
@@ -247,6 +261,7 @@ const KEY_WSL_ENABLED = "wslEnabled";
 const KEY_WSL_SHUTDOWN_ON_DISABLE = "wslShutdownOnDisable";
 const KEY_EXPLORER_GIT_DECORATIONS = "explorerGitDecorations";
 const KEY_SESSION_LIST_DENSITY = "sessionListDensity";
+const KEY_AGENT_STATE_COLOURS = "agentStateColours";
 const KEY_CLOSE_TO_TRAY = "closeToTray";
 const KEY_TASKBAR_ATTENTION_FLASH = "taskbarAttentionFlash";
 const KEY_DESKTOP_NOTIFICATIONS = "desktopNotifications";
@@ -324,6 +339,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showHidden: false,
   explorerGitDecorations: true,
   sessionListDensity: "standard",
+  // The colours the interface has always spoken with. Absent means these, so an install that has
+  // never opened the setting draws exactly what it drew before it existed.
+  agentStateColours: DEFAULT_STATE_COLOURS,
   closeToTray: true,
   taskbarAttentionFlash: true,
   desktopNotifications: true,
@@ -432,6 +450,9 @@ export async function loadPreferences(): Promise<Preferences> {
       get<string>(KEY_TERMINAL_RENDERER) === "webgl" ? "webgl" : "auto",
     sessionListDensity: coerceSessionListDensity(
       get<string>(KEY_SESSION_LIST_DENSITY),
+    ),
+    agentStateColours: coerceAgentStateColours(
+      get<unknown>(KEY_AGENT_STATE_COLOURS),
     ),
     terminalScreenReader: get<boolean>(KEY_TERMINAL_SCREEN_READER) === true,
     terminalCursorBlink:
@@ -683,6 +704,50 @@ export async function setSessionListDensity(value: unknown): Promise<void> {
   await writePref(KEY_SESSION_LIST_DENSITY, coerceSessionListDensity(value));
 }
 
+/**
+ * The colour of every agent state, repaired one state at a time.
+ *
+ * A state the stored table does not name, or names with something that is not one of the hues, keeps
+ * the colour it has always had; only that state is repaired, so a table with one bad entry loses one
+ * entry rather than the user's other five choices. This is the single place the preference is made
+ * safe, which is why the components that draw a marker index into it without a fallback of their own.
+ */
+export function coerceAgentStateColours(
+  value: unknown,
+): Record<AgentStateDot, StateColourToken> {
+  const colours = { ...DEFAULT_STATE_COLOURS };
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return colours;
+  }
+  const stored = value as Record<string, unknown>;
+  for (const state of Object.keys(colours) as AgentStateDot[]) {
+    const token = stored[state];
+    if (
+      typeof token === "string" &&
+      (STATE_COLOUR_TOKENS as readonly string[]).includes(token)
+    ) {
+      colours[state] = token as StateColourToken;
+    }
+  }
+  return colours;
+}
+
+/** Write the whole table; the caller has already decided which entry moved. */
+export async function setAgentStateColours(value: unknown): Promise<void> {
+  await writePref(KEY_AGENT_STATE_COLOURS, coerceAgentStateColours(value));
+}
+
+/**
+ * Put every state back on the colour it has always had.
+ *
+ * Written out rather than removed: removing the key means the same thing to a reader, but it means
+ * it through a fallback path, and "the user asked for the defaults" and "the user has never chosen"
+ * are worth being able to tell apart in the file.
+ */
+export async function resetAgentStateColours(): Promise<void> {
+  await setAgentStateColours(DEFAULT_STATE_COLOURS);
+}
+
 export async function setTerminalFontFamily(value: string): Promise<void> {
   await writePref(KEY_TERMINAL_FONT_FAMILY, value.trim());
 }
@@ -826,6 +891,7 @@ export async function onPreferencesChange(
     [KEY_WSL_SHUTDOWN_ON_DISABLE]: "wslShutdownOnDisable",
     [KEY_EXPLORER_GIT_DECORATIONS]: "explorerGitDecorations",
     [KEY_SESSION_LIST_DENSITY]: "sessionListDensity",
+    [KEY_AGENT_STATE_COLOURS]: "agentStateColours",
     [KEY_CLOSE_TO_TRAY]: "closeToTray",
     [KEY_TASKBAR_ATTENTION_FLASH]: "taskbarAttentionFlash",
     [KEY_DESKTOP_NOTIFICATIONS]: "desktopNotifications",
