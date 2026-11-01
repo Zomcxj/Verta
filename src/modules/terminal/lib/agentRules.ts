@@ -127,27 +127,34 @@ const OPENCODE_RULES: readonly AgentRule[] = [
   // confirmed against a live screen yet; the counter-example keeps a pasted line
   // from looking like one.
   //
-  // The region is the footer and not the bottom dozen lines, for the reason measured twice on this
-  // machine: a reply that mentioned `permission` and `allow` in prose was drawn into an opencode
-  // transcript, both words landed inside the bottom twelve lines, and this rule turned that
-  // session's tab blue while it was mid-turn and asking nothing. A card is drawn at the bottom of
-  // the screen; prose is anywhere.
+  // The exclusion of the interrupt hint is what makes this a card and not prose, and it replaced
+  // counting lines: measured on this machine, a reply that mentioned `permission` and `allow` was
+  // drawn into an opencode transcript, both words landed inside the bottom twelve lines (and still
+  // inside the bottom six), and this rule turned that session's tab blue while it was mid-turn and
+  // asking nothing. Shrinking the region cannot fix that - a card is four or five lines tall, so the
+  // window that holds a card also holds a paragraph near the bottom.
+  //
+  // What separates them is a fact about the turn rather than about the text: a card is on screen
+  // *because the turn is waiting for the user*, so the footer cannot also be offering to interrupt
+  // it. The prose case had `esc interrupt` on its footer - the turn was running - which is exactly
+  // the state this rule must not claim. Both cannot be true at once, so the rule now says so.
   rule({
     id: "opencode_permission",
     state: "blocked",
     priority: 1000,
     region: bottom(6),
     allOf: [contains("permission"), contains("allow")],
-    noneOf: [contains("allow me to explain")],
+    noneOf: [contains("allow me to explain"), contains("esc interrupt")],
   }),
   // A question with options, older shape: the selected row is marked with the same caret the
-  // other TUIs use. Same region as the card above, for the same reason.
+  // other TUIs use. Same region and the same exclusion as the card above, for the same reason.
   rule({
     id: "opencode_question",
     state: "blocked",
     priority: 990,
     region: bottom(6),
     allOf: [lineStartsWith("❯ 1.")],
+    noneOf: [contains("esc interrupt")],
   }),
   // A question panel, the shape this machine's opencode actually draws. Measured with
   // `state-dot-watch.mjs --once`: the options carry **no** caret - `1. 火锅`, not `❯ 1. 火锅` - so the

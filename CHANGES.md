@@ -15,6 +15,15 @@ swap in the new date, and drop the `open` from the day before.
 ---
 
 <details open>
+<summary><strong>2026-11-01</strong></summary>
+
+**A pi session's turns and last activity are read from the whole file, not its first 8 MiB**
+
+- `src-tauri/src/modules/agent_sessions/pi.rs`: `session_stats` reads the whole session file. It used to stop at 8 MiB, and on a session that is still being written that cut showed up twice over - measured on this machine on `ModelHarber`: the file was 44.9 MiB, the list said 103 turns and a last activity of 2026-10-02, while the whole file holds 262 turns and ends on 2026-11-01. The comment above the function already promised "the whole file has to be read"; only the code disagreed. A prefix is a window on the *beginning* of a transcript, and turns and last-talk are both facts about its end. The timestamp extraction moved into `message_stamp` so both the reader and a test can name the same rule.
+- `src-tauri/src/modules/agent_sessions/pi.rs`: a regression case builds a file larger than the old window (9 MiB of user messages) and asserts the turn count covers all of it and that the last activity is the end of the file. Putting the 8 MiB cap back makes it fail with `left: Some(6579) right: Some(7403)`, which is the measured shape of the bug.
+</details>
+
+<details>
 <summary><strong>2026-10-31</strong></summary>
 
 **The tab's state marker follows the tab's icon**
@@ -41,7 +50,7 @@ swap in the new date, and drop the `open` from the day before.
 
 - `src/modules/terminal/lib/agentRules.ts`: the question panel is recognised by its footer's real verbs. The first rule was written for `enter submit  esc dismiss`, the single-question panel; a panel with more than one question navigates with `⇆ tab` and its footer reads `↑↓ select  enter confirm  esc dismiss` while a question is being filled in, and `enter submit  esc dismiss` once the last one is. Both were captured on this machine from the same panel, one second apart (11:40:49 and 11:41:04), and the `enter confirm` verb is the one that was missing - which is why the tab stayed orange with a panel on screen. `enter confirm` is now a second rule for the same state and a second marker for the family.
 - `src/modules/terminal/lib/agentRules.ts`: both panel rules read the **last three lines** rather than the bottom twelve. Measured: a reply that quoted the footer's words as prose (`enter choose   tab next   esc dismiss` and `enter submit`) was drawn into an opencode transcript, read out of the bottom twelve lines, and turned that session's tab blue while it was mid-turn and asking nothing. The real footer is the last line; the quoted words were at lines 10 and 46 of a 54 line screen. Three lines leaves room for a wrapped footer and none for prose.
-- `src/modules/terminal/lib/agentRules.ts`: the permission card and the older caret question read the **bottom six lines** rather than the bottom twelve, and the two panel rules read the last three. Measured twice on this machine: a reply that mentioned `permission` and `allow` in prose was drawn into an opencode transcript, both words fell inside the bottom twelve lines, and `opencode_permission` turned that session's tab blue while it was mid-turn and asking nothing. A card is four or five lines tall with its heading above its options, so three is too few (the existing fixtures stopped matching) and six is the smallest window that holds a card and excludes a transcript; a panel's footer is one line, so it gets three. The `working` and `idle` rules keep the wider region on purpose: they look for a spinner glyph and the word `thinking`, which is exactly what prose can contain.
+- `src/modules/terminal/lib/agentRules.ts`: the permission card and the older caret question no longer count as a card while the footer still offers to interrupt the turn. Shrinking the region could not fix this: a card is four or five lines tall, so the window that holds a card also holds a paragraph near the bottom - measured, a reply that mentioned `permission` and `allow` was inside the bottom six lines too. What separates a card from prose is a fact about the turn: a card is on screen *because the turn is waiting for the user*, so the footer cannot also say `esc interrupt`. Both cannot be true at once, so `noneOf` now says so. Measured on the dev build: the prose screen reads `working` (via `opencode_interruptible`), a real card reads `blocked`, and a two-question panel reads `blocked`.
 - `src/modules/terminal/lib/agentRules.test.ts`: the two-question panel as measured, asserted to read `blocked` and to be recognised as opencode, and a contrast screen - a mid-turn transcript that quotes both footers' words above its real footer - asserted to read `working`.
 
 **A session row stays on screen while the list is being re-read**

@@ -134,16 +134,22 @@ fn read_session(file: &Path) -> Result<Option<AgentSession>, String> {
     }))
 }
 
-/// Count turns and tokens in one session file.
+/// Count turns and tokens in one session file, and when it last talked.
 ///
-/// pi keeps no index, so the whole file has to be read: for each `message` line a user
-/// message counts as one turn, and the `usage.totalTokens` of assistant messages is
-/// summed. Files can be tens of MB, so this is the heaviest part of a list scan, but
-/// it only runs **while listing sessions** (in the same pass that reads names), not
-/// every time a session is opened.
+/// pi keeps no index, so every `message` line has to be seen: a user message counts as one turn,
+/// and the `usage.totalTokens` of assistant messages is summed. Files can be tens of MB, so this is
+/// the heaviest part of a list scan, but it only runs **while listing sessions** (in the same pass
+/// that reads names), not every time a session is opened.
 ///
-/// If it cannot be read, everything is `None`: the UI shows an em-dash instead of passing 0
-/// off as a real value.
+/// The whole file is read, and that is not an oversight. This used to read only the first 8 MiB, and
+/// on a long-running session the cut showed up twice over - measured on this machine (2026-11-01) on
+/// `ModelHarber`, a session still being written: the file was 44.9 MiB, the list said 103 turns
+/// (the whole file has 262) and its last activity read 2026-10-02 (the end of the file says
+/// 2026-11-01). A prefix is a window on the *beginning* of a transcript, and everything a list wants
+/// here is about the end of it.
+///
+/// If it cannot be read, everything is `None`: the UI shows an em-dash instead of passing 0 off as a
+/// real value.
 fn session_stats(file: &Path) -> SessionStats {
     let Ok(handle) = std::fs::File::open(file) else {
         return SessionStats::default();
@@ -151,7 +157,7 @@ fn session_stats(file: &Path) -> SessionStats {
     let mut turns = 0u32;
     let mut token_parts: Vec<u64> = Vec::new();
     let mut last_message_ms: Option<i64> = None;
-    let mut reader = BufReader::new(std::io::BufReader::new(handle).take(MAX_PREFIX_BYTES * 8));
+    let mut reader = BufReader::new(handle);
     let mut line = String::new();
     loop {
         line.clear();
@@ -170,16 +176,7 @@ fn session_stats(file: &Path) -> SessionStats {
             continue;
         };
         let role = message.get("role").and_then(Value::as_str).unwrap_or("");
-        let stamp = message
-            .get("timestamp")
-            .and_then(Value::as_i64)
-            .or_else(|| {
-                value
-                    .get("timestamp")
-                    .and_then(Value::as_str)
-                    .and_then(iso_ms)
-            });
-        if let Some(ms) = stamp {
+        if let Some(ms) = message_stamp(&value) {
             last_message_ms = Some(last_message_ms.map_or(ms, |kept: i64| kept.max(ms)));
         }
         if role == "user" {
@@ -194,6 +191,20 @@ fn session_stats(file: &Path) -> SessionStats {
         tokens: stats::sum_tokens(token_parts),
         last_at_ms: last_message_ms,
     }
+}
+
+/// The timestamp on one `message` line: the message's own, else the line's ISO one.
+fn message_stamp(value: &Value) -> Option<i64> {
+    value
+        .get("message")
+        .and_then(|message| message.get("timestamp"))
+        .and_then(Value::as_i64)
+        .or_else(|| {
+            value
+                .get("timestamp")
+                .and_then(Value::as_str)
+                .and_then(iso_ms)
+        })
 }
 
 /// `2026-09-09T05:48:06.288Z` → milliseconds. None when unparsable (no guessing).
@@ -996,6 +1007,46 @@ mod tests {
         assert_eq!(stats.turns, Some(2), "两条用户消息就是两轮");
         assert_eq!(stats.tokens, Some(135), "120 + (10+5)");
         assert_eq!(stats.last_at_ms, Some(4000));
+    }
+
+    #[test]
+    fn a_session_past_the_old_prefix_window_is_counted_and_dated_to_its_end() {
+        // The bug this is written against, measured on this machine (2026-11-01) on a session that
+        // was still being written: its file was 44.9 MiB, `session_stats` read only the first 8 MiB,
+        // and the list showed 103 turns and a last activity of 2026-10-02 while the whole file held
+        // 262 turns and ended on 2026-11-01. A prefix is a window on the beginning of a transcript,
+        // and turns and last-talk are both facts about its end.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut body = String::from(r#"{"type":"session","id":"s1","cwd":"F:\\x"}"#);
+        body.push('\n');
+        // Enough filler to pass 8 MiB, so a prefix reader would stop inside it.
+        let filler = format!(
+            r#"{{"type":"message","message":{{"role":"user","content":"{}","timestamp":1000}}}}"#,
+            "填".repeat(400)
+        );
+        while body.len() < 9 * 1024 * 1024 {
+            body.push_str(&filler);
+            body.push('\n');
+        }
+        let filler_turns = body.matches("\"role\":\"user\"").count();
+        // And the newest message, well past the old cut.
+        body.push_str(
+            r#"{"type":"message","message":{"role":"user","content":"最新一句","timestamp":9000}}"#,
+        );
+        body.push('\n');
+        let path = write_file(dir.path(), "s.jsonl", &body);
+        assert!(
+            std::fs::metadata(&path).expect("meta").len() > MAX_PREFIX_BYTES * 8,
+            "the fixture has to be longer than the old prefix window"
+        );
+
+        let stats = session_stats(&path);
+        assert_eq!(
+            stats.turns,
+            Some(filler_turns as u32 + 1),
+            "every user message counts, including the ones past the old cut"
+        );
+        assert_eq!(stats.last_at_ms, Some(9000), "the last talk is the end of the file");
     }
 
     #[test]
