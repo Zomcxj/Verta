@@ -8,6 +8,17 @@ export function parseOsc7(data: string): string | null {
   let authority = m[1];
   let path = m[2] ?? "";
   if (!path) return null;
+  // The authority is decoded before the drive is looked for inside it, because the report is a
+  // URI and an emitter escapes it: our own bash rcfile percent-encodes the colon, so a `$PWD` in
+  // Windows form (`F:/dir`) is printed as `file://HOSTF%3A/dir` and the drive sits behind `%3A`
+  // rather than a literal colon. Measured on this machine (2026-11-01), a pane opened at
+  // `F:/VibeCoding_workspace/Verta` sends exactly that string; before this the drive was dropped
+  // with the authority, the tab's cwd became `/VibeCoding_workspace/Verta`, and the file tree and
+  // source control resolved it against the app's own drive and answered "the system cannot find
+  // the path specified". A `%3A` from any other emitter is worth the same repair.
+  try {
+    authority = decodeURIComponent(authority);
+  } catch {}
   // `file://HOSTF:/dir` (a Windows path with no slash in front of the drive): the drive
   // ends up inside the authority, and dropping it leaves `/dir`, which Windows then
   // resolves against whatever drive the app's own process sits on.

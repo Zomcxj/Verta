@@ -17,6 +17,16 @@ describe("terminal semantic boundaries", () => {
       "file://LAPTOP-F:/VibeCoding_workspace/Verta",
       "F:/VibeCoding_workspace/Verta",
     ],
+    // The same report as our own bash rcfile sends, which percent-encodes the colon: the
+    // authority is then `HOSTF%3A`, so the drive hides behind `%3A` instead of a literal
+    // colon and the repair above does not see it. Measured on this machine (2026-11-01), the
+    // URI a pane at `F:/VibeCoding_workspace/Verta` really sends, after which the tab's cwd
+    // became `/VibeCoding_workspace/Verta` and the file tree answered "the system cannot
+    // find the path specified".
+    [
+      "file://LAPTOP-7P186K9VF%3A/VibeCoding_workspace/Verta",
+      "F:/VibeCoding_workspace/Verta",
+    ],
     ["https://example.com/path", null],
   ])("normalizes cwd %s", (uri, expected) =>
     expect(parseOsc7(uri)).toBe(expected),
