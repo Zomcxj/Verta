@@ -59,6 +59,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
+import { StateColoursGroup } from "../components/StateColoursGroup";
 
 /** Names of the transition animations. One more line here per animation, plus
  * the copy on both sides of the string table. */
@@ -433,6 +434,8 @@ export function ThemesSection() {
           </Select>
         </div>
       </div>
+
+      <StateColoursGroup />
 
       {/* biome-ignore lint/a11y/noStaticElementInteractions: this wrapper is only a file drop target, and the import button below is the accessible path */}
       <div
