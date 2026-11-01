@@ -1030,8 +1030,6 @@ const zh = {
   "theme.validate.invalidJson": "文件不是合法的 JSON",
   "settings.themes.title": "主题",
   "settings.themes.description": "主题、背景图片与自定义。",
-  "settings.themes.create": "新建",
-  "settings.themes.import": "导入 .verta-theme",
   "settings.themes.editorTheme.title": "编辑器配色",
   "settings.themes.editorTheme.description":
     "代码编辑器的语法配色。自动则跟随应用主题。",
@@ -1199,8 +1197,6 @@ const zh = {
   "settings.workspaceEnv.unavailable": "{name}（不可用）",
   "settings.shortcuts.recording": "录制中…",
   "settings.shortcuts.recordingHint": "（按 Esc 取消）",
-  "settings.themes.importFailed": "{file}：{message}",
-  "settings.themes.readFailed": "读取失败",
   "settings.themes.notImage": "{file}：不是图片",
   "settings.themes.importImageFailed": "导入图片失败",
   "settings.about.update.upToDate": "已是最新版本",
@@ -2447,8 +2443,6 @@ const en: Record<MessageKey, string> = {
 
   "settings.themes.title": "Themes",
   "settings.themes.description": "Theme, background image, and customization.",
-  "settings.themes.create": "Create",
-  "settings.themes.import": "Import .verta-theme",
   "settings.themes.editorTheme.title": "Editor colors",
   "settings.themes.editorTheme.description":
     "Syntax colors for the code editor. Auto follows the app theme.",
@@ -2633,8 +2627,6 @@ const en: Record<MessageKey, string> = {
   "theme.validate.name": "name must be a non-empty string",
   "theme.validate.variantsNeeded": "variants must contain at least one of: light, dark",
   "theme.validate.invalidJson": "The file is not valid JSON",
-  "settings.themes.importFailed": "{file}: {message}",
-  "settings.themes.readFailed": "failed to read",
   "settings.themes.notImage": "{file}: not an image",
   "settings.themes.importImageFailed": "failed to import image",
   "settings.about.update.upToDate": "You're up to date",

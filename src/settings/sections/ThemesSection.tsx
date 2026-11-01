@@ -33,10 +33,7 @@ import {
   deleteBgImage,
   importBgImageFromFile,
 } from "@/modules/theme/bgImageStore";
-import {
-  deleteCustomTheme,
-  saveCustomTheme,
-} from "@/modules/theme/customThemes";
+import { deleteCustomTheme } from "@/modules/theme/customThemes";
 import {
   deleteThemeFile,
   handOffThemeEdit,
@@ -48,12 +45,11 @@ import {
   themeName,
 } from "@/modules/theme/themes/themeNames";
 import { DEFAULT_THEME_ID } from "@/modules/theme/types";
-import { validateTheme } from "@/modules/theme/validateTheme";
 import {
   type Backdrop,
   getBackdropKind,
 } from "@/modules/theme/vibrancy";
-import { Edit02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import { Edit02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -85,16 +81,13 @@ export function ThemesSection() {
     [customThemes],
   );
 
-  const [importError, setImportError] = useState<string | null>(null);
   const [bgError, setBgError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const bgInputRef = useRef<HTMLInputElement | null>(null);
 
   // Editing happens in the main window's code editor, so Settings closes
   // (destroying its WebContent process) rather than hiding and staying resident.
   const startThemeEdit = (req: ThemeEditRequest) =>
     void handOffThemeEdit(req, () => getCurrentWindow().close());
-  const onCreateTheme = () => startThemeEdit({ action: "create" });
   const onEditTheme = (id: string) => startThemeEdit({ action: "edit", id });
 
   const editorThemePref = usePreferencesStore((s) => s.editorTheme);
@@ -115,40 +108,6 @@ export function ThemesSection() {
       alive = false;
     };
   }, []);
-
-  const handleThemeFiles = async (files: FileList | null) => {
-    setImportError(null);
-    if (!files || files.length === 0) return;
-    for (const file of Array.from(files)) {
-      try {
-        const text = await file.text();
-        const parsed = JSON.parse(text);
-        const result = validateTheme(parsed);
-        if (!result.ok) {
-          setImportError(
-            t("settings.themes.importFailed", {
-              file: file.name,
-              message: t(result.error.key, result.error.values),
-            }),
-          );
-          return;
-        }
-        await saveCustomTheme(result.theme);
-        setThemeId(result.theme.id);
-      } catch (e) {
-        setImportError(
-          t("settings.themes.importFailed", {
-            file: file.name,
-            message:
-              e instanceof Error ? e.message : t("settings.themes.readFailed"),
-          }),
-        );
-        return;
-      }
-    }
-  };
-
-  const onPickThemeFile = () => fileInputRef.current?.click();
 
   const onRemoveCustomTheme = async (id: string) => {
     if (themeId === id) setThemeId(DEFAULT_THEME_ID);
@@ -214,56 +173,8 @@ export function ThemesSection() {
         </SettingRow>
       )}
 
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: this wrapper is only a file drop target, and the import button below is the accessible path */}
-      <div
-        role="presentation"
-        className="flex flex-col gap-2"
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "copy";
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          void handleThemeFiles(e.dataTransfer.files);
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <Label>{t("settings.themes.theme")}</Label>
-          <div className="flex items-center gap-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1.5 px-2 text-[11px]"
-              onClick={onCreateTheme}
-            >
-              <HugeiconsIcon icon={PlusSignIcon} size={11} strokeWidth={2} />
-              {t("settings.themes.create")}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 px-2 text-[11px]"
-              onClick={onPickThemeFile}
-            >
-              {t("settings.themes.import")}
-            </Button>
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".verta-theme,.json,application/json"
-            className="hidden"
-            onChange={(e) => {
-              void handleThemeFiles(e.target.files);
-              e.target.value = "";
-            }}
-          />
-        </div>
-        {importError ? (
-          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-[11.5px] text-destructive">
-            {importError}
-          </div>
-        ) : null}
+      <div className="flex flex-col gap-2">
+        <Label>{t("settings.themes.theme")}</Label>
         <div className="grid grid-cols-2 gap-2">
           {themes.map((theme) => {
             const v =
