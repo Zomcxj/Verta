@@ -32,6 +32,7 @@ import {
   bottom,
   bottomNonEmptyLines,
   contains,
+  containsWord,
   lineStartsWith,
   type Pattern,
   patternHit,
@@ -241,12 +242,16 @@ const OPENCODE_RULES: readonly AgentRule[] = [
   //
   // The spinner is excluded for the same reason: a glyph anywhere in the region means something is
   // being painted right now, and that is work rather than background work.
+  // The footer's own word, not the letters: measured on this machine, a session reading
+  // `PowerShell` in a reply's prose satisfied `contains("shell")` and was drawn as trailing work
+  // (purple, breathing) when its turn had ended and nothing was running. The footer writes the
+  // count beside the word (`↓ 1 shell · …`), which a whole-word match reads and prose does not.
   rule({
     id: "opencode_trailing_shell",
     state: "trailing",
     priority: 815,
     region: bottom(2),
-    allOf: [contains("shell"), contains("ctrl+p")],
+    allOf: [containsWord("shell"), contains("ctrl+p")],
     noneOf: OPENCODE_NOT_TRAILING,
   }),
   rule({
@@ -254,7 +259,7 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     state: "trailing",
     priority: 815,
     region: bottom(2),
-    allOf: [contains("subagent"), contains("ctrl+p")],
+    allOf: [containsWord("subagent"), contains("ctrl+p")],
     noneOf: OPENCODE_NOT_TRAILING,
   }),
   // Working: the spinner frames. Seen in the captures (`⠋`, `⠙`, `⠏`).

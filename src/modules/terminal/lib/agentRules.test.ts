@@ -293,6 +293,19 @@ describe("opencode", () => {
     expect(judge("opencode", OPENCODE_TRAILING_SUBAGENT)).toBe("trailing");
   });
 
+  it("does not read the word PowerShell in a reply as a background shell", () => {
+    // Measured on this machine (2026-11-01): a session whose turn had ended and that had nothing
+    // running was drawn purple, breathing, because its reply contained the sentence
+    // `用管理员 PowerShell 做设备级重建` and the rule looked for the substring `shell`. The footer
+    // itself carried no shell count. The word in a sentence must not answer for the footer.
+    const proseWithPowerShell = [
+      "  ┃  Build auto · glm-5.3-flash workbuddy · max",
+      "  万一重启后它在设备管理器里还是 19，用管理员 PowerShell 做设备级重建：",
+      "  ~/Desktop    396.6K (79%) · $0.21  ctrl+p commands",
+    ].join("\n");
+    expect(judge("opencode", proseWithPowerShell)).not.toBe("trailing");
+  });
+
   it("still reads a running turn as working while those jobs are counted", () => {
     // Measured on this machine: the same footer with the interrupt hint on it is a turn in flight,
     // and the shells and subagents on it are that turn's own work.

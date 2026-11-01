@@ -54,6 +54,15 @@ export type Pattern =
   /** The text appears anywhere in the region, ignoring case. */
   | { readonly kind: "contains"; readonly text: string }
   /**
+   * The text appears as a whole word, ignoring case.
+   *
+   * Added for a measured false positive: the `trailing` rule looked for `shell` and matched the
+   * word `PowerShell` inside a reply's prose, so a session that had finished its turn and left
+   * nothing running was marked as having background work. A word boundary is what separates the
+   * footer's own `↓ 1 shell` from a sentence that happens to contain the letters.
+   */
+  | { readonly kind: "containsWord"; readonly text: string }
+  /**
    * One of these characters appears in the region. Spinners are drawn with a
    * small character set that moves frame by frame, and the set is what
    * identifies them.
@@ -122,6 +131,11 @@ export const bottom = (count: number): Region => ({
 });
 
 export const contains = (text: string): Pattern => ({ kind: "contains", text });
+/** The text as a whole word, so `PowerShell` does not answer a search for `shell`. */
+export const containsWord = (text: string): Pattern => ({
+  kind: "containsWord",
+  text,
+});
 export const anyChar = (chars: readonly string[]): Pattern => ({
   kind: "anyChar",
   chars,
@@ -186,6 +200,32 @@ export function patternHit(text: string, pattern: Pattern): boolean {
   switch (pattern.kind) {
     case "contains":
       return text.toLowerCase().includes(pattern.text.toLowerCase());
+    case "containsWord": {
+      // A word boundary on both sides: `PowerShell` must not answer a search for `shell`, while
+      // `↓ 1 shell ·` and `↓ 2 shells ·` must. The footer pluralises its counts, so a trailing
+      // `s` is part of the word rather than a different one.
+      const wanted = pattern.text.toLowerCase();
+      const haystack = text.toLowerCase();
+      let from = 0;
+      for (;;) {
+        const at = haystack.indexOf(wanted, from);
+        if (at < 0) return false;
+        const before = at === 0 ? "" : haystack[at - 1];
+        const afterAt = at + wanted.length;
+        const after = afterAt >= haystack.length ? "" : haystack[afterAt];
+        // Letters or digits before the word mean this is its tail (`PowerShell`); after it, only
+        // a plural `s` is allowed, and that `s` must end the word too.
+        const beforeIsLetter = /[\p{L}\p{N}]/u.test(before);
+        const afterIsPlural =
+          after.toLowerCase() === "s" &&
+          !/[\p{L}\p{N}]/u.test(haystack[afterAt + 1] ?? "");
+        const afterIsLetter = /[\p{L}\p{N}]/u.test(after);
+        if (!beforeIsLetter && (!afterIsLetter || afterIsPlural)) {
+          return true;
+        }
+        from = at + 1;
+      }
+    }
     case "anyChar":
       for (const char of text) if (pattern.chars.includes(char)) return true;
       return false;
