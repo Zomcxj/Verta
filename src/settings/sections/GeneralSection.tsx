@@ -19,7 +19,6 @@ import {
   setCloseToTray,
   setDesktopNotifications,
   setExplorerGitDecorations,
-  setRestoreWindowState,
   setSessionListDensity,
   setShowHidden,
   setTaskbarAttentionFlash,
@@ -85,7 +84,6 @@ export function GeneralSection() {
   const t = useT();
   const { mode, setMode } = useTheme();
 
-  const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
   const wslEnabled = usePreferencesStore((s) => s.wslEnabled);
   const wslShutdownOnDisable = usePreferencesStore(
     (s) => s.wslShutdownOnDisable,
@@ -600,21 +598,6 @@ export function GeneralSection() {
             onCheckedChange={(v) => void setConfirmCloseRunningTerminal(v)}
           />
         </SettingRow>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label>{t("settings.startup")}</Label>
-        <div className="flex flex-col gap-2">
-          <SettingRow
-            title={t("settings.restoreWindow.title")}
-            description={t("settings.restoreWindow.description")}
-          >
-            <Switch
-              checked={restoreWindowState}
-              onCheckedChange={(v) => void setRestoreWindowState(v)}
-            />
-          </SettingRow>
-        </div>
       </div>
     </div>
   );

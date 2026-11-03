@@ -129,6 +129,26 @@ describe("judgeTail", () => {
     expect(kinds(first(OPENCODE_IDLE).signals)).toEqual(["started", "idle"]);
   });
 
+  it("stops claiming work when no rule can read the screen", () => {
+    // Measured on this machine (2026-11-03): a session closed since the day before opened with an
+    // orange dot. `started` says `working`, and the screen underneath - `~/Desktop    251.1K (50%)
+    // ctrl+p commands` - identified opencode but matched no state rule, so the judge said nothing
+    // and the dot kept the claim forever.
+    const UNREADABLE = "Working on it\n  enter submit";
+    const working = first(OPENCODE_WORKING);
+    const held = judgeTail({ ...working.entry, state: "working" }, UNREADABLE, 2_000);
+    expect(held.kind).toBe("quiet");
+    if (held.kind !== "quiet") return;
+    expect(held.entry.state).toBe("working");
+    const settled = judgeTail(held.entry, UNREADABLE, 2_000 + IDLE_SETTLE_MS);
+    expect(settled.kind).toBe("report");
+    if (settled.kind !== "report") return;
+    // `idle`, not `finished`: an unreadable screen cannot say a turn ended, so no "a turn
+    // finished" notice is invented for it.
+    expect(kinds(settled.signals)).toEqual(["idle"]);
+    expect(settled.entry.state).toBe("idle");
+  });
+
   it("starts fresh when the leaf has been reused for another pty", () => {
     // Same leaf, new pty: the entry is keyed by pty, so the caller hands in a fresh
     // one and the agent is announced again.

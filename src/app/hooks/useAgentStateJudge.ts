@@ -7,6 +7,11 @@ import {
   type JudgeEntry,
   judgeTail,
 } from "@/modules/terminal/lib/agentJudge";
+import {
+  collectSessionClaims,
+  sessionsRunningNow,
+} from "@/modules/terminal/lib/sessionServicePhase";
+import { runningAgentSessionIds } from "@/modules/launcher";
 
 /**
  * Half a second: fast enough that a state dot follows the agent to within a blink,
@@ -15,6 +20,13 @@ import {
  * backend's.
  */
 const TICK_MS = 500;
+
+/**
+ * Two seconds between asks of the opencode service. A turn opening or closing is not news the way a
+ * footer repaint is - it is the coarse "is anything running" question - and every ask is an HTTP
+ * request, so this is slower than the screen's tick on purpose.
+ */
+const SERVICE_TICK_MS = 2000;
 
 /**
  * Reads each terminal's screen and keeps the agent activity store in step with it.
@@ -35,6 +47,20 @@ export function useAgentStateJudge({ tabs }: { tabs: readonly Tab[] }): void {
   leavesRef.current = tabs.flatMap((tab) =>
     tab.kind === "terminal" ? leafIds(tab.paneTree) : [],
   );
+  // The ptys each tab is showing, and the session it resumed. The service answers about sessions
+  // and the store is keyed by pty, so this is the only place the two can be joined.
+  const claimsRef = useRef<
+    { kind: string; sessionId?: string; ptys: readonly number[] }[]
+  >([]);
+  claimsRef.current = tabs
+    .filter((tab) => tab.kind === "terminal")
+    .map((tab) => ({
+      kind: tab.kind,
+      sessionId: tab.sessionId,
+      ptys: leafIds(tab.paneTree)
+        .map((leafId) => ptyIdForLeaf(leafId))
+        .filter((ptyId): ptyId is number => ptyId !== null),
+    }));
 
   useEffect(() => {
     const entries = new Map<number, JudgeEntry>();
@@ -79,6 +105,47 @@ export function useAgentStateJudge({ tabs }: { tabs: readonly Tab[] }): void {
     };
 
     const timer = window.setInterval(tick, TICK_MS);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  /**
+   * The session a tab resumed, asked of the service that runs it.
+   *
+   * The screen judge reads a footer and guesses; the service knows, and for a session opened from
+   * the list it is worth asking. Only the positive answer is used (see `sessionsRunningNow`), so a
+   * service that is slow, between turns or not there at all cannot make a working session look
+   * idle - the worst it can do is fail to add a mark the screen was already adding.
+   *
+   * Asked on its own slower cadence: the answer moves when a turn opens or closes, and each ask is
+   * one HTTP request to the service's loopback interface. A tick that outlives the interval is
+   * skipped rather than queued, so a stopping service cannot pile requests up.
+   */
+  useEffect(() => {
+    let stopped = false;
+    let inFlight = false;
+    const ask = async () => {
+      if (inFlight) return;
+      const claims = collectSessionClaims(claimsRef.current);
+      if (claims.length === 0) return;
+      inFlight = true;
+      try {
+        const ids = await runningAgentSessionIds(null);
+        if (stopped) return;
+        const running = ids === null ? null : new Set(ids);
+        for (const { ptyId } of sessionsRunningNow(claims, running)) {
+          // `working` is the store's own word for work in flight. The agent's name is left to the
+          // screen judge, which is the one that sees the agent's chrome.
+          applySignal({ id: ptyId, kind: "working" });
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+    void ask();
+    const timer = window.setInterval(() => void ask(), SERVICE_TICK_MS);
     return () => {
       stopped = true;
       window.clearInterval(timer);

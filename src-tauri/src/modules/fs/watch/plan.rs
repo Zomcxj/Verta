@@ -162,6 +162,45 @@ fn is_ignore_file(name: &str) -> bool {
     matches!(name, ".gitignore" | ".ignore")
 }
 
+/// Whether `dir` is a repository's own metadata directory, or one inside it.
+///
+/// The project panel watches `<repo>/.git` and the ref directories under it (see
+/// `src/modules/projects/ProjectsView.tsx`): a `git pull` typed in a terminal leaves its result
+/// there and touches nothing of the working tree.
+fn is_git_metadata(dir: &Path) -> bool {
+    dir.components().any(|part| part.as_os_str() == ".git")
+}
+
+/// Entries of a repository's metadata that are deliberately left out of its listing fingerprint.
+///
+/// Measured on a repository that had already pulled: a second `git pull --ff-only` moved **no name
+/// at all** at the top of `.git` - it rewrote `FETCH_HEAD`, `ORIG_HEAD`, the index and the objects
+/// directory in place. Names alone therefore report the first pull and nothing after it, which is
+/// how a row stayed stale after a pull in a terminal. So the entries of `.git` carry their size and
+/// mtime too, except these:
+///
+///   * `index` is a stat cache that read-only git commands rewrite by themselves; `git status` and
+///     `git log` both did while this was measured. Counting it would make the panel's own read look
+///     like news from the outside, and re-read every project in a loop.
+///   * `index.lock` is the same file's transient companion.
+///   * `FETCH_HEAD` and `objects` are rewritten by **any** fetch, including the one the panel runs
+///     for every project when it opens, whether or not anything came back. A fetch that does bring
+///     something moves a remote-tracking ref, and those are watched on their own.
+const GIT_QUIET_ENTRIES: &[&str] = &["index", "index.lock", "FETCH_HEAD", "objects"];
+
+/// One entry's size and mtime mixed into a single number, or `1` when it cannot be read.
+fn entry_stamp(entry: &std::fs::DirEntry) -> u64 {
+    match FileStamp::of(&entry.path()) {
+        Some(stamp) => {
+            let mut hasher = DefaultHasher::new();
+            stamp.len.hash(&mut hasher);
+            stamp.modified.hash(&mut hasher);
+            hasher.finish()
+        }
+        None => 1,
+    }
+}
+
 /// Order-independent fingerprint of what the explorer renders for a directory: the entry
 /// names and their kinds. Entries are mixed with a commutative sum, so no sort and no
 /// allocation per entry.
@@ -202,22 +241,22 @@ pub fn listing_signature(dir: &Path) -> Option<u64> {
         let entry = entry.ok()?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
+        // A repository's metadata is watched for one reason: what a `git pull`, `push` or `commit`
+        // typed in a terminal moves inside `.git` is mostly the *contents* of files whose names stay
+        // where they are. Everywhere else the names and kinds are the whole story - an in-place edit
+        // of a file is not something the explorer draws.
+        let metadata = is_git_metadata(dir);
+        if metadata && GIT_QUIET_ENTRIES.contains(&name.as_ref()) {
+            continue;
+        }
         let kind = match entry.file_type() {
             Ok(kind) if kind.is_dir() => 1,
             Ok(kind) if kind.is_symlink() => 2,
             Ok(_) => 0,
             Err(_) => 3,
         };
-        let extra = if is_ignore_file(&name) {
-            match FileStamp::of(&entry.path()) {
-                Some(stamp) => {
-                    let mut hasher = DefaultHasher::new();
-                    stamp.len.hash(&mut hasher);
-                    stamp.modified.hash(&mut hasher);
-                    hasher.finish()
-                }
-                None => 1,
-            }
+        let extra = if metadata || is_ignore_file(&name) {
+            entry_stamp(&entry)
         } else {
             0
         };
@@ -583,6 +622,105 @@ impl Pending {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two directories built in a temp dir, so the listing fingerprint can be read for real.
+    fn temp_pair(tag: &str) -> (PathBuf, PathBuf) {
+        let base = std::env::temp_dir().join(format!(
+            "verta-listing-{tag}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        let git = base.join(".git");
+        std::fs::create_dir_all(&git).expect("create .git");
+        (base, git)
+    }
+
+    #[test]
+    fn a_repository_metadata_listing_reports_a_new_name() {
+        // A pull moves a ref, which adds a name inside `.git` - the news the project panel wants.
+        let (base, git) = temp_pair("names");
+        let first = listing_signature(&git);
+        assert_eq!(listing_signature(&git), first, "unchanged listing");
+
+        std::fs::write(git.join("ORIG_HEAD"), b"abc").expect("write");
+        assert_ne!(
+            listing_signature(&git),
+            first,
+            "a new ref appeared: this is the pull being noticed"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_repository_metadata_rewrite_in_place_is_news() {
+        // The second pull on a repository moves no name anywhere: it rewrites `ORIG_HEAD` where it
+        // is. If only names counted, every pull after the first would be invisible - which is
+        // exactly the stale row that was reported.
+        let (base, git) = temp_pair("rewrite");
+        std::fs::write(git.join("ORIG_HEAD"), b"a").expect("write");
+        let first = listing_signature(&git);
+        std::fs::write(git.join("ORIG_HEAD"), b"a much longer object name").expect("write");
+        assert_ne!(
+            listing_signature(&git),
+            first,
+            "same name, new contents: the pull has to be noticed"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_branch_ref_rewrite_is_news() {
+        // What a commit, a push and a fast-forward pull all do to a ref. For a push it is the only
+        // trace left anywhere.
+        let (base, git) = temp_pair("refs");
+        let heads = git.join("refs").join("heads");
+        std::fs::create_dir_all(&heads).expect("create refs/heads");
+        std::fs::write(heads.join("main"), b"1111\n").expect("write");
+        let first = listing_signature(&heads);
+        std::fs::write(heads.join("main"), b"2222222222\n").expect("write");
+        assert_ne!(listing_signature(&heads), first, "the branch moved");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_repository_metadata_leaves_its_own_noise_out() {
+        // Measured: `git status`, `git log` and every `git fetch` rewrite these while the
+        // repository's state stays where it was. The panel fetches every project when it opens, so
+        // counting them would make it answer its own event and re-read the whole list.
+        let (base, git) = temp_pair("quiet");
+        std::fs::create_dir_all(git.join("objects")).expect("create objects");
+        let first = listing_signature(&git);
+        for name in ["index", "index.lock", "FETCH_HEAD"] {
+            std::fs::write(git.join(name), b"nothing to do with the row").expect("write");
+        }
+        std::fs::write(git.join("objects").join("object"), b"payload").expect("write");
+        assert_eq!(
+            listing_signature(&git),
+            first,
+            "a read of ours is not a change to the repository"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn an_ordinary_directory_still_reports_an_ignore_file_rewrite() {
+        // The distinction is only for `.git`: an ignore file changes what the explorer draws, so a
+        // rewrite of one is a change to the listing it shows.
+        let base = std::env::temp_dir().join(format!(
+            "verta-listing-ignore-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).expect("create");
+        std::fs::write(base.join(".gitignore"), b"a").expect("write");
+        let first = listing_signature(&base);
+        std::fs::write(base.join(".gitignore"), b"a much longer pattern").expect("write");
+        assert_ne!(listing_signature(&base), first);
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     fn set_of(dirs: &[&str]) -> WatchSet {
         let mut set = WatchSet::default();

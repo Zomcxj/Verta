@@ -12,12 +12,15 @@ import type {
 } from "./types";
 
 /**
- * Sessions the opencode service says are in the middle of a turn.
+ * Sessions the opencode service says it is running right now.
  *
  * `null` when the question could not be asked at all - no opencode running, or one without a
- * service file - which is different from an empty list (the service answered and nothing is
- * running). The caller keeps its write times for the first case: a stopped service must not make
- * every row unmarked.
+ * service file - which is different from an empty list (the service answered and nothing is). The
+ * caller keeps its write times for the first case: a stopped service must not make every row
+ * unmarked.
+ *
+ * The list is complete rather than a page: the endpoint behind it documents that "sessions absent
+ * from the result are inactive", so a session missing from it can be settled from it.
  *
  * `distro` picks whose service: each distro runs its own on its own loopback interface.
  */

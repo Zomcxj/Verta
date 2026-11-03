@@ -3,8 +3,8 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent_sessions, agent_versions, control, fonts, fs, git, github, history, lsp, net, projects,
-    pty, screenshot, secrets, shell, vibrancy, workspace,
+    agent_sessions, agent_versions, control, fonts, fs, git, github, history, lsp, projects, pty,
+    screenshot, shell, vibrancy, workspace,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -291,9 +291,6 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("verta-pty", pty::stream_protocol)
         .on_page_load(|webview, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
-                if let Some(state) = webview.try_state::<net::AiStreamState>() {
-                    state.cancel_window(webview.window().label());
-                }
                 if let Some(state) = webview.try_state::<pty::PtyState>() {
                     state.reset_webview(webview.label());
                 }
@@ -355,11 +352,8 @@ pub fn run() {
             Ok(())
         })
         .manage(pty::PtyState::default())
-        .manage(net::AiStreamState::default())
         .manage(modules::window_presentation::WindowPresentationState::default())
         .manage(control_state)
-        .manage(shell::ShellState::default())
-        .manage(secrets::SecretsState::default())
         .manage(fs::watch::FsWatchState::default())
         .manage(history::HistoryState::default())
         .manage(lsp::LspState::default())
@@ -490,13 +484,6 @@ pub fn run() {
             git::commands::git_abort_operation,
             git::commands::git_clone_repo,
             shell::shell_run_command,
-            shell::shell_session_open,
-            shell::shell_session_run,
-            shell::shell_session_close,
-            shell::shell_bg_spawn,
-            shell::shell_bg_logs,
-            shell::shell_bg_kill,
-            shell::shell_bg_list,
             workspace::wsl_list_distros,
             workspace::wsl_default_distro,
             workspace::wsl_shutdown,
@@ -515,14 +502,6 @@ pub fn run() {
             agent_sessions::agent_sessions_image,
             agent_versions::agent_versions_check,
             agent_versions::agent_versions_upgrade,
-            secrets::secrets_get,
-            secrets::secrets_set,
-            secrets::secrets_delete,
-            secrets::secrets_get_all,
-            net::lm_ping,
-            net::ai_http_stream,
-            net::ai_http_cancel,
-            net::ai_http_ack,
             history::history_suggest,
             history::history_commands,
             history::history_record,
@@ -558,9 +537,6 @@ pub fn run() {
                     event: tauri::WindowEvent::Destroyed,
                     ..
                 } => {
-                    if let Some(state) = app.try_state::<net::AiStreamState>() {
-                        state.cancel_window(&label);
-                    }
                     if let Some(state) = app.try_state::<pty::PtyState>() {
                         state.destroy_webview(&label);
                     }

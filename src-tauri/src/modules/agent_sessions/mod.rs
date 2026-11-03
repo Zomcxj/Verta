@@ -12,11 +12,14 @@ mod wsl;
 use delete::{DeleteReport, SessionTarget};
 use types::AgentSessionsPayload;
 
-/// Which sessions are in the middle of a turn, according to the opencode service that runs them.
+/// Which sessions the opencode service says it is running right now.
 ///
 /// `None` when the service could not be asked at all - which is the normal case for an opencode
 /// that is not running - and the caller then keeps the write times it already has. An empty list is
 /// a real answer: the service is up and nothing is running.
+///
+/// The answer is complete rather than a page: the endpoint it reads documents that "sessions absent
+/// from the result are inactive", so a session missing from it can be settled from it.
 ///
 /// This hits the network, so it runs off the main thread: a service that is stopping can hold the
 /// connection for the whole timeout.

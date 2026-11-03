@@ -115,6 +115,57 @@ pub fn authorize_user_spawn_cwd(
     Ok(Some(canonical))
 }
 
+/// Refuse a path that is outside every authorized root, for something about to be read.
+///
+/// The registry holds the roots the app has been told about: the launch directory, the home
+/// directory, and whatever a workspace switch, a project open, a folder dialog or a terminal's own
+/// cwd registered. `fs_move` and `fs_delete_batch` already ask it; the plain read and write
+/// commands did not, so an absolute path arriving from anywhere reached any directory the process
+/// could open - a Tauri capability does not check paths for a command the app wrote itself.
+///
+/// The canonical path is what is compared, so `..` and a symlink out of a root cannot be used to
+/// reach a tree nobody opened.
+pub fn authorize_read(registry: &WorkspaceRegistry, path: &Path) -> Result<(), String> {
+    let canonical = registry
+        .canonicalize_cached(path)
+        .map_err(|error| format!("path is not accessible: {error}"))?;
+    if registry.is_authorized(&canonical) {
+        Ok(())
+    } else {
+        Err(format!(
+            "path is outside the authorized workspace: {}",
+            canonical.display()
+        ))
+    }
+}
+
+/// The same for a path that is about to be created, written, renamed or deleted.
+///
+/// The **parent** is what has to be authorized: the target may not exist yet, and the directory it
+/// would land in is exactly what must have been opened. The nearest ancestor that exists is the one
+/// compared, because "new folder a/b/c" creates the chain in one step and only `a`'s owner is in the
+/// registry.
+pub fn authorize_parent(registry: &WorkspaceRegistry, path: &Path) -> Result<(), String> {
+    let mut ancestor = path.parent();
+    while let Some(dir) = ancestor {
+        if let Ok(canonical) = registry.canonicalize_cached(dir) {
+            return if registry.is_authorized(&canonical) {
+                Ok(())
+            } else {
+                Err(format!(
+                    "path is outside the authorized workspace: {}",
+                    path.display()
+                ))
+            };
+        }
+        ancestor = dir.parent();
+    }
+    Err(format!(
+        "path has no accessible parent: {}",
+        path.display()
+    ))
+}
+
 // A saved cwd can be stale or from another environment (e.g. a Windows path in
 // a now-WSL space); the terminal must still open, so fall back to a default.
 pub fn user_spawn_cwd_or_default(
@@ -844,6 +895,75 @@ mod auth_tests {
         p.push(format!("verta-auth-{label}-{nanos}-{}", std::process::id()));
         fs::create_dir_all(&p).expect("create tempdir");
         fs::canonicalize(&p).expect("canonicalize tempdir")
+    }
+
+    #[test]
+    fn authorize_read_accepts_a_file_under_a_root() {
+        let root = tempdir("read-in");
+        let file = root.join("note.txt");
+        fs::write(&file, b"x").expect("write file");
+        let reg = WorkspaceRegistry::default();
+        reg.authorize(&root).expect("authorize root");
+        assert!(authorize_read(&reg, &file).is_ok());
+    }
+
+    #[test]
+    fn authorize_read_rejects_a_file_nobody_opened() {
+        // The audit's case: the plain read command took any absolute path the process could open.
+        let allowed = tempdir("read-allowed");
+        let foreign = tempdir("read-foreign");
+        let file = foreign.join("secret.txt");
+        fs::write(&file, b"x").expect("write file");
+        let reg = WorkspaceRegistry::default();
+        reg.authorize(&allowed).expect("authorize root");
+        let err = authorize_read(&reg, &file).expect_err("must refuse");
+        assert!(err.contains("outside"), "got: {err}");
+    }
+
+    #[test]
+    fn authorize_read_rejects_a_link_that_leaves_the_root() {
+        // Canonicalizing is what makes this refuse: the link sits inside an opened folder.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let allowed = tempdir("link-allowed");
+            let foreign = tempdir("link-foreign");
+            let target = foreign.join("secret.txt");
+            fs::write(&target, b"x").expect("write file");
+            let link = allowed.join("link.txt");
+            symlink(&target, &link).expect("symlink");
+            let reg = WorkspaceRegistry::default();
+            reg.authorize(&allowed).expect("authorize root");
+            assert!(authorize_read(&reg, &link).is_err());
+        }
+    }
+
+    #[test]
+    fn authorize_parent_accepts_a_file_that_does_not_exist_yet() {
+        let root = tempdir("parent-in");
+        let reg = WorkspaceRegistry::default();
+        reg.authorize(&root).expect("authorize root");
+        assert!(authorize_parent(&reg, &root.join("new.txt")).is_ok());
+    }
+
+    #[test]
+    fn authorize_parent_accepts_a_chain_whose_parent_is_missing() {
+        // "new folder a/b/c" creates the whole chain in one step, so the nearest existing ancestor
+        // is the one that has to be in the registry.
+        let root = tempdir("parent-chain");
+        let reg = WorkspaceRegistry::default();
+        reg.authorize(&root).expect("authorize root");
+        assert!(authorize_parent(&reg, &root.join("a").join("b").join("c")).is_ok());
+    }
+
+    #[test]
+    fn authorize_parent_rejects_a_new_file_in_a_foreign_directory() {
+        let allowed = tempdir("parent-allowed");
+        let foreign = tempdir("parent-foreign");
+        let reg = WorkspaceRegistry::default();
+        reg.authorize(&allowed).expect("authorize root");
+        let err = authorize_parent(&reg, &foreign.join("new.txt")).expect_err("must refuse");
+        assert!(err.contains("outside"), "got: {err}");
     }
 
     #[test]

@@ -400,6 +400,15 @@ export function LauncherPanel({
 
   const topLevel = useMemo(() => topLevelSessions(sessions), [sessions]);
 
+  /** The rows the service can speak for: it only knows opencode. */
+  const opencodeIds = useMemo(
+    () =>
+      new Set(
+        topLevel.filter((s) => s.tool === "opencode").map((s) => s.id),
+      ),
+    [topLevel],
+  );
+
   /** What the rows draw: the tab's own reading where there is one, recent writes elsewhere. */
   // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` is the manual re-answer trigger; nothing in the callback reads it, and without it the last mark would stay lit after writes stop
   const rowStates = useMemo(
@@ -411,10 +420,11 @@ export function LauncherPanel({
         activeWithService(
           activeByWindow(topLevel, Date.now(), ACTIVE_WINDOW_BY_TOOL),
           serviceRunning,
+          opencodeIds,
         ),
         topLevel,
       ),
-    [states, topLevel, tick, serviceRunning],
+    [states, topLevel, tick, serviceRunning, opencodeIds],
   );
   // Managing deliberately shows the subagent sessions this list otherwise hides.
   const listed = managing ? sessions : topLevel;

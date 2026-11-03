@@ -26,6 +26,12 @@ import {
 import { pickDownloadDir } from "./lib/pickDownloadDir";
 import { canWrite } from "./lib/permission";
 import {
+  beginScope,
+  isCurrentTicket,
+  newReadTickets,
+  takeTicket,
+} from "./lib/readTicket";
+import {
   type DownloadEntry,
   type ReleaseAssetRow,
   type ReleaseRow,
@@ -68,6 +74,15 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
   /** Repo already read: reopening the same one neither hits the network again nor
    * clears download progress. */
   const loadedRepo = useRef<string | null>(null);
+  /**
+   * Which repository each read is answering for, and which read of each kind is newest.
+   *
+   * One instance is reused across repositories (`RemoteReposView` swaps the `repo` prop), and the
+   * list read had no guard at all: B's screen drew A's releases whenever A answered last. The row
+   * is not only a display - opening one and saving edits writes to the release under the current
+   * repository, so the read has to be refused before anything is drawn from it.
+   */
+  const tickets = useRef(newReadTickets()).current;
 
   const editable = canWrite(permission);
 
@@ -101,23 +116,35 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
 
   const load = useCallback(async () => {
     if (!repo) return;
+    const ticket = takeTicket(tickets, "list");
     setReading(true);
     setFatal(null);
     try {
       const payload = await native.githubReleases(repo);
+      if (!isCurrentTicket(tickets, "list", ticket)) return;
       writeListSnapshot(`releases:${repo}`, payload);
       setPayload(payload);
     } catch (error) {
+      if (!isCurrentTicket(tickets, "list", ticket)) return;
       setPayload(null);
       setFatal(String(error));
     } finally {
-      setReading(false);
+      if (isCurrentTicket(tickets, "list", ticket)) setReading(false);
     }
-  }, [repo]);
+  }, [repo, tickets]);
+
+  const rows = useMemo(
+    () => (payload ? releaseRows(payload, Date.now(), language) : []),
+    [payload, language],
+  );
+  const notice = payload ? releaseNotice(payload) : null;
 
   const saveRelease = useCallback(
     async (name: string, body: string): Promise<string | null> => {
       if (!repo || !detail) return null;
+      // The write names the release by the id on screen, under the repository the panel is on; an
+      // id that is not one of this repository's rows belongs to another repository's release.
+      if (!rows.some((row) => row.id === detail.id)) return null;
       try {
         // The form field is a title: leading and trailing space is a typo, and GitHub
         // would store it verbatim.
@@ -137,11 +164,13 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
         return String(error);
       }
     },
-    [repo, detail, load, t],
+    [repo, detail, load, rows, t],
   );
 
   useEffect(() => {
     if (!repo || loadedRepo.current === repo) return;
+    // Everything in flight belongs to the repository being left, and so does the detail on screen.
+    beginScope(tickets);
     loadedRepo.current = repo;
     setFatal(null);
     setDetail(null);
@@ -150,12 +179,16 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
     // is closed and reopened constantly while browsing repos.
     const cached = readListSnapshot<WireReleasesPayload>(`releases:${repo}`);
     if (cached) {
+      // Answering from the cache replaces the read it answered, so a request still in flight for
+      // this repository cannot land on top of it.
+      takeTicket(tickets, "list");
+      setReading(false);
       setPayload(cached);
       return;
     }
     setPayload(null);
     void load();
-  }, [repo, load]);
+  }, [repo, load, tickets]);
 
   // Progress events are claimed by the frontend-generated id; events from other
   // downloads (or other windows) are ignored.
@@ -308,12 +341,6 @@ export function ReleasesDialog({ repo, onOpenChange }: Props) {
     },
     [downloads],
   );
-
-  const rows = useMemo(
-    () => (payload ? releaseRows(payload, Date.now(), language) : []),
-    [payload, language],
-  );
-  const notice = payload ? releaseNotice(payload) : null;
 
   // After a reload the open detail must show the fresh text rather than the copy taken
   // when it was opened. The row is looked up again by id.

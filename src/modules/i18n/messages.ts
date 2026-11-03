@@ -689,6 +689,7 @@ const zh = {
   "notifications.jump": "跳到这个会话",
   "notifications.updates.title": "可更新的组件",
   "notifications.updates.none": "全部已是最新。",
+  "notifications.updates.unknown": "未知",
   "notifications.updates.checking": "正在检查版本…",
   "notifications.updates.checkFailed": "检查失败：{error}",
   "notifications.updates.upgrade": "升级 {name}",
@@ -908,7 +909,7 @@ const zh = {
   "settings.sessionListDensity.compact": "紧凑",
   "settings.stateColours.title": "状态颜色",
   "settings.stateColours.description":
-    "标签栏上的点和会话行上的条用这里的颜色。这些颜色就是在说一条会话现在是什么状态。",
+    "标签栏的状态点与会话行的状态条使用这些颜色，用以标示该会话当前的状态。",
   "settings.stateColours.reset": "恢复默认",
   "settings.stateColours.name.sky": "天蓝",
   "settings.stateColours.name.cyan": "青",
@@ -980,11 +981,6 @@ const zh = {
   "settings.lsp.checking": "检测中…",
   "settings.lsp.checkAgain": "再检测一次",
   "settings.lsp.removeServer": "移除服务器",
-
-  "settings.startup": "启动",
-  "settings.restoreWindow.title": "恢复窗口位置与大小",
-  "settings.restoreWindow.description":
-    "下次启动时在主窗口上次的位置重新打开。",
 
   "settings.editor.title": "编辑器",
   "settings.editor.description": "编辑行为、保存与语言服务器。",
@@ -2115,6 +2111,7 @@ const en: Record<MessageKey, string> = {
   "notifications.jump": "Go to this session",
   "notifications.updates.title": "Can be updated",
   "notifications.updates.none": "Everything is up to date.",
+  "notifications.updates.unknown": "unknown",
   "notifications.updates.checking": "Checking versions…",
   "notifications.updates.checkFailed": "Check failed: {error}",
   "notifications.updates.upgrade": "Update {name}",
@@ -2339,7 +2336,7 @@ const en: Record<MessageKey, string> = {
   "settings.sessionListDensity.compact": "Compact",
   "settings.stateColours.title": "Agent state colours",
   "settings.stateColours.description":
-    "The dot on a tab and the bar on a session row are drawn in these colours. The colours are how the interface says what a session is doing.",
+    "The state dot on a tab and the state bar on a session row, coloured to show what that session is currently doing.",
   "settings.stateColours.reset": "Reset to defaults",
   "settings.stateColours.name.sky": "Sky",
   "settings.stateColours.name.cyan": "Cyan",
@@ -2413,11 +2410,6 @@ const en: Record<MessageKey, string> = {
   "settings.lsp.checking": "Checking…",
   "settings.lsp.checkAgain": "Check again",
   "settings.lsp.removeServer": "Remove server",
-
-  "settings.startup": "Startup",
-  "settings.restoreWindow.title": "Restore window position & size",
-  "settings.restoreWindow.description":
-    "Reopen the main window where you left it. Applies on next launch.",
 
   "settings.editor.title": "Editor",
   "settings.editor.description":

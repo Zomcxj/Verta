@@ -11,11 +11,26 @@ type FsChangedPayload = { paths: string[] };
  * own path when their size or mtime moves, because the native watcher only
  * reports which directory changed.
  */
-export function watchAdd(paths: string[], files: string[] = []): void {
+export type WatchAddOptions = {
+  /**
+   * Register directories the listing filter would drop, `.git` above all.
+   *
+   * Only the project panel asks for this: a pull moves a ref inside `.git` and touches no file the
+   * root listing would notice, so that is where the change shows up. The explorer never sets it.
+   */
+  includeSkipped?: boolean;
+};
+
+export function watchAdd(
+  paths: string[],
+  files: string[] = [],
+  options: WatchAddOptions = {},
+): void {
   if (paths.length === 0 && files.length === 0) return;
   void invoke("fs_watch_add", {
     paths,
     files,
+    includeSkipped: options.includeSkipped ?? null,
     workspace: currentWorkspaceEnv(),
   }).catch(() => {});
 }

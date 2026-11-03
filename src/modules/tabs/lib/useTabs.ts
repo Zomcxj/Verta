@@ -73,6 +73,14 @@ export type EditorTab = TabBase & {
    * is replaced by the next single-click rather than accumulating.
    */
   preview: boolean;
+  /**
+   * The path this file had before the explorer renamed or moved it.
+   *
+   * Set by the rename handler and read by the editor, which has to carry its buffer, its unsaved
+   * flag and its saved baseline over to the new path rather than opening the new name as a fresh
+   * document. Absent for every other way a tab's path can change.
+   */
+  renamedFrom?: string;
   overrideLanguage?: string | null;
 };
 
@@ -150,6 +158,8 @@ export type TabPatch = Partial<{
   /** Empty string resets a terminal tab to its cwd-derived name. */
   customTitle: string;
   overrideLanguage: string | null;
+  /** The path an editor tab's file had before it was renamed or moved. */
+  renamedFrom: string;
 }>;
 
 export type GitDiffOpenInput = {
@@ -322,6 +332,7 @@ function patchedTab(x: Tab, patch: TabPatch, previewLabel: string): Tab {
     ...(patch.title !== undefined && { title: patch.title }),
     ...(patch.dirty !== undefined && { dirty: patch.dirty }),
     ...(patch.path !== undefined && { path: patch.path }),
+    ...(patch.renamedFrom !== undefined && { renamedFrom: patch.renamedFrom }),
     ...(patch.overrideLanguage !== undefined && {
       overrideLanguage: patch.overrideLanguage,
     }),
@@ -336,6 +347,7 @@ const PATCHED_FIELDS = [
   "url",
   "dirty",
   "path",
+  "renamedFrom",
   "overrideLanguage",
   "preview",
 ] as const;

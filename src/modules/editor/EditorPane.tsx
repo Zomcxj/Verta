@@ -83,6 +83,11 @@ export type EditorPaneHandle = {
 
 type Props = {
   path: string;
+  /**
+   * The path this file had before the explorer renamed it, when this pane is the continuation of
+   * that same file rather than a fresh document. `null` for a file opened normally.
+   */
+  renamedFrom?: string | null;
   overrideLanguage?: string | null;
   onDirtyChange?: (dirty: boolean) => void;
   onSaved?: () => void;
@@ -125,7 +130,15 @@ function draftTime(at: number): string {
 // skip re-rendering entirely when App re-renders (terminal events, tab churn).
 export const EditorPane = memo(
   forwardRef<EditorPaneHandle, Props>(function EditorPane(props, ref) {
-    const { path, overrideLanguage, onDirtyChange, onSaved, onClose, renderToggle } = props;
+    const {
+      path,
+      renamedFrom,
+      overrideLanguage,
+      onDirtyChange,
+      onSaved,
+      onClose,
+      renderToggle,
+    } = props;
 
     const {
       doc,
@@ -137,8 +150,10 @@ export const EditorPane = memo(
       pendingDraft,
       restoreDraft,
       discardDraft,
+      subscribeBuffer,
     } = useDocument({
       path,
+      renamedFrom,
       onDirtyChange,
     });
     const reloadRef = useRef(reload);
@@ -180,6 +195,22 @@ export const EditorPane = memo(
       setSideOpen(false);
     }, [path]);
     const sideVisible = sideOpen && previewKind !== "none";
+
+    /**
+     * What the side preview renders: the live buffer, not `doc.content`.
+     *
+     * The document state moves only when a file is loaded or reloaded, so a preview handed
+     * `doc.content` showed the file as it was on disk while the person typed next to it - measured
+     * as the preview still drawing `# Old title` after the editor read `# New title`. Subscribed only
+     * while the column is open, so a pane with the preview shut re-renders no more than before.
+     */
+    const [previewText, setPreviewText] = useState(
+      doc.status === "ready" ? doc.content : "",
+    );
+    useEffect(() => {
+      if (!sideVisible) return;
+      return subscribeBuffer(setPreviewText);
+    }, [sideVisible, subscribeBuffer]);
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: tr only feeds formatter warning toasts, and listing it would rebuild the save handler on every language switch
     const performSave = useCallback(async () => {
@@ -700,7 +731,7 @@ export const EditorPane = memo(
         {previewKind !== "none" && (
           <SidePreview
             kind={previewKind}
-            content={doc.content}
+            content={previewText}
             path={path}
             imageSrc={previewKind === "image" ? convertFileSrc(path) : null}
             viewport={sideVisible ? viewport : null}

@@ -112,6 +112,7 @@ export function EditorStack({
               <EditorPane
                 ref={getRefCallback(t.id)}
                 path={t.path}
+                renamedFrom={t.renamedFrom ?? null}
                 overrideLanguage={t.overrideLanguage}
                 onDirtyChange={getDirtyCallback(t.id)}
                 onClose={getCloseCallback(t.id)}

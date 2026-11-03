@@ -69,8 +69,7 @@ describe("applyTabPatch", () => {
     expect(applyTabPatch(tab, { dirty: false }, PREVIEW_LABEL)).toBe(tab);
   });
 
-  it("derives a preview tab's title from its url", () => {
-    const tab: PreviewTab = {
+  it("derives a preview tab's title from its url", () => {    const tab: PreviewTab = {
       id: 4,
       kind: "preview",
       title: "Preview",
@@ -93,5 +92,28 @@ describe("applyTabPatch", () => {
         PREVIEW_LABEL,
       ),
     ).toBe(next);
+  });
+
+  it("carries a rename onto the tab, keeping its id", () => {
+    // The editor reads this to know the file moved rather than that it is a different file, so the
+    // patch has to survive the identity check that drops no-op patches.
+    const tab = editor(5, false);
+    const renamed = applyTabPatch(
+      tab,
+      { path: "/repo/lib.rs", title: "lib.rs", renamedFrom: "/repo/main.rs" },
+      PREVIEW_LABEL,
+    );
+    expect(renamed).toMatchObject({
+      id: 5,
+      path: "/repo/lib.rs",
+      title: "lib.rs",
+      renamedFrom: "/repo/main.rs",
+    });
+    // Typing after the rename keeps the note: only the dirty flag moves.
+    const dirty = applyTabPatch(renamed, { dirty: true }, PREVIEW_LABEL);
+    expect(dirty).toMatchObject({
+      renamedFrom: "/repo/main.rs",
+      dirty: true,
+    });
   });
 });

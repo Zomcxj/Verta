@@ -48,6 +48,12 @@ import {
   writeListSnapshot,
 } from "./lib/listSnapshot";
 import { canWrite, readOnlyHintKey } from "./lib/permission";
+import {
+  beginScope,
+  isCurrentTicket,
+  newReadTickets,
+  takeTicket,
+} from "./lib/readTicket";
 
 type Props = {
   /** Full name of the repo whose issues / PRs are shown; null when the dialog is closed. */
@@ -156,31 +162,53 @@ export function IssuesDialog({ repo, onOpenChange, onDetailOpened }: Props) {
   }, [repo]);
 
   /**
-   * Each list request bumps a sequence number, and a slow response whose number
-   * is stale gets dropped. Users flip open / closed quickly, and without this an
-   * earlier slow response would overwrite the newer, correct one.
+   * Which repository each read is answering for, and which read of each kind is the newest.
+   *
+   * This dialog is one instance reused across repositories (`RemoteReposView` swaps the `repo`
+   * prop), so a slow read of A can land on B's screen. The list was guarded against a rapid filter
+   * change; the repository was not, and the detail was not guarded at all - which is the one that
+   * writes: every action takes its number off the detail on screen.
    */
-  const listRequest = useRef(0);
+  const tickets = useRef(newReadTickets()).current;
+  /** The repository the dialog last answered for, so a switch can be told from a re-render. */
+  const shownRepo = useRef<string | null>(null);
+
   const load = useCallback(async () => {
     if (!repo) return;
-    const request = ++listRequest.current;
+    const ticket = takeTicket(tickets, "list");
     setReading(true);
     setFatal(null);
     try {
       const result = await native.githubIssues(repo, state);
-      if (request !== listRequest.current) return;
+      if (!isCurrentTicket(tickets, "list", ticket)) return;
       writeListSnapshot(`issues:${repo}:${state}`, result);
       setPayload(result);
     } catch (e) {
-      if (request !== listRequest.current) return;
+      if (!isCurrentTicket(tickets, "list", ticket)) return;
       setPayload(null);
       setFatal(String(e));
     } finally {
-      if (request === listRequest.current) setReading(false);
+      if (isCurrentTicket(tickets, "list", ticket)) setReading(false);
     }
-  }, [repo, state]);
+  }, [repo, state, tickets]);
 
   useEffect(() => {
+    const switched = shownRepo.current !== repo;
+    shownRepo.current = repo;
+    if (switched) {
+      // A different repository is a different set of entries. Everything in flight belongs to the
+      // old one, and the detail on screen belongs to it too - leaving it up would label A's entry
+      // with B's name and hand B's buttons A's number.
+      beginScope(tickets);
+      setPayload(null);
+      setDetail(null);
+      setDetailNumber(null);
+      setDetailReading(false);
+      setComment("");
+      setCreating(null);
+      setPending(null);
+      setActionError(null);
+    }
     if (!repo) {
       // Clear the previous state on close so reopening does not flash stale data.
       setPayload(null);
@@ -188,6 +216,7 @@ export function IssuesDialog({ repo, onOpenChange, onDetailOpened }: Props) {
       setPending(null);
       setActionError(null);
       setDetail(null);
+      setDetailNumber(null);
       setComment("");
       setCreating(null);
       setKind("all");
@@ -202,34 +231,43 @@ export function IssuesDialog({ repo, onOpenChange, onDetailOpened }: Props) {
       LIST_SNAPSHOT_TTL_MS,
     );
     if (cached) {
+      // Answering from the cache still replaces the request it answered: a read of the same repo
+      // and filter that is still in flight would otherwise land on top of it.
+      takeTicket(tickets, "list");
+      setReading(false);
+      setFatal(null);
       setPayload(cached);
       return;
     }
     void load();
-  }, [repo, state, load]);
+  }, [repo, state, load, tickets]);
 
-  const openDetail = useCallback(async (number: number) => {
-    if (!repo) return;
-    // Tell the row before the detail is read, not after: a read that fails still means the person
-    // looked, and an entry they saw should not keep the dot lit because gh answered slowly.
-    onDetailOpened?.(repo);
-    setDetailReading(true);
-    setDetail(null);
-    setDetailNumber(number);
-    try {
-      setDetail(await native.githubIssueDetail(repo, number));
-    } catch (e) {
-      setDetail({
-        kind: "error",
-        repo,
-        detail: null,
-        error: String(e),
-      });
-    } finally {
-      setDetailReading(false);
-    }
-  }, [repo, onDetailOpened]);
-
+  const openDetail = useCallback(
+    async (number: number) => {
+      if (!repo) return;
+      const ticket = takeTicket(tickets, "detail");
+      // Tell the row before the detail is read, not after: a read that fails still means the person
+      // looked, and an entry they saw should not keep the dot lit because gh answered slowly.
+      onDetailOpened?.(repo);
+      setDetailReading(true);
+      setDetail(null);
+      setDetailNumber(number);
+      try {
+        const result = await native.githubIssueDetail(repo, number);
+        if (!isCurrentTicket(tickets, "detail", ticket)) return;
+        setDetail(result);
+      } catch (e) {
+        if (!isCurrentTicket(tickets, "detail", ticket)) return;
+        setDetail({
+          kind: "error",
+          repo,
+          detail: null,
+          error: String(e),
+        });
+      } finally {
+        if (isCurrentTicket(tickets, "detail", ticket)) setDetailReading(false);
+      }
+  }, [repo, onDetailOpened, tickets]);
   const rows = useMemo(
     () =>
       toRows(
@@ -277,6 +315,9 @@ export function IssuesDialog({ repo, onOpenChange, onDetailOpened }: Props) {
 
   const sendComment = async () => {
     if (!repo || !detail?.detail) return;
+    // The number comes off the detail on screen, and a comment cannot be taken back: refuse rather
+    // than act on a detail that is not this repository's.
+    if (detail.repo !== repo) return;
     const body = comment.trim();
     if (!body) return;
     setBusy(true);
@@ -303,6 +344,9 @@ export function IssuesDialog({ repo, onOpenChange, onDetailOpened }: Props) {
 
   const runPending = async () => {
     if (!repo || !pending || !detail?.detail) return;
+    // Closing, merging and deleting really happen on the account, and each one takes its number
+    // from the detail on screen: a detail from another repository must not be acted on.
+    if (detail.repo !== repo) return;
     const number = detail.detail.number;
     setBusy(true);
     setActionError(null);

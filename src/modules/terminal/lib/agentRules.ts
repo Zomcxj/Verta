@@ -32,7 +32,7 @@ import {
   bottom,
   bottomNonEmptyLines,
   contains,
-  containsWord,
+  containsCountedWord,
   lineStartsWith,
   type Pattern,
   patternHit,
@@ -83,8 +83,22 @@ export type AgentFamily = {
 // opencode
 // ---------------------------------------------------------------------------
 
-/** The footer hints that are on screen whenever the TUI is at rest. */
-const OPENCODE_FOOTER: readonly Pattern[] = [contains("ctrl+p"), contains("· tokens")];
+/**
+ * The footer hint that is on screen whenever the TUI is at rest.
+ *
+ * It used to be two hints, `ctrl+p` and `· tokens`, read as "both or it is not the footer". The
+ * token field moved: measured on this machine (2026-11-03, `scripts/dev/probes/session-open-dot-state.mjs`)
+ * the rest footer now reads `~/Desktop    251.1K (50%)  ctrl+p commands` and the working one
+ * `⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt   ↓ 2 shells · ◎ goal · 381.5K (76%)  ctrl+p commands` - a context
+ * reading with no `tokens` word anywhere. So requiring that field made `opencode_idle` match
+ * nothing at rest, and the reported screen went on being drawn from the last state the judge had
+ * said (see `judgeTail`'s unknown branch): a session nobody had spoken to since yesterday opened
+ * with an orange dot.
+ *
+ * `ctrl+p` is what every footer shape measured here carries, working or not; the state rules above
+ * tell the two apart, which is why they read this and not the token field.
+ */
+const OPENCODE_FOOTER: readonly Pattern[] = [contains("ctrl+p")];
 
 /**
  * Anything on screen that says this is opencode.
@@ -99,8 +113,8 @@ const OPENCODE_IDENTIFY: readonly Pattern[] = [
   // read `↑↓ select  enter submit  esc dismiss`, and with no other marker matching, a session
   // sitting on a question was reported as having no agent at all.
   //
-  // Deliberately not in `OPENCODE_FOOTER`: the idle rule requires every footer hint, and a question
-  // panel is the opposite of idle.
+  // Deliberately not in `OPENCODE_FOOTER`: the idle rule reads that hint, and a question panel
+  // is the opposite of idle.
   contains("enter submit"),
   // And the same panel with more than one question, whose footer says `enter confirm  esc dismiss`
   // while a question is being filled in (`⇆ tab` navigates). Without this, a session sitting on a
@@ -251,7 +265,12 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     state: "trailing",
     priority: 815,
     region: bottom(2),
-    allOf: [containsWord("shell"), contains("ctrl+p")],
+    // A count in front of the word, not the word itself: measured on this machine, the tool result
+    // `! Shell cancelled · cd … pnpm tauri dev` printed close enough to the footer to land in the
+    // bottom two lines, and a cancelled shell was drawn as a job still running. Whether it did
+    // depended on how many lines the TUI painted below that result, which is why the report was
+    // "sometimes". The footer's own tally always carries the number (`↓ 1 shell`).
+    allOf: [containsCountedWord("shell"), contains("ctrl+p")],
     noneOf: OPENCODE_NOT_TRAILING,
   }),
   rule({
@@ -259,7 +278,7 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     state: "trailing",
     priority: 815,
     region: bottom(2),
-    allOf: [containsWord("subagent"), contains("ctrl+p")],
+    allOf: [containsCountedWord("subagent"), contains("ctrl+p")],
     noneOf: OPENCODE_NOT_TRAILING,
   }),
   // Working: the spinner frames. Seen in the captures (`⠋`, `⠙`, `⠏`).

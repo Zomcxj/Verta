@@ -582,16 +582,153 @@ fn checkout_branch_rejects_unsafe_names() {
 
     let err_empty =
         operations::checkout_branch(&fx.registry, &fx.repo_str(), "", &fx.workspace).unwrap_err();
-    assert!(matches!(err_empty, GitError::InvalidPath(p) if p.is_empty()));
+    assert!(matches!(err_empty, GitError::InvalidRefName(p) if p.is_empty()));
 
     let err_dash =
         operations::checkout_branch(&fx.registry, &fx.repo_str(), "-f", &fx.workspace).unwrap_err();
-    assert!(matches!(err_dash, GitError::InvalidPath(p) if p == "-f"));
+    assert!(matches!(err_dash, GitError::InvalidRefName(p) if p == "-f"));
 
     let err_dash_long =
         operations::checkout_branch(&fx.registry, &fx.repo_str(), "--detach", &fx.workspace)
             .unwrap_err();
-    assert!(matches!(err_dash_long, GitError::InvalidPath(p) if p == "--detach"));
+    assert!(matches!(err_dash_long, GitError::InvalidRefName(p) if p == "--detach"));
+}
+
+// A file whose name git would read as a character class (`note[1].txt` matching `note1.txt`) is a
+// legal, harmless name, and the panel offers it as a row like any other. Each of the three
+// destructive operations is checked against that lookalike, because the bug was not in one of
+// them: the whole command line had globbing on.
+fn write_lookalike_pair(fx: &GitRepoFixture) {
+    fx.write_file("note1.txt", "one\n");
+    fx.write_file("note[1].txt", "bracket\n");
+}
+
+#[test]
+fn stage_of_a_bracketed_name_leaves_its_lookalike_alone() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    write_lookalike_pair(&fx);
+
+    operations::stage(
+        &fx.registry,
+        &fx.repo_str(),
+        &["note[1].txt".into()],
+        &fx.workspace,
+    )
+    .expect("stage");
+
+    let snap = operations::status(&fx.registry, &fx.repo_str(), &fx.workspace).unwrap();
+    let bracketed = snap
+        .changed_files
+        .iter()
+        .find(|f| f.path == "note[1].txt")
+        .expect("note[1].txt present");
+    assert!(bracketed.staged);
+    let lookalike = snap
+        .changed_files
+        .iter()
+        .find(|f| f.path == "note1.txt")
+        .expect("note1.txt present");
+    assert!(!lookalike.staged, "note1.txt must not be staged");
+    assert!(lookalike.untracked);
+}
+
+#[test]
+fn unstage_of_a_bracketed_name_leaves_its_lookalike_alone() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    write_lookalike_pair(&fx);
+    fx.run_git(&["add", "note1.txt", "note[1].txt"]);
+    fx.run_git(&["commit", "-q", "-m", "seed"]);
+    fx.write_file("note1.txt", "one changed\n");
+    fx.write_file("note[1].txt", "bracket changed\n");
+    fx.run_git(&["add", "note1.txt", "note[1].txt"]);
+
+    operations::unstage(
+        &fx.registry,
+        &fx.repo_str(),
+        &["note[1].txt".into()],
+        &fx.workspace,
+    )
+    .expect("unstage");
+
+    let snap = operations::status(&fx.registry, &fx.repo_str(), &fx.workspace).unwrap();
+    let bracketed = snap
+        .changed_files
+        .iter()
+        .find(|f| f.path == "note[1].txt")
+        .expect("note[1].txt present");
+    assert!(!bracketed.staged);
+    let lookalike = snap
+        .changed_files
+        .iter()
+        .find(|f| f.path == "note1.txt")
+        .expect("note1.txt present");
+    assert!(lookalike.staged, "note1.txt must stay staged");
+}
+
+#[test]
+fn discard_of_a_bracketed_name_leaves_its_lookalike_alone() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    write_lookalike_pair(&fx);
+    fx.run_git(&["add", "note1.txt", "note[1].txt"]);
+    fx.run_git(&["commit", "-q", "-m", "seed"]);
+    fx.write_file("note1.txt", "one tampered\n");
+    fx.write_file("note[1].txt", "bracket tampered\n");
+
+    operations::discard(
+        &fx.registry,
+        &fx.repo_str(),
+        &[DiscardEntry {
+            path: "note[1].txt".into(),
+            untracked: false,
+        }],
+        &fx.workspace,
+    )
+    .expect("discard");
+
+    assert_eq!(
+        std::fs::read_to_string(fx.repo_path.join("note[1].txt")).unwrap(),
+        "bracket\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.repo_path.join("note1.txt")).unwrap(),
+        "one tampered\n",
+        "note1.txt must keep its edits"
+    );
+}
+
+#[test]
+fn cleanup_of_a_bracketed_name_leaves_its_lookalike_alone() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    write_lookalike_pair(&fx);
+
+    operations::discard(
+        &fx.registry,
+        &fx.repo_str(),
+        &[DiscardEntry {
+            path: "note[1].txt".into(),
+            untracked: true,
+        }],
+        &fx.workspace,
+    )
+    .expect("discard");
+
+    assert!(!fx.repo_path.join("note[1].txt").exists());
+    assert!(
+        fx.repo_path.join("note1.txt").exists(),
+        "note1.txt must not be cleaned"
+    );
 }
 
 #[test]

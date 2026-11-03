@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planSessionOpen } from "./openSession";
+import { openTabForSession, planSessionOpen } from "./openSession";
 import type { AgentSession } from "./types";
 
 function session(over: Partial<AgentSession> = {}): AgentSession {
@@ -41,5 +41,30 @@ describe("planSessionOpen", () => {
 
   it("refuses a session id that would have to be escaped into the command", () => {
     expect(planSessionOpen(session({ id: "ses_1; rm -rf /" }))).toBeNull();
+  });
+});
+
+describe("openTabForSession", () => {
+  const tabs = [
+    { kind: "terminal", id: 1, sessionId: "ses_a" },
+    { kind: "editor", id: 2, sessionId: "ses_b" },
+    { kind: "terminal", id: 3 },
+    { kind: "block", id: 4, sessionId: "ses_c" },
+  ];
+
+  it("finds the terminal tab that resumed this session", () => {
+    expect(openTabForSession(tabs, "ses_a")?.id).toBe(1);
+  });
+
+  it("does not match a tab that is not a terminal", () => {
+    // An editor tab can carry the same property name for another reason; only a terminal holding
+    // an agent can be the one a session is already running in.
+    expect(openTabForSession(tabs, "ses_b")).toBeUndefined();
+    expect(openTabForSession(tabs, "ses_c")).toBeUndefined();
+  });
+
+  it("says nothing for a session no tab has", () => {
+    expect(openTabForSession(tabs, "ses_z")).toBeUndefined();
+    expect(openTabForSession([], "ses_a")).toBeUndefined();
   });
 });

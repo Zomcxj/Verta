@@ -145,7 +145,6 @@ export type Preferences = {
   windowVibrancy: boolean;
   editorTheme: EditorThemePref;
   editorFontSize: number;
-  restoreWindowState: boolean;
   vimMode: boolean;
   editorWordWrap: boolean;
   editorWordWrapColumn: number;
@@ -251,7 +250,6 @@ const KEY_WINDOW_VIBRANCY = "windowVibrancy";
 const KEY_EDITOR_THEME = "editorTheme";
 const KEY_SESSION_TRANSITION = "sessionTransition";
 const KEY_EDITOR_FONT_SIZE = "editorFontSize";
-const KEY_RESTORE_WINDOW = "restoreWindowState";
 const KEY_VIM_MODE = "vimMode";
 const KEY_EDITOR_WORD_WRAP = "editorWordWrap";
 const KEY_EDITOR_WORD_WRAP_COLUMN = "editorWordWrapColumn";
@@ -332,7 +330,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
   // whole frame every present. An explicitly stored choice (either value)
   // always wins; only an absent key falls back to this.
   windowVibrancy: false,
-  restoreWindowState: true,
   vimMode: false,
   editorWordWrap: false,
   editorWordWrapColumn: EDITOR_WORD_WRAP_COLUMN_DEFAULT,
@@ -419,9 +416,6 @@ export async function loadPreferences(): Promise<Preferences> {
     editorFontSize: clampEditorFontSize(
       get<number>(KEY_EDITOR_FONT_SIZE) ?? DEFAULT_PREFERENCES.editorFontSize,
     ),
-    restoreWindowState:
-      get<boolean>(KEY_RESTORE_WINDOW) ??
-      DEFAULT_PREFERENCES.restoreWindowState,
     windowVibrancy:
       get<boolean>(KEY_WINDOW_VIBRANCY) ?? DEFAULT_PREFERENCES.windowVibrancy,
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
@@ -607,10 +601,6 @@ export async function setEditorFontSize(value: number): Promise<void> {
   await writePref(KEY_EDITOR_FONT_SIZE, clampEditorFontSize(value));
 }
 
-
-export async function setRestoreWindowState(value: boolean): Promise<void> {
-  await writePref(KEY_RESTORE_WINDOW, value);
-}
 
 export async function setWindowVibrancy(value: boolean): Promise<void> {
   await writePref(KEY_WINDOW_VIBRANCY, value);
@@ -882,7 +872,6 @@ export async function onPreferencesChange(
     [KEY_EDITOR_THEME]: "editorTheme",
     [KEY_SESSION_TRANSITION]: "sessionTransition",
     [KEY_EDITOR_FONT_SIZE]: "editorFontSize",
-    [KEY_RESTORE_WINDOW]: "restoreWindowState",
     [KEY_VIM_MODE]: "vimMode",
     [KEY_EDITOR_WORD_WRAP]: "editorWordWrap",
     [KEY_EDITOR_WORD_WRAP_COLUMN]: "editorWordWrapColumn",
@@ -937,16 +926,4 @@ export async function onPreferencesChange(
     unsubLocal();
     unsubEvent();
   };
-}
-
-// API key changes are stored in OS keychain (not the prefs store),
-// so we broadcast via a Tauri event for cross-window listeners.
-const KEYS_CHANGED_EVENT = "verta://ai-keys-changed";
-
-export async function emitKeysChanged(): Promise<void> {
-  await emit(KEYS_CHANGED_EVENT);
-}
-
-export function onKeysChanged(cb: () => void): Promise<UnlistenFn> {
-  return listen(KEYS_CHANGED_EVENT, () => cb());
 }

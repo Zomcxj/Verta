@@ -6,10 +6,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { detectEol, type Eol, normalizeToLf, restoreEol } from "./eol";
+import { documentPathChange } from "./documentPathChange";
 import {
   dropDraft,
   draftOffersRecovery,
   MAX_DRAFT_BYTES,
+  moveDraft,
   readDraft,
   storeDraft,
   type Draft,
@@ -37,10 +39,16 @@ export type DocumentState =
 
 type Options = {
   path: string;
+  /**
+   * The path this document had before the explorer renamed or moved it. Present only when the
+   * caller knows the file is the same one at a new name; without it a path change is a different
+   * file and is loaded from disk.
+   */
+  renamedFrom?: string | null;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
-export function useDocument({ path, onDirtyChange }: Options) {
+export function useDocument({ path, renamedFrom, onDirtyChange }: Options) {
   const [doc, setDoc] = useState<DocumentState>({ status: "loading" });
   const [dirty, setDirty] = useState(false);
   /** Draft left by an interrupted session; when present the editor shows a restore bar. */
@@ -54,6 +62,27 @@ export function useDocument({ path, onDirtyChange }: Options) {
   // Track the saved buffer so we can detect changes cheaply.
   const savedRef = useRef<string>("");
   const bufferRef = useRef<string>("");
+
+  /**
+   * Listeners for the live buffer.
+   *
+   * The editor's own document state only moves when a file is loaded or reloaded, so anything that
+   * wants the text as it is being typed has to be told separately. Exactly one consumer exists -
+   * the side preview - and it listens only while it is on screen (see `EditorPane`), so a pane with
+   * the preview shut does not re-render on every keystroke.
+   */
+  const bufferListeners = useRef(new Set<(text: string) => void>());
+  const publishBuffer = useCallback((text: string) => {
+    for (const listener of bufferListeners.current) listener(text);
+  }, []);
+  const subscribeBuffer = useCallback((listener: (text: string) => void) => {
+    bufferListeners.current.add(listener);
+    // The current text, so a preview opened halfway through an edit starts on it.
+    listener(bufferRef.current);
+    return () => {
+      bufferListeners.current.delete(listener);
+    };
+  }, []);
   const eolRef = useRef<Eol>("\n");
   const dirtyRef = useRef(false);
   useEffect(() => {
@@ -69,6 +98,13 @@ export function useDocument({ path, onDirtyChange }: Options) {
    * things". */
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const clearDraftTimer = useCallback(() => {
+    if (draftTimerRef.current) {
+      clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
+  }, []);
+
   /**
    * Mirror the current buffer into a draft.
    *
@@ -76,15 +112,12 @@ export function useDocument({ path, onDirtyChange }: Options) {
    * disk, and a copy would just be garbage.
    */
   const flushDraft = useCallback(() => {
-    if (draftTimerRef.current) {
-      clearTimeout(draftTimerRef.current);
-      draftTimerRef.current = null;
-    }
+    clearDraftTimer();
     const text = bufferRef.current;
     if (text === savedRef.current || text.length === 0) return;
     if (text.length > MAX_DRAFT_BYTES) return;
     void storeDraft(path, text).catch((e) => console.error("[draft]", e));
-  }, [path]);
+  }, [clearDraftTimer, path]);
 
   const flushDraftRef = useRef(flushDraft);
   flushDraftRef.current = flushDraft;
@@ -155,6 +188,41 @@ export function useDocument({ path, onDirtyChange }: Options) {
     return true;
   }, [path, writeToDisk, t]);
 
+  /**
+   * Arm the write-behind timers for the buffer as it stands now.
+   *
+   * Shared by typing and by a rename, which keeps the buffer and has to carry the timers over to
+   * the new path with it: one armed a moment ago still holds the old path, and a save or a draft
+   * that fired from it would land under a name the file no longer has.
+   */
+  const armTimers = useCallback(
+    (next: string) => {
+      const isDirty = next !== savedRef.current;
+      clearAutoSaveTimer();
+
+      const { autoSave: active, autoSaveDelay: delay } = autoSaveRef.current;
+      if (active && isDirty) {
+        timeoutRef.current = setTimeout(() => {
+          saveNow().catch((e) => console.error("[autosave]", e));
+        }, delay);
+      }
+
+      // Drafts do not depend on auto-save being on: auto-save defaults to off, so this
+      // is the safety net. The timer resets while typing and fires once it pauses, so
+      // not every keystroke crosses IPC.
+      clearDraftTimer();
+      if (isDirty && next.length > 0 && next.length <= MAX_DRAFT_BYTES) {
+        const forPath = path;
+        const text = next;
+        draftTimerRef.current = setTimeout(() => {
+          draftTimerRef.current = null;
+          void storeDraft(forPath, text).catch((e) => console.error("[draft]", e));
+        }, DRAFT_FLUSH_MS);
+      }
+    },
+    [clearAutoSaveTimer, clearDraftTimer, saveNow, path],
+  );
+
   // Notify parent of dirty transitions.
   const onDirtyChangeRef = useRef(onDirtyChange);
   useEffect(() => {
@@ -177,6 +245,7 @@ export function useDocument({ path, onDirtyChange }: Options) {
       if (skipIfUnchanged && content === savedRef.current) return;
       savedRef.current = content;
       bufferRef.current = content;
+      publishBuffer(content);
       setDirty(false);
       setDoc({ status: "ready", content, size: res.size });
     } else if (res.kind === "binary") {
@@ -184,7 +253,7 @@ export function useDocument({ path, onDirtyChange }: Options) {
     } else if (res.kind === "toolarge") {
       setDoc({ status: "toolarge", size: res.size, limit: res.limit });
     }
-  }, []);
+  }, [publishBuffer]);
 
   const readFromDisk = useCallback(
     (force: boolean) =>
@@ -214,11 +283,36 @@ export function useDocument({ path, onDirtyChange }: Options) {
     [path],
   );
 
+  /**
+   * Which path the document in hand was loaded for. A rename moves a file without changing which
+   * document the user is editing, so this is what tells the two apart.
+   */
+  const loadedPathRef = useRef<string | null>(null);
+
   // Load on path change.
   useEffect(() => {
+    const previous = loadedPathRef.current;
+    loadedPathRef.current = path;
+    const change = documentPathChange({ previousPath: previous, path, renamedFrom });
+    // Nothing about which file this is has changed, so the load below must not run again.
+    if (change === "none") return;
+
+    // A rename or move is a path migration, not a new document: the buffer, its unsaved flag and
+    // the saved baseline stay, and only the path reads and writes go through changes. Running the
+    // load below here is what dropped unsaved edits - it cleared the flag and replaced the buffer
+    // with whatever the new name happened to hold on disk.
+    if (change === "keep" && previous !== null) {
+      // The draft is looked up by path, so the copy an interrupted session left under the old name
+      // would never be offered again. It follows the file.
+      void moveDraft(previous, path).catch(() => {});
+      armTimers(bufferRef.current);
+      return;
+    }
+
     let cancelled = false;
     // "Open anyway" is a per-file decision; a new path starts unforced.
     forceRef.current = false;
+    clearAutoSaveTimer();
     setDoc({ status: "loading" });
     setDirty(false);
     setPendingDraft(null);
@@ -236,7 +330,15 @@ export function useDocument({ path, onDirtyChange }: Options) {
     return () => {
       cancelled = true;
     };
-  }, [readFromDisk, adoptRead, checkDraft]);
+  }, [
+    path,
+    renamedFrom,
+    readFromDisk,
+    adoptRead,
+    checkDraft,
+    armTimers,
+    clearAutoSaveTimer,
+  ]);
 
   const openAnyway = useCallback(() => {
     forceRef.current = true;
@@ -255,12 +357,13 @@ export function useDocument({ path, onDirtyChange }: Options) {
     if (!pendingDraft) return;
     const text = pendingDraft.text;
     bufferRef.current = text;
+    publishBuffer(text);
     setDirty(text !== savedRef.current);
     setDoc((prev) =>
       prev.status === "ready" ? { ...prev, content: text } : prev,
     );
     setPendingDraft(null);
-  }, [pendingDraft]);
+  }, [pendingDraft, publishBuffer]);
 
   /** Decline the draft: delete it and leave the on-disk copy alone. */
   const discardDraft = useCallback(() => {
@@ -308,36 +411,17 @@ export function useDocument({ path, onDirtyChange }: Options) {
   const onChange = useCallback(
     (next: string) => {
       bufferRef.current = next;
-      const isDirty = next !== savedRef.current;
-      setDirty(isDirty);
-
-      clearAutoSaveTimer();
-
-      const { autoSave: active, autoSaveDelay: delay } = autoSaveRef.current;
-      if (active && isDirty) {
-        timeoutRef.current = setTimeout(() => {
-          saveNow().catch((e) => console.error("[autosave]", e));
-        }, delay);
-      }
-
-      // Drafts do not depend on auto-save being on: auto-save defaults to off, so this
-      // is the safety net. The timer resets while typing and fires once it pauses, so
-      // not every keystroke crosses IPC.
-      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-      if (isDirty && next.length > 0 && next.length <= MAX_DRAFT_BYTES) {
-        const forPath = path;
-        const text = next;
-        draftTimerRef.current = setTimeout(() => {
-          draftTimerRef.current = null;
-          void storeDraft(forPath, text).catch((e) => console.error("[draft]", e));
-        }, DRAFT_FLUSH_MS);
-      }
+      publishBuffer(next);
+      setDirty(next !== savedRef.current);
+      armTimers(next);
     },
-    [clearAutoSaveTimer, saveNow, path],
+    [armTimers, publishBuffer],
   );
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: this cleanup has to run when the open file changes, so path is a trigger and not a capture
-  useEffect(() => clearAutoSaveTimer, [path, clearAutoSaveTimer]);
+  // Unmount only. A path change is handled where the path is read: that is the only place that
+  // knows whether the document moved to the new name (its timers are re-armed for it) or was
+  // replaced by a different one (its timers are dropped).
+  useEffect(() => clearAutoSaveTimer, [clearAutoSaveTimer]);
 
   return {
     doc,
@@ -350,5 +434,7 @@ export function useDocument({ path, onDirtyChange }: Options) {
     pendingDraft,
     restoreDraft,
     discardDraft,
+    /** The live text as it is typed; see `subscribeBuffer`. */
+    subscribeBuffer,
   };
 }

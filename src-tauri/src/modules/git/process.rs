@@ -301,6 +301,12 @@ where
     })
 }
 
+/// Every path this app hands git is one it already resolved - a row out of `git status`, never a
+/// pattern someone typed - so pathspec globbing can only do harm: `note[1].txt` is a character
+/// class to git, and staging it also staged `note1.txt`. The switch turns globbing and pathspec
+/// magic off for the whole command, both of which this app has no use for.
+const LITERAL_PATHSPECS: &str = "--literal-pathspecs";
+
 fn build_git_command(
     _workspace: &WorkspaceEnv,
     cwd: Option<&str>,
@@ -316,11 +322,13 @@ fn build_git_command(
             cmd.arg("--cd").arg(cwd);
         }
         cmd.arg("--exec").arg("git");
+        cmd.arg(LITERAL_PATHSPECS);
         cmd.args(args);
         return Ok(cmd);
     }
 
     let mut cmd = Command::new("git");
+    cmd.arg(LITERAL_PATHSPECS);
     cmd.args(args);
     if let Some(dir) = cwd.filter(|s| !s.is_empty()) {
         cmd.current_dir(Path::new(dir));
@@ -381,7 +389,6 @@ fn decode_text(bytes: Vec<u8>) -> TextSource {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(windows)]
     use super::build_git_command;
     use super::{
         classify_auth_error, decode_text, parse_git_version, prune_expired_availability_entries,
@@ -389,10 +396,8 @@ mod tests {
     };
     use crate::modules::git::errors::GitError;
     use crate::modules::git::types::TextSource;
-    #[cfg(windows)]
     use crate::modules::workspace::WorkspaceEnv;
     use std::collections::HashMap;
-    #[cfg(windows)]
     use std::ffi::OsString;
     use std::time::{Duration, Instant};
 
@@ -475,9 +480,30 @@ mod tests {
                 "/home/vinicios/Nova pasta/repo",
                 "--exec",
                 "git",
+                "--literal-pathspecs",
                 "status",
                 "--short",
             ]
+        );
+    }
+
+    // A global switch has to sit before the subcommand, so both branches are checked for its
+    // position, not just its presence: after `status` git would read it as a path.
+    #[test]
+    fn builds_local_git_command_with_literal_pathspecs_first() {
+        let cmd = build_git_command(
+            &WorkspaceEnv::Local,
+            Some("/tmp/repo"),
+            &[OsString::from("add"), OsString::from("--"), OsString::from("note[1].txt")],
+        )
+        .expect("local command");
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            vec!["--literal-pathspecs", "add", "--", "note[1].txt"]
         );
     }
 

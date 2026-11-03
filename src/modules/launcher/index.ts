@@ -1,7 +1,11 @@
 export { LauncherPanel } from "./components/LauncherPanelLazy";
-export { type SessionOpenPlan, planSessionOpen } from "./lib/openSession";
+export {
+  type SessionOpenPlan,
+  openTabForSession,
+  planSessionOpen,
+} from "./lib/openSession";
 export { resumeCommand, newSessionCommand } from "./lib/resumeCommand";
-export { loadAllAgentSessions } from "./lib/sessions";
+export { loadAllAgentSessions, runningAgentSessionIds } from "./lib/sessions";
 export { relativeTime } from "./lib/relativeTime";
 export { AGENT_TOOLS } from "./lib/tools";
 export { AgentIcon } from "./lib/agentIcon";

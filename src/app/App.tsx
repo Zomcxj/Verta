@@ -32,6 +32,7 @@ import {
 import {
   type AgentSession,
   LauncherPanel,
+  openTabForSession,
   planSessionOpen,
 } from "@/modules/launcher";
 import { setLspNavigator } from "@/modules/lsp";
@@ -127,7 +128,7 @@ import {
   workspaceScopeKey,
 } from "@/modules/workspace";
 import { listen } from "@tauri-apps/api/event";
-import { homeDir } from "@tauri-apps/api/path";
+import { dirname, homeDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 import {
@@ -860,6 +861,14 @@ export default function App() {
 
   const handleOpenSession = useCallback(
     (session: AgentSession) => {
+      // A session already resumed somewhere is *that* tab, not another one: every agent here writes
+      // its own session file, and two of them on one file overwrite each other's turns.
+      const open = openTabForSession(tabsRef.current, session.id);
+      if (open) {
+        setActiveId(open.id);
+        setActiveSessionId(session.id);
+        return;
+      }
       // The session decides both env and command: a local session has to run in a
       // local terminal. Do not let the terminal guess the current env, or a local
       // session started from a WSL terminal gets a local command in a distro shell.
@@ -897,7 +906,7 @@ export default function App() {
         hideSessionOpening(opening);
       })();
     },
-    [newAgentTab, showSessionOpening, hideSessionOpening],
+    [newAgentTab, showSessionOpening, hideSessionOpening, setActiveId],
   );
 
   const handleNewProjectSession = useCallback(
@@ -1016,7 +1025,16 @@ export default function App() {
 
   const openLaunchFiles = useCallback(
     (paths: string[]) => {
-      for (const path of paths) handleOpenFile(path, true);
+      for (const path of paths) {
+        // A file handed in from outside - "Open With", a CLI argument - is the user saying "this
+        // one", and it usually lives in a directory the app has never been pointed at. The parent
+        // is registered rather than the file, so that reading it and saving it are both allowed,
+        // which is the same trade `authorize_user_spawn_cwd` makes for a terminal.
+        void dirname(path)
+          .then((dir) => native.workspaceAuthorize(dir))
+          .catch(() => null)
+          .then(() => handleOpenFile(path, true));
+      }
     },
     [handleOpenFile],
   );
@@ -1078,6 +1096,9 @@ export default function App() {
         updateTab(tab.id, {
           path,
           title: i === -1 ? path : path.slice(i + 1),
+          // An editor pane reads this as "the same document, at a new path": it carries its buffer
+          // and its unsaved flag over rather than loading the new name from disk.
+          ...(tab.kind === "editor" && { renamedFrom: tab.path }),
         });
       }
     },

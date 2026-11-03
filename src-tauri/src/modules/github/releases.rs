@@ -5,7 +5,6 @@
 //! the unit-testable parts are here.
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -21,8 +20,8 @@ const REPORT_BYTES: u64 = 64 * 1024;
 /// download.
 const REPORT_INTERVAL: Duration = Duration::from_millis(100);
 
-/// Maximum characters in the file name, leaving headroom for the `.verta-part` suffix
-/// and the user-chosen directory.
+/// Maximum characters in the file name, leaving headroom for the temporary suffix
+/// (`<name>.XXXXXX.verta-part`) and the user-chosen directory.
 const MAX_NAME_CHARS: usize = 180;
 
 /// Device names Windows does not allow as file names (case-insensitive, extensions
@@ -173,16 +172,39 @@ pub fn should_report(last_written: u64, written: u64, since: Duration) -> bool {
 ///
 /// An existing destination is never touched by failure cleanup: when re-downloading the
 /// same asset fails, the previous complete file must still be there.
-pub fn finish_download(tmp: &Path, dest: &Path, ok: bool) -> std::io::Result<()> {
+///
+/// `temp` owns the file, so abandoning it is a drop: there is nothing to name, and nothing another
+/// download could be writing into.
+pub fn finish_download(
+    temp: tempfile::TempPath,
+    dest: &Path,
+    ok: bool,
+) -> std::io::Result<()> {
     if !ok {
-        let _ = fs::remove_file(tmp);
         return Ok(());
     }
-    if let Err(error) = fs::rename(tmp, dest) {
-        let _ = fs::remove_file(tmp);
-        return Err(error);
-    }
-    Ok(())
+    temp.persist(dest).map(|_| ()).map_err(|error| error.error)
+}
+
+/// A file for one download to write into, in the destination's own directory.
+///
+/// One per **download**, not one per name. Every download of a given asset name used to write into
+/// the same `<name>.verta-part`, and `File::create` truncates: two downloads of one name - the same
+/// file fetched from two repositories, or a version pinned in both - then wrote through their own
+/// offsets into a single file, and because the winner's rename moves that same file onto the
+/// destination, the loser's still-open handle went on writing into the published file. Measured at
+/// this layer: the published file read `AAAACCCC` from A's two writes with B's `BBBB` in the middle
+/// of it, and B's next four bytes then rewrote the published file. Both were 8 bytes, which is the
+/// number the download's own completeness check compares against the size GitHub reports, so nothing
+/// downstream could tell that the file was wrong.
+///
+/// Same directory as the destination, so promoting it is a rename rather than a copy across
+/// filesystems; `tempfile` names it randomly and removes it if the download never finishes.
+pub fn download_temp(dir: &Path, name: &str) -> std::io::Result<tempfile::NamedTempFile> {
+    tempfile::Builder::new()
+        .prefix(&format!("{name}."))
+        .suffix(".verta-part")
+        .tempfile_in(dir)
 }
 
 /// In-flight downloads, each with a cancel flag keyed by the id the frontend supplied.
@@ -247,6 +269,22 @@ mod tests {
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).expect("create temp dir");
         path
+    }
+
+    /// The directory's entries, sorted: what a download left behind.
+    fn leftovers(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .expect("read dir")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
+        names.sort();
+        names
     }
 
     #[test]
@@ -405,12 +443,12 @@ mod tests {
     fn success_replaces_the_existing_file() {
         let dir = temp_dir("replace");
         let dest = dir.join("app.zip");
-        let tmp = dir.join("app.zip.verta-part");
         fs::write(&dest, b"old").expect("write old");
-        fs::write(&tmp, b"new").expect("write tmp");
-        finish_download(&tmp, &dest, true).expect("finish");
+        let mut temp = download_temp(&dir, "app.zip").expect("temp");
+        std::io::Write::write_all(temp.as_file_mut(), b"new").expect("write new");
+        finish_download(temp.into_temp_path(), &dest, true).expect("finish");
         assert_eq!(fs::read(&dest).unwrap(), b"new");
-        assert!(!tmp.exists());
+        assert_eq!(leftovers(&dir), vec!["app.zip".to_string()]);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -418,12 +456,68 @@ mod tests {
     fn failure_removes_only_the_temporary_file() {
         let dir = temp_dir("failure");
         let dest = dir.join("app.zip");
-        let tmp = dir.join("app.zip.verta-part");
         fs::write(&dest, b"old").expect("write old");
-        fs::write(&tmp, b"partial").expect("write tmp");
-        finish_download(&tmp, &dest, false).expect("finish");
+        let mut temp = download_temp(&dir, "app.zip").expect("temp");
+        std::io::Write::write_all(temp.as_file_mut(), b"partial").expect("write partial");
+        finish_download(temp.into_temp_path(), &dest, false).expect("finish");
         assert_eq!(fs::read(&dest).unwrap(), b"old");
-        assert!(!tmp.exists());
+        assert_eq!(leftovers(&dir), vec!["app.zip".to_string()]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn two_downloads_of_one_name_never_share_a_file() {
+        let dir = temp_dir("same-name");
+        let dest = dir.join("app.zip");
+        let mut a = download_temp(&dir, "app.zip").expect("a");
+        let mut b = download_temp(&dir, "app.zip").expect("b");
+        // Different files: the whole point. One name used to mean one `<name>.verta-part`.
+        assert_ne!(a.path(), b.path());
+
+        use std::io::Write;
+        a.as_file_mut().write_all(b"AAAA").expect("a1");
+        b.as_file_mut().write_all(b"BBBB").expect("b1");
+        a.as_file_mut().write_all(b"CCCC").expect("a2");
+
+        let a_body = [b"AAAA".as_slice(), b"CCCC".as_slice()].concat();
+        assert_eq!(fs::read(a.path()).unwrap(), a_body);
+        assert_eq!(
+            fs::read(b.path()).unwrap(),
+            b"BBBB".to_vec(),
+            "B's bytes must not land in A's file"
+        );
+
+        let b_name = b
+            .path()
+            .file_name()
+            .expect("b has a name")
+            .to_string_lossy()
+            .to_string();
+        finish_download(a.into_temp_path(), &dest, true).expect("publish A");
+        assert_eq!(fs::read(&dest).unwrap(), a_body);
+        // A's own temporary file is the destination now; B's is still there, under its own name.
+        assert_eq!(
+            leftovers(&dir),
+            {
+                let mut names = vec!["app.zip".to_string(), b_name.clone()];
+                names.sort();
+                names
+            }
+        );
+
+        // A's published file and B's open handle are different files, so B cannot reach the
+        // published one however long it keeps writing.
+        b.as_file_mut().write_all(b"DDDD").expect("b2");
+        assert_eq!(fs::read(&dest).unwrap(), a_body);
+        assert_eq!(
+            fs::read(b.path()).unwrap(),
+            [b"BBBB".as_slice(), b"DDDD".as_slice()].concat()
+        );
+        // B's own file is still on disk while B holds it, and the published one is untouched.
+        assert!(leftovers(&dir).contains(&b_name));
+
+        drop(b);
+        assert_eq!(leftovers(&dir), vec!["app.zip".to_string()]);
         let _ = fs::remove_dir_all(&dir);
     }
 

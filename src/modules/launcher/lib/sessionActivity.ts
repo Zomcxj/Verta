@@ -187,22 +187,33 @@ export function activeByWindow(
 }
 
 /**
- * The two readings of "something is happening here", as one set.
+ * The two readings of "something is happening here", with the service settling opencode's side.
  *
- * Neither answers it alone. The write times go quiet during a long tool call - measured here, a
- * turn wrote nothing for eight and a half minutes while the agent was plainly working - and the
- * service's own `busy`/`idle` times say a session is between turns for the seconds before the next
- * one starts, which is exactly when a session that just answered is still worth watching. Either
- * one saying "yes" is the answer the list wants, so they are merged rather than ranked.
+ * The service is authoritative and complete for opencode: `GET /api/session/active` answers
+ * "sessions absent from the result are inactive", so for an opencode session its silence is a
+ * statement, not a gap. That has to beat the write times in both directions - they go quiet during a
+ * long tool call (measured here, a turn wrote nothing for eight and a half minutes), and they also
+ * light up for writes that are not a turn at all (measured here, a session whose turn had ended kept
+ * having `updated` rewritten, and the three-minute window drew "后台有 agent 在跑" for it on every
+ * look, with no tab open to check it against).
  *
- * `fromService` is `null` when that question could not be asked at all (no opencode running); the
- * write times are then all there is, which is the behaviour without the service.
+ * Only opencode is settled this way. `pi` has no equivalent service, so its rows keep the write-time
+ * window - which is why the caller passes which ids are opencode's rather than expecting this to know.
+ *
+ * `running` is `null` when the question could not be asked at all (no opencode running); every
+ * session then keeps its write time, so a stopped service cannot empty the list of marks.
  */
 export function activeWithService(
   fromWrites: ReadonlySet<string>,
-  fromService: ReadonlySet<string> | null,
+  running: ReadonlySet<string> | null,
+  opencodeIds: ReadonlySet<string>,
 ): Set<string> {
-  const active = new Set(fromWrites);
-  if (fromService) for (const id of fromService) active.add(id);
+  if (running === null) return new Set(fromWrites);
+  const active = new Set<string>();
+  // Only `pi` and anything else the service cannot speak for.
+  for (const id of fromWrites) {
+    if (!opencodeIds.has(id)) active.add(id);
+  }
+  for (const id of running) active.add(id);
   return active;
 }

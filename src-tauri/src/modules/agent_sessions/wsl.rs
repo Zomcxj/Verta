@@ -139,7 +139,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 token = base64.b64encode(("opencode:" + password).encode()).decode()
 request = urllib.request.Request(
-    "http://{}:{}/api/session".format(host, port),
+    "http://{}:{}/api/session/active".format(host, port),
     headers={"Authorization": "Basic " + token},
 )
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
@@ -152,35 +152,22 @@ if len(body) > MAX_BYTES:
     sys.exit(0)
 
 try:
-    rows = json.loads(body.decode("utf-8"))["data"]
+    data = json.loads(body.decode("utf-8"))["data"]
 except Exception:
     sys.exit(0)
-if not isinstance(rows, list):
+if not isinstance(data, dict):
     sys.exit(0)
 
 ids = []
-for row in rows:
-    if not isinstance(row, dict) or not isinstance(row.get("id"), str):
+for session_id, entry in data.items():
+    if not isinstance(session_id, str) or not isinstance(entry, dict):
         sys.exit(0)
-    time = row.get("time")
-    if time is None:
-        time = {}
-    if not isinstance(time, dict):
+    # Every entry is an active session by contract; anything else is a payload this cannot read.
+    if entry.get("type") != "running":
         sys.exit(0)
-    stamps = []
-    for key in ("busy", "idle"):
-        value = time.get(key)
-        if value is None:
-            stamps.append(None)
-        elif isinstance(value, bool) or not isinstance(value, int):
-            sys.exit(0)
-        else:
-            stamps.append(value)
-    busy, idle = stamps
-    running = (busy > idle) if (busy is not None and idle is not None) else (busy is not None)
-    if running:
-        ids.append(row["id"])
+    ids.append(session_id)
 print(json.dumps(ids))
+
 "#;
 
 /// Asks a distro's own opencode service which sessions are mid-turn.

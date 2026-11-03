@@ -3,13 +3,15 @@ use std::time::UNIX_EPOCH;
 use std::{fs, io::Write};
 
 use serde::Serialize;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tempfile::NamedTempFile;
 
 use super::blocking;
 use super::index::FileIndexState;
 use super::mutate::note_changed;
-use crate::modules::workspace::{resolve_path, WorkspaceEnv};
+use crate::modules::workspace::{
+    authorize_parent, authorize_read, resolve_path, WorkspaceEnv, WorkspaceRegistry,
+};
 
 const MAX_READ_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 /// Ceiling for explicit "open anyway"; mirrored as FORCE_READ_LIMIT in useDocument.ts.
@@ -59,13 +61,16 @@ fn mtime_millis(meta: &fs::Metadata) -> u64 {
 
 #[tauri::command]
 pub async fn fs_read_file(
+    app: tauri::AppHandle,
     path: String,
     workspace: Option<WorkspaceEnv>,
     force: Option<bool>,
 ) -> Result<ReadResult, String> {
     blocking(move || {
         let workspace = WorkspaceEnv::from_option(workspace);
-        read_file_sync(&resolve_path(&path, &workspace), force.unwrap_or(false))
+        let target = resolve_path(&path, &workspace);
+        authorize_read(&app.state::<WorkspaceRegistry>(), &target)?;
+        read_file_sync(&target, force.unwrap_or(false))
     })
     .await
 }
@@ -140,9 +145,11 @@ pub async fn fs_write_file(
     index: tauri::State<'_, FileIndexState>,
 ) -> Result<u64, String> {
     let index = index.inner().clone();
+    let registry_app = app.clone();
     let (path, mtime) = blocking(move || {
         let workspace = WorkspaceEnv::from_option(workspace);
         let target = resolve_path(&path, &workspace);
+        authorize_parent(&registry_app.state::<WorkspaceRegistry>(), &target)?;
         let original = fs::metadata(&target).ok();
         write_atomic(&target, content.as_bytes()).map_err(|e| {
             log::warn!("fs_write_file({}) failed: {e}", target.display());

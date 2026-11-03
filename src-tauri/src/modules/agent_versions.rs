@@ -139,7 +139,7 @@ fn registry_base() -> String {
 fn registry_client() -> Result<reqwest::Client, String> {
     // reqwest here has no bundled TLS provider, so a client built without one fails and the
     // failure would read as "the registry said nothing".
-    crate::modules::net::clients::ensure_crypto_provider();
+    crate::modules::tls::ensure_crypto_provider();
     reqwest::Client::builder()
         // A registry read carries no credentials, so a redirect is harmless, but a proxy is the
         // user's own setting and is honoured (`system-proxy` on Windows).

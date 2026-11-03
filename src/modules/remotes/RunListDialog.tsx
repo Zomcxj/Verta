@@ -22,7 +22,7 @@ import {
 } from "@/lib/native";
 import { cn } from "@/lib/utils";
 import { useLanguage, useT, type MessageKey } from "@/modules/i18n";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { TONE_CLASS } from "./lib/ci";
 import {
@@ -32,6 +32,12 @@ import {
   writeListSnapshot,
 } from "./lib/listSnapshot";
 import { canWrite, readOnlyHintKey } from "./lib/permission";
+import {
+  beginScope,
+  isCurrentTicket,
+  newReadTickets,
+  takeTicket,
+} from "./lib/readTicket";
 import { RunDetail } from "./RunDetail";
 import { runRowView, withoutRun } from "./lib/runs";
 
@@ -102,6 +108,16 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
   const [permission, setPermission] = useState<WireRepoPermissionPayload | null>(
     null,
   );
+  /**
+   * Which repository each read is answering for.
+   *
+   * One instance is reused across repositories (`RemoteReposView` swaps the `repo` prop) and a read
+   * answers seconds later, so A's runs could be drawn under B's name - and rerun, cancel and delete
+   * name a run by the id on screen.
+   */
+  const tickets = useRef(newReadTickets()).current;
+  /** The repository the panel last answered for, so a switch can be told from a re-render. */
+  const shownRepo = useRef<string | null>(null);
   const writable = canWrite(permission);
   const readOnlyHint = readOnlyHintKey(permission);
 
@@ -143,23 +159,39 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
 
   const load = useCallback(async () => {
     if (!repo) return;
+    const ticket = takeTicket(tickets, "list");
     setReading(true);
     setFatal(null);
     try {
       const payload = await native.githubRepoRuns(repo);
+      if (!isCurrentTicket(tickets, "list", ticket)) return;
       writeListSnapshot(`runs:${repo}`, payload);
       setPayload(payload);
       // The badge follows the panel: one fact, one source.
       onLoaded?.(payload);
     } catch (e) {
+      if (!isCurrentTicket(tickets, "list", ticket)) return;
       setPayload(null);
       setFatal(String(e));
     } finally {
-      setReading(false);
+      if (isCurrentTicket(tickets, "list", ticket)) setReading(false);
     }
-  }, [repo, onLoaded]);
+  }, [repo, onLoaded, tickets]);
 
   useEffect(() => {
+    const switched = shownRepo.current !== repo;
+    shownRepo.current = repo;
+    if (switched) {
+      // Another repository's runs are another set of entries, and the write buttons name a run by
+      // the id on screen: rerunning, cancelling or deleting A's run under B cannot be undone.
+      beginScope(tickets);
+      setPayload(null);
+      setFatal(null);
+      setPending(null);
+      setActionError(null);
+      setDetail(null);
+      setDeletedIds([]);
+    }
     if (!repo) {
       // Clear the previous state on close so reopening does not flash stale data.
       setPayload(null);
@@ -177,12 +209,16 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
       LIST_SNAPSHOT_TTL_MS,
     );
     if (cached) {
+      // Answering from the cache replaces the read it answered, so a request still in flight for
+      // this repository cannot land on top of it.
+      takeTicket(tickets, "list");
+      setReading(false);
       setPayload(cached);
       onLoaded?.(cached);
       return;
     }
     void load();
-  }, [repo, load, onLoaded]);
+  }, [repo, load, onLoaded, tickets]);
 
   const close = (next: boolean) => {
     if (busy) return;
@@ -192,6 +228,9 @@ export function RunListDialog({ repo, onOpenChange, onLoaded }: Props) {
   const run = async () => {
     if (!pending || !repo) return;
     const { run: target, what } = pending;
+    // The action names the run by the id on screen, under the repository the panel is on: an id
+    // that is not one of this repository's runs belongs to another repository's.
+    if (!(payload?.runs ?? []).some((item) => item.id === target.id)) return;
     setBusy(true);
     setActionError(null);
     try {

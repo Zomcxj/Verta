@@ -1942,7 +1942,18 @@ fn download_asset(
         Err(error) => return ReleaseDownloadResult::failed(error),
     };
     let dest = dir.join(&name);
-    let tmp = dest.with_file_name(format!("{name}.verta-part"));
+    // One temporary file per download, not one per asset name: two downloads of the same name used
+    // to write into a single `<name>.verta-part`, and the first to finish moved that one file onto
+    // the destination while the other still had it open. See `download_temp`.
+    let mut temp = match releases::download_temp(dir, &name) {
+        Ok(temp) => temp,
+        Err(error) => {
+            return ReleaseDownloadResult::failed(format!(
+                "无法在 {} 下新建临时文件：{error}",
+                dir.display()
+            ))
+        }
+    };
 
     let mut child = match spawn_download(slug, asset_id) {
         Ok(child) => child,
@@ -1961,13 +1972,6 @@ fn download_asset(
     let Some(stdout) = child.stdout.take() else {
         let _ = child.kill();
         return ReleaseDownloadResult::failed("取不到 gh 的输出管道");
-    };
-    let mut file = match std::fs::File::create(&tmp) {
-        Ok(file) => file,
-        Err(error) => {
-            let _ = child.kill();
-            return ReleaseDownloadResult::failed(format!("无法写入 {}：{error}", tmp.display()));
-        }
     };
 
     // Read the pipe on its own thread: the main thread uses timed receives to detect
@@ -2016,7 +2020,7 @@ fn download_asset(
         match rx.recv_timeout(Duration::from_millis(250)) {
             Ok(Ok(chunk)) if chunk.is_empty() => break Ok(()),
             Ok(Ok(chunk)) => {
-                if let Err(error) = file.write_all(&chunk) {
+                if let Err(error) = temp.as_file_mut().write_all(&chunk) {
                     let _ = child.kill();
                     break Err(DownloadFailure::Failed(format!("写入失败：{error}")));
                 }
@@ -2047,10 +2051,11 @@ fn download_asset(
             Err(mpsc::RecvTimeoutError::Disconnected) => break Ok(()),
         }
     };
-    drop(file);
+    // The handle has to be closed before the rename on Windows, and a name nobody else can hold is
+    // the point of the change: no `drop(file)` on a path another download may be writing into.
 
     if let Err(failure) = outcome {
-        let _ = finish_download(&tmp, &dest, false);
+        let _ = finish_download(temp.into_temp_path(), &dest, false);
         return match failure {
             DownloadFailure::Cancelled => ReleaseDownloadResult::cancelled(),
             DownloadFailure::Failed(reason) => ReleaseDownloadResult::failed(reason),
@@ -2060,7 +2065,7 @@ fn download_asset(
     let status = match child.wait() {
         Ok(status) => status,
         Err(error) => {
-            let _ = finish_download(&tmp, &dest, false);
+            let _ = finish_download(temp.into_temp_path(), &dest, false);
             return ReleaseDownloadResult::failed(format!("等待 gh 结束失败：{error}"));
         }
     };
@@ -2069,7 +2074,7 @@ fn download_asset(
         if let Some(mut pipe) = child.stderr.take() {
             let _ = pipe.read_to_string(&mut stderr);
         }
-        let _ = finish_download(&tmp, &dest, false);
+        let _ = finish_download(temp.into_temp_path(), &dest, false);
         let text = stderr.trim();
         return ReleaseDownloadResult::failed(if text.is_empty() {
             format!("gh 退出码 {:?}", status.code())
@@ -2081,13 +2086,13 @@ fn download_asset(
     // The asset size comes from GitHub; a mismatch means the download is incomplete,
     // so the partial file must not be promoted.
     if total > 0 && written != total {
-        let _ = finish_download(&tmp, &dest, false);
+        let _ = finish_download(temp.into_temp_path(), &dest, false);
         return ReleaseDownloadResult::failed(format!(
             "下载不完整：收到 {written} 字节，附件大小是 {total} 字节"
         ));
     }
 
-    if let Err(error) = finish_download(&tmp, &dest, true) {
+    if let Err(error) = finish_download(temp.into_temp_path(), &dest, true) {
         return ReleaseDownloadResult::failed(format!("写入 {} 失败：{error}", dest.display()));
     }
     emit_progress(app, id, written, total);

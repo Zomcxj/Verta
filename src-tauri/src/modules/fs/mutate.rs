@@ -1,6 +1,8 @@
 use super::blocking;
 use super::index::FileIndexState;
-use crate::modules::workspace::{resolve_path, WorkspaceEnv, WorkspaceRegistry};
+use crate::modules::workspace::{
+    authorize_parent, resolve_path, WorkspaceEnv, WorkspaceRegistry,
+};
 use serde::Serialize;
 use std::io;
 use std::path::Path;
@@ -234,6 +236,7 @@ fn remove_path(path: &Path) -> io::Result<()> {
 /// Creates a new empty file. Fails if the file already exists.
 #[tauri::command]
 pub async fn fs_create_file(
+    app: AppHandle,
     index: State<'_, FileIndexState>,
     path: String,
     workspace: Option<WorkspaceEnv>,
@@ -242,6 +245,7 @@ pub async fn fs_create_file(
     blocking(move || {
         let workspace = WorkspaceEnv::from_option(workspace);
         let p = resolve_path(&path, &workspace);
+        authorize_parent(&app.state::<WorkspaceRegistry>(), &p)?;
         create_file(&p)?;
         note_changed(&index, &p);
         Ok(())
@@ -264,6 +268,7 @@ fn create_file(p: &Path) -> Result<(), String> {
 /// where typing "a/b/c" creates the full chain.
 #[tauri::command]
 pub async fn fs_create_dir(
+    app: AppHandle,
     index: State<'_, FileIndexState>,
     path: String,
     workspace: Option<WorkspaceEnv>,
@@ -272,6 +277,7 @@ pub async fn fs_create_dir(
     blocking(move || {
         let workspace = WorkspaceEnv::from_option(workspace);
         let p = resolve_path(&path, &workspace);
+        authorize_parent(&app.state::<WorkspaceRegistry>(), &p)?;
         create_dir(&p)?;
         note_changed(&index, &p);
         Ok(())
@@ -292,6 +298,7 @@ fn create_dir(p: &Path) -> Result<(), String> {
 /// Renames (or moves) a path. Refuses to overwrite an existing target.
 #[tauri::command]
 pub async fn fs_rename(
+    app: AppHandle,
     index: State<'_, FileIndexState>,
     from: String,
     to: String,
@@ -302,6 +309,10 @@ pub async fn fs_rename(
         let workspace = WorkspaceEnv::from_option(workspace);
         let from_p = resolve_path(&from, &workspace);
         let to_p = resolve_path(&to, &workspace);
+        // Both ends: a rename can carry a file out of an opened tree as easily as into one.
+        let registry = app.state::<WorkspaceRegistry>();
+        authorize_parent(&registry, &from_p)?;
+        authorize_parent(&registry, &to_p)?;
         rename(&from_p, &to_p)?;
         note_changed(&index, &from_p);
         note_changed(&index, &to_p);
@@ -411,6 +422,7 @@ fn fs_move_impl(
 /// responsible for confirming destructive operations with the user.
 #[tauri::command]
 pub async fn fs_delete(
+    app: AppHandle,
     index: State<'_, FileIndexState>,
     path: String,
     workspace: Option<WorkspaceEnv>,
@@ -419,6 +431,7 @@ pub async fn fs_delete(
     blocking(move || {
         let workspace = WorkspaceEnv::from_option(workspace);
         let p = resolve_path(&path, &workspace);
+        authorize_parent(&app.state::<WorkspaceRegistry>(), &p)?;
         delete_path(&p)?;
         note_changed(&index, &p);
         Ok(())

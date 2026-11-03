@@ -289,6 +289,41 @@ describe("opencode", () => {
     );
   });
 
+  it("does not read a cancelled tool result as a shell still running", () => {
+    // Reported 2026-11-02: a shell the user cancelled was drawn purple, breathing ("shell取消误以为
+    // 后台执行"). The screen it happened on carried the tool's own result, `! Shell cancelled ·
+    // <command>`, as the second of the bottom two non-empty lines, with the ordinary footer under
+    // it - no count anywhere. The rule looked for the word `shell`, so that line answered for the
+    // footer and nothing running was drawn as background work.
+    const cancelledShell = [
+      "  Build   deepseek-v4.1-flash   13.1s   37.7 tok/s",
+      "  ! Shell cancelled · cd /d/VsPro/Verta && pnpm tauri dev > /tmp/dev12.log 2>&1",
+      "  D:\\VsPro\\Verta:main   命中率 99.9% · Tokens 1623.3M · 余额 · 411.5K (82%) ctrl+p commands",
+    ].join("\n");
+    expect(judge("opencode", cancelledShell)).toBe("idle");
+  });
+
+  it("still counts the footer's own tally beside that cancelled result", () => {
+    // The other half of the same report: when the footer really is counting a shell, the cancelled
+    // result above it must not suppress the mark - the count is what the rule is about.
+    const cancelledBesideACount = [
+      "  ! Shell cancelled · pnpm tauri dev",
+      "  F:\\…\\Verta:ma…  命中率 99.8% · Tokens 2232.6M   ↓ 1 shell · 319.7K (64%)  ctrl+p commands",
+    ].join("\n");
+    expect(judge("opencode", cancelledBesideACount)).toBe("trailing");
+  });
+
+  it("does not read a sentence with a count of shells as the footer's tally", () => {
+    // The count has to sit on the footer line, in front of the word. A reply that says "2 shells"
+    // is prose like any other.
+    const proseWithCount = [
+      "  ┃  Build auto · deepseek-v4.1-flash workbuddy · max",
+      "  I opened 2 shells and left them there",
+      "  ~/Desktop    396.6K (79%) · $0.21  ctrl+p commands",
+    ].join("\n");
+    expect(judge("opencode", proseWithCount)).not.toBe("trailing");
+  });
+
   it("counts subagents as background work too", () => {
     expect(judge("opencode", OPENCODE_TRAILING_SUBAGENT)).toBe("trailing");
   });
@@ -315,6 +350,20 @@ describe("opencode", () => {
 
   it("keeps background jobs off a footer that has none", () => {
     expect(judge("opencode", OPENCODE_IDLE)).toBe("idle");
+  });
+
+  it("reads the footer this build actually paints as idle", () => {
+    // Measured on this machine (2026-11-03, `scripts/dev/probes/session-open-dot-state.mjs`): the
+    // rest footer carries the directory and the context reading, with no `tokens` word at all -
+    // `~/Desktop    251.1K (50%)  ctrl+p commands` - and the working one carries the same tail with
+    // `esc interrupt` in front of it. The idle rule required `· tokens`, so it matched neither and
+    // a session that had not been spoken to since yesterday was drawn orange for as long as its
+    // tab was open. Reported as "这个会话今天没聊天 但是打开是橙色".
+    const restFooter = [
+      "Where to next?",
+      "  ~/Desktop    251.1K (50%)  ctrl+p commands",
+    ].join("\n");
+    expect(judge("opencode", restFooter)).toBe("idle");
   });
 
   it("keeps a moving frame out of idle", () => {

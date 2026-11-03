@@ -10,6 +10,7 @@ import { AgentIcon, relativeTime } from "@/modules/launcher";
 import { pendingAttentions, questionExcerpt } from "@/modules/notifications/lib/attentions";
 import {
   upgradable,
+  updateRows,
   useAgentVersions,
 } from "@/modules/notifications/lib/useAgentVersions";
 import { leafScreenTail, useAgentActivityStore } from "@/modules/terminal";
@@ -17,6 +18,7 @@ import type { Tab } from "@/modules/tabs";
 import { ArrowUp01Icon, BellIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo } from "react";
+import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 
 /**
@@ -63,6 +65,25 @@ export function NotificationBell({
   useEffect(() => {
     versions.check();
   }, [versions.check]);
+  // A failure is reported in the window's own corner rather than inside the popover, which closes
+  // the moment the user clicks anywhere else: the run it is about keeps going (or has just failed)
+  // whatever the popover is doing. The id keeps a repeated failure to one toast instead of a stack.
+  useEffect(() => {
+    if (!versions.checkError) return;
+    toast.error(
+      t("notifications.updates.checkFailed", { error: versions.checkError }),
+      { id: "agent-versions-check" },
+    );
+  }, [versions.checkError, t]);
+  useEffect(() => {
+    if (!versions.upgradeError) return;
+    toast.error(
+      t("notifications.updates.upgradeFailed", {
+        error: versions.upgradeError,
+      }),
+      { id: "agent-versions-upgrade" },
+    );
+  }, [versions.upgradeError, t]);
   // The bell is part of the window's chrome now, not something that appears with a session: it
   // stays, and the badge counts what is inside it. A quiet window shows the plain icon.
   const count = items.length + updates.length;
@@ -122,7 +143,7 @@ function UpdatesSection({
     // want. `check` is a stable callback, so listing it keeps this to one run per open.
     versions.check();
   }, [versions.check]);
-  const updates = upgradable(versions.components);
+  const updates = updateRows(versions.components);
   return (
     <div className="mt-0.5 flex flex-col gap-0.5 border-t border-border/50 pt-1">
       <span className="flex items-center gap-1.5 px-2.5 pt-1 pb-1 text-[10px] text-muted-foreground">
@@ -131,13 +152,6 @@ function UpdatesSection({
         </span>
         {versions.checking ? <Spinner className="size-2.5" /> : null}
       </span>
-      {versions.checkError ? (
-        <p className="px-2.5 pb-1.5 text-[10px] text-rose-500">
-          {t("notifications.updates.checkFailed", {
-            error: versions.checkError,
-          })}
-        </p>
-      ) : null}
       {updates.length === 0 ? (
         <p className="px-2.5 pb-1.5 text-[11px] text-muted-foreground">
           {versions.checking
@@ -145,44 +159,51 @@ function UpdatesSection({
             : t("notifications.updates.none")}
         </p>
       ) : (
-        updates.map((component) => (
-          <div
-            key={component.id}
-            data-agent-update={component.id}
-            className="flex items-center gap-2 rounded-md px-2.5 py-1.5"
-          >
-            <span className="min-w-0 flex-1 truncate text-xs text-foreground">
-              {component.name}
-            </span>
-            <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
-              {component.current} → {component.latest}
-            </span>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              title={t("notifications.updates.upgrade", {
-                name: component.name,
-              })}
-              disabled={versions.upgrading !== null}
-              onClick={() => versions.upgrade(component.id)}
-              className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        updates.map((component) => {
+          const running = versions.upgrading.has(component.id);
+          return (
+            <div
+              key={component.id}
+              data-agent-update={component.id}
+              // The reason a row could not be read in full, on hover: it is a registry or install
+              // error and long, so it belongs here rather than in the row.
+              title={component.error ?? undefined}
+              className="flex items-center gap-2 rounded-md px-2.5 py-1.5"
             >
-              {versions.upgrading === component.id ? (
-                <Spinner className="size-3" />
-              ) : (
-                <HugeiconsIcon icon={ArrowUp01Icon} size={14} strokeWidth={1.9} />
-              )}
-            </Button>
-          </div>
-        ))
+              <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+                {component.name}
+              </span>
+              <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                {component.error === null
+                  ? `${component.current ?? "—"} → ${component.latest ?? "—"}`
+                  : t("notifications.updates.unknown")}
+              </span>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                title={t("notifications.updates.upgrade", {
+                  name: component.name,
+                })}
+                // Only the row that is running is disabled: the others stay clickable, so several
+                // components can be updated without waiting for each one in turn.
+                disabled={running}
+                onClick={() => versions.upgrade(component.id)}
+                className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                {running ? (
+                  <Spinner className="size-3" />
+                ) : (
+                  <HugeiconsIcon
+                    icon={ArrowUp01Icon}
+                    size={14}
+                    strokeWidth={1.9}
+                  />
+                )}
+              </Button>
+            </div>
+          );
+        })
       )}
-      {versions.upgradeError ? (
-        <p className="px-2.5 pb-1.5 text-[10px] text-rose-500">
-          {t("notifications.updates.upgradeFailed", {
-            error: versions.upgradeError,
-          })}
-        </p>
-      ) : null}
       {versions.upgraded ? (
         // The row leaves the list once it is current, so this is the confirmation: without it a
         // successful upgrade looks like the component disappearing.

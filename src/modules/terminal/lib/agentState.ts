@@ -63,6 +63,15 @@ export type Pattern =
    */
   | { readonly kind: "containsWord"; readonly text: string }
   /**
+   * The text appears as a whole word with the tool's own count in front of it, ignoring case.
+   *
+   * Added for a measured false positive: the `trailing` rule matched the word `shell` in a tool
+   * result reading `! Shell cancelled · <command>`, which drew a cancelled shell as a job still
+   * running. The footer writes its counts as `↓ 1 shell`, `· 1 shell` and `↓ 2 shells`, so the
+   * count where the footer puts one is what separates the tool's tally from a sentence about one.
+   */
+  | { readonly kind: "containsCountedWord"; readonly text: string }
+  /**
    * One of these characters appears in the region. Spinners are drawn with a
    * small character set that moves frame by frame, and the set is what
    * identifies them.
@@ -136,6 +145,23 @@ export const containsWord = (text: string): Pattern => ({
   kind: "containsWord",
   text,
 });
+/**
+ * The text as a whole word on the tool's own tally line, so `↓ 1 shell` answers a search for
+ * `shell` and `Shell cancelled · <command>` does not.
+ *
+ * Added for a measured false positive: the `trailing` rule read the bottom two lines and matched
+ * the word `shell` in a tool result reading `! Shell cancelled · cd … pnpm tauri dev`, so a shell
+ * the user had cancelled was drawn as a job still running (purple, breathing). Whether it matched
+ * depended on how many lines the screen had painted below that result - the same cancelled shell
+ * read as idle when the TUI's mode line happened to sit in between, which is why the report was
+ * "sometimes". A count where the footer puts one is what makes the word the tool's tally rather
+ * than a sentence about it, and the footer writes it that way in every shape measured here
+ * (`↓ 1 shell`, `· 1 shell` after a subagent count, `↓ 2 shells`).
+ */
+export const containsCountedWord = (text: string): Pattern => ({
+  kind: "containsCountedWord",
+  text,
+});
 export const anyChar = (chars: readonly string[]): Pattern => ({
   kind: "anyChar",
   chars,
@@ -195,36 +221,55 @@ export function bottomNonEmptyLines(text: string, count: number): string {
   return lines.slice(Math.max(0, lines.length - count)).join("\n");
 }
 
+/**
+ * Where `wanted` appears in `haystack` as a whole word. Both are already lowercased.
+ *
+ * A word boundary on both sides: `PowerShell` must not answer a search for `shell`, while
+ * `↓ 1 shell ·` and `↓ 2 shells ·` must. The footer pluralises its counts, so a trailing `s` is
+ * part of the word rather than a different one.
+ */
+function wholeWordStarts(haystack: string, wanted: string): number[] {
+  const starts: number[] = [];
+  let from = 0;
+  for (;;) {
+    const at = haystack.indexOf(wanted, from);
+    if (at < 0) return starts;
+    const before = at === 0 ? "" : haystack[at - 1];
+    const afterAt = at + wanted.length;
+    const after = afterAt >= haystack.length ? "" : haystack[afterAt];
+    // Letters or digits before the word mean this is its tail (`PowerShell`); after it, only a
+    // plural `s` is allowed, and that `s` must end the word too.
+    const beforeIsLetter = /[\p{L}\p{N}]/u.test(before);
+    const afterIsPlural =
+      after.toLowerCase() === "s" &&
+      !/[\p{L}\p{N}]/u.test(haystack[afterAt + 1] ?? "");
+    const afterIsLetter = /[\p{L}\p{N}]/u.test(after);
+    if (!beforeIsLetter && (!afterIsLetter || afterIsPlural)) starts.push(at);
+    from = at + 1;
+  }
+}
+
 /** True when one pattern matches the text. Shared with the families' identify step. */
 export function patternHit(text: string, pattern: Pattern): boolean {
   switch (pattern.kind) {
     case "contains":
       return text.toLowerCase().includes(pattern.text.toLowerCase());
-    case "containsWord": {
-      // A word boundary on both sides: `PowerShell` must not answer a search for `shell`, while
-      // `↓ 1 shell ·` and `↓ 2 shells ·` must. The footer pluralises its counts, so a trailing
-      // `s` is part of the word rather than a different one.
-      const wanted = pattern.text.toLowerCase();
+    case "containsWord":
+      return wholeWordStarts(text.toLowerCase(), pattern.text.toLowerCase()).length > 0;
+    case "containsCountedWord": {
       const haystack = text.toLowerCase();
-      let from = 0;
-      for (;;) {
-        const at = haystack.indexOf(wanted, from);
-        if (at < 0) return false;
-        const before = at === 0 ? "" : haystack[at - 1];
-        const afterAt = at + wanted.length;
-        const after = afterAt >= haystack.length ? "" : haystack[afterAt];
-        // Letters or digits before the word mean this is its tail (`PowerShell`); after it, only
-        // a plural `s` is allowed, and that `s` must end the word too.
-        const beforeIsLetter = /[\p{L}\p{N}]/u.test(before);
-        const afterIsPlural =
-          after.toLowerCase() === "s" &&
-          !/[\p{L}\p{N}]/u.test(haystack[afterAt + 1] ?? "");
-        const afterIsLetter = /[\p{L}\p{N}]/u.test(after);
-        if (!beforeIsLetter && (!afterIsLetter || afterIsPlural)) {
-          return true;
-        }
-        from = at + 1;
-      }
+      return wholeWordStarts(haystack, pattern.text.toLowerCase()).some((at) => {
+        // The count has to be the last thing before the word on its own line, and it has to be
+        // where the footer puts one: after the `↓` arrow, after the `·` that separates fields
+        // (`· 1 shell` when a subagent count came first), or at the start of the line. A reply
+        // that happens to say "opened 2 shells" is prose like any other.
+        const lineStart = haystack.lastIndexOf("\n", at - 1) + 1;
+        const before = haystack.slice(lineStart, at).trimEnd();
+        const digits = /\p{N}+$/u.exec(before);
+        if (!digits) return false;
+        const head = before.slice(0, digits.index).trimEnd();
+        return head === "" || /[↓·]$/u.test(head);
+      });
     }
     case "anyChar":
       for (const char of text) if (pattern.chars.includes(char)) return true;

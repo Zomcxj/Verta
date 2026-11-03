@@ -20,8 +20,13 @@ export type AgentVersionsState = {
   checking: boolean;
   /** Why the last check failed, when it did. */
   checkError: string | null;
-  /** The id being upgraded, or null. */
-  upgrading: string | null;
+  /**
+   * The ids being upgraded right now.
+   *
+   * A set rather than one id, because the rows are independent: one component's upgrade must not
+   * take the other rows' buttons away. Reported as "多个版本更新只能点击一个，只能按顺序更新".
+   */
+  upgrading: ReadonlySet<string>;
   /** The last upgrade's failure, when it failed. */
   upgradeError: string | null;
   /**
@@ -67,6 +72,23 @@ export function upgradable(components: AgentComponent[]): AgentComponent[] {
 }
 
 /**
+ * The rows the bell lists: a newer version published, or an answer it could not get.
+ *
+ * A registry that cannot be reached leaves `latest` null, and a row judged by `hasUpdate` alone
+ * then drops out of the list - so a check that failed was drawn as "everything is up to date",
+ * which is a claim about the tools that nothing measured. Reported as "更新失败应该保留更新按钮":
+ * after a failed upgrade the row (and its button) has to stay, and the case that removes it is the
+ * re-check losing the network. A row whose version could not be read is listed with its button for
+ * the same reason: the action it offers - install the newest published version - is still the one
+ * the user wants.
+ */
+export function updateRows(components: AgentComponent[]): AgentComponent[] {
+  return components.filter(
+    (c) => hasUpdate(c.current, c.latest) || c.error !== null,
+  );
+}
+
+/**
  * What to say after a successful upgrade of `id`.
  *
  * `name` is read from the row before the upgrade runs, because the answer afterwards is the only
@@ -94,11 +116,14 @@ export function useAgentVersions(): AgentVersionsState {
   const [components, setComponents] = useState<AgentComponent[]>([]);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
-  const [upgrading, setUpgrading] = useState<string | null>(null);
+  const [upgrading, setUpgrading] = useState<ReadonlySet<string>>(new Set());
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [upgraded, setUpgraded] = useState<
     { name: string; version: string | null } | null
   >(null);
+  // What is actually running, as a ref as well as state: two clicks in the same tick read the state
+  // from before either landed, and the second would start a duplicate run of the same component.
+  const inFlight = useRef(new Set<string>());
   // A check that lands after the component is gone must not set state.
   const mounted = useRef(true);
   useEffect(() => {
@@ -139,9 +164,12 @@ export function useAgentVersions(): AgentVersionsState {
 
   const upgrade = useCallback(
     (id: string) => {
-      setUpgrading(id);
+      // One run per component: a second click on the same row is the same work, and the row is
+      // left enabled so that the *other* rows stay usable.
+      if (inFlight.current.has(id)) return;
+      inFlight.current.add(id);
+      setUpgrading(new Set(inFlight.current));
       setUpgradeError(null);
-      setUpgraded(null);
       // Read before the upgrade, because the row is gone from the next answer.
       const name = components.find((component) => component.id === id)?.name ?? id;
       void invoke<string>("agent_versions_upgrade", { id })
@@ -151,17 +179,20 @@ export function useAgentVersions(): AgentVersionsState {
           setChecking(true);
           const next = await runCheck();
           if (!mounted.current) return;
-          setChecking(false);
           // What the component landed on, so a row leaving the list reads as success rather than
           // as the component having vanished.
           setUpgraded(upgradedNotice(name, next, id));
         })
         .catch((error: unknown) => {
           if (!mounted.current) return;
-          setUpgradeError(String(error));
+          setUpgradeError(`${name}: ${String(error)}`);
         })
         .finally(() => {
-          if (mounted.current) setUpgrading(null);
+          inFlight.current.delete(id);
+          if (!mounted.current) return;
+          setUpgrading(new Set(inFlight.current));
+          // The spinner belongs to the whole section, so it stops when the last run does.
+          if (inFlight.current.size === 0) setChecking(false);
         });
     },
     [components, runCheck],

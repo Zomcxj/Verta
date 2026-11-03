@@ -5,11 +5,18 @@
 //! when it matters: a long tool call writes nothing for minutes, so a session that is plainly
 //! working reads as finished.
 //!
-//! opencode runs a background service to hold its sessions, and that service knows the answer
-//! directly. Each session carries two times: `busy`, when its current turn started, and `idle`,
-//! when its last turn ended. The turn in progress is the one where `busy` is later than `idle` -
-//! the service stamps `idle` as the turn finishes, so a session between turns has them the other
-//! way round.
+//! opencode runs a background service to hold its sessions, and that service answers the question
+//! directly: `GET /api/session/active` returns the sessions it currently has running, and its own
+//! contract says "Sessions absent from the result are inactive". That is the whole point of asking
+//! instead of guessing, so this module reads that and nothing else.
+//!
+//! It used to read the times on `/api/session` instead - `busy` when a turn started, `idle` when one
+//! ended - and compare them. Measured on this machine (2026-11-03), those stamps are not reliable
+//! enough to answer it: a session that was staying at its prompt had `busy` later than `idle`, so it
+//! read as running, and adding an `outcome` check to silence it was worse - the session the active
+//! endpoint called running *also* carried `outcome: "succeeded"`, so that check would have hidden a
+//! turn in flight. There is no reading of the stamps that gets both cases right, which is why the
+//! endpoint exists.
 //!
 //! The service listens on the loopback interface and asks for HTTP Basic authentication. Its
 //! password is written to `service.json` beside its own state, which is how its own command-line
@@ -27,31 +34,8 @@ const SERVICE_USER: &str = "opencode";
 /// The service file is a handful of fields; a larger one is not this file.
 const MAX_SERVICE_FILE_BYTES: u64 = 64 * 1024;
 
-/// `/api/session` answers one bounded page, well inside this.
+/// `/api/session/active` is a map of the running sessions, well inside this.
 const MAX_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
-
-/// One session's view of the service, reduced to the two times that answer the question.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TurnTimes {
-    pub id: String,
-    pub busy_ms: Option<i64>,
-    pub idle_ms: Option<i64>,
-}
-
-impl TurnTimes {
-    /// Whether the turn this session started has not finished yet.
-    ///
-    /// A missing `busy` is a session that has never run a turn; a missing `idle` is one whose first
-    /// turn is still going. Both are answered by comparing the two, so a missing `idle` counts as
-    /// "the last turn ended long ago" rather than "no turn at all".
-    pub fn mid_turn(&self) -> bool {
-        match (self.busy_ms, self.idle_ms) {
-            (Some(busy), Some(idle)) => busy > idle,
-            (Some(_), None) => true,
-            _ => false,
-        }
-    }
-}
 
 /// How to reach one service.
 ///
@@ -121,46 +105,6 @@ fn loopback_base(raw: &str) -> Option<String> {
     Some(format!("http://{host}:{port}"))
 }
 
-/// `/api/session`'s answer, reduced to the sessions whose turn has not finished.
-///
-/// The payload nests each session's times under `time`, and subagent sessions carry a `parentID`.
-/// Subagents are kept here rather than dropped: their parent is what the list shows, and a parent
-/// can spend its whole turn waiting on one of them.
-///
-/// `None` when the answer is not the shape this endpoint returns, which the caller keeps apart from
-/// an empty list: an answer nobody can read has to leave the write times in charge instead of being
-/// taken as "nothing is running" and unmarking every row.
-pub fn running_ids_from_json(text: &str) -> Option<Vec<String>> {
-    let value: serde_json::Value = serde_json::from_str(text).ok()?;
-    let rows = value.get("data")?.as_array()?;
-    let mut ids = Vec::new();
-    for row in rows {
-        let id = row.get("id")?.as_str()?;
-        let time = match row.get("time") {
-            None | Some(serde_json::Value::Null) => None,
-            Some(value) if value.is_object() => Some(value),
-            Some(_) => return None,
-        };
-        // A missing time and an explicit null both mean "no such stamp"; anything present has to
-        // be a number, because a stamp of another type is an answer this code cannot read.
-        let read = |key: &str| -> Option<Option<i64>> {
-            match time.and_then(|value| value.get(key)) {
-                None | Some(serde_json::Value::Null) => Some(None),
-                Some(value) => value.as_i64().map(Some),
-            }
-        };
-        let times = TurnTimes {
-            id: id.to_string(),
-            busy_ms: read("busy")?,
-            idle_ms: read("idle")?,
-        };
-        if times.mid_turn() {
-            ids.push(times.id);
-        }
-    }
-    Some(ids)
-}
-
 /// Where a tool keeps the record of how to reach its service.
 ///
 /// `home` is this machine's home directory for a local read; a distro's service file is the same
@@ -170,13 +114,18 @@ pub fn service_file_under(home: &std::path::Path) -> PathBuf {
     home.join(SERVICE_FILE)
 }
 
-/// Asks one service which of its sessions are mid-turn.
+/// The sessions this service says it is running right now.
+///
+/// `GET /api/session/active` is the service's own answer to this question, and its contract is
+/// explicit: "Sessions absent from the result are inactive". So unlike the paged `/api/session`,
+/// this map is the whole answer - a session missing from it is one the service is not running, not
+/// one that fell past a page boundary.
 ///
 /// Returns `None` when the question could not be asked at all - no `service.json`, a service that is
-/// not listening, an answer that is not what `/api/session` returns. That is deliberately distinct
-/// from `Some(vec![])`, which means the service answered and said nothing is running: the caller
-/// keeps its write times for the first and may trust the second. A stopped service is the common
-/// case of the first, and it must not make every row unmarked.
+/// not listening, an answer that is not the shape this endpoint returns. That is deliberately
+/// distinct from `Some(vec![])`: the first leaves the caller's write times in charge, the second is
+/// the service saying nothing is running. A stopped service is the common case of the first, and it
+/// must not unmark every row.
 ///
 /// The read is local: the service only listens on the loopback interface, and the password in
 /// `service.json` opens that one service.
@@ -184,7 +133,7 @@ pub async fn running_ids(state_dir: &std::path::Path) -> Option<Vec<String>> {
     let endpoint = read_endpoint(state_dir)?;
     // Before the client is built: reqwest here has no bundled TLS provider, so a client built
     // without one fails and the failure would read as "the service said nothing".
-    crate::modules::net::clients::ensure_crypto_provider();
+    crate::modules::tls::ensure_crypto_provider();
     let client = reqwest::Client::builder()
         // The service is on this machine's own loopback interface. A proxy would carry the
         // password elsewhere, and a redirect would carry the authorization header to another
@@ -195,7 +144,7 @@ pub async fn running_ids(state_dir: &std::path::Path) -> Option<Vec<String>> {
         .build()
         .ok()?;
     let response = client
-        .get(format!("{}/api/session", endpoint.url))
+        .get(format!("{}/api/session/active", endpoint.url))
         .basic_auth(SERVICE_USER, Some(&endpoint.password))
         .send()
         .await
@@ -213,7 +162,27 @@ pub async fn running_ids(state_dir: &std::path::Path) -> Option<Vec<String>> {
     if body.len() as u64 > MAX_RESPONSE_BYTES {
         return None;
     }
-    running_ids_from_json(std::str::from_utf8(&body).ok()?)
+    active_ids_from_json(std::str::from_utf8(&body).ok()?)
+}
+
+/// The ids in `/api/session/active`'s answer.
+///
+/// The payload is `{"data": {"<session id>": {"type": "running"}}}` - a map, so the ids are its
+/// keys. `None` when that is not the shape, which the caller keeps apart from an empty map: an
+/// answer nobody can read must leave the write times in charge rather than unmark every row.
+pub fn active_ids_from_json(text: &str) -> Option<Vec<String>> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let map = value.get("data")?.as_object()?;
+    let mut ids = Vec::with_capacity(map.len());
+    for (id, entry) in map {
+        // Every entry is an active session by contract; the `type` is checked so a payload that
+        // carries something else is refused rather than read as running.
+        if entry.get("type")?.as_str()? != "running" {
+            return None;
+        }
+        ids.push(id.clone());
+    }
+    Some(ids)
 }
 
 #[cfg(test)]
@@ -256,60 +225,31 @@ mod tests {
     }
 
     #[test]
-    fn a_turn_is_running_while_busy_is_later_than_idle() {
-        let running = TurnTimes { id: "a".into(), busy_ms: Some(200), idle_ms: Some(100) };
-        assert!(running.mid_turn());
-        // Measured on this machine, PTZ rdk: the last turn ended 59s ago, so busy (833s ago) is
-        // earlier - correctly not a running turn, and the write times are what keep that row lit.
-        let finished = TurnTimes { id: "b".into(), busy_ms: Some(100), idle_ms: Some(200) };
-        assert!(!finished.mid_turn());
-        let equal = TurnTimes { id: "c".into(), busy_ms: Some(100), idle_ms: Some(100) };
-        assert!(!equal.mid_turn());
+    fn reads_the_running_sessions_out_of_the_active_endpoint() {
+        // The shape `/api/session/active` actually returns: a map keyed by session id.
+        let body = r#"{"data":{"ses_a":{"type":"running"},"ses_b":{"type":"running"}}}"#;
+        let mut ids = active_ids_from_json(body).expect("an answer");
+        ids.sort();
+        assert_eq!(ids, vec!["ses_a".to_string(), "ses_b".to_string()]);
     }
 
     #[test]
-    fn a_session_that_never_ran_is_not_running_and_one_still_in_its_first_turn_is() {
-        let never = TurnTimes { id: "a".into(), busy_ms: None, idle_ms: Some(100) };
-        assert!(!never.mid_turn());
-        let first = TurnTimes { id: "b".into(), busy_ms: Some(100), idle_ms: None };
-        assert!(first.mid_turn());
-        let bare = TurnTimes { id: "c".into(), busy_ms: None, idle_ms: None };
-        assert!(!bare.mid_turn());
-    }
-
-    #[test]
-    fn reads_the_running_sessions_out_of_an_answer() {
-        // The fields this machine's `/api/session` returned, trimmed to what is read here.
-        let text = r#"{"data":[
-            {"id":"ses_running","time":{"created":1,"updated":2,"busy":1793342926936,"idle":1793342041167}},
-            {"id":"ses_finished","time":{"created":1,"updated":2,"busy":1793342926936,"idle":1793343500016}},
-            {"id":"ses_child","parentID":"ses_running","time":{"busy":1793342971895,"idle":1793343126756}},
-            {"id":"ses_never","time":{"created":1,"updated":2}}
-        ]}"#;
-        assert_eq!(running_ids_from_json(text), Some(vec!["ses_running".to_string()]));
+    fn an_answer_with_nothing_running_is_an_empty_list() {
+        // The other side of the same line: the service answered, and nothing is in flight. This is
+        // a real answer, not a failure, and it is what unmarks the rows.
+        assert_eq!(active_ids_from_json(r#"{"data":{}}"#), Some(Vec::new()));
     }
 
     #[test]
     fn an_unreadable_answer_is_no_answer_rather_than_an_error() {
         // The list has write times to fall back on, so a broken answer must not stop it drawing,
         // and it must not read as "nothing is running" either: that would unmark every row.
-        assert_eq!(running_ids_from_json(""), None);
-        assert_eq!(running_ids_from_json("not json"), None);
-        assert_eq!(running_ids_from_json(r#"{"data":"nope"}"#), None);
-        assert_eq!(running_ids_from_json(r#"{"data":[{"time":{}}]}"#), None);
-        assert_eq!(running_ids_from_json(r#"{"data":[{"id":7}]}"#), None);
-        assert_eq!(running_ids_from_json(r#"{"data":[{"id":"a","time":"soon"}]}"#), None);
-        assert_eq!(running_ids_from_json(r#"{"data":[{"id":"a","time":{"busy":"now"}}]}"#), None);
-    }
-
-    #[test]
-    fn an_answer_with_nothing_running_is_an_empty_list() {
-        // The other side of the same line: the service answered, and nothing is in flight.
-        assert_eq!(running_ids_from_json(r#"{"data":[]}"#), Some(Vec::new()));
-        assert_eq!(
-            running_ids_from_json(r#"{"data":[{"id":"a","time":{"busy":1,"idle":2}}]}"#),
-            Some(Vec::new())
-        );
+        assert_eq!(active_ids_from_json(""), None);
+        assert_eq!(active_ids_from_json("not json"), None);
+        assert_eq!(active_ids_from_json(r#"{"data":"nope"}"#), None);
+        assert_eq!(active_ids_from_json(r#"{"data":[]}"#), None);
+        assert_eq!(active_ids_from_json(r#"{"data":{"ses_a":{}}}"#), None);
+        assert_eq!(active_ids_from_json(r#"{"data":{"ses_a":{"type":"paused"}}}"#), None);
     }
 
     #[test]
@@ -423,13 +363,13 @@ mod tests {
         let (url, server) = serve_response(
             "200 OK",
             "Content-Type: application/json\r\n",
-            r#"{"data":[{"id":"ses_running","time":{"busy":200,"idle":100}}]}"#,
+            r#"{"data":{"ses_running":{"type":"running"}}}"#,
         );
         let fixture = service_fixture(&url);
-        let ids = running_ids(fixture.path()).await;
+        let answer = running_ids(fixture.path()).await;
         let request = server.join().expect("server completed");
-        assert_eq!(ids, Some(vec!["ses_running".to_string()]));
-        assert!(request.starts_with("GET /api/session HTTP/1.1\r\n"));
+        assert_eq!(answer, Some(vec!["ses_running".to_string()]));
+        assert!(request.starts_with("GET /api/session/active HTTP/1.1\r\n"));
         let auth = request.lines().find_map(|line| {
             let (name, value) = line.split_once(':')?;
             name.eq_ignore_ascii_case("authorization").then_some(value.trim())
@@ -442,7 +382,7 @@ mod tests {
         let target = std::net::TcpListener::bind("127.0.0.1:0").expect("redirect target");
         target.set_nonblocking(true).expect("nonblocking target");
         let location = format!(
-            "Location: http://{}/api/session\r\n",
+            "Location: http://{}/api/session/active\r\n",
             target.local_addr().expect("target address")
         );
         let (url, server) = serve_response("302 Found", &location, "");

@@ -11,6 +11,23 @@ export type SessionOpenPlan = {
 };
 
 /**
+ * The tab already showing this session, if one is.
+ *
+ * Every agent here writes its session file itself, and two processes on one file take turns
+ * overwriting each other - pi's session is a single transcript both of them append to. Opening a
+ * row twice used to start a second agent on the same session. Clicking a row that is already open
+ * means "go back to it", so the caller returns to that tab instead of starting another.
+ */
+export function openTabForSession<T extends { kind: string; sessionId?: string }>(
+  tabs: readonly T[],
+  sessionId: string,
+): T | undefined {
+  return tabs.find(
+    (tab) => tab.kind === "terminal" && tab.sessionId === sessionId,
+  );
+}
+
+/**
  * The command is written for whichever env the session resumes in. The `distro` in
  * the session record is authoritative (`null` means local), and **it must not be left
  * empty for the terminal to guess the current env**: clicking a local session while

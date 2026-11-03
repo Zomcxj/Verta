@@ -83,6 +83,22 @@ export function removeDraft(map: DraftMap, key: string): DraftMap {
   return next;
 }
 
+/**
+ * Re-key one draft after its file was renamed or moved.
+ *
+ * A draft is found by path, so the copy an interrupted session left under the old name would never
+ * be offered again once the name changes: the file is the same one, and the edits in the draft are
+ * still the user's.
+ */
+export function renameDraft(map: DraftMap, from: string, to: string): DraftMap {
+  if (from === to || !(from in map)) return map;
+  const next = { ...map };
+  const draft = next[from];
+  delete next[from];
+  next[to] = draft;
+  return next;
+}
+
 /** A hand-edited store must not crash us: drop entries with the wrong shape. */
 function normalizeMap(raw: unknown): DraftMap {
   if (!raw || typeof raw !== "object") return {};
@@ -145,6 +161,26 @@ export async function dropDraft(path: string): Promise<void> {
   return enqueue(async () => {
     const map = await readMap();
     const next = removeDraft(map, key);
+    if (next === map) return;
+    cache = next;
+    await store.set(KEY, next);
+    await store.save();
+  });
+}
+
+/**
+ * Carry a draft from the path a file had to the path it now has.
+ *
+ * Called when the explorer renames or moves the file being edited, so the recovery a later open
+ * would offer follows the file rather than staying under a name that is no longer on disk.
+ */
+export async function moveDraft(fromPath: string, toPath: string): Promise<void> {
+  const from = draftKey(fromPath);
+  const to = draftKey(toPath);
+  if (from === to) return;
+  return enqueue(async () => {
+    const map = await readMap();
+    const next = renameDraft(map, from, to);
     if (next === map) return;
     cache = next;
     await store.set(KEY, next);

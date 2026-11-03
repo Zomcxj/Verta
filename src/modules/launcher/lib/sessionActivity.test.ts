@@ -345,25 +345,38 @@ describe("activeByWindow", () => {
 });
 
 describe("activeWithService", () => {
-  it("lets either reading light a session", () => {
-    // The write times go quiet during a long tool call; the service knows the turn is still on.
-    expect([...activeWithService(new Set(), new Set(["a"]))]).toEqual(["a"]);
-    // And the service says a session is between turns for the seconds before the next one starts,
-    // while the writes still have it.
-    expect([...activeWithService(new Set(["b"]), new Set())]).toEqual(["b"]);
-    expect([...activeWithService(new Set(["b"]), new Set(["a"]))].sort()).toEqual(["a", "b"]);
+  const opencode = new Set(["a", "b"]);
+
+  it("settles an opencode session from the service, in both directions", () => {
+    // The service knows a turn is on while the writes have gone quiet during a long tool call.
+    expect([...activeWithService(new Set(), new Set(["a"]), opencode)]).toEqual(["a"]);
+    // And it knows a session is not running even while its file time keeps moving - measured on
+    // this machine (2026-11-03): a session whose turn had ended kept having `updated` rewritten,
+    // and the write-time window drew "后台有 agent 在跑" for it forever.
+    expect([...activeWithService(new Set(["b"]), new Set(), opencode)]).toEqual([]);
+    expect([...activeWithService(new Set(["b"]), new Set(["a"]), opencode)]).toEqual(["a"]);
+  });
+
+  it("leaves a session the service cannot speak for to the write times", () => {
+    // `pi` has no equivalent service, so its rows keep the window they always had.
+    const piId = "ses_pi";
+    expect([...activeWithService(new Set([piId]), new Set(), opencode)]).toEqual([piId]);
+    expect([...activeWithService(new Set([piId]), new Set(["a"]), opencode)].sort()).toEqual([
+      "a",
+      piId,
+    ]);
   });
 
   it("falls back to the write times when the service could not be asked", () => {
     // `null` is "no opencode running", not "nothing is running": a stopped service must not empty
-    // the list of marks.
-    expect([...activeWithService(new Set(["b"]), null)]).toEqual(["b"]);
-    expect(activeWithService(new Set(), null).size).toBe(0);
+    // the list of marks, and an opencode session then keeps its file time like any other row.
+    expect([...activeWithService(new Set(["b"]), null, opencode)]).toEqual(["b"]);
+    expect(activeWithService(new Set(), null, opencode).size).toBe(0);
   });
 
   it("never mutates the set it was given", () => {
     const writes = new Set(["b"]);
-    activeWithService(writes, new Set(["a"]));
+    activeWithService(writes, new Set(["a"]), opencode);
     expect([...writes]).toEqual(["b"]);
   });
 });

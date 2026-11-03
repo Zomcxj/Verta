@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { hasUpdate, upgradable, upgradedNotice } from "./useAgentVersions";
+import {
+  hasUpdate,
+  upgradable,
+  updateRows,
+  upgradedNotice,
+} from "./useAgentVersions";
 
 describe("hasUpdate", () => {
   it("offers an update when the published version is newer", () => {
@@ -54,6 +59,50 @@ describe("upgradable", () => {
       { id: "opencode", name: "opencode", current: "2.2.5", latest: "2.2.5", error: null },
     ];
     expect(upgradable(rows)).toEqual([]);
+  });
+});
+
+describe("updateRows", () => {
+  it("keeps a row whose check could not answer", () => {
+    // Reported 2026-11-02: an upgrade failed with a network error, the popover was reopened, the
+    // re-check could not reach the registry, and the row vanished into "everything is up to date"
+    // - taking its button with it, so the failed update had nothing left to retry. A row nobody
+    // could check is not a row that is current.
+    const rows = [
+      {
+        id: "pi-extension:obra/superpowers",
+        name: "obra/superpowers",
+        current: "1.0.0",
+        latest: null,
+        error: "查询 obra/superpowers 失败：connect timeout",
+      },
+      { id: "pi", name: "pi", current: "1.4.0", latest: "1.4.0", error: null },
+    ];
+    expect(updateRows(rows).map((r) => r.id)).toEqual([
+      "pi-extension:obra/superpowers",
+    ]);
+  });
+
+  it("still lists the rows that have a newer version", () => {
+    const rows = [
+      { id: "pi", name: "pi", current: "1.4.0", latest: "1.5.0", error: null },
+      {
+        id: "opencode",
+        name: "opencode",
+        current: "2.2.5",
+        latest: "2.2.5",
+        error: null,
+      },
+    ];
+    expect(updateRows(rows).map((r) => r.id)).toEqual(["pi"]);
+  });
+
+  it("is empty only when every row was checked and is current", () => {
+    expect(
+      updateRows([
+        { id: "pi", name: "pi", current: "1.4.0", latest: "1.4.0", error: null },
+      ]),
+    ).toEqual([]);
   });
 });
 

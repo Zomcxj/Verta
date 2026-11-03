@@ -89,7 +89,47 @@ describe("removeDraft", () => {
   });
 });
 
+describe("renameDraft", () => {
+  it("moves the draft to the new key", async () => {
+    const { renameDraft } = await import("./drafts");
+    const map = { "F:/work/old.txt": { text: "typed", at: 7 } };
+    expect(renameDraft(map, "F:/work/old.txt", "F:/work/new.txt")).toEqual({
+      "F:/work/new.txt": { text: "typed", at: 7 },
+    });
+  });
+
+  it("leaves the map alone when there is nothing to move", async () => {
+    const { renameDraft } = await import("./drafts");
+    const map = { "F:/work/old.txt": { text: "typed", at: 7 } };
+    expect(renameDraft(map, "F:/work/other.txt", "F:/work/new.txt")).toBe(map);
+    // Same key: a case-only rename on a path that does not fold case in the key.
+    expect(renameDraft(map, "F:/work/old.txt", "F:/work/old.txt")).toBe(map);
+  });
+
+  it("replaces a draft already sitting under the new key", async () => {
+    const { renameDraft } = await import("./drafts");
+    const map = {
+      "F:/work/old.txt": { text: "moved", at: 7 },
+      "F:/work/new.txt": { text: "stale", at: 1 },
+    };
+    expect(renameDraft(map, "F:/work/old.txt", "F:/work/new.txt")).toEqual({
+      "F:/work/new.txt": { text: "moved", at: 7 },
+    });
+  });
+});
+
 describe("store level", () => {
+  it("carries a draft to the name its file was renamed to", async () => {
+    const drafts = await import("./drafts");
+    await drafts.storeDraft("F:/work/old.txt", "half typed");
+    await drafts.moveDraft("F:\\work\\old.txt", "F:/work/new.txt");
+    // The old name must not keep offering it: that file may be something else now.
+    expect(await drafts.readDraft("F:/work/old.txt")).toBeNull();
+    expect((await drafts.readDraft("F:\\work\\new.txt"))?.text).toBe(
+      "half typed",
+    );
+  });
+
   it("round-trips a draft and drops it again", async () => {
     const drafts = await import("./drafts");
     await drafts.storeDraft("F:/work/a.txt", "typed");

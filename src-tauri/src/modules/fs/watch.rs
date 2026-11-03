@@ -13,7 +13,7 @@ mod macos;
 #[cfg(not(target_os = "macos"))]
 mod portable;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -189,10 +189,21 @@ fn resolve_changes(pending: Pending, shared: &Shared) -> Changes {
 }
 
 // Canonical keys keep add/remove symmetric regardless of how the path was spelled.
+/// Directories a caller may register even though the listing filter would normally drop them.
+///
+/// `.git` is skipped for the explorer, which must not draw a repository's metadata, but it is the
+/// only place a pull's result shows up: `git pull` moves a ref inside `.git` and touches no file the
+/// directory listing would notice. The project panel registers it on purpose (see
+/// `src/modules/projects/ProjectsView.tsx`), so the skip is lifted for that one caller.
+fn allow_hidden(allow: bool, path: &Path) -> bool {
+    allow || !plan::is_skipped(path)
+}
+
 fn prepare_dirs(
     registry: &WorkspaceRegistry,
     workspace: &WorkspaceEnv,
     paths: Vec<String>,
+    allow_skipped: bool,
 ) -> Vec<PathBuf> {
     paths
         .into_iter()
@@ -200,7 +211,7 @@ fn prepare_dirs(
             let resolved = resolve_path(&raw, workspace);
             let canonical = std::fs::canonicalize(&resolved).ok()?;
             if !canonical.is_dir()
-                || plan::is_skipped(&canonical)
+                || !allow_hidden(allow_skipped, &canonical)
                 || !registry.is_authorized(&canonical)
             {
                 return None;
@@ -252,16 +263,27 @@ impl Running {
     }
 }
 
+/// Registers directories (and files inside them) for change events.
+///
+/// `includeSkipped` is for the one caller that needs a directory the listing filter drops: the
+/// project panel watches `<repo>/.git`, because that is where a pull's result lands. Everything else
+/// leaves it out, so the explorer never starts drawing a repository's metadata.
 #[tauri::command]
 pub async fn fs_watch_add(
     app: AppHandle,
     paths: Vec<String>,
     files: Option<Vec<String>>,
+    include_skipped: Option<bool>,
     workspace: Option<WorkspaceEnv>,
 ) -> Result<(), String> {
     blocking(move || {
         let workspace = WorkspaceEnv::from_option(workspace);
-        let dirs = prepare_dirs(&app.state::<WorkspaceRegistry>(), &workspace, paths);
+        let dirs = prepare_dirs(
+            &app.state::<WorkspaceRegistry>(),
+            &workspace,
+            paths,
+            include_skipped.unwrap_or(false),
+        );
         let files: Vec<_> = files
             .unwrap_or_default()
             .iter()
@@ -346,6 +368,24 @@ pub async fn fs_watch_remove(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_repository_metadata_directory_may_be_registered_on_request() {
+        // The explorer must never watch `.git`; the project panel must, because a pull moves a ref
+        // there and touches nothing the root listing would notice.
+        let git = std::path::Path::new("/some/repo/.git");
+        assert!(!allow_hidden(false, git), "skipped by default");
+        assert!(allow_hidden(true, git), "registered when the caller asks");
+        // Everything else follows the ordinary filter either way.
+        assert!(allow_hidden(false, std::path::Path::new("/some/repo/src")));
+    }
+
+    #[test]
+    fn an_ordinary_directory_is_unaffected_by_the_escape_hatch() {
+        let plain = std::path::Path::new("/some/repo/node_modules");
+        assert!(!allow_hidden(false, plain));
+        assert!(allow_hidden(true, plain), "the flag lifts the skip as a whole");
+    }
 
     fn shared_watching(dir: &std::path::Path) -> Shared {
         let key = to_canon(dir);

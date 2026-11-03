@@ -178,6 +178,31 @@ export function judgeTail(
       });
       entry = { ...entry, state: detection.state, idleSince: null };
     }
+  } else if (
+    detection.state === "unknown" &&
+    (entry.state === "working" || entry.state === "trailing")
+  ) {
+    // The family is on screen but no rule can read this screen: not the footer at rest, not the
+    // interrupt hint, not a spinner, not a tally. That is *no* evidence of work, and holding the
+    // last claim for as long as the screen says nothing made a dot that never went out - measured
+    // on this machine (2026-11-03) with a session that had been closed since the day before: its
+    // tab opened orange, `phases[42] = working`, on a screen whose whole bottom was
+    // `~/Desktop    251.1K (50%)  ctrl+p commands`.
+    //
+    // The wait is the same one `idle` gets, for the same reason: a working screen is not always
+    // classifiable on every frame (the spinner is painted on some and not others, the hint is
+    // drawn elided as `esc...rupt`), so a single unreadable read is a frame, not an ending.
+    //
+    // Reported as `idle`, not through `signalKindFor`: an unreadable screen cannot say a turn
+    // ended, and inventing that would put "a turn finished" in front of the user for work that
+    // may not have stopped. Nothing is being done on that session either way.
+    const idleSince = entry.idleSince ?? nowMs;
+    if (nowMs - idleSince < IDLE_SETTLE_MS) {
+      entry = { ...entry, idleSince };
+    } else {
+      signals.push({ id: entry.id, kind: "idle" });
+      entry = { ...entry, state: "idle", idleSince: null };
+    }
   }
 
   if (signals.length === 0) return { kind: "quiet", entry };
