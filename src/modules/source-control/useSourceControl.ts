@@ -9,12 +9,26 @@ import {
   rememberRepoSnapshot,
   repoSnapshotKey,
 } from "@/modules/source-control/repoSnapshots";
+import {
+  listenFsChanged,
+  watchAdd,
+  watchRemove,
+} from "@/modules/explorer/lib/watch";
+import { changeTouchesRepo } from "@/lib/repoPath";
 import { useWorkspaceEnvStore, workspaceScopeKey } from "@/modules/workspace";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const AUTO_FETCH_THROTTLE_MS = 5 * 60_000;
 const AUTO_FETCH_LRU_LIMIT = 16;
 const FOCUS_REFRESH_MIN_INTERVAL_MS = 1500;
+/**
+ * How long a burst of change events is gathered before the repository is read again.
+ *
+ * A commit typed in a terminal rewrites several things inside `.git` in quick succession, and a
+ * save in the editor arrives per write-behind flush; one read per burst answers all of it. Short
+ * enough that the list settles within a blink of the command finishing.
+ */
+const REPO_CHANGE_REREAD_MS = 300;
 // Skip the context-change refetch when the data is this fresh and the new path
 // is still inside the loaded repo (cd-within-repo produces identical status).
 //
@@ -667,6 +681,111 @@ export function useSourceControl(
       if (timer) window.clearTimeout(timer);
     };
   }, [refresh, enabled, live]);
+
+  const liveRef = useRef(live);
+  liveRef.current = live;
+
+  /**
+   * The directories a change to this repository reports through, as one string so the effect below
+   * does not re-register on every status read.
+   *
+   * The working tree is watched as itself, and the metadata inside it has to be asked for by name:
+   * the listing filter drops `.git` for the explorer, and a commit touches nothing outside it. It
+   * is watched one level in - `refs/heads` is where a commit lands, `refs/remotes/<remote>` is
+   * where a fetch or a push lands - because the watcher only goes one directory deep.
+   */
+  const repoWatchKey = useMemo(() => {
+    const root = state.repo?.repoRoot;
+    if (!enabled || !root) return "";
+    const normalized = root.replace(/\\/g, "/").replace(/\/+$/, "");
+    const upstream = state.status?.upstream ?? state.repo?.upstream ?? "";
+    const remote = upstream.slice(0, upstream.indexOf("/"));
+    return [
+      normalized,
+      `${normalized}/.git`,
+      `${normalized}/.git/refs/heads`,
+      ...(remote ? [`${normalized}/.git/refs/remotes/${remote}`] : []),
+    ].join("\n");
+  }, [state.repo?.repoRoot, state.repo?.upstream, state.status?.upstream, enabled]);
+
+  /**
+   * Register the watch the panel needs to hear about a commit it did not make.
+   *
+   * Without this the panel is blind to everything except its own buttons and a window focus: a
+   * `git commit` typed in a terminal rewrites the index and a ref, and nothing told the panel to
+   * read them again - which is the whole report, "提交后要刷新才知道全部提交了".
+   *
+   * Registered for as long as the repository is known, not only while the panel is on screen: the
+   * terminal that commits is the tab on screen at that moment, with the panel behind it, and a
+   * watch registered when the panel is looked at again is registered after the commit is over.
+   */
+  useEffect(() => {
+    if (repoWatchKey === "") return;
+    const [root, ...metadata] = repoWatchKey.split("\n");
+    watchAdd([root]);
+    if (metadata.length > 0) watchAdd(metadata, [], { includeSkipped: true });
+    return () => {
+      // Exactly what this effect added: the refcounts are shared with the explorer's own watches.
+      watchRemove([root]);
+      if (metadata.length > 0) watchRemove(metadata);
+    };
+  }, [repoWatchKey]);
+
+  const pendingRereadRef = useRef(false);
+
+  /**
+   * Answer those events with one narrow read of this repository.
+   *
+   * A read while the panel is off screen is a read nobody sees, and the event does not come again,
+   * so it is remembered instead and settled the moment the panel is looked at - the same trade the
+   * project list makes for a pull typed in a terminal.
+   */
+  useEffect(() => {
+    if (!enabled) return;
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    let timer = 0;
+    void listenFsChanged((paths) => {
+      if (disposed) return;
+      if (!changeTouchesRepo(paths, stateRef.current.repo?.repoRoot ?? null)) {
+        return;
+      }
+      if (!liveRef.current) {
+        pendingRereadRef.current = true;
+        return;
+      }
+      if (timer) return;
+      // Throttled by deferring, never by dropping: a commit is followed by more writes inside
+      // `.git` a moment later, and a dropped one is exactly the "still stale until I refresh"
+      // this effect exists to remove. Measured with `scm-follows-external-change.mjs`: the first
+      // version returned early when the previous read was too recent, and a file removed 200 ms
+      // after it appeared never left the list.
+      const wait = Math.max(
+        REPO_CHANGE_REREAD_MS,
+        FOCUS_REFRESH_MIN_INTERVAL_MS -
+          (Date.now() - lastRefreshAtRef.current),
+      );
+      timer = window.setTimeout(() => {
+        timer = 0;
+        void refresh({ remote: "never" }).catch(() => {});
+      }, wait);
+    }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    });
+    return () => {
+      disposed = true;
+      if (timer) window.clearTimeout(timer);
+      unlisten?.();
+    };
+  }, [refresh, enabled]);
+
+  // A change that arrived while the panel was hidden is settled when it is looked at.
+  useEffect(() => {
+    if (!enabled || !live || !pendingRereadRef.current) return;
+    pendingRereadRef.current = false;
+    void refresh({ remote: "never" }).catch(() => {});
+  }, [live, enabled, refresh]);
 
   return useMemo<SourceControlSummary>(
     () => ({

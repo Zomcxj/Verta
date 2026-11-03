@@ -49,24 +49,10 @@ export function rememberStatuses(snapshot: StatusSnapshot): void {
 /**
  * Whether a change is one the panel has to re-read for.
  *
- * `fs:changed` reports directories, and the panel is only interested in the ones inside the project
- * whose status it is showing - the watcher also covers the home directory and every expanded folder
- * of the explorer. The comparison is on the canonical spelling the watcher uses and accepts the root
- * itself as well as anything under it: a commit rewrites `.git` and a checkout rewrites the root.
+ * The predicate itself lives in `lib/repoPath` because the source control panel asks the same
+ * question of the same events; a second copy here is how the two answers drift apart.
  */
-export function changeTouchesRepo(
-  changed: readonly string[],
-  repoRoot: string | null,
-): boolean {
-  if (!repoRoot) return false;
-  const root = repoRoot.replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!root) return false;
-  return changed.some((path) => {
-    const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
-    if (normalized === root) return true;
-    return normalized.startsWith(`${root}/`);
-  });
-}
+export { changeTouchesRepo } from "@/lib/repoPath";
 
 /** Drop the statuses of projects that are no longer on the list. */
 export async function forgetStatuses(paths: readonly string[]): Promise<void> {

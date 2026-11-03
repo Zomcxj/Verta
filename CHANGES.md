@@ -17,6 +17,16 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-03</strong></summary>
 
+**A commit typed in a terminal reaches the source control panel**
+
+- Reported as "刚才右侧工作区提交后要刷新才知道全部提交了 没实时更新". The panel refreshed on a context change, on window focus and after its own buttons, and on nothing else: `grep -rn watch src/modules/source-control` returned no hits at all, so nothing that happened outside it could ever have told it. A commit writes only inside `.git`, and the explorer's listing filter drops that directory, so the panel was blind to the one thing it is for.
+- `src/modules/source-control/useSourceControl.ts`: the repository is registered with the file watcher while it is known - the working tree as itself, and `<root>/.git` with `<root>/.git/refs/heads` and `<root>/.git/refs/remotes/<remote>` through `includeSkipped`, because the watcher is one directory deep and a commit lands in the ref, not at the root. Registered for as long as the repository is known rather than only while the panel is on screen: the terminal that commits is the tab on screen at that moment, with the panel behind it.
+- `src/modules/source-control/useSourceControl.ts`: `fs:changed` is answered with one read of this repository, and only for paths inside it. A change that arrives while the panel is hidden is remembered and settled when it is looked at, the same trade the project list makes for a pull typed in a terminal.
+- `src/modules/source-control/useSourceControl.ts`: the throttle defers rather than drops. The first version returned early when the previous read was too recent, and the probe measured what that costs - a file removed 200 ms after it appeared never left the list, which is the same "still stale until I refresh" the change was meant to remove.
+- `src/lib/repoPath.ts` (new): `changeTouchesRepo` says whether a reported directory belongs to a repository, accepting the root itself (a commit rewrites `.git`, a checkout rewrites the root) and refusing a sibling whose name starts with the same letters. It is the predicate the project list already had; it moved here so the two surfaces cannot drift apart, and `projects/lib/statusStore.ts` re-exports it.
+- `scripts/dev/probes/commit-fires-watch-event.mjs` (new): builds a repository of its own, registers exactly what the panel registers, and commits in it. Measured: **0 events before the commit**, then one **615 ms** after it, naming `<root>/.git` and `<root>/.git/refs/heads` - the paths the predicate accepts. So the watch list is the right one and a commit is not silent.
+- `scripts/dev/probes/scm-follows-external-change.mjs` (new): drives the panel on the running dev instance - opens a terminal at the repository so the panel follows it, then writes a file at the root and removes it again with nothing clicked. Measured: the new row appeared **627 ms** after the write and left **1732 ms** after the removal.
+
 **A session nobody has spoken to since yesterday no longer opens orange**
 
 - Reported as "这个会话今天没聊天 但是打开是橙色", with the criterion "正常不是看底部吗 esc interrupt shell subagent都没有" - orange is the state the interface draws for work in flight, and the screen's own bottom carried no interrupt hint, no shell count and no subagent count.
