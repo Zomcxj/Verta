@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { openTabForSession, planSessionOpen } from "./openSession";
+import {
+  openTabForSession,
+  planSessionOpen,
+  planSessionResume,
+} from "./openSession";
 import type { AgentSession } from "./types";
 
 function session(over: Partial<AgentSession> = {}): AgentSession {
@@ -66,5 +70,38 @@ describe("openTabForSession", () => {
   it("says nothing for a session no tab has", () => {
     expect(openTabForSession(tabs, "ses_z")).toBeUndefined();
     expect(openTabForSession([], "ses_a")).toBeUndefined();
+  });
+});
+describe("planSessionResume", () => {
+  it("builds the same plan a session row would, from what the tab stored", () => {
+    const plan = planSessionResume(
+      "opencode",
+      "ses_1",
+      "F:/work/PasteLabel",
+      { kind: "local" },
+    );
+    expect(plan).not.toBeNull();
+    if (!plan) return;
+    expect(plan.cwd).toBe("F:/work/PasteLabel");
+    expect(plan.command).toBe("opencode --session ses_1 'F:/work/PasteLabel'");
+  });
+
+  it("a distro leaf resumes under the distro's own rules", () => {
+    const plan = planSessionResume("opencode", "ses_1", "/home/cxj/work", {
+      kind: "wsl",
+      distro: "Ubuntu",
+    });
+    expect(plan).not.toBeNull();
+    if (!plan) return;
+    expect(plan.workspace).toEqual({ kind: "wsl", distro: "Ubuntu" });
+    expect(plan.command).toContain(
+      "opencode --session ses_1 '/home/cxj/work'",
+    );
+  });
+
+  it("an illegal session id refuses the whole plan", () => {
+    expect(
+      planSessionResume("pi", "ses_1; rm -rf /", "F:/work", { kind: "local" }),
+    ).toBeNull();
   });
 });

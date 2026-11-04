@@ -23,6 +23,12 @@ export type TerminalCursorStyle = "bar" | "block" | "underline";
  */
 export type SessionListDensity = "standard" | "compact";
 
+/**
+ * How the session list is grouped. Named apart from the launcher's own type so this module
+ * stays free of the launcher's imports; the two are the same union.
+ */
+export type SessionGroupByPref = "all" | "tool" | "project";
+
 export const EDITOR_THEMES = [
   "kanagawa",
   "kanagawa-lotus",
@@ -152,6 +158,8 @@ export type Preferences = {
   explorerGitDecorations: boolean;
   /** How much a session row says at rest; see `SessionListDensity`. */
   sessionListDensity: SessionListDensity;
+  /** How the session list is grouped; see `SessionGroupByPref`. */
+  sessionGroupBy: SessionGroupByPref;
   /**
    * The colour each agent state is drawn in, on a tab chip and on a session list row alike.
    *
@@ -170,6 +178,13 @@ export type Preferences = {
    * stays whatever it is set to.
    */
   desktopNotifications: boolean;
+  /**
+   * Bring back the tabs that were open when the app last closed. The list is written
+   * continuously either way (`useTabPersistence`); this switch only decides whether a
+   * launch reads it back. A restored session tab reopens its session on first
+   * activation rather than sitting there as a bare shell.
+   */
+  restoreTabsOnLaunch: boolean;
   terminalRenderer: "auto" | "webgl";
   terminalScreenReader: boolean;
   terminalCursorBlink: boolean;
@@ -199,7 +214,6 @@ export type Preferences = {
    * install should do; the explicit values are the user overriding it.
    */
   language: LanguagePref;
-  defaultWorkspaceEnv: string;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
   editorAutoSave: boolean;
   editorAutoSaveDelay: number;
@@ -259,10 +273,12 @@ const KEY_WSL_ENABLED = "wslEnabled";
 const KEY_WSL_SHUTDOWN_ON_DISABLE = "wslShutdownOnDisable";
 const KEY_EXPLORER_GIT_DECORATIONS = "explorerGitDecorations";
 const KEY_SESSION_LIST_DENSITY = "sessionListDensity";
+const KEY_SESSION_GROUP_BY = "sessionGroupBy";
 const KEY_AGENT_STATE_COLOURS = "agentStateColours";
 const KEY_CLOSE_TO_TRAY = "closeToTray";
 const KEY_TASKBAR_ATTENTION_FLASH = "taskbarAttentionFlash";
 const KEY_DESKTOP_NOTIFICATIONS = "desktopNotifications";
+const KEY_RESTORE_TABS_ON_LAUNCH = "restoreTabsOnLaunch";
 const KEY_TERMINAL_RENDERER = "terminalRenderer";
 const KEY_TERMINAL_SCREEN_READER = "terminalScreenReader";
 const KEY_TERMINAL_CURSOR_BLINK = "terminalCursorBlink";
@@ -277,7 +293,6 @@ const KEY_CONFIRM_CLOSE_RUNNING_TERMINAL = "confirmCloseRunningTerminal";
 const KEY_LAST_WSL_DISTRO = "lastWslDistro";
 const KEY_ZOOM_LEVEL = "zoomLevel";
 const KEY_LANGUAGE = "language";
-const KEY_DEFAULT_WORKSPACE_ENV = "defaultWorkspaceEnv";
 const KEY_SHORTCUTS = "shortcuts";
 const KEY_EDITOR_AUTO_SAVE = "editorAutoSave";
 const KEY_EDITOR_AUTO_SAVE_DELAY = "editorAutoSaveDelay";
@@ -336,12 +351,17 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showHidden: false,
   explorerGitDecorations: true,
   sessionListDensity: "standard",
+  sessionGroupBy: "all",
   // The colours the interface has always spoken with. Absent means these, so an install that has
   // never opened the setting draws exactly what it drew before it existed.
   agentStateColours: DEFAULT_STATE_COLOURS,
   closeToTray: true,
   taskbarAttentionFlash: true,
   desktopNotifications: true,
+  // Off by default: restoring a session tab also starts the agent in it, and a session already
+  // running somewhere else would then be written by both. A returning user turns the switch on
+  // once, and every launch after that is the list the last window left behind.
+  restoreTabsOnLaunch: false,
   terminalRenderer: "auto",
   terminalScreenReader: false,
   terminalCursorBlink: false,
@@ -358,7 +378,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
   wslShutdownOnDisable: false,
   zoomLevel: 1.0,
   language: "system",
-  defaultWorkspaceEnv: "local",
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
   editorAutoSave: false,
   editorAutoSaveDelay: 1000,
@@ -440,11 +459,15 @@ export async function loadPreferences(): Promise<Preferences> {
     desktopNotifications:
       get<boolean>(KEY_DESKTOP_NOTIFICATIONS) ??
       DEFAULT_PREFERENCES.desktopNotifications,
+    restoreTabsOnLaunch:
+      get<boolean>(KEY_RESTORE_TABS_ON_LAUNCH) ??
+      DEFAULT_PREFERENCES.restoreTabsOnLaunch,
     terminalRenderer:
       get<string>(KEY_TERMINAL_RENDERER) === "webgl" ? "webgl" : "auto",
     sessionListDensity: coerceSessionListDensity(
       get<string>(KEY_SESSION_LIST_DENSITY),
     ),
+    sessionGroupBy: coerceSessionGroupBy(get<string>(KEY_SESSION_GROUP_BY)),
     agentStateColours: coerceAgentStateColours(
       get<unknown>(KEY_AGENT_STATE_COLOURS),
     ),
@@ -486,9 +509,6 @@ export async function loadPreferences(): Promise<Preferences> {
       DEFAULT_PREFERENCES.wslShutdownOnDisable,
     zoomLevel: get<number>(KEY_ZOOM_LEVEL) ?? DEFAULT_PREFERENCES.zoomLevel,
     language: get<LanguagePref>(KEY_LANGUAGE) ?? DEFAULT_PREFERENCES.language,
-    defaultWorkspaceEnv:
-      get<string>(KEY_DEFAULT_WORKSPACE_ENV) ??
-      DEFAULT_PREFERENCES.defaultWorkspaceEnv,
     shortcuts:
       get<Record<ShortcutId, KeyBinding[]>>(KEY_SHORTCUTS) ??
       DEFAULT_PREFERENCES.shortcuts,
@@ -649,6 +669,10 @@ export async function setDesktopNotifications(value: boolean): Promise<void> {
   await writePref(KEY_DESKTOP_NOTIFICATIONS, value);
 }
 
+export async function setRestoreTabsOnLaunch(value: boolean): Promise<void> {
+  await writePref(KEY_RESTORE_TABS_ON_LAUNCH, value);
+}
+
 export async function setWslEnabled(value: boolean): Promise<void> {
   await writePref(KEY_WSL_ENABLED, value);
 }
@@ -692,6 +716,20 @@ export function coerceSessionListDensity(value: unknown): SessionListDensity {
 
 export async function setSessionListDensity(value: unknown): Promise<void> {
   await writePref(KEY_SESSION_LIST_DENSITY, coerceSessionListDensity(value));
+}
+
+/**
+ * How the session list is grouped. Anything the app does not recognise draws the single
+ * block, which is what every existing install shows and what a corrupt file has to fall
+ * back to rather than a list with no rows in it.
+ */
+export function coerceSessionGroupBy(value: unknown): SessionGroupByPref {
+  if (value === "tool" || value === "project") return value;
+  return DEFAULT_PREFERENCES.sessionGroupBy;
+}
+
+export async function setSessionGroupBy(value: unknown): Promise<void> {
+  await writePref(KEY_SESSION_GROUP_BY, coerceSessionGroupBy(value));
 }
 
 /**
@@ -845,10 +883,6 @@ export async function setEditorCustomFormatCommand(
   await writePref(KEY_EDITOR_CUSTOM_FORMAT_COMMAND, value);
 }
 
-export async function setDefaultWorkspaceEnv(value: string): Promise<void> {
-  await writePref(KEY_DEFAULT_WORKSPACE_ENV, value);
-}
-
 export async function setShortcuts(
   value: Record<ShortcutId, KeyBinding[]> | Record<string, never>,
 ): Promise<void> {
@@ -857,68 +891,79 @@ export async function setShortcuts(
 
 export type PrefKey = keyof Preferences;
 
+/**
+ * Which field of `Preferences` each stored key fills, for the listener that carries a write back into
+ * the store.
+ *
+ * Read by `onPreferencesChange`, and by the test that guards it. A preference missing from this table
+ * is written to disk and then reaches no window's store, so the control that wrote it never moves:
+ * measured 2026-11-04, the restore-on-launch switch stayed exactly where it was, click after click,
+ * while the value it kept writing went back and forth in `verta-settings.json`.
+ */
+export const PREF_KEY_TO_FIELD: Record<string, PrefKey> = {
+  [KEY_THEME]: "theme",
+  [KEY_THEME_ID]: "themeId",
+  [KEY_BG_KIND]: "backgroundKind",
+  [KEY_BG_IMAGE_ID]: "backgroundImageId",
+  [KEY_BG_OPACITY]: "backgroundOpacity",
+  [KEY_BG_BLUR]: "backgroundBlur",
+  [KEY_WINDOW_VIBRANCY]: "windowVibrancy",
+  [KEY_EDITOR_THEME]: "editorTheme",
+  [KEY_SESSION_TRANSITION]: "sessionTransition",
+  [KEY_EDITOR_FONT_SIZE]: "editorFontSize",
+  [KEY_VIM_MODE]: "vimMode",
+  [KEY_EDITOR_WORD_WRAP]: "editorWordWrap",
+  [KEY_EDITOR_WORD_WRAP_COLUMN]: "editorWordWrapColumn",
+  [KEY_SHOW_HIDDEN]: "showHidden",
+  [KEY_WSL_ENABLED]: "wslEnabled",
+  [KEY_WSL_SHUTDOWN_ON_DISABLE]: "wslShutdownOnDisable",
+  [KEY_EXPLORER_GIT_DECORATIONS]: "explorerGitDecorations",
+  [KEY_SESSION_LIST_DENSITY]: "sessionListDensity",
+  [KEY_SESSION_GROUP_BY]: "sessionGroupBy",
+  [KEY_AGENT_STATE_COLOURS]: "agentStateColours",
+  [KEY_CLOSE_TO_TRAY]: "closeToTray",
+  [KEY_TASKBAR_ATTENTION_FLASH]: "taskbarAttentionFlash",
+  [KEY_DESKTOP_NOTIFICATIONS]: "desktopNotifications",
+  [KEY_RESTORE_TABS_ON_LAUNCH]: "restoreTabsOnLaunch",
+  [KEY_TERMINAL_RENDERER]: "terminalRenderer",
+  [KEY_TERMINAL_SCREEN_READER]: "terminalScreenReader",
+  [KEY_TERMINAL_CURSOR_BLINK]: "terminalCursorBlink",
+  [KEY_TERMINAL_CURSOR_STYLE]: "terminalCursorStyle",
+  [KEY_TERMINAL_FONT_FAMILY]: "terminalFontFamily",
+  [KEY_TERMINAL_FONT_WEIGHT]: "terminalFontWeight",
+  [KEY_TERMINAL_SHELL]: "terminalShell",
+  [KEY_TERMINAL_LETTER_SPACING]: "terminalLetterSpacing",
+  [KEY_TERMINAL_FONT_SIZE]: "terminalFontSize",
+  [KEY_TERMINAL_SCROLLBACK]: "terminalScrollback",
+  [KEY_CONFIRM_CLOSE_RUNNING_TERMINAL]: "confirmCloseRunningTerminal",
+  [KEY_LAST_WSL_DISTRO]: "lastWslDistro",
+  [KEY_ZOOM_LEVEL]: "zoomLevel",
+  [KEY_LANGUAGE]: "language",
+  [KEY_SHORTCUTS]: "shortcuts",
+  [KEY_EDITOR_AUTO_SAVE]: "editorAutoSave",
+  [KEY_EDITOR_AUTO_SAVE_DELAY]: "editorAutoSaveDelay",
+  [KEY_EDITOR_FORMAT_ON_SAVE]: "editorFormatOnSave",
+  [KEY_EDITOR_FORMATTER]: "editorFormatter",
+  [KEY_EDITOR_FORMATTER_BY_LANG]: "editorFormatterByLang",
+  [KEY_EDITOR_CUSTOM_FORMAT_COMMAND]: "editorCustomFormatCommand",
+  [KEY_LSP_ACTIVATION]: "lspActivation",
+  [KEY_LSP_CUSTOM_SERVERS]: "lspCustomServers",
+};
+
 /** Subscribe to changes from any window (settings → main). */
 export async function onPreferencesChange(
   cb: (key: PrefKey, value: unknown) => void,
 ): Promise<UnlistenFn> {
-  const map: Record<string, PrefKey> = {
-    [KEY_THEME]: "theme",
-    [KEY_THEME_ID]: "themeId",
-    [KEY_BG_KIND]: "backgroundKind",
-    [KEY_BG_IMAGE_ID]: "backgroundImageId",
-    [KEY_BG_OPACITY]: "backgroundOpacity",
-    [KEY_BG_BLUR]: "backgroundBlur",
-    [KEY_WINDOW_VIBRANCY]: "windowVibrancy",
-    [KEY_EDITOR_THEME]: "editorTheme",
-    [KEY_SESSION_TRANSITION]: "sessionTransition",
-    [KEY_EDITOR_FONT_SIZE]: "editorFontSize",
-    [KEY_VIM_MODE]: "vimMode",
-    [KEY_EDITOR_WORD_WRAP]: "editorWordWrap",
-    [KEY_EDITOR_WORD_WRAP_COLUMN]: "editorWordWrapColumn",
-    [KEY_SHOW_HIDDEN]: "showHidden",
-    [KEY_WSL_ENABLED]: "wslEnabled",
-    [KEY_WSL_SHUTDOWN_ON_DISABLE]: "wslShutdownOnDisable",
-    [KEY_EXPLORER_GIT_DECORATIONS]: "explorerGitDecorations",
-    [KEY_SESSION_LIST_DENSITY]: "sessionListDensity",
-    [KEY_AGENT_STATE_COLOURS]: "agentStateColours",
-    [KEY_CLOSE_TO_TRAY]: "closeToTray",
-    [KEY_TASKBAR_ATTENTION_FLASH]: "taskbarAttentionFlash",
-    [KEY_DESKTOP_NOTIFICATIONS]: "desktopNotifications",
-    [KEY_TERMINAL_RENDERER]: "terminalRenderer",
-    [KEY_TERMINAL_SCREEN_READER]: "terminalScreenReader",
-    [KEY_TERMINAL_CURSOR_BLINK]: "terminalCursorBlink",
-    [KEY_TERMINAL_CURSOR_STYLE]: "terminalCursorStyle",
-    [KEY_TERMINAL_FONT_FAMILY]: "terminalFontFamily",
-    [KEY_TERMINAL_FONT_WEIGHT]: "terminalFontWeight",
-    [KEY_TERMINAL_SHELL]: "terminalShell",
-    [KEY_TERMINAL_LETTER_SPACING]: "terminalLetterSpacing",
-    [KEY_TERMINAL_FONT_SIZE]: "terminalFontSize",
-    [KEY_TERMINAL_SCROLLBACK]: "terminalScrollback",
-    [KEY_CONFIRM_CLOSE_RUNNING_TERMINAL]: "confirmCloseRunningTerminal",
-    [KEY_LAST_WSL_DISTRO]: "lastWslDistro",
-    [KEY_ZOOM_LEVEL]: "zoomLevel",
-    [KEY_LANGUAGE]: "language",
-    [KEY_DEFAULT_WORKSPACE_ENV]: "defaultWorkspaceEnv",
-    [KEY_SHORTCUTS]: "shortcuts",
-    [KEY_EDITOR_AUTO_SAVE]: "editorAutoSave",
-    [KEY_EDITOR_AUTO_SAVE_DELAY]: "editorAutoSaveDelay",
-    [KEY_EDITOR_FORMAT_ON_SAVE]: "editorFormatOnSave",
-    [KEY_EDITOR_FORMATTER]: "editorFormatter",
-    [KEY_EDITOR_FORMATTER_BY_LANG]: "editorFormatterByLang",
-    [KEY_EDITOR_CUSTOM_FORMAT_COMMAND]: "editorCustomFormatCommand",
-    [KEY_LSP_ACTIVATION]: "lspActivation",
-    [KEY_LSP_CUSTOM_SERVERS]: "lspCustomServers",
-  };
   // Same-process writes still fire onChange immediately; cross-window writes
   // arrive via the Tauri event emitted by writePref().
   const unsubLocal = await store.onChange<unknown>((key, value) => {
-    const mapped = map[key];
+    const mapped = PREF_KEY_TO_FIELD[key];
     if (mapped) cb(mapped, value);
   });
   const unsubEvent = await listen<{ key: string; value: unknown }>(
     PREFS_CHANGED_EVENT,
     (e) => {
-      const mapped = map[e.payload.key];
+      const mapped = PREF_KEY_TO_FIELD[e.payload.key];
       if (mapped) cb(mapped, e.payload.value);
     },
   );

@@ -1,6 +1,6 @@
 import { LOCAL_WORKSPACE, type WorkspaceEnv } from "@/modules/workspace";
 import { resumeCommand } from "./resumeCommand";
-import type { AgentSession } from "./types";
+import type { AgentSession, AgentTool } from "./types";
 
 /** What to do after clicking a session row: resume in which cwd and env, running which
  * command. */
@@ -25,6 +25,39 @@ export function openTabForSession<T extends { kind: string; sessionId?: string }
   return tabs.find(
     (tab) => tab.kind === "terminal" && tab.sessionId === sessionId,
   );
+}
+
+/**
+ * The same plan, built from what a restored tab carried on disk instead of from a
+ * scanned session row: the tab's `agent` and `sessionId`, and the cwd / env its
+ * active leaf was stored with. `null` when the pieces do not fit (no directory, or
+ * an id the shell cannot take), which the caller treats as "come back as a plain
+ * terminal".
+ */
+export function planSessionResume(
+  tool: AgentTool,
+  sessionId: string,
+  cwd: string,
+  workspace?: WorkspaceEnv,
+): SessionOpenPlan | null {
+  const env = workspace ?? LOCAL_WORKSPACE;
+  try {
+    return {
+      cwd,
+      workspace: env,
+      command: resumeCommand(
+        {
+          tool,
+          id: sessionId,
+          cwd,
+          distro: env.kind === "wsl" ? env.distro : null,
+        },
+        env.kind === "wsl" ? false : undefined,
+      ),
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**

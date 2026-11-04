@@ -13,13 +13,16 @@ const KEY_STATE = "state";
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 500 });
 
 /**
- * What the tab list is written down as, one key, one list.
- *
- * There is no reader here on purpose. A launch starts a fresh window (see `useTabRestore`), so the
- * list is memory for the next launch to decide about, not something boot restores; the load side of
- * this file - including the migration from the per-workspace `verta-spaces.json` that older versions
- * wrote - was only ever called by the restore that no longer runs.
+ * The list the last window left behind, or `null` when nothing was ever saved
+ * (a fresh install). Whether a launch acts on it is the `restoreTabsOnLaunch`
+ * preference, decided in `useTabRestore`; this file only reads and writes.
  */
+export async function loadTabState(): Promise<TabState | null> {
+  const state = await store.get<TabState>(KEY_STATE);
+  if (!state || !Array.isArray(state.tabs)) return null;
+  return state;
+}
+
 export async function saveTabState(state: TabState): Promise<void> {
   await store.set(KEY_STATE, state);
 }

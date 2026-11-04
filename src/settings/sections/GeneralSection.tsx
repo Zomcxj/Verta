@@ -15,9 +15,9 @@ import type { ThemePref } from "@/modules/settings/store";
 import {
   setLanguage,
   setConfirmCloseRunningTerminal,
-  setDefaultWorkspaceEnv,
   setCloseToTray,
   setDesktopNotifications,
+  setRestoreTabsOnLaunch,
   setExplorerGitDecorations,
   setSessionListDensity,
   setShowHidden,
@@ -125,6 +125,9 @@ export function GeneralSection() {
   const desktopNotifications = usePreferencesStore(
     (s) => s.desktopNotifications,
   );
+  const restoreTabsOnLaunch = usePreferencesStore(
+    (s) => s.restoreTabsOnLaunch,
+  );
   const terminalRenderer = usePreferencesStore((s) => s.terminalRenderer);
   const terminalScreenReader = usePreferencesStore(
     (s) => s.terminalScreenReader,
@@ -136,7 +139,6 @@ export function GeneralSection() {
   const terminalShell = usePreferencesStore((s) => s.terminalShell);
   const [shells, setShells] = useState<ShellInfo[]>([]);
   const [wslDistros, setWslDistros] = useState<{ name: string }[]>([]);
-  const defaultWorkspaceEnv = usePreferencesStore((s) => s.defaultWorkspaceEnv);
   const terminalLetterSpacing = usePreferencesStore(
     (s) => s.terminalLetterSpacing,
   );
@@ -267,6 +269,19 @@ export function GeneralSection() {
           <Switch
             checked={explorerGitDecorations}
             onCheckedChange={(v) => void setExplorerGitDecorations(v)}
+          />
+        </SettingRow>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>{t("settings.startup")}</Label>
+        <SettingRow
+          title={t("settings.restoreTabs.title")}
+          description={t("settings.restoreTabs.description")}
+        >
+          <Switch
+            checked={restoreTabsOnLaunch}
+            onCheckedChange={(value) => void setRestoreTabsOnLaunch(value)}
           />
         </SettingRow>
       </div>
@@ -474,51 +489,6 @@ export function GeneralSection() {
             </SelectContent>
           </Select>
         </SettingRow>
-        {(wslDistros.length > 0 || defaultWorkspaceEnv !== "local") && (
-          <SettingRow
-            title={t("settings.workspaceEnv.title")}
-            description={t("settings.workspaceEnv.description")}
-          >
-            <Select
-              value={defaultWorkspaceEnv}
-              onValueChange={(v) => void setDefaultWorkspaceEnv(v)}
-            >
-              <SelectTrigger
-                value={defaultWorkspaceEnv}
-                className="h-8 w-40 text-[12px]"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="local" className="text-[12px]">
-                  {t("settings.workspaceEnv.windows")}
-                </SelectItem>
-                {wslDistros.map((d) => (
-                  <SelectItem
-                    key={d.name}
-                    value={`wsl:${d.name}`}
-                    className="text-[12px]"
-                  >
-                    {t("settings.workspaceEnv.wsl", { distro: d.name })}
-                  </SelectItem>
-                ))}
-                {defaultWorkspaceEnv.startsWith("wsl:") &&
-                  !wslDistros.some(
-                    (d) => `wsl:${d.name}` === defaultWorkspaceEnv,
-                  ) && (
-                    <SelectItem
-                      value={defaultWorkspaceEnv}
-                      className="text-[12px]"
-                    >
-                      {t("settings.workspaceEnv.unavailable", {
-                        name: defaultWorkspaceEnv.slice("wsl:".length),
-                      })}
-                    </SelectItem>
-                  )}
-              </SelectContent>
-            </Select>
-          </SettingRow>
-        )}
         <SettingRow
           title={t("settings.letterSpacing.title")}
           description={t("settings.letterSpacing.description")}
