@@ -11,6 +11,10 @@
 // user asked not to have: an agent's session is a project directory, and a file has nothing to
 // hand it.
 //
+// The file's menu is also checked for the absence of "attach to agent", which was removed on
+// 2026-11-04 - the entry was drawn and did nothing, because the surface never passed the handler it
+// called through.
+//
 // Usage:
 //   node scripts/dev/probes/explorer-agent-menu.mjs --match=tauri.localhost/
 //   node scripts/dev/probes/explorer-agent-menu.mjs --match=tauri.localhost/ --open=pi
@@ -282,6 +286,15 @@ if (files.length > 0) {
     if (fileMenu.some((item) => /在终端中打开|Open in terminal/i.test(item.label))) {
       failures.push("这个「文件」的菜单里有「在终端中打开」：分类可能反了，量到的是文件夹");
     }
+    // Removed on 2026-11-04: nothing on this surface ever passed the handler it called.
+    const attach = fileMenu.filter((item) =>
+      /附加到智能体|Attach to Agent/i.test(item.label),
+    );
+    if (attach.length > 0) {
+      failures.push(
+        `文件菜单里还有「${attach.map((a) => a.label).join("、")}」这一条，本该删掉`,
+      );
+    }
   }
 } else {
   console.log("\n视野里没有文件，文件那一半没量（往下滚一点再跑）。");
@@ -346,7 +359,9 @@ if (openWith !== null) {
 
 socket.close();
 if (failures.length === 0) {
-  console.log("\n通过：文件夹的菜单最前是带图标的 agent 条目（opencode、pi），文件上没有。");
+  console.log(
+    "\n通过：文件夹的菜单最前是带图标的 agent 条目（opencode、pi），文件上没有；文件的菜单里没有「附加到智能体」。",
+  );
   process.exit(0);
 }
 console.log("\n不通过：");

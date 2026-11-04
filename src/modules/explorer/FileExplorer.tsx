@@ -61,6 +61,7 @@ import { AgentIcon } from "@/modules/launcher/lib/agentIcon";
 import type { AgentTool } from "@/modules/launcher/lib/types";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
 import { useExplorerDnd } from "./lib/useExplorerDnd";
+import { DropConflictDialog } from "./DropConflictDialog";
 import { useExplorerFileDrop } from "./lib/useExplorerFileDrop";
 import { useFileTree } from "./lib/useFileTree";
 import { useGitStatus } from "./lib/useGitStatus";
@@ -86,7 +87,6 @@ type Props = {
   onRevealInTerminal?: (path: string) => void;
   onOpenInSourceControl?: (path: string) => void;
   onOpenGitHistory?: (path: string) => void;
-  onAttachToAgent?: (path: string) => void;
   /**
    * Start a session with an agent in a folder, with that folder as its directory. Left out, the
    * menu draws no such entries at all - a surface with no way to start one offers none.
@@ -235,7 +235,6 @@ export const FileExplorer = memo(
       onRevealInTerminal,
       onOpenInSourceControl,
       onOpenGitHistory,
-      onAttachToAgent,
       onOpenWithAgent,
       pathDropTarget,
       gitStatus,
@@ -337,6 +336,32 @@ export const FileExplorer = memo(
     // re-anchors to the new cursor (floating-ui won't reposition on an anchor
     // change alone, only on scroll/resize).
     const [menuNonce, setMenuNonce] = useState(0);
+    /**
+     * The names a drop would replace, while the question is on screen.
+     *
+     * Held as state so the dialog can render, and paired with the resolver of the promise the drop
+     * is waiting on: the drop cannot continue until this is answered, and dismissing answers "skip".
+     */
+    const [dropConflict, setDropConflict] = useState<{
+      names: readonly string[];
+      resolve: (choice: "replace" | "skip" | null) => void;
+    } | null>(null);
+    const askConflict = useCallback(
+      (names: readonly string[]) =>
+        new Promise<"replace" | "skip" | null>((resolve) => {
+          setDropConflict({ names, resolve });
+        }),
+      [],
+    );
+    const answerConflict = useCallback(
+      (choice: "replace" | "skip" | null) => {
+        setDropConflict((current) => {
+          current?.resolve(choice);
+          return null;
+        });
+      },
+      [],
+    );
 
     // The agents this folder can be handed to. Built here rather than inside the menu so the
     // separator under them is drawn only when there are any, and so anything that is not a folder
@@ -438,11 +463,19 @@ export const FileExplorer = memo(
       getSelectedPaths,
       collapseSelectionTo,
       pathDropTarget,
+      // Out of the explorer: the platform takes the drag, so a release on the desktop is a real
+      // drop there instead of a gesture that ended nowhere.
+      onDragOut: (paths) => {
+        void invoke("fs_start_drag", { paths }).catch((error) =>
+          toast.error(t("explorer.dragOutFailed", { error: String(error) })),
+        );
+      },
     });
 
     const fileDrop = useExplorerFileDrop({
       rootPath,
       enabled: visible,
+      askConflict,
       isDir: isDirAt,
       onCopied: tree.refresh,
     });
@@ -810,7 +843,6 @@ export const FileExplorer = memo(
           onRevealInTerminal={onRevealInTerminal}
           onOpenInSourceControl={onOpenInSourceControl}
           onOpenGitHistory={onOpenGitHistory}
-          onAttachToAgent={onAttachToAgent}
         />
 
         {!isSearchActive ? (
@@ -1077,13 +1109,6 @@ export const FileExplorer = memo(
                   <ContextMenuSeparator />
                   <ContextMenuItem
                     className={COMPACT_ITEM}
-                    onSelect={() => onAttachToAgent?.(menuTarget.path)}
-                  >
-                    {t("explorer.attachToAgent")}
-                  </ContextMenuItem>
-                  <ContextMenuSeparator />
-                  <ContextMenuItem
-                    className={COMPACT_ITEM}
                     variant="destructive"
                     onSelect={(e) => {
                       if (deleteConfirm) {
@@ -1170,6 +1195,13 @@ export const FileExplorer = memo(
               )}
             </ContextMenuContent>
           </ContextMenu>
+        ) : null}
+
+        {dropConflict ? (
+          <DropConflictDialog
+            names={dropConflict.names}
+            onChoose={answerConflict}
+          />
         ) : null}
 
         {dnd.dragLabel ? (
