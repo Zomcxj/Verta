@@ -855,6 +855,10 @@ html[data-window-inactive]:not([data-window-hidden]) .verta-state-indicator * {
   .verta-state-marquee {
     animation: none;
   }
+  /* The details panel arrives at its resting place instead of moving there. */
+  .verta-compact-card {
+    animation: none;
+  }
 }
 
 /*
@@ -1063,5 +1067,77 @@ html[data-window-inactive]:not([data-window-hidden]) .verta-state-indicator * {
   }
   50% {
     transform: scaleY(2.1);
+  }
+}
+
+/* The compact session's details panel, and any other floating card that carries several lines
+ * rather than one label (`TooltipContent`'s `motion="card"`).
+ *
+ * Entering is one beat: the fade, the slide and the slight overshoot all run 160ms, so the panel
+ * reads as arriving rather than as "slide, then appear". The overshoot settles back inside the same
+ * animation - an undershoot past the resting place, then level - instead of being a second animation
+ * chained onto the first. The offset is 6px, about one line of the panel's own text, so the movement
+ * says "out from the row" without asking the eye to follow it.
+ *
+ * Leaving is shorter than arriving (120ms, no overshoot): a panel on its way out should not be
+ * watched. Only transform and opacity are animated - neither costs a layout pass, and the panel's
+ * size is fixed by its text, so nothing reads the layout between frames.
+ *
+ * The direction comes from the side Radix placed it on, the same way the stock pill leans.
+ */
+.verta-compact-card {
+  --verta-card-enter-shift: 6px;
+  animation: verta-compact-card-in 160ms cubic-bezier(0.33, 1, 0.68, 1) both;
+}
+.verta-compact-card[data-side="left"] {
+  --verta-card-enter-shift: -6px;
+}
+.verta-compact-card[data-side="right"] {
+  --verta-card-enter-shift: 6px;
+}
+.verta-compact-card[data-side="top"] {
+  animation-name: verta-compact-card-in-y;
+  --verta-card-enter-shift: -6px;
+}
+.verta-compact-card[data-side="bottom"] {
+  animation-name: verta-compact-card-in-y;
+  --verta-card-enter-shift: 6px;
+}
+.verta-compact-card[data-state="closed"] {
+  animation: verta-compact-card-out 120ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes verta-compact-card-in {
+  0% {
+    opacity: 0;
+    transform: translateX(var(--verta-card-enter-shift)) scale(0.97);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes verta-compact-card-in-y {
+  0% {
+    opacity: 0;
+    transform: translateY(var(--verta-card-enter-shift)) scale(0.97);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes verta-compact-card-out {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
   }
 }

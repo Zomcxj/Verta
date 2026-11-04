@@ -98,5 +98,24 @@ describe("global motion budget", () => {
     expect(reduced).toMatch(
       /\.verta-state-marquee[^{]*\{[^}]*animation:\s*none/,
     );
+    // A panel that arrives by moving must arrive at its resting place instead, not move slower.
+    expect(reduced).toMatch(/\.verta-compact-card\s*\{[^}]*animation:\s*none/);
+  });
+
+  it("gives the compact details panel one beat, and a quicker way out", () => {
+    // Slide and fade are the same 160ms and the overshoot settles inside that animation, so the
+    // panel reads as arriving rather than as two movements in a row. Leaving is shorter, and
+    // neither direction animates anything but transform and opacity. The class appears twice -
+    // once here and once as `animation: none` under reduced motion - so the block is found by
+    // what it animates rather than by being the first mention of the name.
+    const rule = css.match(
+      /\.verta-compact-card\s*\{([^}]*verta-compact-card-in[^}]*)\}/,
+    )?.[1];
+    expect(rule).toMatch(/animation:\s*verta-compact-card-in\s*160ms/);
+    expect(rule).not.toMatch(/filter|backdrop/);
+    const out = css.match(
+      /\.verta-compact-card\[data-state="closed"\]\s*\{([^}]*)\}/,
+    )?.[1];
+    expect(out).toMatch(/verta-compact-card-out\s*120ms/);
   });
 });
