@@ -554,11 +554,12 @@ pub async fn git_clone_repo(
     url: String,
     dest: String,
     workspace: Option<WorkspaceEnv>,
+    depth: Option<u32>,
     app: AppHandle,
 ) -> Result<String, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     blocking(app, move |r| {
-        operations::clone_repo(r, &url, &dest, &workspace).map_err(Into::into)
+        operations::clone_repo(r, &url, &dest, &workspace, depth).map_err(Into::into)
     })
     .await
 }

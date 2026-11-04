@@ -1232,6 +1232,41 @@ pub fn fetch(
     ensure_success(&output, "git fetch failed")
 }
 
+/// Run one `git` command in an authorized repository: its first stdout line, and whether it worked.
+///
+/// A narrow door for the project list's "replace with the remote": that operation is several
+/// commands in a row (`fetch`, `rev-parse`, `reset`, `clean`) and they have to run as one authorized
+/// sequence, which the callers on the git side never needed. Nothing else is exposed - no process
+/// handle, no argument list beyond three strings.
+///
+/// The success flag is not optional. The first version reused `git_stdout_line_opt`, whose `None`
+/// means "printed nothing" **and** "exited non-zero" - so a `git reset --hard` that failed on a path
+/// too long for Windows was read as "fine, no output", the sequence went on to `git clean -fd`, and
+/// the work tree was emptied with the branch left where it was.
+pub fn git_run_in_repo(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    workspace: &WorkspaceEnv,
+    args: [&str; 3],
+) -> Result<(bool, Option<String>)> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        args,
+        DEFAULT_TIMEOUT_SECS,
+    )?;
+    if output.timed_out {
+        return Err(GitError::TimedOut("git command"));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout.lines().next().unwrap_or("").trim().to_string();
+    Ok((
+        output.exit_code == Some(0),
+        if line.is_empty() { None } else { Some(line) },
+    ))
+}
+
 pub fn pull_ff_only(
     registry: &WorkspaceRegistry,
     repo_root: &str,
@@ -1245,7 +1280,39 @@ pub fn pull_ff_only(
         ["pull", "--ff-only"],
         NETWORK_TIMEOUT_SECS,
     )?;
-    ensure_success(&output, "git pull --ff-only failed")
+    ensure_success(&output, "git pull --ff-only failed")?;
+
+    // A shallow clone is kept as one commit, and a pull alone does not keep it that way: measured on
+    // a `--depth 1` clone, `git pull --ff-only` leaves the old tip behind and the copy holds two
+    // commits. One `fetch --depth 1` afterwards drops it again - the same command git used to make
+    // the clone in the first place, so nothing here reaches further back than the clone did.
+    if is_shallow_repository(&repo_root.workspace, &repo_root.git_path)? {
+        let output = run_git(
+            &repo_root.workspace,
+            Some(&repo_root.git_path),
+            ["fetch", "--depth", "1", "--prune", "origin"],
+            NETWORK_TIMEOUT_SECS,
+        )?;
+        ensure_success(&output, "git fetch --depth 1 failed")?;
+    }
+    Ok(())
+}
+
+/// Whether this repository is a shallow clone, so a pull can keep it that way.
+///
+/// Asks git rather than looking for `<git>/shallow`: the answer is still right after a `--unshallow`,
+/// and an older git that cannot answer reads as "not shallow", which is the safe direction - the
+/// history is then left exactly as it was.
+pub fn is_shallow_repository(workspace: &WorkspaceEnv, git_path: &str) -> Result<bool> {
+    let output = run_git(
+        workspace,
+        Some(git_path),
+        ["rev-parse", "--is-shallow-repository"],
+        DEFAULT_TIMEOUT_SECS,
+    )?;
+    // A git old enough not to know the question writes nothing and exits non-zero; "not shallow"
+    // is then the safe answer, because the history is left exactly as it was.
+    Ok(String::from_utf8_lossy(&output.stdout).trim() == "true")
 }
 
 fn nothing_to_commit(output: &GitOutput) -> bool {
@@ -1789,23 +1856,33 @@ pub fn abort_operation(
 /// The target directory may not exist yet; the parent must exist and is registered as
 /// authorized (a path the user typed is itself the authorization). Returns the target
 /// path as seen from `workspace`, which the caller can open once authorized.
+///
+/// `depth` of 1 makes a shallow clone: the working copy is the newest commit and nothing behind it.
+/// That is for a repository kept only to be read - a third-party library, a reference checkout -
+/// where the whole history is dead weight on disk and in every `git log`. Nothing else about the
+/// clone changes, and `git fetch --depth 1` later keeps the same shape (measured: a shallow clone
+/// pulls a new commit to two commits, and one more `fetch --depth 1` drops the older one again).
 pub fn clone_repo(
     registry: &WorkspaceRegistry,
     url: &str,
     dest: &str,
     workspace: &WorkspaceEnv,
+    depth: Option<u32>,
 ) -> Result<String> {
     ensure_git_available(workspace)?;
     let url = check_clone_url(url)?;
     let (target_git, target_host) = resolve_new_dir(registry, dest, workspace)?;
 
+    // `--depth` takes one commit; it has to come before the separator, or git reads it as a path.
+    let depth_arg = depth.filter(|d| *d > 0).map(|d| format!("--depth={d}"));
+    let mut args: Vec<&str> = vec!["clone"];
+    if let Some(arg) = depth_arg.as_deref() {
+        args.push(arg);
+    }
+    args.extend(["--", &url, &target_git]);
+
     // No cwd: the target is an absolute path, so it does not matter where we run.
-    let output = run_git(
-        workspace,
-        None,
-        ["clone", "--", &url, &target_git],
-        CLONE_TIMEOUT_SECS,
-    )?;
+    let output = run_git(workspace, None, args, CLONE_TIMEOUT_SECS)?;
     ensure_success(&output, "git clone failed")?;
 
     let _ = registry.authorize(&target_host);

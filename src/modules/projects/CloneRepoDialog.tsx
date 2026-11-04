@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { native } from "@/lib/native";
 import { useT } from "@/modules/i18n";
@@ -48,6 +49,15 @@ export function CloneRepoDialog({
   const [dest, setDest] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Clone only the newest commit.
+   *
+   * For a repository kept to be read - a third-party library, a reference checkout - the history is
+   * weight nobody asked for: it is most of what the clone downloads and most of what sits on disk,
+   * and every pull afterwards keeps it that way. Asked here rather than in a setting because it is
+   * a property of this clone, not of the user.
+   */
+  const [shallow, setShallow] = useState(false);
 
   // Prefill wins on every open (a different row means different values); without it
   // the fields are left alone, so a half-typed entry from the Projects page survives
@@ -73,7 +83,11 @@ export function CloneRepoDialog({
     setBusy(true);
     setError(null);
     try {
-      const path = await native.gitCloneRepo(trimmedUrl, trimmedDest);
+      const path = await native.gitCloneRepo(
+        trimmedUrl,
+        trimmedDest,
+        shallow ? 1 : undefined,
+      );
       // The cloned directory has to be openable right away: authorize it, then hand it
       // to the Projects page.
       await native.workspaceAuthorize(path).catch(() => null);
@@ -113,6 +127,20 @@ export function CloneRepoDialog({
             }}
             placeholder={t("projects.clone.destPlaceholder")}
           />
+        </div>
+        {/* The checkbox is a button, not an input, so the label points at it by id rather than
+            wrapping it: a wrapping label is the association the lint rule cannot see through. */}
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          <Checkbox
+            id="clone-shallow"
+            checked={shallow}
+            onCheckedChange={(next) => setShallow(next === true)}
+            className="mt-0.5"
+          />
+          <label htmlFor="clone-shallow" className="cursor-pointer">
+            <span className="text-foreground">{t("projects.clone.shallow")}</span>
+            <span className="ml-1">{t("projects.clone.shallowHint")}</span>
+          </label>
         </div>
         {error ? (
           <p className="whitespace-pre-wrap text-xs text-destructive">{error}</p>

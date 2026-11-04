@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod contained;
 pub mod errors;
 pub mod operations;
 pub mod parser;

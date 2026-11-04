@@ -28,6 +28,8 @@ function status(over: Partial<ProjectStatus>): ProjectStatus {
     detached: false,
     dirty: 0,
     stashed: 0,
+    // Full clone unless a case says otherwise.
+    shallow: false,
     error: null,
     // The check asks for a fetch; a row in these tests is one whose fetch worked.
     fetchError: null,

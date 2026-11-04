@@ -52,6 +52,7 @@ const STATUS: WireProjectStatus = {
   detached: false,
   dirty: 1,
   stashed: 1,
+  shallow: false,
   error: null,
   fetchError: null,
 };

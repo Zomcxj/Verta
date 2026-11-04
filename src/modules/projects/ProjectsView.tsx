@@ -97,6 +97,14 @@ type Props = {
   /** Start an interactive session for one agent at the project root (new session,
    * no --session). */
   onNewSession: (entry: ProjectEntry, tool: AgentTool) => void;
+  /**
+   * Open the project's commit graph in its own tab.
+   *
+   * The graph has always been reachable from the source control panel, which means the panel first
+   * had to be pointed at this project. From the project's row it is one step: the row already knows
+   * which repository it is.
+   */
+  onOpenGitGraph: (entry: ProjectEntry) => void;
 };
 
 const TONE_CLASS: Record<RowState["tone"], string> = {
@@ -115,6 +123,7 @@ export function ProjectsView({
   onOpenWorkspace,
   onOpenTerminal,
   onNewSession,
+  onOpenGitGraph,
 }: Props) {
   const t = useT();
   const language = useLanguage();
@@ -697,6 +706,58 @@ export function ProjectsView({
     [readRows, t],
   );
 
+/** A row waiting for its replacement to be confirmed, with the status the dialog quotes. */
+type ProjectReplacement = {
+  entry: ProjectEntry;
+  status: ProjectStatus | null | undefined;
+  /** Trim the copy to one commit as well - the shallow variant of the same replacement. */
+  shallow: boolean;
+};
+
+  /**
+   * Make one project exactly what its remote has.
+   *
+   * The ordinary pull fast-forwards and refuses to merge another branch; this is the answer for a
+   * row that will not move - a branch that has diverged, or local edits in the way. It discards
+   * both, and there is no backup, so the row asks first: the dialog names the branch, the commits
+   * and the files that are about to go, and nothing happens until it is confirmed.
+   */
+  const [replaceFor, setReplaceFor] = useState<ProjectReplacement | null>(null);
+  const [replacing, setReplacing] = useState(false);
+  const handleReplace = useCallback(async () => {
+    const entry = replaceFor?.entry;
+    if (!entry || replacing) return;
+    setReplacing(true);
+    try {
+      await native.workspaceAuthorize(entry.path, entry.workspace).catch(() => null);
+      const report = await native.projectsReplaceFromRemote(
+        entry.path,
+        entry.workspace,
+        replaceFor?.shallow === true,
+      );
+      toast.success(
+        t(
+          report.shallow
+            ? "projects.replace.doneShallow"
+            : "projects.replace.done",
+          {
+            branch: report.branch,
+            upstream: report.upstream,
+            commits: report.discardedCommits,
+            files: report.discardedFiles,
+          },
+        ),
+      );
+      setReplaceFor(null);
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setReplacing(false);
+      // The work tree moved, so this row - and only this row - is read again.
+      await readRows([entry]);
+    }
+  }, [readRows, replaceFor, replacing, t]);
+
   const handleRemove = useCallback(async () => {
     if (!pendingRemove) return;
     const next = removeProjectPath(paths ?? [], pendingRemove.path);
@@ -846,6 +907,7 @@ export function ProjectsView({
                   onOpenWorkspace={onOpenWorkspace}
                   onOpenTerminal={onOpenTerminal}
                   onNewSession={onNewSession}
+                  onOpenGitGraph={() => onOpenGitGraph(row)}
                   onRemove={
                     row.managed ? () => setPendingRemove(row) : undefined
                   }
@@ -863,6 +925,12 @@ export function ProjectsView({
                     });
                   }}
                   onPull={() => void handlePull(row)}
+                  onReplace={() =>
+                    setReplaceFor({ entry: row, status: row.status, shallow: false })
+                  }
+                  onPullShallow={() =>
+                    setReplaceFor({ entry: row, status: row.status, shallow: true })
+                  }
                   pulling={pulling.has(normalizePath(row.path))}
                   pullEnabled={canStartPull(
                     { checking, pulling },
@@ -875,6 +943,54 @@ export function ProjectsView({
           </table>
         </div>
       )}
+
+      <AlertDialog
+        open={replaceFor !== null}
+        onOpenChange={(open) => {
+          if (!open && !replacing) setReplaceFor(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t(
+                replaceFor?.shallow === true
+                  ? "projects.replace.titleShallow"
+                  : "projects.replace.title",
+              )}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                replaceFor?.shallow === true
+                  ? "projects.replace.bodyShallow"
+                  : "projects.replace.body",
+                {
+                branch: replaceFor?.status?.branch ?? "",
+                upstream: replaceFor?.status?.upstream ?? "",
+                commits: replaceFor?.status?.ahead ?? 0,
+                  files: replaceFor?.status?.dirty ?? 0,
+                },
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={replacing}>
+              {t("scm.common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={replacing}
+              onClick={(event) => {
+                // Keep the dialog up while it runs: the report is what says it worked, and the
+                // list has to be read again before the row can be trusted.
+                event.preventDefault();
+                void handleReplace();
+              }}
+            >
+              {replacing ? t("projects.replace.running") : t("projects.replace.confirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={pendingRemove !== null}
@@ -921,6 +1037,9 @@ function ProjectRowView({
   onRemove,
   onRefresh,
   onPull,
+  onReplace,
+  onPullShallow,
+  onOpenGitGraph,
   pulling,
   pullEnabled,
   refreshing,
@@ -932,6 +1051,12 @@ function ProjectRowView({
   onRemove?: () => void;
   onRefresh: () => void;
   onPull: () => void;
+  /** The row's "make it exactly what the remote has", confirmed by the table's dialog. */
+  onReplace: () => void;
+  /** The same, and leaves the copy with one commit: for a repository kept only to be read. */
+  onPullShallow: () => void;
+  /** This project's commit graph, in its own tab. */
+  onOpenGitGraph: () => void;
   pulling: boolean;
   /** Whether a pull may start now: not while a check runs, not past the limit, not twice. */
   pullEnabled: boolean;
@@ -978,6 +1103,28 @@ function ProjectRowView({
       label: t("projects.action.terminal"),
       disabled: !usable,
       onSelect: () => onOpenTerminal(row),
+    },
+    {
+      key: "replace",
+      // Confirmed by the table's dialog, which names what will be discarded: this action does not
+      // ask by itself, so the item stays worded as "pull and replace" rather than "replace?".
+      label: t("projects.replace.action"),
+      disabled: !usable,
+      onSelect: onReplace,
+    },
+    {
+      key: "pull-shallow",
+      // One commit afterwards, nothing behind it. Kept apart from the plain replacement because the
+      // two mean different things: "give me the remote's tip" and "and stop keeping the history".
+      label: t("projects.action.pullShallow"),
+      disabled: !usable,
+      onSelect: onPullShallow,
+    },
+    {
+      key: "git-graph",
+      label: t("projects.action.gitGraph"),
+      disabled: !usable,
+      onSelect: onOpenGitGraph,
     },
     {
       key: "copy",

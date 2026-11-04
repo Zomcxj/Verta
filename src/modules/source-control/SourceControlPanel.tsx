@@ -284,6 +284,9 @@ function BranchDropdown({
           type="button"
           disabled={checkingOut}
           title={displayRepoRoot ?? repoLabel}
+          // Which repository the panel is on. The header is the only place it says so, and a probe
+          // reading the panel has to ask this rather than guess from the file rows.
+          data-scm-repo={displayRepoRoot ?? undefined}
           className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md bg-foreground/5 px-2 py-1 text-[11.5px] font-medium leading-none text-foreground transition-colors hover:bg-foreground/10 disabled:cursor-default disabled:opacity-70"
         >
           <HugeiconsIcon

@@ -3,5 +3,6 @@
 
 pub mod commands;
 pub mod pull;
+pub mod replace;
 pub mod scan;
 pub mod types;

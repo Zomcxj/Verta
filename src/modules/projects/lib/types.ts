@@ -30,6 +30,8 @@ export type ProjectStatus = {
   detached: boolean;
   dirty: number;
   stashed: number;
+  /** A shallow clone: the work tree is the newest commit and nothing behind it. */
+  shallow: boolean;
   error: string | null;
   /** Why the fetch this check was asked for failed; null when it worked or was not asked
    * for. `ahead`/`behind` stay readable either way, but they may be out of date. */

@@ -123,6 +123,54 @@ fn pull_project(
     })
 }
 
+/// Make one project exactly what its remote has, discarding what is local.
+///
+/// The row's ordinary pull only fast-forwards and refuses when the branches differ in name; this is
+/// the other thing a user can ask for, and it can lose work. The interface asks first - this command
+/// does not re-ask, because it is already the answer to a question the user answered.
+///
+/// `shallow` also leaves the copy with one commit and nothing behind it, for a repository kept only
+/// to be read.
+#[tauri::command]
+pub async fn projects_replace_from_remote(
+    app: AppHandle,
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+    shallow: Option<bool>,
+) -> Result<super::replace::ReplaceReport, String> {
+    run_replace(app, path, workspace, shallow.unwrap_or(false)).await
+}
+
+async fn run_replace(
+    app: AppHandle,
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+    shallow: bool,
+) -> Result<super::replace::ReplaceReport, String> {
+    crate::modules::fs::blocking(move || {
+        let registry = app.state::<WorkspaceRegistry>();
+        let registry: &WorkspaceRegistry = &registry;
+        let workspace = WorkspaceEnv::from_option(workspace);
+        let Some(repo) = operations::resolve_repo(registry, &path, &workspace)? else {
+            return Err(format!("不是 Git 仓库，不能覆盖：{path}"));
+        };
+        let snapshot = operations::status(registry, &repo.repo_root, &workspace)?;
+        if let Some(reason) = pull_blocker(
+            Some(snapshot.branch.as_str()),
+            snapshot.upstream.as_deref(),
+            snapshot.is_detached,
+        ) {
+            return Err(reason);
+        }
+        if shallow {
+            super::replace::replace_with_remote_shallow(registry, &repo.repo_root, &workspace)
+        } else {
+            super::replace::replace_with_remote(registry, &repo.repo_root, &workspace)
+        }
+    })
+    .await
+}
+
 fn status_for(registry: &WorkspaceRegistry, target: &ProjectTarget, fetch: bool) -> ProjectStatus {
     let name = basename(&target.path);
     let workspace = target.workspace.clone();
@@ -152,6 +200,14 @@ fn status_for(registry: &WorkspaceRegistry, target: &ProjectTarget, fetch: bool)
                     // pretend the project is clean.
                     row.stashed = operations::stash_count(registry, &repo.repo_root, &workspace)
                         .unwrap_or_default();
+                    // Unreadable reads as "not shallow", the safe direction: the row then makes no
+                    // claim about a history it could not look at.
+                    row.shallow = operations::is_shallow_repository(
+                        &workspace,
+                        &resolve_path(&repo.repo_root, &workspace)
+                            .to_string_lossy(),
+                    )
+                    .unwrap_or_default();
                 }
                 Err(e) => {
                     row.kind = "error";

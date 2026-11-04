@@ -15,6 +15,7 @@ const status = (over: Partial<ProjectStatus> = {}): ProjectStatus => ({
   detached: false,
   dirty: 0,
   stashed: 0,
+  shallow: false,
   error: null,
   fetchError: null,
   ...over,

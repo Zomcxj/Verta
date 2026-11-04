@@ -38,6 +38,10 @@ pub struct ProjectStatus {
     pub dirty: u32,
     /// Number of stash entries.
     pub stashed: u32,
+    /// A shallow clone: the working copy is the newest commit and nothing behind it, which is how a
+    /// repository kept only to be read is cloned. The row marks it so the short history is not a
+    /// mystery, and the pull keeps it that way.
+    pub shallow: bool,
     pub error: Option<String>,
     /// Why the fetch this check was asked to run failed; None when it succeeded or was not
     /// asked for. A failed fetch is **not** a failed status: `ahead`/`behind` stay what the
@@ -60,6 +64,7 @@ impl ProjectStatus {
             detached: false,
             dirty: 0,
             stashed: 0,
+            shallow: false,
             error: None,
             fetch_error: None,
         }
