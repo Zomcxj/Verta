@@ -52,7 +52,8 @@ export type AgentVersionsState = {
    *
    * A row leaves the list once it is current, so without this the only trace of a successful
    * upgrade is a row disappearing - which looks exactly like a failure. Cleared by the next
-   * upgrade or the next check.
+   * upgrade, and by the next check the popover runs: reopening the bell is a fresh look at what
+   * is installed, and a confirmation from an earlier visit is not news any more.
    */
   upgraded: { name: string; version: string | null } | null;
   /**
@@ -133,7 +134,8 @@ export function upgradedNotice(
   components: AgentComponent[],
   id: string,
 ): { name: string; version: string | null } {
-  const landed = components.find((component) => component.id === id)?.current ?? null;
+  const landed =
+    components.find((component) => component.id === id)?.current ?? null;
   return { name, version: landed };
 }
 
@@ -151,9 +153,10 @@ export function useAgentVersions(): AgentVersionsState {
   const [checkError, setCheckError] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState<ReadonlySet<string>>(new Set());
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
-  const [upgraded, setUpgraded] = useState<
-    { name: string; version: string | null } | null
-  >(null);
+  const [upgraded, setUpgraded] = useState<{
+    name: string;
+    version: string | null;
+  } | null>(null);
   const [upgradedMany, setUpgradedMany] = useState<number | null>(null);
   // What is actually running, as a ref as well as state: two clicks in the same tick read the state
   // from before either landed, and the second would start a duplicate run of the same component.
@@ -191,6 +194,11 @@ export function useAgentVersions(): AgentVersionsState {
   const check = useCallback(() => {
     setChecking(true);
     setCheckError(null);
+    // A confirmation belongs to the visit that produced it. The popover runs this on every open,
+    // so this is what takes "updated to 5.3.3" away when the bell is opened again - without it the
+    // green line stayed until the app restarted ("软件没重启会显示两个组件已更新的绿字").
+    setUpgraded(null);
+    setUpgradedMany(null);
     void runCheck().finally(() => {
       if (mounted.current) setChecking(false);
     });
@@ -207,7 +215,8 @@ export function useAgentVersions(): AgentVersionsState {
       // A single row's run replaces whatever a batch last said.
       setUpgradedMany(null);
       // Read before the upgrade, because the row is gone from the next answer.
-      const name = components.find((component) => component.id === id)?.name ?? id;
+      const name =
+        components.find((component) => component.id === id)?.name ?? id;
       try {
         await invoke<string>("agent_versions_upgrade", { id });
         if (!mounted.current) return false;
@@ -220,7 +229,10 @@ export function useAgentVersions(): AgentVersionsState {
         // "updated to <the old version>" would claim a command that did not happen - opencode's
         // own updater answers without looking at a plugin configured as a path.
         const landed = next.find((component) => component.id === id);
-        if (landed && hasUpdate(landed.current, landed.latest, landed.compare)) {
+        if (
+          landed &&
+          hasUpdate(landed.current, landed.latest, landed.compare)
+        ) {
           setUpgraded(null);
           setUpgradeError(
             t("notifications.updates.stillBehind", {
