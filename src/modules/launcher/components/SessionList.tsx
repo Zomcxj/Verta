@@ -256,7 +256,7 @@ const SessionButton = memo(function SessionButton({
             block. */}
         <TooltipContent
           side="right"
-          className="verta-float max-w-72 flex-col items-start gap-0.5 rounded-xl bg-popover px-2.5 py-2 text-[11px] leading-relaxed text-popover-foreground shadow-lg ring-1 ring-foreground/5 dark:ring-foreground/10"
+          className="verta-float verta-float-mask max-w-72 flex-col items-start gap-0.5 rounded-xl bg-popover px-2.5 py-2 text-[11px] leading-relaxed text-popover-foreground shadow-lg ring-1 ring-foreground/5 dark:ring-foreground/10"
         >
           <span className="font-medium">{session.title}</span>
           <span>{statsLine(stats, Date.now(), language)}</span>

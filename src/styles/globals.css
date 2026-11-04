@@ -332,6 +332,18 @@ html[data-theme-glass] .verta-float {
     transparent
   );
 }
+/*
+ * A floating layer whose own text is what you read - a compact session's details, a right-click
+ * menu, the list of choices in settings - gets a floor under that tint. Following the theme's pane
+ * opacity all the way down leaves their rows read through the window underneath, which is what the
+ * three of them looked like: fully transparent. The mask is the same `--popover` tint, raised to a
+ * fixed fraction, and it is alpha rather than a blur for the reason the rule above gives (VERTA.md,
+ * compositing budget): a blurred layer costs a backing store that WebKit reallocates on every
+ * window-resize step.
+ */
+html[data-theme-glass] .verta-float.verta-float-mask {
+  background-color: color-mix(in oklab, var(--popover) 88%, transparent);
+}
 /* The frame (gaps between panes, header, status bar) lets the texture (or the
  * desktop, for a native material) through, but never all the way: the webview's
  * own default is white and would flood the interface. Its opacity comes from the
