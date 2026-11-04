@@ -269,18 +269,23 @@ const zh = {
   "projects.pick.title": "选择项目目录（含它下面两层的仓库）",
   "projects.clone": "克隆仓库…",
   "projects.clone.shallow": "只拉最新一次提交（浅克隆）",
-  "projects.clone.shallowHint": "适合只参考、不开发的第三方库：只下载并保留最新一次提交，之后的拉取也保持只有一个提交。",
+  "projects.clone.shallowHint":
+    "适合只参考、不开发的第三方库：只下载并保留最新一次提交，之后的拉取也保持只有一个提交。",
   "projects.replace.action": "拉取并覆盖本地",
   "projects.action.pullShallow": "浅拉取（只留最新提交）",
   "projects.action.gitGraph": "打开提交图",
   "projects.replace.titleShallow": "浅拉取：只留最新一次提交？",
-  "projects.replace.bodyShallow": "会把 {branch} 重置成 {upstream} 的最新提交，并删掉更早的历史，只保留这一个提交（{commits} 个本地提交、{files} 个文件会被丢弃）。不做备份，无法撤销。",
-  "projects.replace.doneShallow": "{branch} 已变成浅克隆（{upstream} 的最新一次提交，丢弃 {commits} 个本地提交、{files} 个文件）",
+  "projects.replace.bodyShallow":
+    "会把 {branch} 重置成 {upstream} 的最新提交，并删掉更早的历史，只保留这一个提交（{commits} 个本地提交、{files} 个文件会被丢弃）。不做备份，无法撤销。",
+  "projects.replace.doneShallow":
+    "{branch} 已变成浅克隆（{upstream} 的最新一次提交，丢弃 {commits} 个本地提交、{files} 个文件）",
   "projects.replace.title": "用远程覆盖本地？",
-  "projects.replace.body": "会把 {branch} 重置成 {upstream} 的最新提交，并清掉未提交的改动与未跟踪的文件（{commits} 个本地提交、{files} 个文件将被丢弃）。不做备份，无法撤销。",
+  "projects.replace.body":
+    "会把 {branch} 重置成 {upstream} 的最新提交，并清掉未提交的改动与未跟踪的文件（{commits} 个本地提交、{files} 个文件将被丢弃）。不做备份，无法撤销。",
   "projects.replace.confirm": "覆盖",
   "projects.replace.running": "正在覆盖…",
-  "projects.replace.done": "{branch} 已重置成 {upstream}（丢弃 {commits} 个本地提交、{files} 个文件）",
+  "projects.replace.done":
+    "{branch} 已重置成 {upstream}（丢弃 {commits} 个本地提交、{files} 个文件）",
   "projects.clone.title": "克隆仓库",
   "projects.clone.hint":
     "目标目录的上一级必须已存在；克隆完会顺手加进项目清单。",
@@ -703,11 +708,11 @@ const zh = {
   "tabs.unsaved": "有未保存的更改",
   "tabs.close": "关闭标签页",
   "tabs.rename": "重命名标签页",
-  "tabs.agentState.working": "正在工作",
-  "tabs.agentState.attention": "在等你",
-  "tabs.agentState.finished": "刚做完",
-  "tabs.agentState.background": "后台有 agent 在跑，没有标签页",
-  "tabs.agentState.trailing": "回合结束了，后台任务还在跑",
+  "tabs.agentState.working": "运行中",
+  "tabs.agentState.attention": "等待输入",
+  "tabs.agentState.finished": "刚结束",
+  "tabs.agentState.background": "后台运行，无标签页",
+  "tabs.agentState.trailing": "后台任务运行中",
   "tabs.agentState.idle": "空闲",
 
   "header.settings": "设置",
@@ -901,8 +906,7 @@ const zh = {
   "launcher.deleteFailed": "有 {count} 条没能删除：\n{failures}",
   "launcher.deleteRequestFailed": "删除请求失败：{message}",
   "launcher.deleteTitle": "删除会话？",
-  "launcher.deleteBody":
-    "将从本机永久删除 {total} 条会话记录，无法撤销。",
+  "launcher.deleteBody": "将从本机永久删除 {total} 条会话记录，无法撤销。",
   "launcher.failureLine": "{tool} {id}：{reason}",
 
   "settings.windowTitle": "设置",
@@ -921,32 +925,32 @@ const zh = {
   "settings.wsl": "WSL",
   "settings.wslEnabled.title": "显示 WSL 内的项目与会话",
   "settings.wslEnabled.description":
-    "开启后 Verta 会在发行版内查询 agent 会话并列出 WSL 的项目；关闭则不向发行版发出任何请求。",
-  "settings.wslShutdown.title": "关闭时同时关掉 WSL",
+    "开启后，Verta 会在发行版内查询智能体会话，并列出 WSL 项目；关闭后不向发行版发出任何请求。",
+  "settings.wslShutdown.title": "关闭时同时停止 WSL",
   "settings.wslShutdown.description":
-    "开启后，关掉上面的开关会执行 wsl --shutdown：那会停掉所有发行版与 WSL2 工具 VM，包括 Docker Desktop 的 WSL 后端。",
+    "开启后，关闭上方开关将执行 wsl --shutdown，停止所有发行版与 WSL2 工具虚拟机，包括 Docker Desktop 的 WSL 后端。",
   "settings.wslShutdown.running": "正在关闭 WSL…",
   "settings.wslShutdown.done":
-    "已执行 wsl --shutdown：所有发行版与 WSL2 工具 VM 都停了。",
+    "已执行 wsl --shutdown，所有发行版与 WSL2 工具虚拟机均已停止。",
   "settings.wslShutdown.failed": "执行 wsl --shutdown 失败：{message}",
   "settings.showHidden.title": "显示隐藏文件",
   "settings.showHidden.description":
-    "在文件树与搜索中包含以点开头的文件和文件夹（.env、.gitignore、.config）。",
+    "在文件树与搜索中包含以点开头的文件与文件夹（.env、.gitignore、.config）。",
   "settings.gitDecorations.title": "Git 标记",
   "settings.gitDecorations.description":
-    "在文件树中给已修改的文件着色，并淡化被 gitignore 的条目。",
+    "在文件树中为已修改的文件着色，并淡化被 gitignore 忽略的条目。",
   "settings.startup": "启动",
   "settings.restoreTabs.title": "启动时恢复上次打开的标签",
   "settings.restoreTabs.description": "恢复关闭时的所有标签。",
   "settings.sessionList": "会话列表",
   "settings.sessionListDensity.title": "列表密度",
   "settings.sessionListDensity.description":
-    "紧凑只留标题，轮数、体积、最后说话时间和会话目录移到鼠标停上去的小窗里。",
+    "紧凑模式仅显示标题；轮数、体积、最近一次对话时间与会话目录移入悬停浮窗。",
   "settings.sessionListDensity.standard": "标准",
   "settings.sessionListDensity.compact": "紧凑",
   "settings.stateColours.title": "状态颜色",
   "settings.stateColours.description":
-    "标签栏的状态点与会话行的状态条使用这些颜色，用以标示该会话当前的状态。",
+    "标签栏状态点与会话行状态条使用这些颜色，用于标示会话当前状态。",
   "settings.stateColours.reset": "恢复默认",
   "settings.stateColours.name.sky": "天蓝",
   "settings.stateColours.name.cyan": "青",
@@ -957,26 +961,26 @@ const zh = {
   "settings.stateColours.name.purple": "紫",
   "settings.stateColours.name.indigo": "靛蓝",
   "settings.taskbar": "任务栏与通知区域",
-  "settings.closeToTray.title": "关闭时收进托盘",
+  "settings.closeToTray.title": "关闭时最小化到托盘",
   "settings.closeToTray.description":
-    "开启后，关闭主窗口会隐藏到通知区域；关闭后，关闭主窗口会直接退出。",
+    "开启后，关闭主窗口将隐藏到通知区域；关闭后，关闭主窗口将直接退出应用。",
   "settings.taskbarFlash.title": "任务栏提醒",
   "settings.taskbarFlash.description":
-    "智能体等待你回答或完成任务时，让任务栏按钮闪烁。",
+    "智能体等待输入或完成任务时，任务栏按钮闪烁。",
   "settings.desktopNotifications.title": "系统通知",
   "settings.desktopNotifications.description":
-    "智能体在等你、或你不在时一轮跑完，发一条 Windows 通知；点它回到那个会话。",
+    "智能体等待输入时，或一轮结束而该会话不在前台时，发送一条 Windows 通知；点击通知可回到该会话。",
   "settings.terminal": "终端",
   "settings.terminalRenderer.title": "终端渲染器",
   "settings.terminalRenderer.description":
-    "自动会优先使用 WebGPU，不可用时回退 WebGL。图形兼容性问题可选 WebGL。对新开的终端生效。",
+    "「自动」优先使用 WebGPU，不可用时回退 WebGL；出现图形兼容性问题时可固定为 WebGL。仅对新开终端生效。",
   "settings.terminalRenderer.auto": "自动",
   "settings.screenReader.title": "屏幕阅读器支持",
   "settings.screenReader.description":
-    "把终端输出作为可访问文本暴露出来。输出区域获得焦点时，Page Up / Page Down 浏览历史。",
+    "将终端输出作为可访问文本暴露；输出区域获得焦点后，可用 Page Up / Page Down 浏览历史。",
   "settings.cursorBlink.title": "光标闪烁",
   "settings.cursorBlink.description":
-    "让终端光标闪烁。默认关闭以降低空闲 CPU 占用，与 VS Code 和 macOS 终端一致。",
+    "终端光标闪烁。默认关闭以降低空闲 CPU 占用，与 VS Code 及 macOS 终端一致。",
   "settings.cursorStyle.title": "光标形状",
   "settings.cursorStyle.description": "终端光标的形状。",
   "settings.fontWeight.title": "字重",
@@ -984,31 +988,31 @@ const zh = {
   "settings.shell.title": "集成终端 Shell",
   "settings.shell.noBlocks": "该 Shell 不支持命令块与目录追踪。",
   "settings.shell.wslHint":
-    "集成终端使用的 Shell。WSL 工作区使用该发行版的登录 Shell。已打开的标签页保持原 Shell。",
+    "集成终端使用的 Shell；WSL 工作区使用该发行版的登录 Shell，已打开的标签页保留原 Shell。",
   "settings.shell.hint":
-    "新开终端标签页使用的 Shell。已打开的标签页保持原 Shell。",
+    "新建终端标签页使用的 Shell；已打开的标签页保留原 Shell。",
   "settings.shell.auto": "自动",
   "settings.letterSpacing.title": "字间距",
   "settings.letterSpacing.description":
-    "字符之间额外的水平间距（像素）。可用负值收紧 Nerd Font。",
+    "字符之间的额外水平间距（像素）；负值可收紧 Nerd Font。",
   "settings.fontSize.title": "字号",
   "settings.fontSize.description": "终端文字大小。",
   "settings.scrollback.title": "回滚行数",
   "settings.scrollback.description":
-    "每个终端保留的历史行数。数值越大占用内存越多（每行约 3 KB）。",
+    "每个终端保留的历史行数；数值越大内存占用越高（每行约 3 KB）。",
   "settings.scrollback.lines": "{count} 行",
-  "settings.confirmKill.title": "结束运行中的进程前先确认",
+  "settings.confirmKill.title": "结束运行中的进程前确认",
   "settings.confirmKill.description":
-    "命令仍在运行时，关闭终端标签页或退出应用前会询问。编辑器中未保存的改动始终会确认。",
+    "命令仍在运行时，关闭终端标签页或退出应用前会请求确认；编辑器中未保存的改动始终需要确认。",
   "settings.fontFamily.title": "字体",
   "settings.fontFamily.description":
-    "终端与编辑器共用的字体。选「自动检测」即用本机检测到的 Nerd Font；图标字形一律由检测到的那个字体兜底。",
+    "终端与编辑器共用的字体；选择「自动检测」时使用本机检测到的 Nerd Font，图标字形由该字体补全。",
   "settings.fontFamily.placeholder": "自动检测",
   "settings.font.auto": "自动检测",
   "settings.font.missing": "不在本机",
-  "settings.font.listFailed": "列本机字体失败，暂时手输。",
+  "settings.font.listFailed": "读取本机字体列表失败，请手动输入。",
   "settings.font.search": "搜索字体…",
-  "settings.font.none": "没有匹配的字体。",
+  "settings.font.none": "无匹配字体。",
   "settings.lsp.copyCommand": "复制安装命令",
   "settings.lsp.detectAgain": "重新检测",
   "settings.lsp.checking": "检测中…",
@@ -1024,31 +1028,30 @@ const zh = {
   "settings.editor.vim.title": "Vim 模式",
   "settings.editor.vim.description": "在代码编辑器中启用 Vim 键位。",
   "settings.editor.wrap.title": "自动换行",
-  "settings.editor.wrap.description": "超长行换行显示，而不是横向滚动。",
+  "settings.editor.wrap.description": "超长行自动换行，不横向滚动。",
   "settings.editor.saving": "保存",
   "settings.editor.autoSave.title": "自动保存",
-  "settings.editor.autoSave.description": "检测到改动后延迟一段时间自动保存。",
+  "settings.editor.autoSave.description": "检测到改动后按下方延迟自动保存。",
   "settings.editor.formatOnSave.title": "保存时格式化",
   "settings.editor.formatOnSave.description":
     "在显式保存（Cmd+S / :w）时用下方选择的格式化器处理文件。",
   "settings.editor.formatter.title": "格式化器",
   "settings.editor.formatter.description":
-    "语言服务器在写入前格式化缓冲区；外部工具则作用于已保存的文件，从 PATH 调用。",
+    "语言服务器在写入前格式化缓冲区；外部工具作用于已保存的文件，通过 PATH 调用。",
   "settings.editor.customCommand.title": "自定义命令",
   "settings.editor.customCommand.description":
     "作用于已保存的文件；{file} 会替换为带引号的路径（省略时自动追加）。",
   "settings.editor.customCommand.placeholder": "mytool --fix {file}",
   "settings.editor.overrides.title": "分语言覆盖",
   "settings.editor.overrides.description":
-    "为特定语言使用不同的格式化器（例如 Python 用 Ruff）。",
+    "为特定语言指定不同的格式化器，例如 Python 使用 Ruff。",
   "settings.editor.overrides.add": "添加覆盖",
   "settings.editor.overrides.remove": "移除覆盖",
   "settings.editor.autoSaveDelay.title": "自动保存延迟",
-  "settings.editor.autoSaveDelay.description":
-    "未保存的改动在多久之后自动写入。",
+  "settings.editor.autoSaveDelay.description": "未保存的改动自动写入前的延迟。",
   "settings.editor.wrapColumn.title": "换行列",
   "settings.editor.wrapColumn.description":
-    "在该列软换行；编辑器更窄时会提前换行。",
+    "在该列软换行；编辑器宽度不足时提前换行。",
 
   "theme.validate.notObject": "主题不是一个 JSON 对象",
   "theme.validate.object": "{path} 必须是对象",
@@ -1057,11 +1060,13 @@ const zh = {
   "theme.validate.number": "{path} 必须是数字",
   "theme.validate.boolean": "{path} 必须是布尔值",
   "theme.validate.unknownColorKey": "{path} 不是可识别的颜色键",
-  "theme.validate.fontWeight": "{path} 只能是 normal、bold 或 100 到 900 之间的字重",
+  "theme.validate.fontWeight":
+    "{path} 只能是 normal、bold 或 100 到 900 之间的字重",
   "theme.validate.fontSize": "{path} 必须是 {min} 到 {max} 之间的整数",
   "theme.validate.ansiArray": "{path} 必须是 16 个字符串组成的数组",
   "theme.validate.surfaceRepeat": "{path} 只能是 repeat 或 no-repeat",
-  "theme.validate.id": "id 必须是 kebab-case 字符串（只能有小写字母、数字与连字符）",
+  "theme.validate.id":
+    "id 必须是 kebab-case 字符串（只能有小写字母、数字与连字符）",
   "theme.validate.name": "name 必须是非空字符串",
   "theme.validate.variantsNeeded": "variants 至少要包含 light 或 dark 中的一个",
   "theme.validate.invalidJson": "文件不是合法的 JSON",
@@ -1069,11 +1074,11 @@ const zh = {
   "settings.themes.description": "主题、背景图片与自定义。",
   "settings.themes.editorTheme.title": "编辑器配色",
   "settings.themes.editorTheme.description":
-    "代码编辑器的语法配色。自动则跟随应用主题。",
+    "代码编辑器的语法配色；「自动」跟随应用主题。",
   "settings.themes.editorTheme.auto": "自动（跟随应用主题）",
   "settings.themes.transition.title": "会话开启过渡",
   "settings.themes.transition.description":
-    "开启会话时盖住终端的那段动画。选「不要」就照旧：命令写进终端的瞬间看得见。",
+    "开启会话时覆盖终端的动画；选择「不要过渡」时保持原样，命令写入终端即刻可见。",
   "settings.themes.transition.ripples": "波纹扩散",
   "settings.themes.transition.pulse": "同心脉冲",
   "settings.themes.transition.orbit": "光环绕行",
@@ -1085,19 +1090,19 @@ const zh = {
   "settings.themes.editTheme": "编辑主题",
   "settings.themes.removeTheme": "删除主题",
   "settings.themes.dropImage":
-    "把图片拖到这里，或点「选择图片」。保存在本机；设置之前不影响默认外观。",
+    "将图片拖到此处，或点击「选择图片」。图片保存在本机；未设置时不影响默认外观。",
   "settings.language.title": "界面语言",
-  "settings.language.description": "切换整个界面的语言，立即生效。",
+  "settings.language.description": "切换界面语言，立即生效。",
 
   "settings.themes.light": "浅色",
   "settings.themes.dark": "深色",
   "settings.themes.system": "跟随系统",
   "settings.themes.mica.title": "Mica 背景",
   "settings.themes.mica.description":
-    "让标题栏、状态栏与边沟融入桌面壁纸。仅 Windows 11 支持。",
+    "标题栏、状态栏与边沟融入桌面壁纸；仅 Windows 11 支持。",
   "settings.themes.vibrancy.title": "窗口通透",
   "settings.themes.vibrancy.description":
-    "让标题栏、状态栏与边沟透出窗口背后的内容。面板本身保持不透明。",
+    "标题栏、状态栏与边沟透出窗口背后的内容；面板本身保持不透明。",
   "settings.themes.theme": "主题",
   "settings.themes.background": "背景",
   "settings.themes.replaceImage": "更换图片",
@@ -1112,7 +1117,7 @@ const zh = {
   "settings.shortcuts.unassigned": "未分配",
   "settings.shortcuts.resetTitle": "重置全部快捷键？",
   "settings.shortcuts.resetConfirm":
-    "这会把你的全部自定义快捷键还原为默认值，且无法撤销。",
+    "全部自定义快捷键将还原为默认值，且无法撤销。",
 
   "settings.about.title": "关于",
   "settings.about.tagline": "开源的智能体原生终端模拟器",
@@ -1122,8 +1127,6 @@ const zh = {
   "settings.languageSystem": "跟随系统",
   "settings.languageActive": "当前显示：{language}",
 
-  
-  
   "editor.draft.found": "发现未保存的草稿（{time} 中断的那次）",
   "editor.draft.restore": "恢复",
   "editor.draft.discard": "丢弃",
@@ -1212,7 +1215,8 @@ const zh = {
   "scm.copyRelativePath": "复制相对路径",
   "scm.copyAbsolutePath": "复制绝对路径",
   "scm.common.discard": "丢弃",
-  "scm.pushHint.noUpstream": "要在这个版本里启用推送，请在终端中配置或发布这条分支。",
+  "scm.pushHint.noUpstream":
+    "要在这个版本里启用推送，请在终端中配置或发布这条分支。",
   "scm.pushHint.behind": "先拉取远程改动，再推送本地提交。",
   "scm.pushHint.upToDate": "没有本地提交可以推送到 {upstream}。",
   "scm.pushHint.ahead": "将推送到 {upstream}。",
@@ -1235,22 +1239,24 @@ const zh = {
   "settings.themes.notImage": "{file}：不是图片",
   "settings.themes.importImageFailed": "导入图片失败",
   "settings.about.update.upToDate": "已是最新版本",
-  "settings.about.update.failed": "检查失败 - 重试",
+  "settings.about.update.failed": "检查失败，重试",
   "settings.about.update.checking": "检查中…",
   "settings.about.update.downloading": "下载中…",
   "settings.about.update.restart": "重启以安装",
   "settings.about.update.install": "安装 v{version}",
   "settings.about.update.manual": "更新到 v{version}",
   "settings.about.update.check": "检查更新",
-  "settings.about.update.noSource": "还没配置更新源",
+  "settings.about.update.noSource": "尚未配置更新源",
   "settings.editor.formatter.lsp": "语言服务器",
   "settings.editor.formatter.custom": "自定义命令",
   "settings.editor.wrapColumn.unit": "列",
   "settings.lsp.install.title": "安装 {name} 语言服务器",
-  "settings.lsp.install.before": "Verta 在 PATH 里找不到",
-  "settings.lsp.install.after": "，装上它，再点「再检测一次」启用这个语言服务器。",
-  "settings.lsp.install.manual": "手动安装这个自定义服务器，并确保它的命令在 PATH 里可用。",
-  "settings.lsp.install.stillNotFound": "还是没找到。装完之后确认命令在 PATH 里可用。",
+  "settings.lsp.install.before": "Verta 在 PATH 中找不到",
+  "settings.lsp.install.after": "，安装后点击「再检测一次」启用该语言服务器。",
+  "settings.lsp.install.manual":
+    "手动安装该自定义语言服务器，并确保其命令在 PATH 中可用。",
+  "settings.lsp.install.stillNotFound":
+    "仍未找到；安装完成后请确认命令在 PATH 中可用。",
   "settings.lsp.documentation": "文档",
   "window.minimize": "最小化",
   "window.restore": "还原",
@@ -1274,7 +1280,8 @@ const zh = {
   "explorer.dragOutFailed": "拖出文件列表失败：{error}",
   "explorer.dropConflictTitle": "已有同名项目（{count} 个）",
   "explorer.dropConflictOne": "目标文件夹里已有「{name}」。要覆盖它吗？",
-  "explorer.dropConflictMany": "目标文件夹里已有 {count} 个项目同名。要全部覆盖吗？",
+  "explorer.dropConflictMany":
+    "目标文件夹里已有 {count} 个项目同名。要全部覆盖吗？",
   "explorer.dropConflictMore": "…还有 {count} 个",
   "explorer.dropConflictSkip": "跳过",
   "explorer.dropConflictReplace": "覆盖",
@@ -1295,7 +1302,8 @@ const zh = {
   "updater.downloading": "正在下载更新…",
   "updater.available": "Verta v{version} 可以更新了",
   "updater.restartToFinish": "重启 Verta 即可完成安装。",
-  "updater.manualHint": "你当前是 v{version}。选好发行版并运行命令，或从 GitHub 下载安装包。",
+  "updater.manualHint":
+    "你当前是 v{version}。选好发行版并运行命令，或从 GitHub 下载安装包。",
   "updater.newVersionReady": "有新版本可以安装了。",
   "updater.copy": "复制",
   "updater.copied": "已复制",
@@ -1357,14 +1365,17 @@ const zh = {
   "term.outputFailed": "终端无法处理输出。重新打开此终端即可恢复。",
   "term.outputStalled": "正在等待终端连接。恢复后会自动继续投递。",
   "editor.saveConflict.title": "文件已在磁盘上被改动",
-  "editor.saveConflict.body": "{name} 在你还有未保存改动的时候被另一个程序改过。覆盖即可保留你的版本。",
+  "editor.saveConflict.body":
+    "{name} 在你还有未保存改动的时候被另一个程序改过。覆盖即可保留你的版本。",
   "editor.saveConflict.overwrite": "覆盖",
   "preview.noServerOnPort": "没有服务监听 :{port}。",
   "workspace.branchChip": "分支：{branch}",
   "app.closeWindowFailed": "无法关闭窗口",
-  "app.switchWorkspaceDirty": "切换工作区之前，请先保存或关闭未保存的编辑器标签页。",
+  "app.switchWorkspaceDirty":
+    "切换工作区之前，请先保存或关闭未保存的编辑器标签页。",
   "app.error.title": "界面出错了",
-  "app.error.hint": "刚才只有一块出了错，窗口还在。重载会把界面重新开起来；正在终端里跑的东西会停。",
+  "app.error.hint":
+    "刚才只有一块出了错，窗口还在。重载会把界面重新开起来；正在终端里跑的东西会停。",
   "app.error.reload": "重载界面",
   "tray.show": "显示主窗口",
   "tray.quit": "退出",
@@ -1386,8 +1397,10 @@ const zh = {
   "common.commandSearchDescription": "搜索要运行的命令…",
   "editor.lspFormatFailed": "语言服务器格式化失败",
   "editor.formatSkipped.title": "已跳过保存时格式化",
-  "editor.formatSkipped.noFormatter": "当前语言服务器没有格式化能力。可在设置里选一个外部格式化器（Python 用 Ruff，也可用 Prettier、rustfmt 等）。",
-  "editor.formatSkipped.noLsp": "这个文件没有启用的语言服务器。在状态栏启用一个，或在设置里选一个外部格式化器。",
+  "editor.formatSkipped.noFormatter":
+    "当前语言服务器没有格式化能力。可在设置里选一个外部格式化器（Python 用 Ruff，也可用 Prettier、rustfmt 等）。",
+  "editor.formatSkipped.noLsp":
+    "这个文件没有启用的语言服务器。在状态栏启用一个，或在设置里选一个外部格式化器。",
   "editor.formatFailed": "{formatter} 格式化失败",
   "editor.loading": "加载中…",
   "editor.binaryFile": "二进制文件",
@@ -1694,29 +1707,38 @@ const en: Record<MessageKey, string> = {
   "projects.pull.running": "Pulling…",
   "projects.pull.done": "Pulled {branch}",
   "projects.pull.unchecked": "Not checked yet; refresh once first",
-  "projects.pull.detached": "This is a detached HEAD, on no branch; nothing to pull into",
-  "projects.pull.noBranch": "The current branch cannot be read, so there is nothing to pull into",
-  "projects.pull.branchUnreadable": "No branch name can be read out of the upstream {upstream}",
+  "projects.pull.detached":
+    "This is a detached HEAD, on no branch; nothing to pull into",
+  "projects.pull.noBranch":
+    "The current branch cannot be read, so there is nothing to pull into",
+  "projects.pull.branchUnreadable":
+    "No branch name can be read out of the upstream {upstream}",
   "projects.pull.branchDiffers":
     "The upstream is {upstream} (branch {upstreamBranch}), which is not the same name as the current branch {branch}; only same-named branches can be pulled, otherwise another branch would be merged in.",
   "projects.fetch.failed":
     "The remote refs of this row could not be fetched, so the ahead/behind below may be out of date: {error}",
   "projects.pick": "Choose folder…",
-  "projects.pick.title": "Choose a project folder (repos up to two levels down)",
+  "projects.pick.title":
+    "Choose a project folder (repos up to two levels down)",
   "projects.clone": "Clone repo…",
   "projects.clone.shallow": "Newest commit only (shallow)",
-  "projects.clone.shallowHint": "For a repository kept to read rather than work on: clones the newest commit alone, and every pull afterwards keeps it that way.",
+  "projects.clone.shallowHint":
+    "For a repository kept to read rather than work on: clones the newest commit alone, and every pull afterwards keeps it that way.",
   "projects.replace.action": "Pull and replace local",
   "projects.action.pullShallow": "Shallow pull (newest commit only)",
   "projects.action.gitGraph": "Open commit graph",
   "projects.replace.titleShallow": "Shallow pull: keep the newest commit only?",
-  "projects.replace.bodyShallow": "Resets {branch} to the newest commit of {upstream} and drops the history behind it, keeping that one commit ({commits} local commits and {files} files will be discarded). There is no backup and it cannot be undone.",
-  "projects.replace.doneShallow": "{branch} is now a shallow clone (the newest commit of {upstream}; {commits} local commits and {files} files discarded)",
+  "projects.replace.bodyShallow":
+    "Resets {branch} to the newest commit of {upstream} and drops the history behind it, keeping that one commit ({commits} local commits and {files} files will be discarded). There is no backup and it cannot be undone.",
+  "projects.replace.doneShallow":
+    "{branch} is now a shallow clone (the newest commit of {upstream}; {commits} local commits and {files} files discarded)",
   "projects.replace.title": "Replace local with the remote?",
-  "projects.replace.body": "Resets {branch} to the newest commit of {upstream} and clears uncommitted and untracked files ({commits} local commits and {files} files will be discarded). There is no backup and it cannot be undone.",
+  "projects.replace.body":
+    "Resets {branch} to the newest commit of {upstream} and clears uncommitted and untracked files ({commits} local commits and {files} files will be discarded). There is no backup and it cannot be undone.",
   "projects.replace.confirm": "Replace",
   "projects.replace.running": "Replacing…",
-  "projects.replace.done": "{branch} reset to {upstream} ({commits} local commits and {files} files discarded)",
+  "projects.replace.done":
+    "{branch} reset to {upstream} ({commits} local commits and {files} files discarded)",
   "projects.clone.title": "Clone repository",
   "projects.clone.hint":
     "The parent of the target directory must already exist; the clone is added to the project list.",
@@ -1727,7 +1749,8 @@ const en: Record<MessageKey, string> = {
   "projects.clone.running": "Cloning…",
   "projects.clone.done": "Cloned and added to the project list",
   "projects.scanning": "Scanning…",
-  "projects.scan.none": "No git repositories found there (up to two levels down).",
+  "projects.scan.none":
+    "No git repositories found there (up to two levels down).",
   "projects.scan.done": "Found {total} repositories, {added} new.",
   "projects.empty.title": "No projects yet",
   "projects.empty.hint":
@@ -1991,7 +2014,8 @@ const en: Record<MessageKey, string> = {
   "remotes.rename.hint":
     "GitHub redirects the old name to the new one (existing clones keep working), but old links, badges and CI configs still name the old repository.",
   "remotes.rename.done": "Renamed to {repo}",
-  "remotes.rename.tooLong": "A repository name is at most 100 characters; this one has {length}.",
+  "remotes.rename.tooLong":
+    "A repository name is at most 100 characters; this one has {length}.",
   "remotes.rename.empty": "A repository name cannot be empty.",
   "remotes.rename.badChars":
     "{char} cannot be part of a repository name: only letters, digits, dot, underscore and hyphen.",
@@ -2164,10 +2188,10 @@ const en: Record<MessageKey, string> = {
   "tabs.close": "Close tab",
   "tabs.rename": "Rename tab",
   "tabs.agentState.working": "Working",
-  "tabs.agentState.attention": "Waiting for you",
+  "tabs.agentState.attention": "Waiting for input",
   "tabs.agentState.finished": "Just finished",
-  "tabs.agentState.background": "An agent is working here, with no tab open",
-  "tabs.agentState.trailing": "The turn ended, background tasks are still running",
+  "tabs.agentState.background": "Running in the background, no tab",
+  "tabs.agentState.trailing": "Background tasks still running",
   "tabs.agentState.idle": "Idle",
 
   "header.settings": "Settings",
@@ -2183,7 +2207,8 @@ const en: Record<MessageKey, string> = {
   "notifications.updates.upgrade": "Update {name}",
   "notifications.updates.upgradeAll": "Update all ({count})",
   "notifications.updates.upgradedMany": "{count} components updated",
-  "notifications.updates.stillBehind": "{name} is still {version}; nothing was updated",
+  "notifications.updates.stillBehind":
+    "{name} is still {version}; nothing was updated",
   "notifications.updates.upgradeFailed": "Update failed: {error}",
   "notifications.updates.upgraded": "{name} updated to {version}",
   "notifications.updates.upgradedNoVersion": "{name} updated",
@@ -2218,7 +2243,8 @@ const en: Record<MessageKey, string> = {
   "common.loading": "Loading",
 
   "lsp.stopped": "Language server stopped",
-  "lsp.memoryBudget": "Killed for exceeding its {budget} MB memory budget ({resident} MB resident)",
+  "lsp.memoryBudget":
+    "Killed for exceeding its {budget} MB memory budget ({resident} MB resident)",
   "lsp.dismissHint": "Dismiss (you can re-enable from Settings)",
   "lsp.copyCommand": "Copy command",
 
@@ -2402,7 +2428,8 @@ const en: Record<MessageKey, string> = {
     "Tint changed files and dim gitignored entries in the file explorer.",
   "settings.startup": "Startup",
   "settings.restoreTabs.title": "Restore tabs on launch",
-  "settings.restoreTabs.description": "Restore every tab that was open when the window closed.",
+  "settings.restoreTabs.description":
+    "Restore every tab that was open when the window closed.",
   "settings.sessionList": "Session list",
   "settings.sessionListDensity.title": "List density",
   "settings.sessionListDensity.description":
@@ -2579,8 +2606,6 @@ const en: Record<MessageKey, string> = {
   "settings.languageSystem": "Follow system",
   "settings.languageActive": "Currently showing: {language}",
 
-  
-  
   "editor.draft.found": "Unsaved draft found (interrupted at {time})",
   "editor.draft.restore": "Restore",
   "editor.draft.discard": "Discard",
@@ -2670,7 +2695,8 @@ const en: Record<MessageKey, string> = {
   "scm.copyRelativePath": "Copy Relative Path",
   "scm.copyAbsolutePath": "Copy Absolute Path",
   "scm.common.discard": "Discard",
-  "scm.pushHint.noUpstream": "Configure or publish this branch in the terminal to enable push in this iteration.",
+  "scm.pushHint.noUpstream":
+    "Configure or publish this branch in the terminal to enable push in this iteration.",
   "scm.pushHint.behind": "Pull remote changes before pushing local commits.",
   "scm.pushHint.upToDate": "No local commits to push to {upstream}.",
   "scm.pushHint.ahead": "Pushes to {upstream}.",
@@ -2697,13 +2723,16 @@ const en: Record<MessageKey, string> = {
   "theme.validate.number": "{path} must be a number",
   "theme.validate.boolean": "{path} must be a boolean",
   "theme.validate.unknownColorKey": "{path} is not a recognized color key",
-  "theme.validate.fontWeight": "{path} must be normal, bold, or a weight from 100 to 900",
+  "theme.validate.fontWeight":
+    "{path} must be normal, bold, or a weight from 100 to 900",
   "theme.validate.fontSize": "{path} must be an integer from {min} to {max}",
   "theme.validate.ansiArray": "{path} must be an array of 16 strings",
   "theme.validate.surfaceRepeat": "{path} must be repeat or no-repeat",
-  "theme.validate.id": "id must be a kebab-case string (lowercase letters, digits and hyphens)",
+  "theme.validate.id":
+    "id must be a kebab-case string (lowercase letters, digits and hyphens)",
   "theme.validate.name": "name must be a non-empty string",
-  "theme.validate.variantsNeeded": "variants must contain at least one of: light, dark",
+  "theme.validate.variantsNeeded":
+    "variants must contain at least one of: light, dark",
   "theme.validate.invalidJson": "The file is not valid JSON",
   "settings.themes.notImage": "{file}: not an image",
   "settings.themes.importImageFailed": "failed to import image",
@@ -2721,9 +2750,12 @@ const en: Record<MessageKey, string> = {
   "settings.editor.wrapColumn.unit": "columns",
   "settings.lsp.install.title": "Install {name} language server",
   "settings.lsp.install.before": "Verta could not find",
-  "settings.lsp.install.after": "on your PATH. Install it, then check again to enable this language server.",
-  "settings.lsp.install.manual": "Install this custom server manually and make sure its command is available on PATH.",
-  "settings.lsp.install.stillNotFound": "Still not found. Finish the installation and make sure the command is available on PATH.",
+  "settings.lsp.install.after":
+    "on your PATH. Install it, then check again to enable this language server.",
+  "settings.lsp.install.manual":
+    "Install this custom server manually and make sure its command is available on PATH.",
+  "settings.lsp.install.stillNotFound":
+    "Still not found. Finish the installation and make sure the command is available on PATH.",
   "settings.lsp.documentation": "Documentation",
   "window.minimize": "Minimize",
   "window.restore": "Restore",
@@ -2747,18 +2779,19 @@ const en: Record<MessageKey, string> = {
   "explorer.dragOutFailed": "Could not drag out of the explorer: {error}",
   "explorer.dropConflictTitle": "Already in the folder ({count})",
   "explorer.dropConflictOne": "The folder already holds “{name}”. Replace it?",
-  "explorer.dropConflictMany": "The folder already holds {count} of these names. Replace them all?",
+  "explorer.dropConflictMany":
+    "The folder already holds {count} of these names. Replace them all?",
   "explorer.dropConflictMore": "…and {count} more",
   "explorer.dropConflictSkip": "Skip",
   "explorer.dropConflictReplace": "Replace",
 
   "explorer.deleteFailed": "Delete failed for one or more items",
-  "explorer.createFailed": "Could not create \"{name}\": {error}",
+  "explorer.createFailed": 'Could not create "{name}": {error}',
   "explorer.renameFailed": "Rename failed: {error}",
-  "explorer.deleteOneFailed": "Could not delete \"{name}\": {error}",
+  "explorer.deleteOneFailed": 'Could not delete "{name}": {error}',
   "explorer.toast.copy": "Copy error",
   "explorer.toast.copied": "Copied",
-  "explorer.alreadyExists": "\"{name}\" already exists",
+  "explorer.alreadyExists": '"{name}" already exists',
   "explorer.replace": "Replace",
   "explorer.skip": "Skip",
   "explorer.closeDestination": "Close destination before replacing",
@@ -2768,7 +2801,8 @@ const en: Record<MessageKey, string> = {
   "updater.downloading": "Downloading update…",
   "updater.available": "Verta v{version} is available",
   "updater.restartToFinish": "Restart Verta to finish installing.",
-  "updater.manualHint": "You're on v{version}. Pick your distro and run the command, or grab the package from GitHub.",
+  "updater.manualHint":
+    "You're on v{version}. Pick your distro and run the command, or grab the package from GitHub.",
   "updater.newVersionReady": "A new version is ready to install.",
   "updater.copy": "Copy",
   "updater.copied": "Copied",
@@ -2812,7 +2846,8 @@ const en: Record<MessageKey, string> = {
   "chat.run": "Run",
   "term.unableToDisplay": "Unable to display terminal",
   "term.unableToStart": "Unable to start terminal",
-  "term.sessionPreserved": "Your terminal session is preserved. Retry to restore its display.",
+  "term.sessionPreserved":
+    "Your terminal session is preserved. Retry to restore its display.",
   "term.retryDisplay": "Retry display",
   "term.retry": "Retry",
   "term.dropFileHere": "Drop file path here",
@@ -2827,17 +2862,22 @@ const en: Record<MessageKey, string> = {
   "term.inputPlaceholder": "Run a command  -  ↑ history",
   "term.typeDirectly": "Type directly in the terminal",
   "term.outputPaused": "Terminal output paused",
-  "term.outputFailed": "The terminal could not process output. Reopen this terminal to recover.",
-  "term.outputStalled": "Waiting for the terminal connection. Delivery will resume automatically.",
+  "term.outputFailed":
+    "The terminal could not process output. Reopen this terminal to recover.",
+  "term.outputStalled":
+    "Waiting for the terminal connection. Delivery will resume automatically.",
   "editor.saveConflict.title": "File changed on disk",
-  "editor.saveConflict.body": "{name} was modified by another program while you had unsaved changes. Overwrite to keep your version.",
+  "editor.saveConflict.body":
+    "{name} was modified by another program while you had unsaved changes. Overwrite to keep your version.",
   "editor.saveConflict.overwrite": "Overwrite",
   "preview.noServerOnPort": "No server listening on :{port}.",
   "workspace.branchChip": "Branch: {branch}",
   "app.closeWindowFailed": "Could not close the window",
-  "app.switchWorkspaceDirty": "Save or close unsaved editor tabs before switching workspace.",
+  "app.switchWorkspaceDirty":
+    "Save or close unsaved editor tabs before switching workspace.",
   "app.error.title": "The interface broke",
-  "app.error.hint": "One part of it failed, and the window is still here. Reloading brings the interface back; anything running in a terminal stops.",
+  "app.error.hint":
+    "One part of it failed, and the window is still here. Reloading brings the interface back; anything running in a terminal stops.",
   "app.error.reload": "Reload the interface",
   "tray.show": "Show main window",
   "tray.quit": "Quit",
@@ -2859,8 +2899,10 @@ const en: Record<MessageKey, string> = {
   "common.commandSearchDescription": "Search for a command to run...",
   "editor.lspFormatFailed": "Language server format failed",
   "editor.formatSkipped.title": "Format on save skipped",
-  "editor.formatSkipped.noFormatter": "The active language server has no formatter. Pick an external one in Settings (Ruff for Python, Prettier, rustfmt, ...).",
-  "editor.formatSkipped.noLsp": "No active language server for this file. Enable one in the statusbar, or pick an external formatter in Settings.",
+  "editor.formatSkipped.noFormatter":
+    "The active language server has no formatter. Pick an external one in Settings (Ruff for Python, Prettier, rustfmt, ...).",
+  "editor.formatSkipped.noLsp":
+    "No active language server for this file. Enable one in the statusbar, or pick an external formatter in Settings.",
   "editor.formatFailed": "{formatter} format failed",
   "editor.loading": "Loading…",
   "editor.binaryFile": "Binary file",
