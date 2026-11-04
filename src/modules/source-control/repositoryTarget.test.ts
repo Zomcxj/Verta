@@ -54,6 +54,30 @@ describe("repository targets", () => {
     );
   });
 
+  // Two sessions opened at the same folder pin their own sub-repository: a folder that holds
+  // several checkouts is where two sessions are most likely to be reading different ones.
+  it("keeps two sessions in one folder on their own repositories", () => {
+    const first = repositoryTargetScope("local", "/projects/a", 7);
+    const second = repositoryTargetScope("local", "/projects/a", 8);
+    const pinned = setRepositoryTargetForWorkspace(
+      setRepositoryTargetForWorkspace({}, first, "/projects/a/api"),
+      second,
+      "/projects/a/web",
+    );
+
+    expect(first).not.toBe(second);
+    expect(repositoryTargetForWorkspace(pinned, first)).toEqual({
+      mode: "fixed",
+      repoRoot: "/projects/a/api",
+    });
+    expect(repositoryTargetForWorkspace(pinned, second)).toEqual({
+      mode: "fixed",
+      repoRoot: "/projects/a/web",
+    });
+    // A scope still names its environment first, which is what a resolved answer is checked against.
+    expect(first.startsWith("local\u0000")).toBe(true);
+  });
+
   it("keeps repository paths isolated by workspace environment", () => {
     const localTargets = setRepositoryTargetForWorkspace(
       {},

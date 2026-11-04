@@ -23,20 +23,27 @@ function dirname(path: string | null): string | null {
 }
 
 /**
- * The repo pinned in the right panel is remembered per **workspace root** (env + root
- * path): project A and project B locally each pin their own, and each project inside a
- * distro pins its own. It used to be per workspace, and a workspace is a single root;
- * after workspaces were removed it was per env only, so switching projects within one
- * env (root changed) left the pin on the old repo; the right panel kept showing the
- * previous project's changes and history, looking like "switched projects but it did
- * not follow". The explorer has long bucketed by "env + root" (see `scopeKey` in
- * `explorer/lib/useFileTree`); this aligns with it.
+ * The repo pinned in the right panel is remembered per **session tab** within a workspace root
+ * (env + root path + tab): project A and project B locally each pin their own, each project inside
+ * a distro pins its own, and two sessions opened at the *same* folder pin independently - a folder
+ * that holds several checkouts is exactly where two sessions are likely to be looking at different
+ * ones, and the pin used to be shared, so switching the sub-repository in one session switched it in
+ * the other ("两个会话在同一个目录，各自切换展示的子仓库不同步").
+ *
+ * It used to be per workspace, and a workspace is a single root; after workspaces were removed it was
+ * per env only, so switching projects within one env (root changed) left the pin on the old repo.
+ * The explorer has long bucketed by "env + root" (see `scopeKey` in `explorer/lib/useFileTree`); this
+ * aligns with it and adds the tab.
+ *
+ * The tab is appended, not inserted: every reader that asks "is this scope still in the same
+ * environment" (`isRepositoryContextCurrent`) matches on the prefix the first two parts form.
  */
 export function repositoryTargetScope(
   workspaceKey: string,
   rootPath: string | null,
+  tabId?: number | null,
 ): string {
-  return `${workspaceKey}\u0000${rootPath ?? ""}`;
+  return `${workspaceKey}\u0000${rootPath ?? ""}\u0000tab:${tabId ?? ""}`;
 }
 
 export function repositoryTargetForWorkspace(

@@ -7,7 +7,11 @@ import {
 } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { consumeLaunchFiles, didLaunchWithDir, getLaunchDir } from "@/lib/launchDir";
+import {
+  consumeLaunchFiles,
+  didLaunchWithDir,
+  getLaunchDir,
+} from "@/lib/launchDir";
 import { native, type WireScreenshotSaved } from "@/lib/native";
 import { IS_MAC } from "@/lib/platform";
 import { quoteShellArg } from "@/lib/shellQuote";
@@ -244,14 +248,13 @@ async function waitForAgentUi(
   // DEV-only trace: what each tick saw and which rule ended the wait. A probe reads this
   // after opening a session, so the moment the cover lifts can be judged from measurements
   // rather than from re-reading the loop.
-  const trace =
-    import.meta.env.DEV
-      ? (() => {
-          const w = window as unknown as { __vertaOpenTrace?: unknown[] };
-          if (!w.__vertaOpenTrace) w.__vertaOpenTrace = [];
-          return w.__vertaOpenTrace;
-        })()
-      : null;
+  const trace = import.meta.env.DEV
+    ? (() => {
+        const w = window as unknown as { __vertaOpenTrace?: unknown[] };
+        if (!w.__vertaOpenTrace) w.__vertaOpenTrace = [];
+        return w.__vertaOpenTrace;
+      })()
+    : null;
   while (Date.now() < hardCap) {
     const bytes = leafOutputBytes(leafId) - base;
     if (bytes > lastBytes) {
@@ -261,7 +264,8 @@ async function waitForAgentUi(
     const elapsed = Date.now() - startedAt;
     const silentFor = Date.now() - lastGrowthAt;
     const screen = leafScreenTail(leafId);
-    const showsLaunch = screen !== null && screenShowsLaunchLine(screen, command);
+    const showsLaunch =
+      screen !== null && screenShowsLaunchLine(screen, command);
     // The agent's own screen has to be there: an empty one is an agent that has just
     // cleared or switched buffers and has not painted yet, and lifting onto that trades
     // a visible command line for a blank pane.
@@ -292,10 +296,7 @@ async function waitForAgentUi(
     // `coverRuleFor` already refuses when the command is on screen. The paint is awaited and the
     // screen read a second time because the tick read it before the renderer caught up: the frame
     // that lands can be a cleared buffer, and that frame is the one the user would see.
-    if (
-      rule !== null &&
-      (await paintsWithoutLaunchLine(leafId, command))
-    ) {
+    if (rule !== null && (await paintsWithoutLaunchLine(leafId, command))) {
       trace?.push(
         rule === "silence"
           ? { t: elapsed, exit: rule, bytes, silentFor }
@@ -636,12 +637,8 @@ export default function App() {
     disposeTabs,
   });
 
-  const {
-    pendingAppClose,
-    confirmAppClose,
-    cancelAppClose,
-    requestAppQuit,
-  } = useAppCloseGuard(tabsRef);
+  const { pendingAppClose, confirmAppClose, cancelAppClose, requestAppQuit } =
+    useAppCloseGuard(tabsRef);
   useTray(requestAppQuit);
 
   useEffect(() => {
@@ -831,7 +828,9 @@ export default function App() {
    * spinning over an unrelated terminal until the fallback timer ran out. Each start
    * also takes a token, so a slower earlier start cannot lift a newer one's layer.
    */
-  const [sessionOpeningLeaf, setSessionOpeningLeaf] = useState<number | null>(null);
+  const [sessionOpeningLeaf, setSessionOpeningLeaf] = useState<number | null>(
+    null,
+  );
   /** Set by every start, so a slower earlier start cannot lift a newer one's layer. */
   const sessionOpeningToken = useRef(0);
   const sessionOpeningTimer = useRef<number | null>(null);
@@ -951,12 +950,7 @@ export default function App() {
         hideSessionOpening(opening);
       })();
     },
-    [
-      newAgentTab,
-      showSessionOpening,
-      hideSessionOpening,
-      setActiveId,
-    ],
+    [newAgentTab, showSessionOpening, hideSessionOpening, setActiveId],
   );
 
   /**
@@ -978,7 +972,12 @@ export default function App() {
       const leaf = findLeaf(tab.paneTree, tab.activeLeafId);
       const plan =
         tab.agent && tab.sessionId && leaf?.cwd
-          ? planSessionResume(tab.agent, tab.sessionId, leaf.cwd, leaf.workspace)
+          ? planSessionResume(
+              tab.agent,
+              tab.sessionId,
+              leaf.cwd,
+              leaf.workspace,
+            )
           : null;
       if (!plan || !tab.sessionId) {
         // The session cannot be rebuilt (the directory did not survive, or the id is
@@ -1009,7 +1008,13 @@ export default function App() {
         clearResumeIntent(tab.id, false);
       })();
     }
-  }, [tabs, tabsHydrated, showSessionOpening, hideSessionOpening, clearResumeIntent]);
+  }, [
+    tabs,
+    tabsHydrated,
+    showSessionOpening,
+    hideSessionOpening,
+    clearResumeIntent,
+  ]);
 
   const handleNewProjectSession = useCallback(
     (entry: ProjectEntry, tool: AgentTool) => {
@@ -1083,7 +1088,9 @@ export default function App() {
   const handleOpenProjectGitGraph = useCallback(
     async (entry: ProjectEntry) => {
       try {
-        await native.workspaceAuthorize(entry.path, entry.workspace).catch(() => null);
+        await native
+          .workspaceAuthorize(entry.path, entry.workspace)
+          .catch(() => null);
         const repo = await native.gitResolveRepo(entry.path);
         if (!repo) return;
         openCommitHistoryTab({ repoRoot: repo.repoRoot, branch: repo.branch });
@@ -1268,8 +1275,9 @@ export default function App() {
       : null;
   const isRepositoryContextCurrent = useCallback((workspaceKey: string) => {
     const currentEnv = workspaceScopeKey(useWorkspaceEnvStore.getState().env);
-    // The pin is scoped to the workspace root too (see `repositoryTargetScope`), and
-    // only the environment has to have stayed the same for a resolved repo to apply.
+    // The pin is scoped to the workspace root and the session tab too (see
+    // `repositoryTargetScope`), and only the environment has to have stayed the same for a
+    // resolved repo to apply.
     return workspaceKey.startsWith(`${currentEnv}\u0000`);
   }, []);
   const openSourceControl = useCallback(() => {
@@ -1292,6 +1300,7 @@ export default function App() {
     workspaceKey: repositoryTargetScope(
       workspaceScopeKey(workspaceEnv),
       explorerRoot,
+      activeTab?.id ?? null,
     ),
     isContextCurrent: isRepositoryContextCurrent,
     openSourceControl,
@@ -1323,7 +1332,6 @@ export default function App() {
       openRightPanel,
     ],
   );
-
 
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
@@ -1385,10 +1393,7 @@ export default function App() {
     () => openPreviewTab(""),
     [openPreviewTab],
   );
-  const openNewEditorDialog = useCallback(
-    () => setNewEditorOpen(true),
-    [],
-  );
+  const openNewEditorDialog = useCallback(() => setNewEditorOpen(true), []);
 
   /** The new-file dialog's result: a stable identity, since the dialog is memoised. */
   const openCreatedFile = useCallback(
