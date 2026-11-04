@@ -17,6 +17,18 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-04</strong></summary>
 
+**The right panel's repository belongs to the session that picked it, and three floating layers stop being see-through**
+
+- `src/modules/source-control/repositoryTarget.ts`, `src/app/App.tsx`: the repository the right panel is showing is remembered per session tab within a folder, not per folder - two sessions opened at one folder pinned the same sub-repository, so switching it in one switched it in the other. Picking a repository is a choice about what this session is looking at, and a folder holding several checkouts is exactly where two sessions differ. The scope still names its environment first, which is what a resolved answer is checked against.
+- `src/modules/notifications/lib/useAgentVersions.ts`: opening the bell clears the last upgrade's confirmation line. The popover checks again every time it opens, and that check now also drops "updated to X": the green line belonged to the visit that produced it, and without this it stayed until the app restarted.
+- `src/modules/projects/ProjectsView.tsx`: a local project row keeps one menu. The right-click copy of the ⋯ menu carried the same rows and the two read as duplicates; the panel's remote list offers its actions from ⋯ alone, so that is the one that stays.
+- `src/styles/globals.css`: `verta-float-mask`, the pane tint floored at 88% instead of following the theme's pane opacity all the way down, so a floating layer with text of its own is never read through the window. Alpha rather than a blur, per the compositing budget.
+- `src/components/ui/context-menu.tsx`, `src/components/ui/select.tsx`, `src/modules/launcher/components/SessionList.tsx`: the file list's right-click menu, settings' choice list and a compact session's details carry that mask.
+- `src/modules/i18n/messages.ts`: the agent-state labels read as names rather than as sentences, since the colour legend in settings and the state dot's tooltip are where they are read: "运行中", "等待输入", "刚结束", "后台运行，无标签页", "后台任务运行中" ("Working", "Waiting for input", "Just finished", "Running in the background, no tab", "Background tasks still running").
+- `src/modules/i18n/messages.ts`: the settings descriptions are written in written Chinese rather than spoken: lines that addressed the reader ("你不在", "还是没找到", "不要过渡"), colloquial verbs ("关掉", "停上去", "兜底", "收进托盘", "手输"), and clauses stacked with commas are now declarative sentences with the same meaning, no setting lost.
+- `scripts/dev/probes/project-row-menu.mjs` (new): a right-click on a local project row opens no menu, ⋯ opens exactly one, and its rows are the ones the row's actions name.
+- `scripts/dev/probes/float-mask.mjs` (new): the three masked layers are measured at the alpha the engine computed - the popover colour at 88%, not a blur - with a reading that could not happen failing the probe rather than passing it silently.
+
 **Tabs survive a close: a launch restores the list the last window left behind, and a session tab reopens its session**
 
 - `src/modules/settings/store.ts`: new `restoreTabsOnLaunch` preference, on by default, with `setRestoreTabsOnLaunch`.
