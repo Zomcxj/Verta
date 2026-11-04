@@ -9,6 +9,7 @@ import {
   CommandIcon,
   CropIcon,
   GithubIcon,
+  NoteIcon,
   Settings01Icon,
   SidebarLeftIcon,
   SidebarRightIcon,
@@ -51,6 +52,8 @@ type Props = {
   /** Open the projects panel: the local project list and the remote repositories read
    * by the local gh, behind one tab. */
   onOpenProjectsPanel: () => void;
+  /** Open the notes tab: the list and the editor over the markdown beside the exe. */
+  onOpenNotes: () => void;
   /** Region capture: grab the whole screen and drag out a region on the overlay. */
   onScreenshot: () => void;
   /** Uncommitted change count, shown on the top-right button (it used to sit on the Git
@@ -85,6 +88,7 @@ export function Header({
   onToggleSidebar,
   onToggleGitPanel,
   onOpenProjectsPanel,
+  onOpenNotes,
   onScreenshot,
   changedCount,
   onOpenCommandPalette,
@@ -203,6 +207,16 @@ export function Header({
         className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
       >
         <HugeiconsIcon icon={GithubIcon} size={18} strokeWidth={1.75} />
+      </Button>
+
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        onClick={onOpenNotes}
+        title={t("header.notes")}
+        className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        <HugeiconsIcon icon={NoteIcon} size={18} strokeWidth={1.75} />
       </Button>
 
       <Button

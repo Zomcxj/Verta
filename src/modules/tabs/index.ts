@@ -11,11 +11,14 @@ export {
   planCloseOtherTabs,
   type CloseTabsPlan,
   type Tab,
+  type TabPatch,
   type EditorTab,
   type PreviewTab,
   type MarkdownTab,
   type GitDiffTab,
   type GitHistoryTab,
+  type ProjectsTab,
+  type NotesTab,
   type GitCommitFileDiffTab,
 } from "./lib/useTabs";
 export { useTabRestore, useTabPersistence } from "./lib/useTabRestore";

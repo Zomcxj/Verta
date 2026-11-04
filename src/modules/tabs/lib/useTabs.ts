@@ -59,6 +59,12 @@ export type TerminalTab = TabBase & {
    * running behind it; a tab opened any other way has nothing to point at.
    */
   sessionId?: string;
+  /**
+   * Restored from disk with a session attached but not resumed yet: the first
+   * activation runs the session's resume command. Transient - never serialized,
+   * and cleared once the resume has run or been refused.
+   */
+  pendingResume?: boolean;
 };
 
 export type EditorTab = TabBase & {
@@ -127,6 +133,22 @@ export type ProjectsTab = TabBase & {
   title: string;
 };
 
+/**
+ * Notes: a list on the left and one editor on the right, over the markdown files in the
+ * app's own `notes\` folder. Only one is ever open. `root` is the folder this tab was
+ * opened against (it can move between a dev build and an installed one), and `activePath`
+ * is the note on the right - null when nothing is picked, or there is none yet.
+ */
+export type NotesTab = TabBase & {
+  id: number;
+  kind: "notes";
+  title: string;
+  root: string;
+  activePath: string | null;
+  /** Unsaved keystrokes in the note on the right. */
+  dirty?: boolean;
+};
+
 export type GitCommitFileDiffTab = TabBase & {
   id: number;
   kind: "git-commit-file";
@@ -147,6 +169,7 @@ export type Tab =
   | GitDiffTab
   | GitHistoryTab
   | ProjectsTab
+  | NotesTab
   | GitCommitFileDiffTab;
 
 export type TabPatch = Partial<{
@@ -160,6 +183,10 @@ export type TabPatch = Partial<{
   overrideLanguage: string | null;
   /** The path an editor tab's file had before it was renamed or moved. */
   renamedFrom: string;
+  /** The note a notes tab has on its right; null puts the placeholder back. */
+  activePath: string | null;
+  /** The notes folder a notes tab reads, when it moves with the executable. */
+  root: string;
 }>;
 
 export type GitDiffOpenInput = {
@@ -323,6 +350,15 @@ function patchedTab(x: Tab, patch: TabPatch, previewLabel: string): Tab {
       ...(patch.path !== undefined && { path: patch.path }),
     };
   }
+  if (x.kind === "notes") {
+    return {
+      ...x,
+      ...(patch.title !== undefined && { title: patch.title }),
+      ...(patch.activePath !== undefined && { activePath: patch.activePath }),
+      ...(patch.dirty !== undefined && { dirty: patch.dirty }),
+      ...(patch.root !== undefined && { root: patch.root }),
+    };
+  }
   // editor tab: auto-promote from preview the moment the file becomes dirty.
   const autoPin =
     patch.dirty === true && (x as EditorTab).preview ? { preview: false } : {};
@@ -350,6 +386,8 @@ const PATCHED_FIELDS = [
   "renamedFrom",
   "overrideLanguage",
   "preview",
+  "activePath",
+  "root",
 ] as const;
 
 /**
@@ -592,6 +630,40 @@ export function planProjectsOpen(
   };
 }
 
+/**
+ * Notes: only one. The list and the editor live inside the tab, so a second entry in the
+ * strip would be a second copy of the same folder. A root that differs from the one the
+ * open tab carries (a dev build next to an installed one) is adopted, not opened twice.
+ */
+export function planNotesTabOpen(
+  tabs: Tab[],
+  title: string,
+  root: string,
+  allocId: () => number,
+): { tabs: Tab[]; targetId: number } {
+  const existing = tabs.find((tab) => tab.kind === "notes");
+  if (existing) {
+    if (existing.root === root) return { tabs, targetId: existing.id };
+    // The folder moved with the executable: the note picked in the old one is not a
+    // file of the new one, so the placeholder comes back.
+    return {
+      tabs: tabs.map((tab) =>
+        tab.id === existing.id ? { ...existing, root, activePath: null } : tab,
+      ),
+      targetId: existing.id,
+    };
+  }
+
+  const id = allocId();
+  return {
+    tabs: [
+      ...tabs,
+      { id, kind: "notes", title, root, activePath: null } satisfies NotesTab,
+    ],
+    targetId: id,
+  };
+}
+
 export function useTabs(initial?: Partial<TerminalTab>) {
   const t = useT();
   // The names a tab falls back to when there is nothing better to show: a
@@ -652,6 +724,30 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     setTabs(next);
     setActiveId(nextActiveId);
   }, []);
+
+  /**
+   * A restored session tab has been dealt with: drop the resume marker, and drop the
+   * session with it when the resume could not be done, so the session list stops
+   * pointing at a tab that will never run it.
+   */
+  const clearResumeIntent = useCallback(
+    (tabId: number, dropSessionId: boolean) => {
+      setTabs((curr) => {
+        let changed = false;
+        const next = curr.map((t) => {
+          if (t.id !== tabId || t.kind !== "terminal") return t;
+          if (!t.pendingResume && !(dropSessionId && t.sessionId)) return t;
+          changed = true;
+          const rest: TerminalTab = { ...t };
+          delete rest.pendingResume;
+          if (dropSessionId) delete rest.sessionId;
+          return rest;
+        });
+        return changed ? next : curr;
+      });
+    },
+    [],
+  );
 
   const newTab = useCallback(
     (cwd?: string, options?: { workspace?: WorkspaceEnv; shell?: string }) => {
@@ -962,6 +1058,18 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   const openProjectsTab = useCallback((title: string) => {
     const curr = tabsRef.current;
     const plan = planProjectsOpen(curr, title, () => nextIdRef.current++);
+    if (plan.tabs !== curr) {
+      tabsRef.current = plan.tabs;
+      setTabs(plan.tabs);
+    }
+    setActiveId(plan.targetId);
+    return plan.targetId;
+  }, []);
+
+  /** Open the notes tab; only one. */
+  const openNotesTab = useCallback((title: string, root: string) => {
+    const curr = tabsRef.current;
+    const plan = planNotesTabOpen(curr, title, root, () => nextIdRef.current++);
     if (plan.tabs !== curr) {
       tabsRef.current = plan.tabs;
       setTabs(plan.tabs);
@@ -1300,6 +1408,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     allocId,
     booted,
     replaceTabs,
+    clearResumeIntent,
     reorderTabByGap,
     markBooted,
     setOverrideLanguage,
@@ -1317,6 +1426,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     openCommitHistoryTab,
     openProjectsTab,
     renameProjectsTab,
+    openNotesTab,
     openCommitFileDiffTab,
     closeTab,
     closeTabs,

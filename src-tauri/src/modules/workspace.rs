@@ -233,6 +233,34 @@ pub async fn workspace_authorize(
     .await
 }
 
+/// The notes folder next to the executable, created when it is missing.
+fn notes_path() -> Result<PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let Some(dir) = exe.parent() else {
+        return Err("executable has no parent directory".into());
+    };
+    let notes = dir.join("notes");
+    std::fs::create_dir_all(&notes).map_err(|e| e.to_string())?;
+    Ok(notes)
+}
+
+/// The folder the notes tab reads and writes: `notes\` next to the executable, created when
+/// it is missing. The webview cannot see where the exe lives, so this is a command rather
+/// than a path the frontend guesses at. Authorizing here is the whole grant: the list can
+/// be read through the ordinary fs commands, and creating or deleting a note needs the
+/// folder to be an authorized parent.
+#[tauri::command]
+pub async fn notes_dir(app: tauri::AppHandle) -> Result<String, String> {
+    crate::modules::fs::blocking(move || {
+        let notes = notes_path()?;
+        let canonical = tauri::Manager::state::<WorkspaceRegistry>(&app)
+            .authorize(&notes)
+            .map_err(|e| e.to_string())?;
+        Ok(crate::modules::fs::to_canon(&canonical))
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn workspace_current_dir(app: tauri::AppHandle) -> Result<String, String> {
     crate::modules::fs::blocking(move || {
@@ -833,6 +861,19 @@ mod tests {
         assert_eq!(
             resolve_path(path, &WorkspaceEnv::Local),
             PathBuf::from(path)
+        );
+    }
+
+    #[test]
+    fn notes_path_is_created_next_to_the_executable() {
+        let notes = notes_path().unwrap();
+        assert_eq!(notes.file_name().unwrap(), "notes");
+        assert!(notes.is_dir(), "got: {}", notes.display());
+        let parent = notes.parent().unwrap();
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(
+            parent.canonicalize().unwrap(),
+            exe.parent().unwrap().canonicalize().unwrap()
         );
     }
 

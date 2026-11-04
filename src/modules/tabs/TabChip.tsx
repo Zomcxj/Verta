@@ -32,6 +32,7 @@ import {
   GitCompareIcon,
   Globe02Icon,
   IncognitoIcon,
+  NoteIcon,
   PencilEdit02Icon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
@@ -539,6 +540,16 @@ export function TabIcon({ tab }: { tab: Tab }) {
     return (
       <HugeiconsIcon
         icon={Folder01Icon}
+        size={14}
+        strokeWidth={2}
+        className="shrink-0"
+      />
+    );
+  }
+  if (tab.kind === "notes") {
+    return (
+      <HugeiconsIcon
+        icon={NoteIcon}
         size={14}
         strokeWidth={2}
         className="shrink-0"

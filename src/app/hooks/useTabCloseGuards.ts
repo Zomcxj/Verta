@@ -8,6 +8,7 @@ import {
   hasNewCloseManyHazards,
 } from "@/app/hooks/tabCloseGuards";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { saveNotesTab } from "@/modules/notes";
 import {
   type CloseTabsPlan,
   nextActiveTab,
@@ -84,6 +85,11 @@ export function useTabCloseGuards({
         setPendingCloseTab(id);
         return;
       }
+      if (t?.kind === "notes") {
+        // The note is written before the tab goes: auto-save is off for editors, and a
+        // notes tab has no dirty prompt of its own - the view registers its saver.
+        await saveNotesTab(id).catch(() => {});
+      }
       if (t?.kind === "terminal" && confirmRunningTerminal()) {
         const leaves = leafIds(t.paneTree);
         const checks = await Promise.all(leaves.map(isLeafBusy));
@@ -140,6 +146,10 @@ export function useTabCloseGuards({
     async (kind: CloseManyKind, anchorId: number) => {
       const plan = planCloseMany(kind, anchorId);
       if (plan.closeIds.length === 0) return;
+      // Notes in the closing set are written first, the same as a single-tab close.
+      await Promise.allSettled(
+        plan.closeIds.map((id) => saveNotesTab(id).catch(() => {})),
+      );
       const requestId = ++closeManyRequestRef.current;
       const hazards = await evaluateCloseMany(plan.closeIds);
       if (requestId !== closeManyRequestRef.current) return;

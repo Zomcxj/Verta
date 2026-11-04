@@ -6,8 +6,9 @@ import type { ProjectEntry } from "@/modules/projects";
 import { RemoteReposView } from "@/modules/remotes";
 import type { AgentTool } from "@/modules/launcher";
 import { MarkdownStack } from "@/modules/markdown";
+import { NotesStack } from "@/modules/notes";
 import { PreviewStack } from "@/modules/preview";
-import type { Tab } from "@/modules/tabs";
+import type { Tab, TabPatch } from "@/modules/tabs";
 import { TerminalStack } from "@/modules/terminal";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useT } from "@/modules/i18n";
@@ -48,10 +49,13 @@ type Props = {
   onSetMarkdownView: EditorStackProps["onSetMarkdownView"];
   onOpenProject: (entry: ProjectEntry) => void;
   onOpenProjectTerminal: (entry: ProjectEntry) => void;
+  onOpenProjectGitGraph: (entry: ProjectEntry) => void;
   onNewProjectSession: (entry: ProjectEntry, tool: AgentTool) => void;
   /** Which list the projects panel is showing; the app renames the tab to match, since
    * the tab chip and the window title should name what is on screen. */
   onProjectsSubChange: (sub: ProjectsSub) => void;
+  /** Patch a notes tab (its selected note, its dirty flag, its folder). */
+  onNotesUpdate: (id: number, patch: TabPatch) => void;
   /** The session-start transition, drawn over the terminal layer only (see
    * `SessionOpeningOverlay`). */
   sessionOpening: boolean;
@@ -100,8 +104,10 @@ export function WorkspaceSurface({
   onSetMarkdownView,
   onOpenProject,
   onOpenProjectTerminal,
+  onOpenProjectGitGraph,
   onNewProjectSession,
   onProjectsSubChange,
+  onNotesUpdate,
   sessionOpening,
 }: Props) {
   const t = useT();
@@ -113,6 +119,7 @@ export function WorkspaceSurface({
   const isGitDiffTab = kind === "git-diff" || kind === "git-commit-file";
   const isGitHistoryTab = kind === "git-history";
   const isProjectsTab = kind === "projects";
+  const isNotesTab = kind === "notes";
   const transitionVariant = usePreferencesStore((s) => s.sessionTransition);
   /**
    * Whether the transition is covering the pane right now. Only then are the panes hidden:
@@ -234,7 +241,16 @@ export function WorkspaceSurface({
         />
       </div>
       <div
-        className={cn(LAYER, !isGitDiffTab && "invisible pointer-events-none")}
+        className={cn(LAYER, !isNotesTab && "invisible pointer-events-none")}
+        aria-hidden={!isNotesTab}
+      >
+        <NotesStack tabs={tabs} activeId={activeId} onUpdate={onNotesUpdate} />
+      </div>
+      <div
+        className={cn(
+          LAYER,
+          !isGitDiffTab && "invisible pointer-events-none",
+        )}
         aria-hidden={!isGitDiffTab}
       >
         <GitDiffStack tabs={tabs} activeId={activeId} />
@@ -315,6 +331,7 @@ export function WorkspaceSurface({
               onOpenWorkspace={onOpenProject}
               onOpenTerminal={onOpenProjectTerminal}
               onNewSession={onNewProjectSession}
+              onOpenGitGraph={onOpenProjectGitGraph}
             />
           </div>
           <div

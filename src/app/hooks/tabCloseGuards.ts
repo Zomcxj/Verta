@@ -25,11 +25,15 @@ export function renamedPath(
 }
 
 export function hasOpenPathTab(tabs: readonly Tab[], path: string): boolean {
-  return tabs.some(
-    (tab) =>
-      (tab.kind === "editor" || tab.kind === "markdown") &&
-      pathAtOrUnder(tab.path, path),
-  );
+  return tabs.some((tab) => {
+    if (tab.kind === "editor" || tab.kind === "markdown")
+      return pathAtOrUnder(tab.path, path);
+    // A notes tab holds one file of its own, and it counts as open when it is the one
+    // under the path in question.
+    if (tab.kind === "notes")
+      return tab.activePath !== null && pathAtOrUnder(tab.activePath, path);
+    return false;
+  });
 }
 
 export type CloseManyKind = "right" | "other";
@@ -71,9 +75,13 @@ export function deletedPathTabs(
   const dirtyIds: number[] = [];
   const cleanIds: number[] = [];
   for (const tab of tabs) {
-    if (tab.kind !== "editor" && tab.kind !== "markdown") continue;
-    if (!paths.some((path) => pathAtOrUnder(tab.path, path))) continue;
-    (tab.kind === "editor" && tab.dirty ? dirtyIds : cleanIds).push(tab.id);
+    if (tab.kind !== "editor" && tab.kind !== "markdown" && tab.kind !== "notes")
+      continue;
+    const held = tab.kind === "notes" ? tab.activePath : tab.path;
+    if (!held) continue;
+    if (!paths.some((path) => pathAtOrUnder(held, path))) continue;
+    // Markdown has no unsaved flag of its own; the other two do.
+    (tab.kind !== "markdown" && tab.dirty ? dirtyIds : cleanIds).push(tab.id);
   }
   return { dirtyIds, cleanIds };
 }

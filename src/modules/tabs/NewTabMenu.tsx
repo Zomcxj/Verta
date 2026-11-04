@@ -129,7 +129,10 @@ export const NewTabMenu = memo(function NewTabMenu({
                 {fmtShortcut(MOD_KEY, "T")}
               </span>
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="min-w-64 whitespace-nowrap">
+            {/* No `min-w-64` here: the terminal names are short, and a floor of 256px left
+                the right side of the submenu empty. The shared component's own 9rem floor
+                is what keeps a one-word list from looking cramped. */}
+            <DropdownMenuSubContent className="whitespace-nowrap">
               <DropdownMenuItem onSelect={onNew}>
                 {t("tabs.new.terminalDefault")}
               </DropdownMenuItem>

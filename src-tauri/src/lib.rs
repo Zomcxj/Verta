@@ -3,8 +3,8 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent_sessions, agent_versions, control, fonts, fs, git, github, history, lsp, projects, pty,
-    screenshot, shell, vibrancy, workspace,
+    agent_sessions, agent_versions, control, drag, fonts, fs, git, github, history, lsp, projects,
+    pty, screenshot, shell, vibrancy, workspace,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -393,11 +393,15 @@ pub fn run() {
             fs::file::fs_canonicalize,
             fs::mutate::fs_create_file,
             fs::mutate::fs_create_dir,
+            git::contained::git_contained_repos,
             fs::mutate::fs_rename,
             fs::mutate::fs_move,
+            drag::fs_start_drag,
             fs::mutate::fs_delete,
             fs::mutate::fs_delete_batch,
             fs::copy::fs_copy,
+            fs::copy::fs_copy_replacing,
+            fs::copy::fs_copy_conflicts,
             fs::clipboard::fs_clipboard_paths,
             fs::watch::fs_watch_add,
             fs::watch::fs_watch_remove,
@@ -416,6 +420,7 @@ pub fn run() {
             projects::commands::projects_scan,
             projects::commands::projects_status,
             projects::commands::projects_pull,
+            projects::commands::projects_replace_from_remote,
             github::commands::github_repos,
             github::commands::github_repo_ci,
             github::commands::github_repo_activity,
@@ -490,6 +495,7 @@ pub fn run() {
             workspace::ipc::wsl_home,
             workspace::workspace_authorize,
             workspace::workspace_current_dir,
+            workspace::notes_dir,
             control::control_frontend_ready,
             control::control_respond,
             get_launch_dir,

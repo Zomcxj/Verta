@@ -77,9 +77,23 @@ export type WireProjectStatus = {
   detached: boolean;
   dirty: number;
   stashed: number;
+  /** A shallow clone: the work tree is the newest commit and nothing behind it. */
+  shallow: boolean;
   error: string | null;
   /** Why the fetch this check asked for failed; null when it worked or was not asked for. */
   fetchError: string | null;
+};
+
+/** What one "replace with the remote" did, and what it cost. */
+export type WireProjectReplaceReport = {
+  branch: string;
+  upstream: string;
+  previousHead: string;
+  head: string;
+  /** True when the copy is shallow afterwards - one commit and nothing behind it. */
+  shallow: boolean;
+  discardedCommits: number;
+  discardedFiles: number;
 };
 
 /** What one pull from the project list did (the row re-reads its status afterwards). */
@@ -644,6 +658,7 @@ export const native = {
       path,
       workspace: env ?? envForPath(path),
     }),
+  notesDir: () => invoke<string>("notes_dir"),
   readFile: (path: string) =>
     invoke<ReadResult>("fs_read_file", {
       path,
@@ -713,6 +728,11 @@ export const native = {
       cwd,
       workspace: envForPath(cwd),
     }),
+  gitContainedRepos: (folder: string) =>
+    invoke<{ path: string; committedAtMs: number | null }[]>(
+      "git_contained_repos",
+      { folder, workspace: envForPath(folder) },
+    ),
   /** Find git repos up to `depth` levels below root (default 2). */
   projectsScan: (root: string, depth?: number) =>
     invoke<string[]>("projects_scan", {
@@ -732,6 +752,23 @@ export const native = {
    * the upstream branch is named differently from the current branch. */
   projectsPull: (path: string, workspace: WorkspaceEnv) =>
     invoke<WireProjectPullOutcome>("projects_pull", { path, workspace }),
+  /**
+   * Make the project exactly what its remote has, discarding what is local.
+   *
+   * Not the row's ordinary pull: that one fast-forwards and refuses to merge another branch. This
+   * resets to the remote and cleans untracked files, so the interface asks before calling it, and
+   * the report it answers with names what was discarded.
+   */
+  projectsReplaceFromRemote: (
+    path: string,
+    workspace: WorkspaceEnv,
+    shallow?: boolean,
+  ) =>
+    invoke<WireProjectReplaceReport>("projects_replace_from_remote", {
+      path,
+      workspace,
+      shallow,
+    }),
   /**
    * Remote repos the local gh can see (owned + collaborator + org), an
    * account-level query independent of the current workspace. Conditions like
@@ -1179,11 +1216,16 @@ export const native = {
       workspace: envForPath(repoRoot),
     }),
   /** Clone a repo into `dest` and return the resulting directory path. */
-  gitCloneRepo: (url: string, dest: string) =>
+  /**
+   * Clone into `dest`. `depth: 1` makes a shallow clone that keeps only the newest commit - for a
+   * repository kept to be read rather than worked on, where the history is weight nobody asked for.
+   */
+  gitCloneRepo: (url: string, dest: string, depth?: number) =>
     invoke<string>("git_clone_repo", {
       url,
       dest,
       workspace: envForPath(dest),
+      depth,
     }),
   screenshotBegin: () => invoke<void>("screenshot_begin"),
   /**

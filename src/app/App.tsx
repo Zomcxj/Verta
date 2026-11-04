@@ -34,6 +34,7 @@ import {
   LauncherPanel,
   openTabForSession,
   planSessionOpen,
+  planSessionResume,
 } from "@/modules/launcher";
 import { setLspNavigator } from "@/modules/lsp";
 import type { PreviewPaneHandle } from "@/modules/preview";
@@ -122,7 +123,7 @@ import { UpdaterDialog } from "@/modules/updater";
 import {
   envForRoot,
   getWslHome,
-  parseWorkspaceScopeKey,
+  LOCAL_WORKSPACE,
   useWorkspaceEnvStore,
   type WorkspaceEnv,
   workspaceScopeKey,
@@ -325,6 +326,9 @@ export default function App() {
     booted,
     reorderTabByGap,
     markBooted,
+    allocId,
+    replaceTabs,
+    clearResumeIntent,
     newTab,
     newBlockTab,
     newAgentTab,
@@ -340,6 +344,7 @@ export default function App() {
     openCommitHistoryTab,
     openProjectsTab,
     renameProjectsTab,
+    openNotesTab,
     openCommitFileDiffTab,
     closeTab,
     closeTabs,
@@ -419,8 +424,11 @@ export default function App() {
 
   const tabsHydrated = useTabRestore({
     ready: launchCwdResolved,
+    allocId,
+    replaceTabs,
     markBooted,
     adoptWorkspaceEnv,
+    previewLabel: t("tabs.preview"),
   });
 
   useTabPersistence({ tabs, activeId, enabled: tabsHydrated });
@@ -754,24 +762,44 @@ export default function App() {
 
   /**
    * Plain new terminal (Ctrl+T, command palette, "default terminal" in the plus
-   * menu). The env comes from the default-env preference: the workspace env
-   * drifts to WSL along with open terminals, but "default terminal" is whatever
-   * settings say and should not drift, otherwise clicking the local terminal
-   * inside a WSL project would still open a shell in the distro.
+   * menu). It is always this machine's shell: a terminal does not follow the workspace
+   * env, or a project opened from WSL would put the local terminal inside the distro.
+   * WSL is reached on purpose - a session row, or the terminal list in the plus menu,
+   * both of which name the distro.
    */
   const openNewTab = useCallback(() => {
-    void openTerminalChoice({
-      env: parseWorkspaceScopeKey(
-        usePreferencesStore.getState().defaultWorkspaceEnv,
-      ),
-    });
+    void openTerminalChoice({ env: LOCAL_WORKSPACE });
   }, [openTerminalChoice]);
 
   /** The projects panel (local projects and remote repositories). It always lands on
-   * the local list, which is what the header icon is for. */
+   * the local list, which is what the header icon is for. A second click on that icon
+   * puts it away again: the button is a toggle, not a one-way door. */
   const openProjects = useCallback(() => {
+    const open = tabsRef.current.find((tab) => tab.kind === "projects");
+    if (open) {
+      void handleClose(open.id);
+      return;
+    }
     openProjectsTab(t("tabs.new.projects"));
-  }, [openProjectsTab, t]);
+  }, [openProjectsTab, handleClose, t]);
+
+  /** The notes tab: one, over the markdown files next to the executable. `notes_dir`
+   * creates the folder and authorizes it, which is the grant the tab's fs calls need.
+   * Clicking the header's note icon while the tab is open closes it - through the same
+   * close path everything else takes, so the note is written before the tab goes. */
+  const openNotes = useCallback(() => {
+    const open = tabsRef.current.find((tab) => tab.kind === "notes");
+    if (open) {
+      void handleClose(open.id);
+      return;
+    }
+    void native
+      .notesDir()
+      .then((root) => openNotesTab(t("notes.tabTitle"), root))
+      .catch((error) =>
+        toast.error(t("notes.openFailed", { error: String(error) })),
+      );
+  }, [openNotesTab, handleClose, t]);
 
   /** Keep the tab chip and the window title naming the list on screen. */
   const renameProjectsPanel = useCallback(
@@ -859,20 +887,32 @@ export default function App() {
     hideSessionOpening(sessionOpeningToken.current);
   }, [sessionOpening, sessionOpeningLeaf, hideSessionOpening]);
 
+  /**
+   * The folder scan, reached through a ref because the hook that provides it is created further
+   * down this component: opening a session is defined above it, and a session is only opened after
+   * the first render, so the ref is filled by the time anything calls it.
+   */
+  const discoverRepositoriesRef = useRef<
+    (folder: string | null, env: WorkspaceEnv) => void
+  >(() => {});
   const handleOpenSession = useCallback(
     (session: AgentSession) => {
+      // The session decides both env and command: a local session has to run in a
+      // local terminal. Do not let the terminal guess the current env, or a local
+      // session started from a WSL terminal gets a local command in a distro shell.
+      const plan = planSessionOpen(session);
       // A session already resumed somewhere is *that* tab, not another one: every agent here writes
       // its own session file, and two of them on one file overwrite each other's turns.
       const open = openTabForSession(tabsRef.current, session.id);
       if (open) {
         setActiveId(open.id);
         setActiveSessionId(session.id);
+        // Coming back to a session that is already open still means "show me this project" - the
+        // panel may have been left somewhere else, or may never have been placed at all. The folder
+        // is asked about once, so a second click on the same row costs nothing.
+        if (plan) discoverRepositoriesRef.current(plan.cwd, plan.workspace);
         return;
       }
-      // The session decides both env and command: a local session has to run in a
-      // local terminal. Do not let the terminal guess the current env, or a local
-      // session started from a WSL terminal gets a local command in a distro shell.
-      const plan = planSessionOpen(session);
       if (!plan) {
         console.error("[verta] refusing to build a resume command", session.id);
         return;
@@ -887,6 +927,11 @@ export default function App() {
         session.id,
       );
       setActiveSessionId(session.id);
+      // The folder a session opens at is often not itself a checkout - a workspace of projects, or
+      // one whose work sits a level down - and the panel has nothing to show for it. Asked here and
+      // only here: opening a session is the moment the user means "show me this project". A `cd` in
+      // a plain terminal is not, and must not move the panel out from under them.
+      discoverRepositoriesRef.current(plan.cwd, plan.workspace);
       // Cover the moment the command lands in the terminal (see
       // SessionOpeningOverlay).
       const opening = showSessionOpening(leafId);
@@ -906,8 +951,65 @@ export default function App() {
         hideSessionOpening(opening);
       })();
     },
-    [newAgentTab, showSessionOpening, hideSessionOpening, setActiveId],
+    [
+      newAgentTab,
+      showSessionOpening,
+      hideSessionOpening,
+      setActiveId,
+    ],
   );
+
+  /**
+   * A restored session tab resumes on its first activation: the warm choke point in
+   * `useTabs` flips `cold` when the tab becomes active, and this runs the same
+   * sequence a click on the session row runs. A restored tab that is never opened
+   * again stays a cold shell, so nothing spawns for it.
+   */
+  const restoredResumes = useRef(new Set<number>());
+  useEffect(() => {
+    if (!tabsHydrated) return;
+    for (const tab of tabs) {
+      if (tab.kind !== "terminal" || tab.cold || !tab.pendingResume) continue;
+      if (restoredResumes.current.has(tab.id)) continue;
+      restoredResumes.current.add(tab.id);
+
+      // The session was stored with the tab, but the command is built from the leaf
+      // the tab has now: the env and cwd it was saved with.
+      const leaf = findLeaf(tab.paneTree, tab.activeLeafId);
+      const plan =
+        tab.agent && tab.sessionId && leaf?.cwd
+          ? planSessionResume(tab.agent, tab.sessionId, leaf.cwd, leaf.workspace)
+          : null;
+      if (!plan || !tab.sessionId) {
+        // The session cannot be rebuilt (the directory did not survive, or the id is
+        // unusable): come back as the plain terminal the tab still is, and let the
+        // session list stop pointing at it.
+        clearResumeIntent(tab.id, true);
+        continue;
+      }
+
+      // The same "show me this project" a click on the session row answers: the source-control panel
+      // is placed on whichever repository this folder holds, once per folder. A restored tab is the
+      // one path to a session that does not go through `handleOpenSession`, so without this the
+      // panel stayed wherever it was - the folder's own repositories were never asked about.
+      discoverRepositoriesRef.current(plan.cwd, plan.workspace);
+
+      const opening = showSessionOpening(tab.activeLeafId);
+      setActiveSessionId(tab.sessionId);
+      void (async () => {
+        await whenSessionReady(tab.activeLeafId);
+        const baseBytes = leafOutputBytes(tab.activeLeafId);
+        if (!writeToSession(tab.activeLeafId, `${plan.command}\r`)) {
+          hideSessionOpening(opening);
+          clearResumeIntent(tab.id, true);
+          return;
+        }
+        await waitForAgentUi(tab.activeLeafId, baseBytes, plan.command);
+        hideSessionOpening(opening);
+        clearResumeIntent(tab.id, false);
+      })();
+    }
+  }, [tabs, tabsHydrated, showSessionOpening, hideSessionOpening, clearResumeIntent]);
 
   const handleNewProjectSession = useCallback(
     (entry: ProjectEntry, tool: AgentTool) => {
@@ -971,6 +1073,27 @@ export default function App() {
   );
 
   /** "Open in terminal" on a project row: just opens a plain terminal tab there. */
+  /**
+   * A project row's commit graph, in its own tab.
+   *
+   * The row already names the repository, so this asks git for the repository and the branch the
+   * row is on and opens the graph - the same thing the source control panel's "commit graph" button
+   * does, without having to point the panel at the project first.
+   */
+  const handleOpenProjectGitGraph = useCallback(
+    async (entry: ProjectEntry) => {
+      try {
+        await native.workspaceAuthorize(entry.path, entry.workspace).catch(() => null);
+        const repo = await native.gitResolveRepo(entry.path);
+        if (!repo) return;
+        openCommitHistoryTab({ repoRoot: repo.repoRoot, branch: repo.branch });
+      } catch (error) {
+        toast.error(String(error));
+      }
+    },
+    [openCommitHistoryTab],
+  );
+
   const handleOpenProjectTerminal = useCallback(
     (entry: ProjectEntry) => {
       newTab(entry.path, { workspace: entry.workspace });
@@ -1089,6 +1212,13 @@ export default function App() {
   const handleExplorerPathRenamed = useCallback(
     (from: string, to: string) => {
       for (const tab of tabsRef.current) {
+        if (tab.kind === "notes") {
+          if (!tab.activePath) continue;
+          const path = renamedPath(tab.activePath, from, to);
+          if (path === null) continue;
+          updateTab(tab.id, { activePath: path });
+          continue;
+        }
         if (tab.kind !== "editor" && tab.kind !== "markdown") continue;
         const path = renamedPath(tab.path, from, to);
         if (path === null) continue;
@@ -1143,8 +1273,11 @@ export default function App() {
     return workspaceKey.startsWith(`${currentEnv}\u0000`);
   }, []);
   const openSourceControl = useCallback(() => {
-    toggleRightPanel();
-  }, [toggleRightPanel]);
+    // "Open in source control" means: have it on screen. `toggleRightPanel` was used here, so a
+    // right-click on a folder while the panel was already open *closed* it - the one case where the
+    // user had just asked to look at it.
+    openRightPanel();
+  }, [openRightPanel]);
   const toggleHiddenFiles = useCallback(() => {
     openSidebarView("explorer");
     void setShowHidden(!usePreferencesStore.getState().showHidden);
@@ -1154,6 +1287,7 @@ export default function App() {
     openInSourceControl: handleOpenRepositoryInSourceControl,
     openGitHistory: handleOpenGitHistoryForPath,
     followActiveContext: handleFollowRepositoryContext,
+    discoverForFolder: discoverRepositoriesForFolder,
   } = useRepositoryTargeting({
     workspaceKey: repositoryTargetScope(
       workspaceScopeKey(workspaceEnv),
@@ -1163,6 +1297,7 @@ export default function App() {
     openSourceControl,
     openCommitHistoryTab,
   });
+  discoverRepositoriesRef.current = discoverRepositoriesForFolder;
 
   /**
    * Pressing a project row: switch to that project's env (local / WSL), point the
@@ -1724,6 +1859,7 @@ export default function App() {
               onNewEditor={openNewEditorDialog}
               onNewGitGraph={openGitGraphFromContext}
               onOpenProjectsPanel={openProjects}
+              onOpenNotes={openNotes}
               onClose={handleClose}
               onCloseTabsToRight={handleCloseTabsToRight}
               onCloseOtherTabs={handleCloseOtherTabs}
@@ -1840,8 +1976,10 @@ export default function App() {
                         onSetMarkdownView={setMarkdownView}
                         onOpenProject={openProject}
                         onOpenProjectTerminal={handleOpenProjectTerminal}
+                        onOpenProjectGitGraph={handleOpenProjectGitGraph}
                         onNewProjectSession={handleNewProjectSession}
                         onProjectsSubChange={renameProjectsPanel}
+                        onNotesUpdate={updateTab}
                         sessionOpening={sessionOpening}
                       />
                     </div>
