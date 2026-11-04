@@ -15,7 +15,7 @@ import {
 } from "@/modules/notifications/lib/useAgentVersions";
 import { leafScreenTail, useAgentActivityStore } from "@/modules/terminal";
 import type { Tab } from "@/modules/tabs";
-import { ArrowUp01Icon, BellIcon } from "@hugeicons/core-free-icons";
+import { ArrowUp01Icon, ArrowUpDoubleIcon, BellIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo } from "react";
 import { toast } from "sonner";
@@ -144,6 +144,9 @@ function UpdatesSection({
     versions.check();
   }, [versions.check]);
   const updates = updateRows(versions.components);
+  // Only the rows that are known to be behind: a batch must not touch a row whose answer could not
+  // be read, and one row alone needs no batch button.
+  const behind = upgradable(versions.components);
   return (
     <div className="mt-0.5 flex flex-col gap-0.5 border-t border-border/50 pt-1">
       <span className="flex items-center gap-1.5 px-2.5 pt-1 pb-1 text-[10px] text-muted-foreground">
@@ -151,6 +154,26 @@ function UpdatesSection({
           {t("notifications.updates.title")}
         </span>
         {versions.checking ? <Spinner className="size-2.5" /> : null}
+        {behind.length > 1 ? (
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            data-agent-update-all
+            title={t("notifications.updates.upgradeAll", {
+              count: behind.length,
+            })}
+            // Every row it runs is disabled in turn, so the button says "busy" with the rest.
+            disabled={versions.upgrading.size > 0}
+            onClick={() => void versions.upgradeAll()}
+            className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <HugeiconsIcon
+              icon={ArrowUpDoubleIcon}
+              size={14}
+              strokeWidth={1.9}
+            />
+          </Button>
+        ) : null}
       </span>
       {updates.length === 0 ? (
         <p className="px-2.5 pb-1.5 text-[11px] text-muted-foreground">
@@ -170,6 +193,13 @@ function UpdatesSection({
               title={component.error ?? undefined}
               className="flex items-center gap-2 rounded-md px-2.5 py-1.5"
             >
+              {/* The tool's own mark is what tells two rows apart: one library can be installed by
+                  pi and by opencode at once, and a name alone would read as the same row twice. */}
+              <AgentIcon
+                agent={component.agent}
+                size={13}
+                className="shrink-0 text-muted-foreground"
+              />
               <span className="min-w-0 flex-1 truncate text-xs text-foreground">
                 {component.name}
               </span>
@@ -204,7 +234,16 @@ function UpdatesSection({
           );
         })
       )}
-      {versions.upgraded ? (
+      {versions.upgradedMany !== null ? (
+        <p
+          data-agent-updated-many
+          className="px-2.5 pb-1.5 text-[10px] text-emerald-500"
+        >
+          {t("notifications.updates.upgradedMany", {
+            count: versions.upgradedMany,
+          })}
+        </p>
+      ) : versions.upgraded ? (
         // The row leaves the list once it is current, so this is the confirmation: without it a
         // successful upgrade looks like the component disappearing.
         <p

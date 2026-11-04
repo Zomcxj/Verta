@@ -1,10 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
+  type AgentComponent,
   hasUpdate,
   upgradable,
   updateRows,
   upgradedNotice,
 } from "./useAgentVersions";
+
+/** One row, with only what a case cares about spelled out. */
+function row(fields: Partial<AgentComponent> & { id: string }): AgentComponent {
+  return {
+    agent: "pi",
+    name: fields.id,
+    current: null,
+    latest: null,
+    error: null,
+    compare: "version",
+    ...fields,
+  };
+}
 
 describe("hasUpdate", () => {
   it("offers an update when the published version is newer", () => {
@@ -42,23 +56,52 @@ describe("hasUpdate", () => {
     expect(hasUpdate("not-a-version", "2.2.5")).toBe(false);
     expect(hasUpdate("2.2.5", "latest")).toBe(false);
   });
+
+  it("compares a revision by difference, because commits have no order", () => {
+    // A git checkout's row carries two commits. They are either the same commit or the checkout is
+    // behind, and which of the two hashes happens to sort lower says nothing about that.
+    expect(hasUpdate("2ce8aa1", "22f0b46", "revision")).toBe(true);
+    expect(hasUpdate("22f0b46", "2ce8aa1", "revision")).toBe(true);
+    expect(hasUpdate("22f0b46", "22f0b46", "revision")).toBe(false);
+    // A commit is not a number either, so the version parse must not be reached.
+    expect(hasUpdate("not-a-version", "22f0b46", "revision")).toBe(true);
+    // Unknown on either side is still nothing to offer.
+    expect(hasUpdate(null, "22f0b46", "revision")).toBe(false);
+  });
 });
 
 describe("upgradable", () => {
   it("keeps only the rows with something newer", () => {
-    const rows = [
-      { id: "opencode", name: "opencode", current: "2.2.5", latest: "2.2.5", error: null },
-      { id: "pi", name: "pi", current: "1.4.0", latest: "1.5.0", error: null },
-      { id: "x", name: "pi-lens", current: "4.4.7", latest: "4.4.8", error: null },
+    const rows: AgentComponent[] = [
+      row({ id: "opencode", agent: "opencode", current: "2.2.5", latest: "2.2.5" }),
+      row({ id: "pi", current: "1.4.0", latest: "1.5.0" }),
+      row({ id: "x", name: "pi-lens", current: "4.4.7", latest: "4.4.8" }),
     ];
     expect(upgradable(rows).map((r) => r.id)).toEqual(["pi", "x"]);
   });
 
   it("is empty when everything is current", () => {
-    const rows = [
-      { id: "opencode", name: "opencode", current: "2.2.5", latest: "2.2.5", error: null },
+    const rows: AgentComponent[] = [
+      row({ id: "opencode", agent: "opencode", current: "2.2.5", latest: "2.2.5" }),
     ];
     expect(upgradable(rows)).toEqual([]);
+  });
+
+  it("counts a checkout that is on an older commit", () => {
+    // Measured on this machine: pi's own checkout of superpowers is on 2ce8aa15 while the remote is
+    // on 22f0b463, and that belongs in the badge exactly as a released version does.
+    const rows: AgentComponent[] = [
+      row({
+        id: "pi-git:github.com/obra/superpowers",
+        name: "obra/superpowers",
+        current: "2ce8aa1",
+        latest: "22f0b46",
+        compare: "revision",
+      }),
+    ];
+    expect(upgradable(rows).map((r) => r.id)).toEqual([
+      "pi-git:github.com/obra/superpowers",
+    ]);
   });
 });
 
@@ -68,15 +111,14 @@ describe("updateRows", () => {
     // re-check could not reach the registry, and the row vanished into "everything is up to date"
     // - taking its button with it, so the failed update had nothing left to retry. A row nobody
     // could check is not a row that is current.
-    const rows = [
-      {
+    const rows: AgentComponent[] = [
+      row({
         id: "pi-extension:obra/superpowers",
         name: "obra/superpowers",
         current: "1.0.0",
-        latest: null,
         error: "查询 obra/superpowers 失败：connect timeout",
-      },
-      { id: "pi", name: "pi", current: "1.4.0", latest: "1.4.0", error: null },
+      }),
+      row({ id: "pi", current: "1.4.0", latest: "1.4.0" }),
     ];
     expect(updateRows(rows).map((r) => r.id)).toEqual([
       "pi-extension:obra/superpowers",
@@ -84,25 +126,29 @@ describe("updateRows", () => {
   });
 
   it("still lists the rows that have a newer version", () => {
-    const rows = [
-      { id: "pi", name: "pi", current: "1.4.0", latest: "1.5.0", error: null },
-      {
-        id: "opencode",
-        name: "opencode",
-        current: "2.2.5",
-        latest: "2.2.5",
-        error: null,
-      },
+    const rows: AgentComponent[] = [
+      row({ id: "pi", current: "1.4.0", latest: "1.5.0" }),
+      row({ id: "opencode", agent: "opencode", current: "2.2.5", latest: "2.2.5" }),
+      // The same library opencode installed, which pi may also have: one name, two rows, told
+      // apart by the row's own agent.
+      row({
+        id: "opencode-plugin:superpowers",
+        name: "superpowers",
+        agent: "opencode",
+        current: "7.0.1",
+        latest: "7.0.2",
+      }),
     ];
-    expect(updateRows(rows).map((r) => r.id)).toEqual(["pi"]);
+    expect(updateRows(rows).map((r) => r.id)).toEqual([
+      "pi",
+      "opencode-plugin:superpowers",
+    ]);
   });
 
   it("is empty only when every row was checked and is current", () => {
-    expect(
-      updateRows([
-        { id: "pi", name: "pi", current: "1.4.0", latest: "1.4.0", error: null },
-      ]),
-    ).toEqual([]);
+    expect(updateRows([row({ id: "pi", current: "1.4.0", latest: "1.4.0" })])).toEqual(
+      [],
+    );
   });
 });
 
@@ -110,8 +156,13 @@ describe("upgradedNotice", () => {
   it("reports the version the component landed on", () => {
     // The case that prompted this: pi-lens 4.4.7 -> 4.4.8, after which the row leaves the
     // list. The confirmation is what tells the user it worked.
-    const after = [
-      { id: "pi-extension:pi-lens", name: "pi-lens", current: "4.4.8", latest: "4.4.8", error: null },
+    const after: AgentComponent[] = [
+      row({
+        id: "pi-extension:pi-lens",
+        name: "pi-lens",
+        current: "4.4.8",
+        latest: "4.4.8",
+      }),
     ];
     expect(upgradedNotice("pi-lens", after, "pi-extension:pi-lens")).toEqual({
       name: "pi-lens",
@@ -128,9 +179,9 @@ describe("upgradedNotice", () => {
   });
 
   it("does not confuse the component with another row", () => {
-    const after = [
-      { id: "opencode", name: "opencode", current: "2.2.5", latest: "2.2.5", error: null },
-      { id: "pi", name: "pi", current: "1.4.0", latest: "1.4.0", error: null },
+    const after: AgentComponent[] = [
+      row({ id: "opencode", agent: "opencode", current: "2.2.5", latest: "2.2.5" }),
+      row({ id: "pi", current: "1.4.0", latest: "1.4.0" }),
     ];
     expect(upgradedNotice("pi-lens", after, "pi-extension:pi-lens")).toEqual({
       name: "pi-lens",
