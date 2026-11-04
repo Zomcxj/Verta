@@ -24,6 +24,13 @@ type Options = {
   getSelectedPaths: () => Set<string>;
   collapseSelectionTo: (path: string) => void;
   pathDropTarget?: ExplorerPathDropTarget;
+  /**
+   * The pointer left the explorer while a file was held: hand the drag to the operating system.
+   *
+   * Without it a drag can only end inside the explorer, which is what "文件内的只能文件内拖动移动
+   * 不能拖出去" describes - there was no drag session for anything else to receive.
+   */
+  onDragOut?: (paths: string[]) => void;
 };
 
 const THRESHOLD = 5;
@@ -89,6 +96,7 @@ export function useExplorerDnd({
   getSelectedPaths,
   collapseSelectionTo,
   pathDropTarget,
+  onDragOut,
 }: Options) {
   const t = useT();
   // Read through a ref: the pointer handler below wires its listeners once and
@@ -108,7 +116,9 @@ export function useExplorerDnd({
   const cleanupRef = useRef<(() => void) | null>(null);
   /** The modifier state at drop time; the listeners read it, so it lives in a ref. */
   const copyingRef = useRef(false);
-  const optsRef = useRef({
+  /** One hand-out per gesture: the pointer keeps moving after the platform owns the drag. */
+  const handedOutRef = useRef(false);
+  const optsRef = useRef<Options>({
     rootPath,
     isDir,
     onMove,
@@ -116,6 +126,7 @@ export function useExplorerDnd({
     getSelectedPaths,
     collapseSelectionTo,
     pathDropTarget,
+    onDragOut,
   });
   // Committed-state snapshot for the pointer listeners below (they attach
   // once and read this ref on every move), so an in-flight drag can't pick up
@@ -129,6 +140,7 @@ export function useExplorerDnd({
       getSelectedPaths,
       collapseSelectionTo,
       pathDropTarget,
+      onDragOut,
     };
   }, [
     rootPath,
@@ -138,6 +150,7 @@ export function useExplorerDnd({
     getSelectedPaths,
     collapseSelectionTo,
     pathDropTarget,
+    onDragOut,
   ]);
 
   const placeGhost = (x: number, y: number) => {
@@ -172,6 +185,7 @@ export function useExplorerDnd({
       if (!active) {
         if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < THRESHOLD) return;
         active = true;
+        handedOutRef.current = false;
         lastPosRef.current = { x: ev.clientX, y: ev.clientY };
         const sel = optsRef.current.getSelectedPaths();
         if (sel.has(source) && sel.size > 1) {
@@ -194,6 +208,24 @@ export function useExplorerDnd({
       const element = document.elementFromPoint(ev.clientX, ev.clientY);
       const terminalTargeted =
         pathDropTarget?.updateTarget(ev.clientX, ev.clientY) ?? false;
+      const insideExplorer = element?.closest("[data-explorer-drop]") != null;
+      // Left the explorer with a file held: the platform has to take the drag over. Nothing inside
+      // this app can name a destination out there, and a pointer drag has no session for the
+      // desktop to receive - which is why a file could never be dragged out before.
+      if (!insideExplorer && !terminalTargeted) {
+        if (!handedOutRef.current) {
+          handedOutRef.current = true;
+          // The operating system owns the gesture from here, so this window never sees the release
+          // that ends it: drop the pointer drag rather than reporting a move it did not make.
+          detach();
+          setDragLabel(null);
+          setDropTargetDir(null);
+          setCopyMode(false);
+          dropTargetRef.current = null;
+          optsRef.current.onDragOut?.(sources);
+        }
+        return;
+      }
       const hit = element?.closest<HTMLElement>("[data-fs-path]");
       const p = hit?.getAttribute("data-fs-path");
       const valid = terminalTargeted
@@ -202,7 +234,7 @@ export function useExplorerDnd({
             sources,
             rootPath,
             p ?? null,
-            element?.closest("[data-explorer-drop]") != null,
+            insideExplorer,
             isDir,
           );
       if (dropTargetRef.current !== valid) {

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useT } from "@/modules/i18n";
 import { currentWorkspaceEnv } from "@/modules/workspace";
+import { bringWindowForward } from "@/lib/windowFocus";
+import { conflictingNames } from "@/modules/explorer/lib/dropConflict";
 import {
   parentDir,
   reportCopyFailures,
@@ -16,6 +18,15 @@ type Options = {
   enabled?: boolean;
   isDir: (path: string) => boolean | undefined;
   onCopied: (destDir: string) => void;
+  /**
+   * Asked once per drop when the folder already holds some of the names.
+   *
+   * Resolves with `"replace"`, `"skip"`, or `null` when the question was dismissed - and dismissing
+   * means skip, because replacing files the user did not confirm is the one answer that loses data.
+   */
+  askConflict: (
+    names: readonly string[],
+  ) => Promise<"replace" | "skip" | null>;
 };
 
 // Tauri reports the drop point in physical pixels on some platforms; scale down
@@ -52,23 +63,85 @@ export function useExplorerFileDrop({
   enabled = true,
   isDir,
   onCopied,
+  askConflict,
 }: Options) {
   const t = useT();
   const [targetDir, setTargetDir] = useState<string | null>(null);
   // The drop listener attaches once and must not re-attach on a language
   // change, so the label lookup rides the same ref as the other options.
-  const optsRef = useRef({ rootPath, isDir, onCopied, t });
-  optsRef.current = { rootPath, isDir, onCopied, t };
+  const optsRef = useRef({ rootPath, isDir, onCopied, t, askConflict });
+  optsRef.current = { rootPath, isDir, onCopied, t, askConflict };
 
   useEffect(() => {
     if (!enabled) return;
     let disposed = false;
     let unlisten: (() => void) | null = null;
 
+    /**
+     * The drop, with the question asked first when it would replace something.
+     *
+     * The names that are already there are found before anything is copied, so the user is asked
+     * once about the whole gesture and the answer decides what happens to all of it. Skipping needs
+     * no work at all: the copy is simply not made.
+     */
+    const runDrop = async ({
+      sources,
+      destDir,
+      root,
+      workspace,
+    }: {
+      sources: string[];
+      destDir: string;
+      root: string;
+      workspace: ReturnType<typeof currentWorkspaceEnv>;
+    }) => {
+      const finish = () => {
+        if (
+          !disposed &&
+          optsRef.current.rootPath === root &&
+          currentWorkspaceEnv() === workspace
+        )
+          optsRef.current.onCopied(destDir);
+      };
+      try {
+        const conflicts = await invoke<string[]>("fs_copy_conflicts", {
+          sources,
+          destDir,
+          workspace,
+        });
+        let replace = false;
+        if (conflicts.length > 0) {
+          const choice = await optsRef.current.askConflict(
+            conflictingNames(conflicts),
+          );
+          if (choice === null) return; // Dismissed: nothing is replaced.
+          if (choice === "skip") {
+            // Everything the folder already had stays; the rest is copied without reference to it.
+            const keep = new Set(conflicts);
+            sources = sources.filter((path) => !keep.has(path));
+            if (sources.length === 0) return;
+          } else {
+            replace = true;
+          }
+        }
+        const result = await invoke<CopyResult>(
+          replace ? "fs_copy_replacing" : "fs_copy",
+          { sources, destDir, root, workspace },
+        );
+        reportCopyFailures(result, optsRef.current.t);
+      } catch (err) {
+        toast.error(
+          optsRef.current.t("explorer.copyFailed", { error: String(err) }),
+        );
+      } finally {
+        finish();
+      }
+    };
+
     void getCurrentWebview()
       .onDragDropEvent((e) => {
         const p = e.payload;
-        const { rootPath, isDir, onCopied, t } = optsRef.current;
+        const { rootPath, isDir } = optsRef.current;
         if (p.type === "enter" || p.type === "over") {
           setTargetDir(dirAt(p.position.x, p.position.y, rootPath, isDir));
           return;
@@ -81,25 +154,17 @@ export function useExplorerFileDrop({
           const dir = dirAt(p.position.x, p.position.y, rootPath, isDir);
           setTargetDir(null);
           if (!rootPath || !dir || p.paths.length === 0) return;
+          // The files land on this surface, so the window comes forward - and with it the question
+          // about a name that is already there, which a window that is not focused would keep
+          // invisible (see `bringWindowForward`).
+          bringWindowForward();
           const workspace = currentWorkspaceEnv();
-          void invoke<CopyResult>("fs_copy", {
+          void runDrop({
             sources: p.paths,
             destDir: dir,
             root: rootPath,
             workspace,
-          })
-            .then((result) => reportCopyFailures(result, t))
-            .catch((err) =>
-              toast.error(t("explorer.copyFailed", { error: String(err) })),
-            )
-            .finally(() => {
-              if (
-                !disposed &&
-                optsRef.current.rootPath === rootPath &&
-                currentWorkspaceEnv() === workspace
-              )
-                onCopied(dir);
-            });
+          });
         }
       })
       .then((fn) => {

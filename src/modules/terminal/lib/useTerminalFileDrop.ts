@@ -1,4 +1,5 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { bringWindowForward } from "@/lib/windowFocus";
 import { useEffect } from "react";
 import { useTerminalDropStore } from "./dropStore";
 import { formatDroppedPaths } from "./quoteShellPath";
@@ -88,6 +89,9 @@ export function useTerminalFileDrop(): TerminalPathDropTarget {
           if (!p.paths.length) return;
           const leafId = leafIdAt(p.position.x, p.position.y);
           if (leafId !== null) {
+            // The path lands in this window, and a window that is not focused would show neither the
+            // paste nor anything else (see `bringWindowForward`).
+            bringWindowForward();
             pasteIntoSession(leafId, formatDroppedPaths(p.paths));
           }
         }

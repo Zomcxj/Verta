@@ -26,6 +26,63 @@ pub struct CopyFailure {
     pub message: String,
 }
 
+/// Copy `sources` that already exist in `dest_dir`: `replace` overwrites, otherwise they are left
+/// alone.
+///
+/// Added for the drop-conflict question: a file dragged in under a name the folder already has used
+/// to be reported as a failure with no way to say what should happen. Now the front end asks first
+/// and answers here - "replace" is the only mode, because skipping needs no work at all.
+#[tauri::command]
+pub async fn fs_copy_replacing(
+    app: tauri::AppHandle,
+    sources: Vec<String>,
+    dest_dir: String,
+    root: String,
+    workspace: Option<WorkspaceEnv>,
+) -> Result<CopyResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        copy_batch_replacing(
+            sources,
+            &dest_dir,
+            &root,
+            &WorkspaceEnv::from_option(workspace),
+            &app.state::<WorkspaceRegistry>(),
+            &app.state::<FileIndexState>(),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// The paths in `sources` whose name `dest_dir` already holds.
+///
+/// Asked before the copy so the user can be told what would be replaced and choose. It answers in
+/// the sources' own spelling, so the front end can match them back to what it is holding.
+#[tauri::command]
+pub async fn fs_copy_conflicts(
+    sources: Vec<String>,
+    dest_dir: String,
+    workspace: Option<WorkspaceEnv>,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let workspace = WorkspaceEnv::from_option(workspace);
+        let dest = resolve_path(&dest_dir, &workspace);
+        let mut conflicts = Vec::new();
+        for source in sources {
+            let source_path = resolve_path(&source, &workspace);
+            let Some(name) = source_path.file_name() else {
+                continue;
+            };
+            if std::fs::symlink_metadata(dest.join(name)).is_ok() {
+                conflicts.push(source);
+            }
+        }
+        Ok(conflicts)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
 pub async fn fs_copy(
     app: tauri::AppHandle,
@@ -81,13 +138,62 @@ fn copy_batch(
     index: &FileIndexState,
     rename_on_conflict: bool,
 ) -> Result<CopyResult, String> {
+    copy_batch_with(
+        sources,
+        dest_dir,
+        root,
+        workspace,
+        registry,
+        index,
+        rename_on_conflict,
+        false,
+    )
+}
+
+/// The same batch, allowed to replace what is already there.
+fn copy_batch_replacing(
+    sources: Vec<String>,
+    dest_dir: &str,
+    root: &str,
+    workspace: &WorkspaceEnv,
+    registry: &WorkspaceRegistry,
+    index: &FileIndexState,
+) -> Result<CopyResult, String> {
+    copy_batch_with(
+        sources,
+        dest_dir,
+        root,
+        workspace,
+        registry,
+        index,
+        false,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn copy_batch_with(
+    sources: Vec<String>,
+    dest_dir: &str,
+    root: &str,
+    workspace: &WorkspaceEnv,
+    registry: &WorkspaceRegistry,
+    index: &FileIndexState,
+    rename_on_conflict: bool,
+    replace: bool,
+) -> Result<CopyResult, String> {
     if sources.len() > MAX_COPY_SOURCES {
         return Err(format!("copy at most {MAX_COPY_SOURCES} items at a time"));
     }
     let dest = copy_destination(dest_dir, root, workspace, registry)?;
     let mut result = CopyResult::default();
     for source in sources {
-        match copy_item(Path::new(&source), &dest, rename_on_conflict) {
+        let outcome = if replace {
+            copy_item_replacing(&source, &dest, workspace)
+        } else {
+            copy_item(Path::new(&source), &dest, rename_on_conflict)
+        };
+        match outcome {
             Ok(name) => result
                 .created
                 .push(to_canon(Path::new(dest_dir).join(name))),
@@ -101,6 +207,64 @@ fn copy_batch(
         note_dir_changed(index, &dest);
     }
     Ok(result)
+}
+
+/// One item, replacing the same name in `dest` if there is one.
+///
+/// The replacement is staged like any other copy and only swapped in at the end, so a failure half
+/// way leaves the old entry untouched rather than gone - the same property the no-replace path
+/// gets from `rename_no_replace`, paid for with a short window where the name is absent.
+fn copy_item_replacing(
+    source: &str,
+    dest: &Path,
+    workspace: &WorkspaceEnv,
+) -> io::Result<OsString> {
+    let src = resolve_path(source, workspace);
+    let src = src.as_path();
+    if !src.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "copy source must be absolute",
+        ));
+    }
+    let name = src.file_name().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "copy source has no filename")
+    })?;
+    let metadata = std::fs::symlink_metadata(src)?;
+    if metadata.is_dir() && dest.starts_with(std::fs::canonicalize(src)?) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "cannot copy a folder into itself",
+        ));
+    }
+    let staging = tempfile::Builder::new()
+        .prefix(".verta-copy-")
+        .tempdir_in(dest)?;
+    let staged = staging.path().join("item");
+    copy_recursive(src, &staged, 0)?;
+    let target = dest.join(name);
+    match std::fs::symlink_metadata(&target) {
+        // Nothing to replace: the ordinary publish is enough and keeps its no-replace guarantee.
+        Err(_) => rename_no_replace(&staged, &target).map(|()| name.to_os_string()),
+        Ok(existing) => {
+            // A directory is moved aside rather than deleted first, so a failed swap can put it
+            // back. A file or symlink has nothing worth preserving under the same name.
+            if existing.is_dir() {
+                let aside = staging.path().join("replaced");
+                rename_no_replace(&target, &aside)?;
+                match rename_no_replace(&staged, &target) {
+                    Ok(()) => Ok(name.to_os_string()),
+                    Err(error) => {
+                        let _ = rename_no_replace(&aside, &target);
+                        Err(error)
+                    }
+                }
+            } else {
+                std::fs::remove_file(&target)?;
+                rename_no_replace(&staged, &target).map(|()| name.to_os_string())
+            }
+        }
+    }
 }
 
 fn copy_item(src: &Path, dest: &Path, rename_on_conflict: bool) -> io::Result<OsString> {
