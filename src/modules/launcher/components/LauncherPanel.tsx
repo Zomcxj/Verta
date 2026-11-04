@@ -14,7 +14,11 @@ import { type MessageKey, useT } from "@/modules/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { renameAgentSession } from "../lib/sessions";
-import { type SessionGroupBy, groupBySource } from "../lib/sessionGroups";
+import {
+  type ProjectRef,
+  type SessionGroupBy,
+  groupBySource,
+} from "../lib/sessionGroups";
 import { relativeToRoot } from "../lib/sessionPaths";
 import {
   type SourceRows,
@@ -43,6 +47,8 @@ import {
 import type { AgentSession, AgentTool, SessionTarget } from "../lib/types";
 import { topLevelSessions } from "../lib/visibleSessions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { setSessionGroupBy } from "@/modules/settings/store";
+import { loadProjectPaths } from "@/modules/projects/lib/store";
 import { useAgentActivityStore } from "@/modules/terminal";
 import { useWindowHidden } from "@/modules/theme/WindowActivityBridge";
 import type { Tab } from "@/modules/tabs/lib/useTabs";
@@ -163,7 +169,34 @@ export function LauncherPanel({
   /** Session being renamed in place (`sessionKey`); null when none. */
   const [renaming, setRenaming] = useState<SessionKey | null>(null);
   /** Default is one block sorted by time; `tool` splits it into per-agent sections. */
-  const [groupBy, setGroupBy] = useState<SessionGroupBy>("all");
+  const groupBy = usePreferencesStore((s) => s.sessionGroupBy);
+  const chooseGroupBy = useCallback((mode: SessionGroupBy) => {
+    // Written through the preference so the choice survives leaving the panel: the list
+    // was reset to "all" every time the sidebar showed the file tree.
+    void setSessionGroupBy(mode);
+  }, []);
+
+  /**
+   * The projects the "project" grouping names its sections after.
+   *
+   * Read straight from the project list's own store rather than through
+   * `@/modules/projects`, which would pull the whole projects view into the launcher's
+   * chunk (and loop back through the launcher it imports).
+   */
+  const [projects, setProjects] = useState<ProjectRef[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void loadProjectPaths()
+      .then((paths) => {
+        if (!cancelled) {
+          setProjects(paths.map((path) => ({ path, distro: null })));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /**
    * Reading the list while the user picks rows for deletion makes the list jump
@@ -451,13 +484,20 @@ export function LauncherPanel({
    * lumping them under one "opencode" heading leaves no way to tell which is read.
    */
   const groups = useMemo(
-    () => groupBySource(visible, TOOLS, groupBy),
-    [visible, groupBy],
+    () =>
+      groupBySource(
+        visible,
+        TOOLS,
+        groupBy,
+        projects,
+        t("launcher.groupOther"),
+      ),
+    [visible, groupBy, projects, t],
   );
 
-  /** Source headings only earn their space with multiple sources or per-agent
-   * sections; otherwise they are a wasted line. */
-  const showSourceHeadings = groups.length > 1 || groupBy === "tool";
+  /** Source headings only earn their space when there is more than one source: a list that
+   * is all this machine does not need to be told so, in any grouping. */
+  const showSourceHeadings = groups.length > 1;
 
   const toggleManaging = useCallback(() => {
     setManaging((was) => !was);
@@ -550,13 +590,13 @@ export function LauncherPanel({
           aria-label={t("launcher.groupBy")}
           className="flex items-center gap-0.5 self-start rounded-md bg-foreground/[0.05] p-0.5"
         >
-          {(["all", "tool"] as const).map((mode) => (
+          {(["all", "tool", "project"] as const).map((mode) => (
             <button
               key={mode}
               type="button"
               role="tab"
               aria-selected={groupBy === mode}
-              onClick={() => setGroupBy(mode)}
+              onClick={() => chooseGroupBy(mode)}
               className={cn(
                 "cursor-pointer rounded px-1.5 py-0.5 text-[10px] outline-none transition-colors duration-[var(--dur-base)] focus-visible:ring-2 focus-visible:ring-primary/40",
                 groupBy === mode
@@ -564,7 +604,11 @@ export function LauncherPanel({
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {mode === "all" ? t("launcher.groupAll") : t("launcher.groupByTool")}
+              {mode === "all"
+                ? t("launcher.groupAll")
+                : mode === "tool"
+                  ? t("launcher.groupByTool")
+                  : t("launcher.groupByProject")}
             </button>
           ))}
         </div>
@@ -593,14 +637,20 @@ export function LauncherPanel({
                       : t("launcher.sourceLocal")}
                   </div>
                 ) : null}
-                {group.sections.map((section) => (
-                  <div key={section.tool ?? "all"}>
-                    {section.tool ? (
-                      <div className="px-3 pt-1 pb-0.5 text-[10px] text-muted-foreground/80">
-                        {section.tool}
-                      </div>
-                    ) : null}
-                    <SessionList
+                {group.sections.map((section) => {
+                  const heading = section.label ?? section.tool;
+                  return (
+                    <div
+                      key={section.key}
+                      data-session-section={section.key}
+                      data-session-section-label={heading ?? ""}
+                    >
+                      {heading ? (
+                        <div className="px-3 pt-1 pb-0.5 text-[10px] text-muted-foreground/80">
+                          {heading}
+                        </div>
+                      ) : null}
+                      <SessionList
                       // Waiting first, inside the section it belongs to: the
                       // grouping itself is the user's choice and is left alone.
                       // Not while managing either - a row that moves under the
@@ -623,8 +673,9 @@ export function LauncherPanel({
                       // the list is incomplete until every source it asked has answered.
                       reading={!hasRead || pendingSources.size > 0}
                     />
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             ))}
       </div>

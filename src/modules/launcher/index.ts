@@ -3,6 +3,7 @@ export {
   type SessionOpenPlan,
   openTabForSession,
   planSessionOpen,
+  planSessionResume,
 } from "./lib/openSession";
 export { resumeCommand, newSessionCommand } from "./lib/resumeCommand";
 export { loadAllAgentSessions, runningAgentSessionIds } from "./lib/sessions";

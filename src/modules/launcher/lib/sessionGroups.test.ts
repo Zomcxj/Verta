@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { groupBySource, groupByTool, sortByRecent } from "./sessionGroups";
+import { groupByProject, groupBySource, groupByTool, sortByRecent } from "./sessionGroups";
 import type { AgentSession } from "./types";
 
 function session(
@@ -133,5 +133,122 @@ describe("groupBySource", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].distro).toBeNull();
     expect(groups[0].sections[0].sessions).toEqual([]);
+  });
+});
+
+/** A session that ran in a given folder. */
+function inFolder(id: string, cwd: string, updatedAtMs = 100): AgentSession {
+  return { ...session(id, "pi", updatedAtMs), cwd };
+}
+
+describe("groupByProject", () => {
+  it("names a section after the folder the session ran in", () => {
+    const groups = groupByProject(
+      [inFolder("a", "F:/work/app")],
+      [],
+      null,
+      "Other",
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe("app");
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["a"]);
+  });
+
+  it("puts a session under the deepest registered project", () => {
+    const groups = groupByProject(
+      [
+        inFolder("deep", "F:/work/app/packages/ui"),
+        inFolder("top", "F:/work/app"),
+      ],
+      [
+        { path: "F:/work", distro: null },
+        { path: "F:/work/app", distro: null },
+      ],
+      null,
+      "Other",
+    );
+    // `F:/work` holds no session of its own, so it draws nothing; both rows are `app`'s.
+    expect(groups.map((g) => g.label)).toEqual(["app"]);
+    expect(groups[0].sessions.map((s) => s.id).sort()).toEqual(["deep", "top"]);
+  });
+
+  it("keeps two folders that share a name apart, keyed by path", () => {
+    const groups = groupByProject(
+      [inFolder("c", "C:/a/web"), inFolder("d", "D:/b/web")],
+      [],
+      null,
+      "Other",
+    );
+    expect(groups.map((g) => g.label)).toEqual(["web", "web"]);
+    expect(new Set(groups.map((g) => g.key)).size).toBe(2);
+  });
+
+  it("reads one folder written two ways as one group", () => {
+    const groups = groupByProject(
+      [inFolder("a", "F:/work/app"), inFolder("b", "F:\\work\\app\\")],
+      [],
+      null,
+      "Other",
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].sessions).toHaveLength(2);
+  });
+
+  it("orders the project list first, then unknown folders by name, then no-cwd sessions last", () => {
+    const groups = groupByProject(
+      [
+        inFolder("z", "F:/work/zeta"),
+        inFolder("a", "F:/work/alpha"),
+        inFolder("reg", "F:/reg/registered"),
+        inFolder("none", ""),
+      ],
+      [{ path: "F:/reg/registered", distro: null }],
+      null,
+      "Other",
+    );
+    expect(groups.map((g) => g.label)).toEqual([
+      "registered",
+      "alpha",
+      "zeta",
+      "Other",
+    ]);
+    expect(groups[3].sessions.map((s) => s.id)).toEqual(["none"]);
+  });
+
+  it("does not match this machine's projects against a distro's sessions", () => {
+    const groups = groupByProject(
+      [inDistro(inFolder("w", "/home/x/app"), "Ubuntu")],
+      [{ path: "C:/work/app", distro: null }],
+      "Ubuntu",
+      "Other",
+    );
+    expect(groups.map((g) => g.label)).toEqual(["app"]);
+    expect(groups[0].key).toBe("/home/x/app");
+  });
+
+  it("still yields one empty section, so the empty state has somewhere to draw", () => {
+    const groups = groupByProject(
+      [],
+      [{ path: "F:/work", distro: null }],
+      null,
+      "Other",
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].sessions).toEqual([]);
+  });
+});
+
+describe("groupBySource by project", () => {
+  it("groups by project inside each source, with a heading for each", () => {
+    const groups = groupBySource(
+      [inFolder("local", "F:/work/app"), inDistro(inFolder("wsl", "/home/x/other"), "Ubuntu")],
+      TOOLS,
+      "project",
+      [{ path: "F:/work/app", distro: null }],
+      "Other",
+    );
+    expect(groups.map((g) => g.distro)).toEqual([null, "Ubuntu"]);
+    expect(groups[0].sections.map((s) => s.label)).toEqual(["app"]);
+    expect(groups[1].sections.map((s) => s.label)).toEqual(["other"]);
   });
 });
