@@ -10,13 +10,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -290,7 +283,10 @@ export function ProjectsView({
       const fresh: Record<string, ProjectStatus> = {};
       for (const [key, row] of Object.entries(rows)) {
         const seq = started.get(key);
-        if (seq === undefined || seq < (readAnsweredRef.current.get(key) ?? 0)) {
+        if (
+          seq === undefined ||
+          seq < (readAnsweredRef.current.get(key) ?? 0)
+        ) {
           continue;
         }
         readAnsweredRef.current.set(key, seq);
@@ -706,13 +702,13 @@ export function ProjectsView({
     [readRows, t],
   );
 
-/** A row waiting for its replacement to be confirmed, with the status the dialog quotes. */
-type ProjectReplacement = {
-  entry: ProjectEntry;
-  status: ProjectStatus | null | undefined;
-  /** Trim the copy to one commit as well - the shallow variant of the same replacement. */
-  shallow: boolean;
-};
+  /** A row waiting for its replacement to be confirmed, with the status the dialog quotes. */
+  type ProjectReplacement = {
+    entry: ProjectEntry;
+    status: ProjectStatus | null | undefined;
+    /** Trim the copy to one commit as well - the shallow variant of the same replacement. */
+    shallow: boolean;
+  };
 
   /**
    * Make one project exactly what its remote has.
@@ -729,7 +725,9 @@ type ProjectReplacement = {
     if (!entry || replacing) return;
     setReplacing(true);
     try {
-      await native.workspaceAuthorize(entry.path, entry.workspace).catch(() => null);
+      await native
+        .workspaceAuthorize(entry.path, entry.workspace)
+        .catch(() => null);
       const report = await native.projectsReplaceFromRemote(
         entry.path,
         entry.workspace,
@@ -926,10 +924,18 @@ type ProjectReplacement = {
                   }}
                   onPull={() => void handlePull(row)}
                   onReplace={() =>
-                    setReplaceFor({ entry: row, status: row.status, shallow: false })
+                    setReplaceFor({
+                      entry: row,
+                      status: row.status,
+                      shallow: false,
+                    })
                   }
                   onPullShallow={() =>
-                    setReplaceFor({ entry: row, status: row.status, shallow: true })
+                    setReplaceFor({
+                      entry: row,
+                      status: row.status,
+                      shallow: true,
+                    })
                   }
                   pulling={pulling.has(normalizePath(row.path))}
                   pullEnabled={canStartPull(
@@ -965,9 +971,9 @@ type ProjectReplacement = {
                   ? "projects.replace.bodyShallow"
                   : "projects.replace.body",
                 {
-                branch: replaceFor?.status?.branch ?? "",
-                upstream: replaceFor?.status?.upstream ?? "",
-                commits: replaceFor?.status?.ahead ?? 0,
+                  branch: replaceFor?.status?.branch ?? "",
+                  upstream: replaceFor?.status?.upstream ?? "",
+                  commits: replaceFor?.status?.ahead ?? 0,
                   files: replaceFor?.status?.dirty ?? 0,
                 },
               )}
@@ -986,7 +992,9 @@ type ProjectReplacement = {
                 void handleReplace();
               }}
             >
-              {replacing ? t("projects.replace.running") : t("projects.replace.confirm")}
+              {replacing
+                ? t("projects.replace.running")
+                : t("projects.replace.confirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1144,203 +1152,163 @@ function ProjectRowView({
   ];
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <tr
-          className={cn(
-            "border-b border-border/40 align-middle",
-            "hover:bg-accent/40",
-          )}
+    <tr
+      className={cn(
+        "border-b border-border/40 align-middle",
+        "hover:bg-accent/40",
+      )}
+    >
+      <td className="truncate px-2 py-1">
+        <button
+          type="button"
+          className="block max-w-full truncate text-left"
+          title={row.path}
+          onClick={() => onOpenWorkspace(row)}
         >
-          <td className="truncate px-2 py-1">
-            <button
-              type="button"
-              className="block max-w-full truncate text-left"
-              title={row.path}
-              onClick={() => onOpenWorkspace(row)}
-            >
-              {name}
-              {distro ? (
-                <span className="ml-1 text-muted-foreground">
-                  {t("projects.row.from", { distro })}
-                </span>
-              ) : null}
-            </button>
-          </td>
-          <td className="truncate px-2 py-1 text-muted-foreground">
-            {t(ownershipLabelKey(row.ownership))}
-          </td>
-          <td className="truncate px-2 py-1 text-muted-foreground">
-            {row.status?.detached
-              ? t("projects.detached")
-              : (row.status?.branch ?? "")}
-          </td>
-          <td className={cn("truncate px-2 py-1", TONE_CLASS[state.tone])}>
-            <span title={row.status?.error ?? undefined}>
-              {t(state.key as MessageKey, state.params)}
+          {name}
+          {distro ? (
+            <span className="ml-1 text-muted-foreground">
+              {t("projects.row.from", { distro })}
             </span>
-            {row.status?.fetchError ? (
-              // A stale comparison must not look like a current one.
-              <span
-                className="ml-1 text-amber-500"
-                title={t("projects.fetch.failed", {
-                  error: row.status.fetchError,
-                })}
-              >
-                ⚠
-              </span>
-            ) : null}
-          </td>
-          <td className="px-2 py-1 text-right text-muted-foreground">
-            {row.status?.dirty ? row.status.dirty : ""}
-          </td>
-          <td className="truncate px-2 py-1 text-muted-foreground">
-            {row.status?.upstream ?? ""}
-          </td>
-          <td className="px-2 py-1 text-right text-muted-foreground">
-            {row.status?.stashed ? row.status.stashed : ""}
-          </td>
-          <td className="px-2 py-1">
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                title={
-                  refreshing
-                    ? t("projects.checking")
-                    : t("projects.action.refreshOne")
-                }
-                aria-busy={refreshing || undefined}
-                disabled={refreshing}
-                className="inline-flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-progress"
-                onClick={onRefresh}
-              >
-                {/* A spinner in place of the glyph rather than beside it: the button is one cell of
+          ) : null}
+        </button>
+      </td>
+      <td className="truncate px-2 py-1 text-muted-foreground">
+        {t(ownershipLabelKey(row.ownership))}
+      </td>
+      <td className="truncate px-2 py-1 text-muted-foreground">
+        {row.status?.detached
+          ? t("projects.detached")
+          : (row.status?.branch ?? "")}
+      </td>
+      <td className={cn("truncate px-2 py-1", TONE_CLASS[state.tone])}>
+        <span title={row.status?.error ?? undefined}>
+          {t(state.key as MessageKey, state.params)}
+        </span>
+        {row.status?.fetchError ? (
+          // A stale comparison must not look like a current one.
+          <span
+            className="ml-1 text-amber-500"
+            title={t("projects.fetch.failed", {
+              error: row.status.fetchError,
+            })}
+          >
+            ⚠
+          </span>
+        ) : null}
+      </td>
+      <td className="px-2 py-1 text-right text-muted-foreground">
+        {row.status?.dirty ? row.status.dirty : ""}
+      </td>
+      <td className="truncate px-2 py-1 text-muted-foreground">
+        {row.status?.upstream ?? ""}
+      </td>
+      <td className="px-2 py-1 text-right text-muted-foreground">
+        {row.status?.stashed ? row.status.stashed : ""}
+      </td>
+      <td className="px-2 py-1">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            title={
+              refreshing
+                ? t("projects.checking")
+                : t("projects.action.refreshOne")
+            }
+            aria-busy={refreshing || undefined}
+            disabled={refreshing}
+            className="inline-flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-progress"
+            onClick={onRefresh}
+          >
+            {/* A spinner in place of the glyph rather than beside it: the button is one cell of
                     a table row, so anything that changes its size reflows the whole row. */}
-                {refreshing ? (
-                  <Spinner className="size-3" />
-                ) : (
-                  <span aria-hidden>⟳</span>
-                )}
-              </button>
-              <button
-                type="button"
-                title={
-                  pulling
-                    ? t("projects.pull.running")
-                    : pullBlocked
-                      ? t(pullBlocked.key, pullBlocked.params)
-                      : t("projects.pull.one", {
-                          branch: row.status?.branch ?? "",
-                        })
-                }
-                aria-busy={pulling || undefined}
-                className={cn(
-                  "inline-flex size-5 items-center justify-center rounded",
-                  !pullEnabled
-                    ? "cursor-not-allowed text-muted-foreground/40"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-                // Waiting for a check to finish and waiting for a slot are both "not now": the
-                // button is the same size either way, so the row does not jump.
-                disabled={pullBlocked !== null || !pullEnabled}
-                onClick={onPull}
-              >
-                {/* The glyph is one character and the button is one cell: the running state is a
+            {refreshing ? (
+              <Spinner className="size-3" />
+            ) : (
+              <span aria-hidden>⟳</span>
+            )}
+          </button>
+          <button
+            type="button"
+            title={
+              pulling
+                ? t("projects.pull.running")
+                : pullBlocked
+                  ? t(pullBlocked.key, pullBlocked.params)
+                  : t("projects.pull.one", {
+                      branch: row.status?.branch ?? "",
+                    })
+            }
+            aria-busy={pulling || undefined}
+            className={cn(
+              "inline-flex size-5 items-center justify-center rounded",
+              !pullEnabled
+                ? "cursor-not-allowed text-muted-foreground/40"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+            // Waiting for a check to finish and waiting for a slot are both "not now": the
+            // button is the same size either way, so the row does not jump.
+            disabled={pullBlocked !== null || !pullEnabled}
+            onClick={onPull}
+          >
+            {/* The glyph is one character and the button is one cell: the running state is a
                     spinner of the same size, not the word `正在拉取…`. The word used to wrap inside
                     a `px-1` button and turn the row's action area into a column. The title and the
                     `aria-busy` flag still say what is happening. */}
-                {pulling ? (
-                  <Spinner className="size-3" />
-                ) : (
-                  <span aria-hidden>⇣</span>
-                )}
-              </button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    title={t("projects.action.more")}
-                    className="rounded px-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  >
-                    ⋯
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-48">
-                  {actions.some((action) => action.agent) ? (
-                    <div className="flex items-center gap-1 px-1 py-1">
-                      {actions
-                        .filter((action) => action.agent)
-                        .map((action) => (
-                          <DropdownMenuItem
-                            key={action.key}
-                            disabled={action.disabled}
-                            onSelect={action.onSelect}
-                            title={action.label}
-                            aria-label={action.label}
-                            className="justify-center px-2"
-                          >
-                            <AgentIcon agent={action.agent ?? ""} size={14} />
-                          </DropdownMenuItem>
-                        ))}
-                    </div>
-                  ) : null}
-                  {actions
-                    .filter((action) => !action.agent)
-                    .map((action) =>
-                      action.separator ? (
-                        <DropdownMenuSeparator key={action.key} />
-                      ) : (
-                        <DropdownMenuItem
-                          key={action.key}
-                          disabled={action.disabled}
-                          onSelect={action.onSelect}
-                        >
-                          {action.label}
-                        </DropdownMenuItem>
-                      ),
-                    )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </td>
-        </tr>
-      </ContextMenuTrigger>
-      <ContextMenuContent className="min-w-48">
-        {actions.some((action) => action.agent) ? (
-          <div className="flex items-center gap-1 px-1 py-1">
-            {actions
-              .filter((action) => action.agent)
-              .map((action) => (
-                <ContextMenuItem
-                  key={action.key}
-                  disabled={action.disabled}
-                  onSelect={action.onSelect}
-                  title={action.label}
-                  aria-label={action.label}
-                  className="justify-center px-2"
-                >
-                  <AgentIcon agent={action.agent ?? ""} size={14} />
-                </ContextMenuItem>
-              ))}
-          </div>
-        ) : null}
-        {actions
-          .filter((action) => !action.agent)
-          .map((action) =>
-            action.separator ? (
-              <ContextMenuSeparator key={action.key} />
+            {pulling ? (
+              <Spinner className="size-3" />
             ) : (
-              <ContextMenuItem
-                key={action.key}
-                disabled={action.disabled}
-                onSelect={action.onSelect}
+              <span aria-hidden>⇣</span>
+            )}
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                title={t("projects.action.more")}
+                className="rounded px-1 text-muted-foreground hover:bg-accent hover:text-foreground"
               >
-                {action.label}
-              </ContextMenuItem>
-            ),
-          )}
-      </ContextMenuContent>
-    </ContextMenu>
+                ⋯
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-48">
+              {actions.some((action) => action.agent) ? (
+                <div className="flex items-center gap-1 px-1 py-1">
+                  {actions
+                    .filter((action) => action.agent)
+                    .map((action) => (
+                      <DropdownMenuItem
+                        key={action.key}
+                        disabled={action.disabled}
+                        onSelect={action.onSelect}
+                        title={action.label}
+                        aria-label={action.label}
+                        className="justify-center px-2"
+                      >
+                        <AgentIcon agent={action.agent ?? ""} size={14} />
+                      </DropdownMenuItem>
+                    ))}
+                </div>
+              ) : null}
+              {actions
+                .filter((action) => !action.agent)
+                .map((action) =>
+                  action.separator ? (
+                    <DropdownMenuSeparator key={action.key} />
+                  ) : (
+                    <DropdownMenuItem
+                      key={action.key}
+                      disabled={action.disabled}
+                      onSelect={action.onSelect}
+                    >
+                      {action.label}
+                    </DropdownMenuItem>
+                  ),
+                )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </td>
+    </tr>
   );
 }
-
