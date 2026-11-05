@@ -45,10 +45,9 @@ pub const FAILED_EVENT: &str = "screenshot:failed";
 
 /// How long to wait after hiding the window before grabbing.
 ///
-/// `hide()` only hands the request to the system and that frame is still on screen;
-/// grabbing now would capture the veil, selection box, handles and action bar. A bit
-/// over one frame is enough (16 ms at 60 Hz); the cost is a brief moment without the
-/// veil; the built-in snipping tool has the same flicker.
+/// The window is excluded from captures (see `exclude_from_capture`), so this is no longer what
+/// keeps the veil, selection box, handles and action bar out of the image - it only gives the
+/// session a moment to look finished before the grab, and covers a system too old for that call.
 const HIDE_SETTLE: Duration = Duration::from_millis(80);
 
 /// The state is one bit: whether a screenshot is currently in progress.
@@ -256,6 +255,7 @@ fn ensure_overlay(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
             .build()
             .map_err(|e| format!("无法创建截图窗口：{e}"))?,
     };
+    exclude_from_capture(&window);
     let screen = capture::virtual_screen_bounds()?;
     window
         .set_position(Position::Physical(PhysicalPosition::new(
@@ -303,9 +303,32 @@ fn screenshots_dir() -> Result<PathBuf, String> {
     Ok(base.join("Screenshots"))
 }
 
+/// Ask the system to leave the overlay out of screen grabs.
+///
+/// The grab happens after the overlay is hidden, but `hide()` only hands the request to the
+/// compositor: on a frame that is slow to drop, the veil, the selection's outline and its handles
+/// were still on screen when the pixels were read, and they came out in the saved image. Display
+/// affinity is not a race - the window is never part of a capture, whoever is grabbing - so the
+/// grab can run at once and hiding is only what ends the session.
+///
+/// `WDA_EXCLUDEFROMCAPTURE` needs Windows 10 2004; the call fails on anything older, and there the
+/// wait after hiding is what has to carry it.
+#[cfg(windows)]
+fn exclude_from_capture(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+    };
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+    // A window the system will not capture still gets its input: this only affects grabs.
+    let _ = unsafe { SetWindowDisplayAffinity(hwnd.0 as _, WDA_EXCLUDEFROMCAPTURE) };
+}
+
 /// Show it and take focus: without focus it gets neither Esc nor Enter.
 fn show_overlay(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(OVERLAY) {
+        exclude_from_capture(&window);
         let _ = window.show();
         let _ = window.set_focus();
     }
