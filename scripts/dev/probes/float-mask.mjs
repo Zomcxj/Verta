@@ -112,6 +112,14 @@ report.themeHadGlass = await main.evaluate(`
 report.contextMenu = JSON.parse(
   await main.evaluate(`
   ${ALPHA}
+  ${PRESS}
+  // The file tree is behind the sidebar's own "files" entry: a right-click menu is only there once it
+  // is on screen.
+  if ([...document.querySelectorAll("[data-fs-path]")].every((el) => el.offsetParent === null)) {
+    const rail = [...document.querySelectorAll("button[aria-label]")].find((b) => /^文件$|^Files$/.test((b.getAttribute("aria-label") ?? "").trim()));
+    if (rail) press(rail);
+    await new Promise((res) => setTimeout(res, 1800));
+  }
   const row = [...document.querySelectorAll("[data-fs-path]")].find((el) => el.offsetParent !== null);
   if (!row) return JSON.stringify({ step: "no-row" });
   const r = row.getBoundingClientRect();
@@ -174,7 +182,7 @@ if (report.compactSpot.step === "row") {
   report.compactDetails = JSON.parse(
     await main.evaluate(`
     ${ALPHA}
-    const el = document.querySelector("[data-slot=tooltip-content]");
+    const el = document.querySelector("[data-compact-card]");
     const reading = el ? alphaOf(el) : null;
     return JSON.stringify({ step: el ? "done" : "no-popup", ...(reading ?? {}) });
   `),
@@ -228,7 +236,7 @@ console.log(JSON.stringify(report, null, 2));
 const problems = [];
 for (const [label, reading] of [
   ["文件列表右键菜单", report.contextMenu],
-  ["紧凑会话信息浮窗", report.compactDetails],
+  ["会话详情卡", report.compactDetails],
   ["设置选择列表", report.selectMenu],
 ]) {
   if (reading.step === "skipped-standard-density") continue;

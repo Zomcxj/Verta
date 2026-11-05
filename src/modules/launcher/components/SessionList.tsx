@@ -5,33 +5,28 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { AgentStateMarquee, type AgentStateDot as AgentState } from "@/modules/terminal/AgentStateDot";
+import {
+  AgentStateMarquee,
+  type AgentStateDot as AgentState,
+} from "@/modules/terminal/AgentStateDot";
 import { useLanguage, useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { SessionListDensity } from "@/modules/settings/store";
 import { AgentIcon } from "../lib/agentIcon";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  isRenaming,
-  type SessionKey,
-  sessionKey,
-} from "../lib/selection";
+import { isRenaming, type SessionKey, sessionKey } from "../lib/selection";
 import {
   lastTalkedDayLabel,
-  statsLine,
   statsOf,
   tokensLabel,
   turnsLabel,
 } from "../lib/sessionStats";
 import type { AgentSession } from "../lib/types";
+import { CompactSessionCard } from "./CompactSessionCard";
+import type { CardAnchor } from "../lib/compactCardPosition";
 
 /** Everything the context-menu items need. Paths are computed by the UI: a relative
  *  path against the session cwd's parent is meaningless, so it is resolved against the
@@ -88,6 +83,45 @@ export const SessionList = memo(function SessionList({
 }: Props) {
   const t = useT();
   const density = usePreferencesStore((s) => s.sessionListDensity);
+  const cardId = useId();
+  /**
+   * Which row the details card is anchored to, and where that row is on screen.
+   *
+   * One card for the whole list, so moving between rows moves it. The row element itself is kept as
+   * well, because a scroll moves the row without any pointer event: the anchor is recomputed from
+   * the element, not remembered as a number.
+   */
+  const [hovered, setHovered] = useState<{
+    session: AgentSession;
+    anchor: CardAnchor;
+  } | null>(null);
+  const hoveredRowRef = useRef<HTMLElement | null>(null);
+  const hoverRow = useCallback((session: AgentSession, el: HTMLElement) => {
+    hoveredRowRef.current = el;
+    setHovered({ session, anchor: rowAnchor(el) });
+  }, []);
+  const clearRow = useCallback(() => {
+    hoveredRowRef.current = null;
+    setHovered(null);
+  }, []);
+  // A scroll under a stationary pointer moves the row the card is anchored to: the card follows it,
+  // in the capture phase so any scrolling ancestor counts.
+  useEffect(() => {
+    if (hovered === null) return;
+    const follow = () => {
+      const el = hoveredRowRef.current;
+      if (el === null) return;
+      setHovered((was) =>
+        was === null ? was : { ...was, anchor: rowAnchor(el) },
+      );
+    };
+    window.addEventListener("scroll", follow, true);
+    window.addEventListener("resize", follow);
+    return () => {
+      window.removeEventListener("scroll", follow, true);
+      window.removeEventListener("resize", follow);
+    };
+  }, [hovered]);
   if (sessions.length === 0) {
     return (
       <div
@@ -102,10 +136,23 @@ export const SessionList = memo(function SessionList({
       </div>
     );
   }
+  // Managing turns rows into checkboxes and renaming turns one into a text field: neither is a row
+  // whose details are worth showing, so the card is only drawn for a plain compact list.
+  const showCard =
+    density === "compact" &&
+    !selectable &&
+    hovered !== null &&
+    !(actions && isRenaming(actions.renameId, hovered.session));
   return (
     // Which density was drawn, the way a row carries `data-session-id`: a probe measuring the two
     // modes has to know which one it is looking at, and counting lines is a guess.
-    <div data-session-density={density} className="flex flex-col gap-0.5 px-1.5 pb-2">
+    <div
+      data-session-density={density}
+      className="flex flex-col gap-0.5 px-1.5 pb-2"
+      // The pointer leaving the list is what closes the card: clearing it row by row would blink it
+      // every time the pointer crossed the two-pixel gap between two rows.
+      onPointerLeave={clearRow}
+    >
       {sessions.map((session) => (
         <SessionButton
           key={sessionKey(session)}
@@ -118,11 +165,30 @@ export const SessionList = memo(function SessionList({
           checked={selected?.has(sessionKey(session)) ?? false}
           onToggle={onToggle}
           actions={actions}
+          onHover={density === "compact" ? hoverRow : undefined}
+          describedBy={
+            showCard && hovered !== null && hovered.session.id === session.id
+              ? cardId
+              : undefined
+          }
         />
       ))}
+      {showCard && hovered !== null ? (
+        <CompactSessionCard
+          session={hovered.session}
+          anchor={hovered.anchor}
+          id={cardId}
+        />
+      ) : null}
     </div>
   );
 });
+
+/** Where a row is on screen, which is what the card is anchored to. */
+function rowAnchor(el: HTMLElement): CardAnchor {
+  const rect = el.getBoundingClientRect();
+  return { top: rect.top, left: rect.left, right: rect.right };
+}
 
 const SessionButton = memo(function SessionButton({
   session,
@@ -134,6 +200,8 @@ const SessionButton = memo(function SessionButton({
   checked,
   onToggle,
   actions,
+  onHover,
+  describedBy,
 }: {
   session: AgentSession;
   active: boolean;
@@ -143,6 +211,10 @@ const SessionButton = memo(function SessionButton({
   state: AgentState | null;
   selectable: boolean;
   checked: boolean;
+  /** Tells the list which row the details card should be anchored to; absent in standard density. */
+  onHover?: (session: AgentSession, el: HTMLElement) => void;
+  /** Set on the one row the card is describing, so a screen reader gets the details too. */
+  describedBy?: string;
 } & Pick<Props, "onOpen" | "onToggle" | "actions">) {
   const t = useT();
   const language = useLanguage();
@@ -156,10 +228,17 @@ const SessionButton = memo(function SessionButton({
       // the title.
       data-session-id={session.id}
       // The tooltip keeps only the session title: the path is no longer shown, so it must
-      // not sneak back in through a tooltip. Except in the compact row, which has a popup of
-      // its own: two popups on one hover, and the native one knowing only the title, is worse
-      // than the one.
+      // not sneak back in through a tooltip. The compact row has no native tooltip at all -
+      // it has the details card, and two popups on one hover is worse than the one.
       title={density === "standard" ? session.title : undefined}
+      aria-describedby={describedBy}
+      // The card follows the pointer and, for someone tabbing through the list, the focus.
+      onPointerEnter={
+        onHover ? (event) => onHover(session, event.currentTarget) : undefined
+      }
+      onFocus={
+        onHover ? (event) => onHover(session, event.currentTarget) : undefined
+      }
       onClick={() =>
         selectable && onToggle ? onToggle(session) : onOpen(session)
       }
@@ -220,9 +299,13 @@ const SessionButton = memo(function SessionButton({
             data-session-meta=""
             className="flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground"
           >
-            <span className="shrink-0">{turnsLabel(stats.turns, language)}</span>
+            <span className="shrink-0">
+              {turnsLabel(stats.turns, language)}
+            </span>
             <span aria-hidden>·</span>
-            <span className="shrink-0">{tokensLabel(stats.tokens, language)}</span>
+            <span className="shrink-0">
+              {tokensLabel(stats.tokens, language)}
+            </span>
             <span aria-hidden>·</span>
             <span className="truncate">
               {lastTalkedDayLabel(Date.now(), stats.lastAtMs, language)}
@@ -233,39 +316,13 @@ const SessionButton = memo(function SessionButton({
     </button>
   );
 
-  const trigger =
+  // The row carries the context menu; the details card is not here at all. It belongs to the list,
+  // because it is one card that moves - a card per row could only ever appear and disappear.
+  const body =
     actions && !selectable && !renaming ? (
       <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
     ) : (
       row
-    );
-
-  // The two triggers have to land on the same element, so their `asChild` slots are chained and
-  // the row is the only thing at the end of that chain. A Root that renders nothing cannot sit
-  // between them: the props would be merged onto it and never reach the row. Both triggers write
-  // their own attributes onto the row - the tooltip sets `data-state` and `aria-describedby` on it,
-  // so the row carries those whenever a compact row has a popup attached.
-  const body =
-    density === "compact" ? (
-      <Tooltip>
-        <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-        {/* A floating panel of text in this window is `verta-float`: the theme's own popover
-            colours, a hairline ring, and - on the glass theme only - the pane tint that makes it
-            translucent like every neighbouring menu. The two colours the shared sheet sets are for
-            a one-line pill and must not come through: in a light theme the row would open a black
-            block. */}
-        <TooltipContent
-          side="right"
-          motion="card"
-          className="verta-float verta-float-mask max-w-72 flex-col items-start gap-0.5 rounded-xl bg-popover px-2.5 py-2 text-[11px] leading-relaxed text-popover-foreground shadow-lg ring-1 ring-foreground/5 dark:ring-foreground/10"
-        >
-          <span className="font-medium">{session.title}</span>
-          <span>{statsLine(stats, Date.now(), language)}</span>
-          <span className="break-all opacity-80">{session.cwd}</span>
-        </TooltipContent>
-      </Tooltip>
-    ) : (
-      trigger
     );
 
   if (!actions || selectable || renaming) return body;

@@ -798,11 +798,24 @@ html[data-window-inactive] *::before,
 html[data-window-inactive] *::after {
   animation-play-state: paused !important;
 }
-/* The one exception: a layer that is on its way out. Radix unmounts a closing layer when its exit
- * animation ends, and a paused animation never ends, so a window left in the background kept a closed
- * menu, dropdown or dialog painted on screen until it came back to the front. Those hundred
- * milliseconds are what the interface has to run for the layer to be gone; everything else in that
- * window stays paused. */
+/* The second exception is every floating layer, and it is the first one's reason again: a layer like
+ * this exists only while the user is interacting with it, so holding its animation produces no
+ * saving - it produces an *empty* layer. Measured 2026-11-05: with the window unfocused, hovering a
+ * compact session row drew its details card with no text in it at all, because the text's one-shot
+ * fade sat paused on its first frame (`opacity: 0`), which is a panel with nothing written in it
+ * until the window is clicked. Every tooltip in the window had the same hole, since a tooltip opens
+ * on hover and does not need the focus to be asked for. These entrances run once for 160-320ms rather
+ * than repeating, so there is no loop here to stop; the animations that do repeat forever are the
+ * state indicators, and those keep their own rules below. */
+html[data-window-inactive] .verta-float,
+html[data-window-inactive] .verta-float * {
+  animation-play-state: running !important;
+}
+/* A layer that is on its way out, for the same reason and for layers that are not `verta-float`:
+ * Radix unmounts a closing layer when its exit animation ends, and a paused animation never ends, so
+ * a window left in the background kept a closed menu, dropdown or dialog painted on screen until it
+ * came back to the front. Those hundred milliseconds are what the interface has to run for the layer
+ * to be gone; everything else in that window stays paused. */
 html[data-window-inactive] [data-state="closed"] {
   animation-play-state: running !important;
 }
@@ -855,9 +868,12 @@ html[data-window-inactive]:not([data-window-hidden]) .verta-state-indicator * {
   .verta-state-marquee {
     animation: none;
   }
-  /* The details panel arrives at its resting place instead of moving there. */
-  .verta-compact-card {
+  /* The details card arrives where the row is instead of travelling to it, and its text does not
+   * fade in either. */
+  .verta-compact-card,
+  .verta-compact-card-body {
     animation: none;
+    transition: none;
   }
 }
 
@@ -1070,74 +1086,41 @@ html[data-window-inactive]:not([data-window-hidden]) .verta-state-indicator * {
   }
 }
 
-/* The compact session's details panel, and any other floating card that carries several lines
- * rather than one label (`TooltipContent`'s `motion="card"`).
+/* The compact session list's details card: **one** card for the whole list, anchored to whichever
+ * row the pointer is on.
  *
- * Entering is one beat: the fade, the slide and the slight overshoot all run 160ms, so the panel
- * reads as arriving rather than as "slide, then appear". The overshoot settles back inside the same
- * animation - an undershoot past the resting place, then level - instead of being a second animation
- * chained onto the first. The offset is 6px, about one line of the panel's own text, so the movement
- * says "out from the row" without asking the eye to follow it.
+ * It is positioned with a `transform`, so following the pointer down the list is the card moving
+ * rather than a panel per row appearing and disappearing - the eye tracks one object, which is what
+ * the edge-dock reference does with one native window and a spring. At this scale a transition is the
+ * spring: `--dur-base` on `--ease-soft`, so the card keeps pace with a pointer without the snap a
+ * shorter curve has.
  *
- * Leaving is shorter than arriving (120ms, no overshoot): a panel on its way out should not be
- * watched. Only transform and opacity are animated - neither costs a layout pass, and the panel's
- * size is fixed by its text, so nothing reads the layout between frames.
+ * `data-ready` is set in the same commit as the first placement, so the first appearance is not
+ * animated - the card is simply where the row is - and only a move between rows slides. Its content
+ * is keyed by session, and `.verta-compact-card-body` fades in when the row changes, so the details
+ * of the next session arrive while the card itself keeps travelling.
  *
- * The direction comes from the side Radix placed it on, the same way the stock pill leans.
+ * Only transform and opacity are involved, and the card's width is fixed, so nothing reads the layout
+ * between frames.
  */
 .verta-compact-card {
-  --verta-card-enter-shift: 6px;
-  animation: verta-compact-card-in 160ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  opacity: 0;
+  transition: none;
 }
-.verta-compact-card[data-side="left"] {
-  --verta-card-enter-shift: -6px;
+.verta-compact-card[data-ready="true"] {
+  transition:
+    transform var(--dur-base) var(--ease-soft),
+    opacity var(--dur-fast) var(--ease-soft);
 }
-.verta-compact-card[data-side="right"] {
-  --verta-card-enter-shift: 6px;
-}
-.verta-compact-card[data-side="top"] {
-  animation-name: verta-compact-card-in-y;
-  --verta-card-enter-shift: -6px;
-}
-.verta-compact-card[data-side="bottom"] {
-  animation-name: verta-compact-card-in-y;
-  --verta-card-enter-shift: 6px;
-}
-.verta-compact-card[data-state="closed"] {
-  animation: verta-compact-card-out 120ms cubic-bezier(0.4, 0, 1, 1) both;
+.verta-compact-card-body {
+  animation: verta-compact-card-body-in var(--dur-fast) var(--ease-soft) both;
 }
 
-@keyframes verta-compact-card-in {
-  0% {
+@keyframes verta-compact-card-body-in {
+  from {
     opacity: 0;
-    transform: translateX(var(--verta-card-enter-shift)) scale(0.97);
   }
-  70% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes verta-compact-card-in-y {
-  0% {
-    opacity: 0;
-    transform: translateY(var(--verta-card-enter-shift)) scale(0.97);
-  }
-  70% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes verta-compact-card-out {
   to {
-    opacity: 0;
-    transform: scale(0.98);
+    opacity: 1;
   }
 }
