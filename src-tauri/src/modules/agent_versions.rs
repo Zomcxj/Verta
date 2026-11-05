@@ -208,6 +208,43 @@ fn pi_package_upgrade(source: &str) -> AgentUpgrade {
     }
 }
 
+/// The specs one `npm install` names, given what is installed and which plugins were asked for.
+///
+/// The plugins being updated are asked for their newest; **every other one is pinned to the version it
+/// is already on**. Naming them all `@latest` is what produced "回退一个小版本然后重试": one `npm install`
+/// re-resolved every plugin, so a click about one row could put a *different* one back at whatever the
+/// registry publishes now - measured on this machine, a plugin installed from a git branch (7.0.1,
+/// newer than the registry's 6.3.0) came back at 6.3.0. Pinning leaves each other row where it is, and
+/// a plugin whose installed version cannot be read keeps its configured spec, which is what every
+/// plugin used to get.
+///
+/// `targets` is a set rather than one name because a batch clickable covers several rows at once: one
+/// `npm install` is what makes them one unit of work instead of one per row.
+fn opencode_install_specs(
+    plugins: &[OpencodePlugin],
+    installed: &std::collections::HashMap<String, String>,
+    targets: Option<&std::collections::HashSet<String>>,
+) -> Vec<String> {
+    plugins
+        .iter()
+        .map(|plugin| {
+            // No targets at all means the whole project is being brought up to date.
+            let asked_for = targets.is_none_or(|set| set.contains(&plugin.name));
+            match plugin_upstream(&plugin.spec) {
+                PluginUpstream::Registry => match installed.get(&plugin.name) {
+                    _ if asked_for => format!("{}@latest", plugin.name),
+                    Some(version) => format!("{}@{}", plugin.name, version),
+                    None => format!("{}@latest", plugin.name),
+                },
+                // A git plugin is installed from its own spec, which is how npm re-resolves the
+                // branch to wherever it is now; its installed version is not on the registry to pin
+                // to, and npm would fail the whole install over it.
+                PluginUpstream::Github(_) => format!("{}@{}", plugin.name, plugin.spec),
+            }
+        })
+        .collect()
+}
+
 /// opencode's plugins are the npm dependencies of its config directory, so updating them is one
 /// `npm install` there, naming each one at its newest.
 ///
@@ -217,21 +254,25 @@ fn pi_package_upgrade(source: &str) -> AgentUpgrade {
 /// plugin in one install is also what keeps them from clobbering each other - installing one at a
 /// time let npm put another one back at the commit its lock file still named (measured 2026-11-04:
 /// ponytail at latest left superpowers at 6.3.0 while the checkout was 7.0.1).
-fn opencode_plugins_upgrade(plugins: &[OpencodePlugin]) -> AgentUpgrade {
+fn opencode_plugins_upgrade(
+    plugins: &[OpencodePlugin],
+    targets: Option<&std::collections::HashSet<String>>,
+) -> AgentUpgrade {
     let dir = opencode_config_dir().unwrap_or_default();
+    let installed: std::collections::HashMap<String, String> = plugins
+        .iter()
+        .filter_map(|plugin| {
+            opencode_plugin_version(&plugin.name)
+                .ok()
+                .map(|version| (plugin.name.clone(), version))
+        })
+        .collect();
     let mut args = vec![
         "install".to_string(),
         "--prefix".to_string(),
         dir.display().to_string(),
     ];
-    for plugin in plugins {
-        // A registry plugin is asked for its latest; a git plugin is installed from its own spec,
-        // which is how npm re-resolves the branch to wherever it is now.
-        args.push(match plugin_upstream(&plugin.spec) {
-            PluginUpstream::Registry => format!("{}@latest", plugin.name),
-            PluginUpstream::Github(_) => format!("{}@{}", plugin.name, plugin.spec),
-        });
-    }
+    args.extend(opencode_install_specs(plugins, &installed, targets));
     AgentUpgrade {
         program: "npm".into(),
         args,
@@ -377,6 +418,16 @@ impl Http {
     /// The path taken by a `github:` plugin, which npm never sees: there is no registry document for
     /// it, only the repository, and its `package.json` is where the version it is on is written.
     async fn published_repo_version(&self, repo: &str) -> Result<String, String> {
+        let path = format!("repos/{repo}/contents/package.json?ref=HEAD");
+        if let Some(text) = gh_api_raw(&path).await {
+            let json: serde_json::Value = serde_json::from_str(&text)
+                .map_err(|error| format!("解析 {repo} 的 package.json 失败：{error}"))?;
+            return json
+                .get("version")
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+                .ok_or_else(|| format!("{repo} 的 package.json 没有 version"));
+        }
         // The contents endpoint with the raw media type hands back the file itself; the plain form
         // would be base64 inside JSON, which is another decode for nothing.
         let url = format!("https://api.github.com/repos/{repo}/contents/package.json?ref=HEAD");
@@ -388,6 +439,49 @@ impl Http {
             .and_then(|value| value.as_str())
             .map(str::to_string)
             .ok_or_else(|| format!("{repo} 的 package.json 没有 version"))
+    }
+}
+
+/// One GitHub read through the logged-in `gh`, when there is one.
+///
+/// The anonymous API is what these reads fall back to, and it is limited to sixty reads an hour per
+/// address: a few bell opens spend it, and the next one answers "HTTP 403 Forbidden" on a plugin row
+/// (reported as "浮窗查询失败 HTTP 403 Forbidden 更新失败"). `gh` reads with the account's own quota, is
+/// already what the GitHub panel uses, and needs no token handling here. `None` means "no gh, or not
+/// logged in, or it failed" - the caller then reads the API as before.
+async fn gh_api_raw(path: &str) -> Option<String> {
+    let path = path.to_string();
+    let text = crate::modules::fs::blocking(move || {
+        let args = [
+            "api",
+            path.as_str(),
+            "-H",
+            "Accept: application/vnd.github.raw",
+        ];
+        match crate::modules::github::gh::run(&args, GIT_TIMEOUT_SECS) {
+            Ok(output) if output.is_ok() => Ok(output.stdout),
+            // Nothing installed, nothing logged in, or it refused: the caller reads the API instead,
+            // so there is no message to carry out of here.
+            Ok(_) | Err(_) => Err(String::new()),
+        }
+    })
+    .await
+    .ok()?;
+    (!text.trim().is_empty()).then_some(text)
+}
+
+/// What to say when a host refused a read.
+///
+/// A bare "HTTP 403 Forbidden" is what the bell showed for a rate-limited GitHub read ("浮窗查询失败
+/// HTTP 403 Forbidden"), and it does not say which of several things happened. On these two APIs a 403
+/// or a 429 is almost always the anonymous read quota, so the message names that, and what turns it
+/// off - the same read through the logged-in `gh` does not spend it.
+fn http_failure(label: &str, status: u16) -> String {
+    match status {
+        403 | 429 => format!(
+            "查询 {label} 失败：HTTP {status}（多为匿名读取的配额用完：未登录时 GitHub 每小时 60 次，稍后再试，或登录 gh 后用其配额）"
+        ),
+        _ => format!("查询 {label} 失败：HTTP {status}"),
     }
 }
 
@@ -405,9 +499,9 @@ async fn fetch_json(
         .await
         .map_err(|error| Unread::Transport(format!("查询 {label} 失败：{error}")))?;
     if !response.status().is_success() {
-        return Err(Unread::Answered(format!(
-            "查询 {label} 失败：HTTP {}",
-            response.status()
+        return Err(Unread::Answered(http_failure(
+            label,
+            response.status().as_u16(),
         )));
     }
     if response
@@ -439,7 +533,19 @@ fn github_repo(source: &str) -> Option<String> {
 ///
 /// The host that answers an HTTP request in about a second, where `git ls-remote` against it took
 /// 21 s on this machine (measured 2026-11-04) - long enough that the bell would have given up on it.
+/// The logged-in `gh` is asked first for the same reason the plugin read asks it: the anonymous
+/// quota is sixty reads an hour, and a check spends one per git-sourced row.
 async fn github_head_sha(http: &Http, repo: &str) -> Result<String, String> {
+    let path = format!("repos/{repo}/commits/HEAD");
+    if let Some(text) = gh_api_raw(&path).await {
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|error| format!("解析 {repo} 的提交响应失败：{error}"))?;
+        return json
+            .get("sha")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| format!("{repo} 的提交响应没有 sha"));
+    }
     let url = format!("https://api.github.com/repos/{repo}/commits/HEAD");
     let json = http
         .get(&url, repo, "application/json")
@@ -951,7 +1057,7 @@ async fn opencode_plugin_remote(
 pub async fn check() -> AgentVersions {
     let packages = pi_packages().unwrap_or_default();
     let plugins = opencode_plugins().unwrap_or_default();
-    let plugin_upgrade = opencode_plugins_upgrade(&plugins);
+    let plugin_upgrade = opencode_plugins_upgrade(&plugins, None);
     let http = match Http::build() {
         Ok(http) => http,
         // Without a client nothing can be asked, but the installed versions are still readable, so
@@ -1005,6 +1111,118 @@ pub async fn check() -> AgentVersions {
     AgentVersions { components }
 }
 
+/// What one id's upgrade did, for a batch.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ComponentUpgrade {
+    pub id: String,
+    pub ok: bool,
+    pub message: String,
+}
+
+/// How a batch of ids splits: the plugins share one `npm install`, everything else runs alone.
+///
+/// Pure on purpose - the plugins are passed in rather than read here - so what a batch turns into can
+/// be asserted without a machine's configuration behind it.
+struct BatchPlan {
+    plugins: Vec<String>,
+    singles: Vec<String>,
+}
+
+/// Splits a batch click into the commands it will run.
+///
+/// Every plugin lives in the same npm project, so one install covers all of them; anything else is a
+/// different tool's updater and runs on its own. An id whose plugin the configuration no longer lists
+/// is dropped: it cannot reach an install command, and it must not hold up the rows that can.
+fn plan_batch(ids: &[String], listed: &[OpencodePlugin]) -> BatchPlan {
+    let mut plugins: Vec<String> = Vec::new();
+    let mut singles: Vec<String> = Vec::new();
+    for id in ids {
+        let Some(name) = id.strip_prefix("opencode-plugin:") else {
+            singles.push(id.clone());
+            continue;
+        };
+        if !listed.iter().any(|plugin| plugin.name == name) {
+            continue;
+        }
+        if !plugins.iter().any(|seen| seen == name) {
+            plugins.push(name.to_string());
+        }
+    }
+    BatchPlan { plugins, singles }
+}
+
+/// Runs a batch: one install for every plugin, one command each for the rest.
+///
+/// The result is in the order the ids came in, and every id gets one - a row the batch could not
+/// place at all comes back failed rather than missing, so the UI never leaves a row unanswered.
+pub fn upgrade_many(ids: &[String]) -> Vec<ComponentUpgrade> {
+    let listed = opencode_plugins().unwrap_or_default();
+    let plan = plan_batch(ids, &listed);
+    let mut results: std::collections::HashMap<String, ComponentUpgrade> =
+        std::collections::HashMap::new();
+
+    if !plan.plugins.is_empty() {
+        let targets: std::collections::HashSet<String> = plan.plugins.iter().cloned().collect();
+        let group = run_upgrade(&opencode_plugins_upgrade(&listed, Some(&targets)));
+        match group {
+            Ok(said) => {
+                for name in &plan.plugins {
+                    let id = format!("opencode-plugin:{name}");
+                    results.insert(
+                        id.clone(),
+                        ComponentUpgrade {
+                            id,
+                            ok: true,
+                            message: said.clone(),
+                        },
+                    );
+                }
+            }
+            Err(said) => {
+                // One install covers the group, so one member it cannot install takes the whole
+                // group down - and a plugin installed from a git branch does fail on a network that
+                // cannot reach the repository. Falling back to one install per plugin costs a second
+                // run only in that case, and it is what stops a row that could not be updated from
+                // reporting the rows beside it as failed: their own install says whether they moved.
+                for name in &plan.plugins {
+                    let id = format!("opencode-plugin:{name}");
+                    let outcome = if plan.plugins.len() == 1 {
+                        Err(said.clone())
+                    } else {
+                        let one = std::collections::HashSet::from([name.clone()]);
+                        run_upgrade(&opencode_plugins_upgrade(&listed, Some(&one)))
+                    };
+                    let (ok, message) = match outcome {
+                        Ok(said) => (true, said),
+                        Err(said) => (false, said),
+                    };
+                    results.insert(id.clone(), ComponentUpgrade { id, ok, message });
+                }
+            }
+        }
+    }
+
+    for id in &plan.singles {
+        let outcome = upgrade(id);
+        let (ok, message) = match outcome {
+            Ok(said) => (true, said),
+            Err(said) => (false, said),
+        };
+        results.insert(id.clone(), ComponentUpgrade { id: id.clone(), ok, message });
+    }
+
+    ids.iter()
+        .map(|id| {
+            results.remove(id).unwrap_or_else(|| ComponentUpgrade {
+                id: id.clone(),
+                ok: false,
+                message: format!("没有这个组件：{id}"),
+            })
+        })
+        .collect()
+}
+
 /// The upgrade for one component id, without touching the network.
 ///
 /// Separate from `check()` because `check()` asks every source about every component; resolving
@@ -1041,8 +1259,10 @@ fn upgrade_for(id: &str) -> Option<AgentUpgrade> {
                 }
                 // One install names every plugin, not just the row that was clicked: they live in
                 // the same npm project, and installing one at a time lets npm put another back at
-                // the commit its lock file still names.
-                return Some(opencode_plugins_upgrade(&plugins));
+                // the commit its lock file still names. The others are pinned to where they are (see
+                // `opencode_install_specs`), so the row that was clicked is the only one that moves.
+                let targets = std::collections::HashSet::from([name.to_string()]);
+                return Some(opencode_plugins_upgrade(&plugins, Some(&targets)));
             }
             None
         }
@@ -1055,6 +1275,11 @@ fn upgrade_for(id: &str) -> Option<AgentUpgrade> {
 /// commands this module knows, so the renderer can only ask for an upgrade that exists here.
 pub fn upgrade(id: &str) -> Result<String, String> {
     let upgrade = upgrade_for(id).ok_or_else(|| format!("没有这个组件：{id}"))?;
+    run_upgrade(&upgrade)
+}
+
+/// Runs one upgrade command and reports what it said.
+fn run_upgrade(upgrade: &AgentUpgrade) -> Result<String, String> {
     let args: Vec<&str> = upgrade.args.iter().map(String::as_str).collect();
     let captured = run_tool(
         &upgrade.program,
@@ -1092,6 +1317,16 @@ pub async fn agent_versions_check() -> Result<AgentVersions, String> {
 #[tauri::command]
 pub async fn agent_versions_upgrade(id: String) -> Result<String, String> {
     crate::modules::fs::blocking(move || upgrade(&id)).await
+}
+
+/// Runs a batch of upgrades: one install for the plugins, one command each for the rest.
+///
+/// A batch exists because the rows are one click, not because they are one command: the plugins are
+/// a single npm project, so they are one install, while `pi` and opencode's own updater are separate
+/// programs that still run one after another.
+#[tauri::command]
+pub async fn agent_versions_upgrade_many(ids: Vec<String>) -> Result<Vec<ComponentUpgrade>, String> {
+    crate::modules::fs::blocking(move || Ok(upgrade_many(&ids))).await
 }
 
 #[cfg(test)]
@@ -1285,6 +1520,154 @@ mod tests {
             plugin_upstream("git+ssh://git@github.com/obra/superpowers.git"),
             PluginUpstream::Github("obra/superpowers".into())
         );
+    }
+
+    /// The set of plugins a click asked for, as `opencode_install_specs` takes it.
+    fn set(names: &[&str]) -> std::collections::HashSet<String> {
+        names.iter().map(|name| (*name).to_string()).collect()
+    }
+
+    /// The ids a batch click hands over, as the UI spells them.
+    fn batch(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|id| (*id).to_string()).collect()
+    }
+
+    /// What this machine's opencode config lists, for the planning tests.
+    fn listed() -> Vec<OpencodePlugin> {
+        vec![
+            plugin("@dietrichgebert/ponytail", "^5.3.3"),
+            plugin("superpowers", "github:obra/superpowers"),
+        ]
+    }
+
+    #[test]
+    fn a_batch_groups_the_plugins_of_one_project_into_one_install() {
+        // Both plugins live in the same npm project, so they are one install - two of them were two
+        // installs, each pinning the other, which is the waste this plan removes.
+        let plan = plan_batch(
+            &batch(&[
+                "opencode-plugin:@dietrichgebert/ponytail",
+                "pi",
+                "opencode-plugin:superpowers",
+            ]),
+            &listed(),
+        );
+        assert_eq!(
+            plan.plugins,
+            vec!["@dietrichgebert/ponytail", "superpowers"]
+        );
+        assert_eq!(plan.singles, vec!["pi"]);
+    }
+
+    #[test]
+    fn a_batch_drops_what_the_configuration_does_not_list() {
+        // An id the settings no longer hold must not block the rest of the batch, and must never
+        // reach an install command: the id is checked against the configuration, as everywhere else.
+        let plan = plan_batch(
+            &batch(&[
+                "opencode-plugin:not-installed",
+                "opencode-plugin:superpowers",
+                "opencode-plugin:superpowers",
+            ]),
+            &listed(),
+        );
+        assert_eq!(plan.plugins, vec!["superpowers"]);
+        assert!(plan.singles.is_empty());
+    }
+
+    #[test]
+    fn a_batch_of_only_singles_plans_no_install() {
+        // No plugins means no `npm install` at all - an empty one would still touch the project.
+        let plan = plan_batch(&batch(&["pi", "opencode"]), &listed());
+        assert!(plan.plugins.is_empty());
+        assert_eq!(plan.singles, vec!["pi", "opencode"]);
+    }
+
+    #[test]
+    fn a_batch_of_nothing_plans_nothing() {
+        let plan = plan_batch(&[], &listed());
+        assert!(plan.plugins.is_empty() && plan.singles.is_empty());
+    }
+
+    /// A plugin as the settings file spells it.
+    fn plugin(name: &str, spec: &str) -> OpencodePlugin {
+        OpencodePlugin {
+            name: name.into(),
+            spec: spec.into(),
+        }
+    }
+
+    #[test]
+    fn an_update_pins_every_plugin_it_was_not_asked_about() {
+        // "回退一个小版本然后重试": one `npm install` named every plugin at its latest, so a click about
+        // one row put a plugin installed from a git branch back to the registry's older version.
+        let plugins = vec![plugin("@a/asked", "^5.3.2"), plugin("@b/other", "^1.0.0")];
+        let installed = std::collections::HashMap::from([
+            ("@a/asked".to_string(), "5.3.2".to_string()),
+            ("@b/other".to_string(), "1.4.0".to_string()),
+        ]);
+        assert_eq!(
+            opencode_install_specs(&plugins, &installed, Some(&set(&["@a/asked"]))),
+            vec!["@a/asked@latest", "@b/other@1.4.0"]
+        );
+
+        // Asking for the other one pins the first instead: only the row that was clicked moves.
+        assert_eq!(
+            opencode_install_specs(&plugins, &installed, Some(&set(&["@b/other"]))),
+            vec!["@a/asked@5.3.2", "@b/other@latest"]
+        );
+        // A plugin whose installed version cannot be read keeps the spec's own newest, which is what
+        // every plugin used to get - an install must not fail over the pin.
+        let none_installed = std::collections::HashMap::new();
+        assert_eq!(
+            opencode_install_specs(&plugins, &none_installed, Some(&set(&["@a/asked"]))),
+            vec!["@a/asked@latest", "@b/other@latest"]
+        );
+    }
+
+    #[test]
+    fn the_batch_asks_every_registry_plugin_for_its_latest() {
+        let plugins = vec![plugin("@a/one", "^1.0.0"), plugin("@b/two", "^2.0.0")];
+        let installed = std::collections::HashMap::from([
+            ("@a/one".to_string(), "1.0.0".to_string()),
+            ("@b/two".to_string(), "2.0.0".to_string()),
+        ]);
+        assert_eq!(
+            opencode_install_specs(&plugins, &installed, None),
+            vec!["@a/one@latest", "@b/two@latest"]
+        );
+    }
+
+    #[test]
+    fn a_git_plugin_is_installed_from_its_own_spec() {
+        // Its installed version is not on the registry, so pinning to it would fail the whole install;
+        // the spec is how npm re-resolves the branch.
+        let plugins = vec![
+            plugin("superpowers", "github:obra/superpowers"),
+            plugin("@a/other", "^1.0.0"),
+        ];
+        let installed = std::collections::HashMap::from([
+            ("superpowers".to_string(), "7.0.1".to_string()),
+            ("@a/other".to_string(), "1.4.0".to_string()),
+        ]);
+        assert_eq!(
+            opencode_install_specs(&plugins, &installed, Some(&set(&["@a/other"]))),
+            vec!["superpowers@github:obra/superpowers", "@a/other@latest"]
+        );
+    }
+
+    #[test]
+    fn a_refused_read_says_whether_it_was_the_quota() {
+        // The row showed "HTTP 403 Forbidden" and nothing else, which reads as "broken"; the quota is
+        // the thing a user can act on.
+        let quota = http_failure("obra/superpowers", 403);
+        assert!(quota.contains("403"), "{quota}");
+        assert!(quota.contains("配额"), "{quota}");
+        assert!(http_failure("obra/superpowers", 429).contains("配额"));
+        // Any other refusal is reported as what it is, with the source still named.
+        let other = http_failure("some-package", 500);
+        assert!(other.contains("some-package") && other.contains("500"), "{other}");
+        assert!(!other.contains("配额"), "{other}");
     }
 
     #[test]

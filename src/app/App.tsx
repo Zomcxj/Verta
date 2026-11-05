@@ -2016,7 +2016,12 @@ export default function App() {
               >
                 <div className="h-full min-h-0 pl-0.5 pr-2">
                   <div className="verta-pane flex h-full min-h-0 flex-col">
-                    <div className="min-h-0 flex-1 verta-panel-in">
+                    {/* The panel and the stash list below it are siblings, so this wrapper has to
+                        be the column that divides the height between them: with a block wrapper
+                        the panel took the whole box, the stash section was laid out past its
+                        bottom edge, and `.verta-pane`'s `overflow: hidden` cut it off - it was
+                        drawn nowhere. */}
+                    <div className="verta-panel-in flex min-h-0 flex-1 flex-col">
                       <SourceControlPanel
                         open
                         sourceControl={sourceControl}

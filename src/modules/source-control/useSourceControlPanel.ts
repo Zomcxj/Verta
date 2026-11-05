@@ -75,7 +75,6 @@ type SourceControlPanelState = {
   stagedEntries: SourceControlEntry[];
   unstagedEntries: SourceControlEntry[];
   fileEntries: SourceControlFileEntry[];
-  headerCheckState: CheckState;
   allClean: boolean;
   canPush: boolean;
   pushHint: string | null;
@@ -90,14 +89,12 @@ type SourceControlPanelState = {
   stageEntry: (entry: SourceControlEntry) => Promise<void>;
   unstageEntry: (entry: SourceControlEntry) => Promise<void>;
   toggleStageFile: (entry: SourceControlFileEntry) => Promise<void>;
-  toggleAll: () => Promise<void>;
+  setFilesStaged: (paths: string[], staged: boolean) => Promise<void>;
   requestDiscardEntry: (entry: SourceControlEntry) => void;
   requestDiscardFile: (entry: SourceControlFileEntry) => void;
   requestDiscardAll: () => void;
   confirmPendingDiscard: () => Promise<void>;
   cancelPendingDiscard: () => void;
-  stageAllEntries: () => Promise<void>;
-  unstageAllEntries: () => Promise<void>;
   commit: () => Promise<void>;
   push: () => Promise<void>;
 };
@@ -358,14 +355,6 @@ export function useSourceControlPanel(
     return out;
   }, [status]);
 
-  const headerCheckState = useMemo<CheckState>(() => {
-    if (fileEntries.length === 0) return "unchecked";
-    const allChecked = fileEntries.every((e) => e.checkState === "checked");
-    if (allChecked) return "checked";
-    const anyStaged = fileEntries.some((e) => e.staged);
-    return anyStaged ? "indeterminate" : "unchecked";
-  }, [fileEntries]);
-
   const allClean = stagedEntries.length === 0 && unstagedEntries.length === 0;
   const canPush = !!status?.upstream && status.behind === 0;
   const cancelReconcile = useCallback(() => {
@@ -598,28 +587,6 @@ export function useSourceControlPanel(
     );
   }, [pendingDiscard, repo, runMutation]);
 
-  const stageAllEntries = useCallback(async () => {
-    if (!repo || unstagedEntries.length === 0) return;
-    const paths = new Set(unstagedEntries.map((entry) => entry.path));
-    await runMutation(
-      "stage:all",
-      (s) => optimisticStage(s, paths),
-      () => native.gitStage(repo.repoRoot, [...paths]),
-      [...paths],
-    );
-  }, [repo, runMutation, unstagedEntries]);
-
-  const unstageAllEntries = useCallback(async () => {
-    if (!repo || stagedEntries.length === 0) return;
-    const paths = new Set(stagedEntries.map((entry) => entry.path));
-    await runMutation(
-      "unstage:all",
-      (s) => optimisticUnstage(s, paths),
-      () => native.gitUnstage(repo.repoRoot, [...paths]),
-      [...paths],
-    );
-  }, [repo, runMutation, stagedEntries]);
-
   const selectFile = useCallback(
     async (entry: SourceControlFileEntry) => {
       if (!repo) return;
@@ -641,33 +608,34 @@ export function useSourceControlPanel(
     [openSelection, repo, selected, status],
   );
 
-  const toggleStageFile = useCallback(
-    async (entry: SourceControlFileEntry) => {
-      if (!repo) return;
-      const paths = new Set([entry.path]);
-      if (entry.checkState === "checked") {
-        await runMutation(
-          `unstage:${entry.path}`,
-          (s) => optimisticUnstage(s, paths),
-          () => native.gitUnstage(repo.repoRoot, [entry.path]),
-          [entry.path],
-        );
-      } else {
-        await runMutation(
-          `stage:${entry.path}`,
-          (s) => optimisticStage(s, paths),
-          () => native.gitStage(repo.repoRoot, [entry.path]),
-          [entry.path],
-        );
-      }
+  /**
+   * Stage or unstage a set of paths at once. The panel's button acts on the ticked rows, so this is
+   * the shape it needs; `toggleStageFile` (the context menu's own question) reads the merged entry's
+   * three-state checkbox and comes through here with one path.
+   */
+  const setFilesStaged = useCallback(
+    async (paths: string[], staged: boolean) => {
+      if (!repo || paths.length === 0) return;
+      const set = new Set(paths);
+      await runMutation(
+        staged ? "stage:selection" : "unstage:selection",
+        (s) => (staged ? optimisticStage : optimisticUnstage)(s, set),
+        () =>
+          staged
+            ? native.gitStage(repo.repoRoot, paths)
+            : native.gitUnstage(repo.repoRoot, paths),
+        paths,
+      );
     },
     [repo, runMutation],
   );
 
-  const toggleAll = useCallback(async () => {
-    if (headerCheckState === "checked") await unstageAllEntries();
-    else await stageAllEntries();
-  }, [headerCheckState, stageAllEntries, unstageAllEntries]);
+  const toggleStageFile = useCallback(
+    async (entry: SourceControlFileEntry) => {
+      await setFilesStaged([entry.path], entry.checkState !== "checked");
+    },
+    [setFilesStaged],
+  );
 
   const requestDiscardFile = useCallback(
     (entry: SourceControlFileEntry) => {
@@ -703,8 +671,8 @@ export function useSourceControlPanel(
     }
     return t("scm.pushHint.ahead", { upstream: status.upstream });
   }, [status, t]);
-  const stagedEmptyText = "No staged changes";
-  const unstagedEmptyText = "No unstaged changes";
+  const stagedEmptyText = t("scm.staged.empty");
+  const unstagedEmptyText = t("scm.changes.empty");
 
   const commit = useCallback(async () => {
     if (!repo || summary.busyAction) return;
@@ -784,7 +752,6 @@ export function useSourceControlPanel(
     stagedEntries,
     unstagedEntries,
     fileEntries,
-    headerCheckState,
     allClean,
     canPush,
     pushHint,
@@ -799,14 +766,12 @@ export function useSourceControlPanel(
     stageEntry,
     unstageEntry,
     toggleStageFile,
-    toggleAll,
+    setFilesStaged,
     requestDiscardEntry,
     requestDiscardFile,
     requestDiscardAll,
     confirmPendingDiscard,
     cancelPendingDiscard,
-    stageAllEntries,
-    unstageAllEntries,
     commit,
     push,
   };

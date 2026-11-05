@@ -9,13 +9,15 @@ import { useLanguage, useT } from "@/modules/i18n";
 import { AgentIcon, relativeTime } from "@/modules/launcher";
 import { pendingAttentions, questionExcerpt } from "@/modules/notifications/lib/attentions";
 import {
+  batchIds,
   upgradable,
+  updateReason,
   updateRows,
   useAgentVersions,
 } from "@/modules/notifications/lib/useAgentVersions";
 import { leafScreenTail, useAgentActivityStore } from "@/modules/terminal";
 import type { Tab } from "@/modules/tabs";
-import { ArrowUp01Icon, ArrowUpDoubleIcon, BellIcon } from "@hugeicons/core-free-icons";
+import { ArrowUp01Icon, BellIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo } from "react";
 import { toast } from "sonner";
@@ -144,9 +146,37 @@ function UpdatesSection({
     versions.check();
   }, [versions.check]);
   const updates = updateRows(versions.components);
-  // Only the rows that are known to be behind: a batch must not touch a row whose answer could not
-  // be read, and one row alone needs no batch button.
-  const behind = upgradable(versions.components);
+  /**
+   * The batch runs every row the list is showing - the same rows whose own buttons are here - so it
+   * appears whenever more than one of them is listed. Gating it on the rows *known* to be behind is
+   * what made it vanish in the case that needed it: one behind row plus one row whose check was
+   * refused (a 403 from a rate-limited GitHub read) left nothing to click, which is reported as
+   * "缺少一键更新按钮".
+   */
+  const batch = batchIds(versions.components);
+  /**
+   * Why a row could not be read, said in the row rather than only on hover: the same two words for
+   * every failure ("未知") read as "the tool has no version", while a rate-limited query is a thing
+   * the user can fix by waiting or by signing `gh` in.
+   */
+  const reasonOf = (error: string) => {
+    const reason = updateReason(error);
+    if (!reason) return t("notifications.updates.unknown");
+    if (reason.kind === "rateLimited") {
+      return t("notifications.updates.rateLimited", {
+        code: String(reason.code),
+      });
+    }
+    if (reason.kind === "http") {
+      return t("notifications.updates.httpFailed", { code: String(reason.code) });
+    }
+    return t("notifications.updates.unknown");
+  };
+  // What the batch is doing right now. One install covers every plugin, so "which row is running"
+  // is not a thing during a batch - the section says how many, by name when it is one.
+  const running = [...versions.upgrading].map(
+    (id) => versions.components.find((component) => component.id === id)?.name ?? id,
+  );
   return (
     <div className="mt-0.5 flex flex-col gap-0.5 border-t border-border/50 pt-1">
       <span className="flex items-center gap-1.5 px-2.5 pt-1 pb-1 text-[10px] text-muted-foreground">
@@ -154,27 +184,37 @@ function UpdatesSection({
           {t("notifications.updates.title")}
         </span>
         {versions.checking ? <Spinner className="size-2.5" /> : null}
-        {behind.length > 1 ? (
+        {batch.length > 1 ? (
           <Button
-            size="icon-sm"
-            variant="ghost"
+            size="xs"
+            variant="secondary"
             data-agent-update-all
             title={t("notifications.updates.upgradeAll", {
-              count: behind.length,
+              count: batch.length,
             })}
             // Every row it runs is disabled in turn, so the button says "busy" with the rest.
             disabled={versions.upgrading.size > 0}
             onClick={() => void versions.upgradeAll()}
-            className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="h-5 shrink-0 px-1.5 text-[10px] font-medium"
           >
-            <HugeiconsIcon
-              icon={ArrowUpDoubleIcon}
-              size={14}
-              strokeWidth={1.9}
-            />
+            {t("notifications.updates.updateAll", { count: batch.length })}
           </Button>
         ) : null}
       </span>
+      {running.length > 0 ? (
+        // The wait is the network's: a plugin installed from git is cloned, and a slow link leaves
+        // the row spinning for twenty seconds. Saying so is what turns a hang into a wait.
+        <p
+          data-agent-upgrading
+          className="px-2.5 pb-1 text-[10px] text-muted-foreground"
+        >
+          {running.length === 1
+            ? t("notifications.updates.upgradingOne", { name: running[0] })
+            : t("notifications.updates.upgradingMany", {
+                count: running.length,
+              })}
+        </p>
+      ) : null}
       {updates.length === 0 ? (
         <p className="px-2.5 pb-1.5 text-[11px] text-muted-foreground">
           {versions.checking
@@ -206,7 +246,7 @@ function UpdatesSection({
               <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
                 {component.error === null
                   ? `${component.current ?? "—"} → ${component.latest ?? "—"}`
-                  : t("notifications.updates.unknown")}
+                  : reasonOf(component.error)}
               </span>
               <Button
                 size="icon-sm"
@@ -221,7 +261,13 @@ function UpdatesSection({
                 className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 {running ? (
-                  <Spinner className="size-3" />
+                  // The spinner cannot carry a tooltip of its own, so the wrapper holds it.
+                  <span
+                    className="inline-flex"
+                    title={t("notifications.updates.upgrading")}
+                  >
+                    <Spinner className="size-3" />
+                  </span>
                 ) : (
                   <HugeiconsIcon
                     icon={ArrowUp01Icon}

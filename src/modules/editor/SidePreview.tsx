@@ -124,7 +124,7 @@ export function SidePreview({
         ref={scrollRef}
         onMouseMove={seekWithin}
         onMouseLeave={() => setHover(null)}
-        className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+        className="verta-doc-scroll relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
       >
         {kind === "image" && imageSrc ? (
           <div className="flex min-h-full items-center justify-center p-2">
@@ -149,11 +149,13 @@ export function SidePreview({
         )}
       </div>
 
-      {/* Where the editor is looking, drawn on the preview's own scrollbar. */}
+      {/* Where the editor is looking, drawn just inside the preview's own scrollbar. The bar is
+          10px wide in this webview, so the offset has to clear it: at 8px the marker rode the
+          bar's last two pixels. */}
       {viewport && (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute right-0 w-1 bg-foreground/20"
+          className="pointer-events-none absolute right-2.5 w-1 bg-foreground/20"
           style={{
             top: `${viewport.top * 100}%`,
             height: `${Math.max(viewport.height * 100, 1.5)}%`,
@@ -163,7 +165,7 @@ export function SidePreview({
       {hover && (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute right-0 w-1 bg-foreground/40"
+          className="pointer-events-none absolute right-2.5 w-1 bg-foreground/40"
           style={{ top: `${hover.top * 100}%`, height: "2px" }}
         />
       )}

@@ -65,7 +65,9 @@ export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
       aria-hidden={!visible}
     >
       <MarkdownViewToggle mode="rendered" onChange={onSetView} />
-      <div className="flex-1 overflow-auto">
+      {/* The document's own scrollbar: what is below the fold should be visible from the bar, not
+          only from trying to scroll (see `.verta-doc-scroll`). */}
+      <div className="verta-doc-scroll flex-1 overflow-auto">
         <div className="markdown-doc px-8 py-6">
           {status.kind === "loading" && (
             <p className="text-[12px] text-muted-foreground">

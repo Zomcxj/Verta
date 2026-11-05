@@ -122,6 +122,62 @@ export function updateRows(components: AgentComponent[]): AgentComponent[] {
 }
 
 /**
+ * The rows a "update everything" click runs.
+ *
+ * The same set the list is showing, which is the point: every one of those rows has its own button on
+ * screen, and this is those buttons pressed together. It used to be only the rows *known* to be
+ * behind, and that is what made the button disappear in the case that needed it - reported as
+ * "缺少一键更新按钮": a row whose version could not be read (an HTTP 403 from a rate-limited GitHub
+ * read) is not known to be behind, so a popover holding one behind row and one unreadable row offered
+ * no batch action at all. A row that could not be read still has an upgrade worth running; that is why
+ * it is listed with its own button in the first place.
+ */
+export function batchIds(components: AgentComponent[]): string[] {
+  return updateRows(components).map((component) => component.id);
+}
+
+/** What a row's missing answer amounts to, in the few words a list row has room for. */
+export type UpdateReason = {
+  /** `rateLimited` is the 403/429 an unauthenticated GitHub read runs into; `http` is any other
+   * refusal the host named; `other` is anything with no status in it at all. */
+  kind: "rateLimited" | "http" | "other";
+  code: number | null;
+};
+
+export function updateReason(error: string | null): UpdateReason | null {
+  if (error === null) return null;
+  const code = Number.parseInt(error.match(/HTTP (\d{3})/)?.[1] ?? "", 10);
+  if (Number.isNaN(code)) return { kind: "other", code: null };
+  if (code === 403 || code === 429) return { kind: "rateLimited", code };
+  return { kind: "http", code };
+}
+
+/** One id's outcome, as `agent_versions_upgrade_many` reports it. */
+export type ComponentUpgradeResult = {
+  id: string;
+  ok: boolean;
+  message: string;
+};
+
+/**
+ * A batch's failures as one line: every name, then the first detail worth acting on.
+ *
+ * A batch runs several rows and any of them can fail, but the notice is a single line in a corner of
+ * the window - so the names all appear (a user has to know which rows are still behind) and only the
+ * first detail is quoted, with its newlines collapsed, because a stack of npm output would push the
+ * popover off the screen.
+ */
+export function batchFailureNotice(
+  failures: { name: string; message: string }[],
+): { names: string; detail: string } | null {
+  if (failures.length === 0) return null;
+  return {
+    names: failures.map((failure) => failure.name).join(", "),
+    detail: (failures[0].message ?? "").replace(/\s+/g, " ").trim(),
+  };
+}
+
+/**
  * What to say after a successful upgrade of `id`.
  *
  * `name` is read from the row before the upgrade runs, because the answer afterwards is the only
@@ -268,25 +324,74 @@ export function useAgentVersions(): AgentVersionsState {
   );
 
   /**
-   * Every row that has something newer, one after another.
+   * Every row the list is showing, in one call.
    *
-   * One at a time rather than all at once: each row runs a different tool's own updater, and three
-   * of them installing over the same npm cache and lock files is how a click that "worked" leaves a
-   * half-installed package behind. A row whose answer could not be read is not part of this: it is
-   * not known to be behind, and its own button is still there to try.
+   * The backend decides how many commands that is: the opencode plugins are one npm project, so they
+   * are one `npm install`, while `pi` and opencode's own updater are separate programs and still run
+   * in turn. Doing it here, one row at a time, was two installs for two plugins - each pinning the
+   * other to where it was, and each re-reading the registry afterwards.
    */
   const upgradeAll = useCallback(async () => {
-    const ids = upgradable(components).map((component) => component.id);
+    const ids = batchIds(components);
     if (ids.length === 0) return;
     setUpgradedMany(null);
-    let updated = 0;
-    for (const id of ids) {
-      if (await runUpgrade(id)) updated += 1;
+    setUpgradeError(null);
+    // Every row in the batch is being worked on at once, because one install covers them all.
+    for (const id of ids) inFlight.current.add(id);
+    setUpgrading(new Set(inFlight.current));
+    setChecking(true);
+    try {
+      const results = await invoke<ComponentUpgradeResult[]>(
+        "agent_versions_upgrade_many",
+        { ids },
+      );
+      if (!mounted.current) return;
+      const next = await runCheck();
+      if (!mounted.current) return;
+      const outcome = new Map(results.map((result) => [result.id, result]));
+      const landed = new Map(next.map((component) => [component.id, component]));
+      const failures: { name: string; message: string }[] = [];
+      for (const id of ids) {
+        const name = components.find((component) => component.id === id)?.name ?? id;
+        const result = outcome.get(id);
+        if (!result?.ok) {
+          failures.push({ name, message: result?.message ?? "" });
+          continue;
+        }
+        // The command answered, but the row is still behind: the same reading as a single upgrade,
+        // and "updated to <the old version>" would claim something that did not happen.
+        const component = landed.get(id);
+        if (component && hasUpdate(component.current, component.latest, component.compare)) {
+          failures.push({
+            name,
+            message: t("notifications.updates.stillBehind", {
+              name,
+              version: component.current ?? "",
+            }),
+          });
+        }
+      }
+      const notice = batchFailureNotice(failures);
+      if (notice) {
+        setUpgradeError(
+          t("notifications.updates.batchFailed", {
+            names: notice.names,
+            detail: notice.detail,
+          }),
+        );
+      }
+      const updated = ids.length - failures.length;
+      if (updated > 0) setUpgradedMany(updated);
+    } catch (error: unknown) {
+      if (mounted.current) setUpgradeError(String(error));
+    } finally {
+      for (const id of ids) inFlight.current.delete(id);
+      if (mounted.current) {
+        setUpgrading(new Set(inFlight.current));
+        setChecking(false);
+      }
     }
-    if (!mounted.current) return;
-    // Nothing updated is already on screen as the rows that stayed, plus the row's own failure.
-    if (updated > 0) setUpgradedMany(updated);
-  }, [components, runUpgrade]);
+  }, [components, runCheck, t]);
 
   return {
     components,

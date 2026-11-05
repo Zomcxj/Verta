@@ -3,8 +3,8 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent_sessions, agent_versions, control, drag, fonts, fs, git, github, history, lsp, projects,
-    pty, screenshot, shell, vibrancy, workspace,
+    agent_sessions, agent_versions, control, docx, drag, fonts, fs, git, github, history, lsp,
+    projects, pty, screenshot, shell, vibrancy, workspace,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -387,6 +387,9 @@ pub fn run() {
             pty::pty_list_shells,
             fs::tree::list_subdirs,
             fs::tree::fs_read_dir,
+            docx::fs_read_docx,
+            docx::fs_write_docx,
+            docx::fs_undo_docx,
             fs::file::fs_read_file,
             fs::file::fs_write_file,
             fs::file::fs_stat,
@@ -508,6 +511,7 @@ pub fn run() {
             agent_sessions::agent_sessions_image,
             agent_versions::agent_versions_check,
             agent_versions::agent_versions_upgrade,
+            agent_versions::agent_versions_upgrade_many,
             history::history_suggest,
             history::history_commands,
             history::history_record,

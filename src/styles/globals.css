@@ -585,6 +585,39 @@ html *::-webkit-scrollbar {
   );
 }
 
+/*
+ * The rendered document is read top to bottom, so it gets its bar back - the same exception the code
+ * editor already has from the rule that hides native scrollbars everywhere. Without it the only way
+ * to tell a long document from a short one is to try scrolling, while the editor beside it has shown
+ * a thin bar all along. Same shape as the editor's, a little wider, and the gutter is reserved so a
+ * document that grows past the pane does not shift its own text sideways the moment it starts to
+ * scroll.
+ */
+.verta-doc-scroll {
+  scrollbar-width: thin !important;
+  scrollbar-color: color-mix(in srgb, var(--foreground) 22%, transparent)
+    transparent !important;
+  scrollbar-gutter: stable;
+}
+.verta-doc-scroll::-webkit-scrollbar {
+  width: 8px !important;
+  height: 8px !important;
+  display: block !important;
+}
+.verta-doc-scroll::-webkit-scrollbar-track,
+.verta-doc-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.verta-doc-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 22%, transparent);
+  background-clip: padding-box;
+}
+.verta-doc-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--foreground) 34%, transparent);
+}
+
 /* Motion tokens. Reduced-motion zeroes the durations as a global snap. */
 :root {
   --dur-fast: 160ms;

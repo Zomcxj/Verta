@@ -28,8 +28,11 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/modules/i18n";
+import { MarkdownViewToggle } from "@/modules/markdown";
 import { toast } from "sonner";
 import { SidePreview, type ViewportMark, sidePreviewKind } from "./SidePreview";
+import { DocxPreview, type DocxPreviewHandle } from "./DocxPreview";
+import { htmlPreviewUrl } from "./htmlPreviewUrl";
 import { diagnosticsReporter } from "./lib/diagnosticsReporter";
 import { useDiagnosticsStore } from "./lib/diagnosticsStore";
 import {
@@ -142,6 +145,7 @@ export const EditorPane = memo(
 
     const {
       doc,
+      dirty,
       onChange,
       save,
       reload,
@@ -161,6 +165,8 @@ export const EditorPane = memo(
     const adoptDiskTextRef = useRef(adoptDiskText);
     adoptDiskTextRef.current = adoptDiskText;
     const cmRef = useRef<ReactCodeMirrorRef>(null);
+    // Only a `.docx` fills this; the shell's undo shortcut asks it first.
+    const docxRef = useRef<DocxPreviewHandle | null>(null);
     const tr = useT();
     const themeExt = useEditorThemeExt();
     const vimMode = usePreferencesStore((s) => s.vimMode);
@@ -187,6 +193,18 @@ export const EditorPane = memo(
     const previewKind = useMemo(() => sidePreviewKind(path), [path]);
     const [sideOpen, setSideOpen] = useState(false);
     const [viewport, setViewport] = useState<ViewportMark | null>(null);
+    /**
+     * The HTML render stop. An HTML file renders by handing the browser the file itself through the
+     * asset protocol, which is what the PDF preview already does - so there is no parser here and no
+     * new dependency, and the page keeps its own CSS and script. It reads the file from disk, so it
+     * is offered only while the buffer is clean, exactly like the Markdown render stop.
+     */
+    const [htmlRendered, setHtmlRendered] = useState(false);
+    const fileExt = path.split(".").pop()?.toLowerCase() ?? "";
+    const isHtml = fileExt === "html" || fileExt === "htm";
+    // Unsaveable edits come first: what the frame shows is the file on disk, so a dirty buffer has
+    // to fall back to the source rather than preview the text that was last written.
+    const htmlRendering = isHtml && htmlRendered && !dirty;
     const toggleSide = useCallback(() => setSideOpen((open) => !open), []);
     // A different file starts collapsed again: the setting is per view, and
     // carrying it over would silently reflow a file the user did not ask for.
@@ -365,7 +383,11 @@ export const EditorPane = memo(
         // Report which part of the document is on screen, for the side preview.
         EditorView.updateListener.of((update) => {
           const view = update.view;
-          if (!update.selectionSet && !update.docChanged && !update.geometryChanged) {
+          if (
+            !update.selectionSet &&
+            !update.docChanged &&
+            !update.geometryChanged
+          ) {
             return;
           }
           const scroller = view.scrollDOM;
@@ -534,6 +556,12 @@ export const EditorPane = memo(
           applyPendingGoto();
         },
         undo: () => {
+          // A `.docx` has no CodeMirror view: its undo takes back the last change that reached the
+          // file, which is the only way to bring a deleted paragraph back.
+          if (docxRef.current) {
+            docxRef.current.undo();
+            return;
+          }
           const view = cmRef.current?.view;
           if (view) undo(view);
         },
@@ -541,7 +569,15 @@ export const EditorPane = memo(
           const view = cmRef.current?.view;
           if (view) redo(view);
         },
-        save: () => performSaveRef.current(),
+        save: () => {
+          // Nothing was read as text for a `.docx` (or any file the text reader refused), so there is
+          // no buffer: writing here would put an empty string over the archive. The document pane
+          // saves itself, a paragraph at a time.
+          if (fileExt === "docx" || statusRef.current !== "ready") {
+            return Promise.resolve();
+          }
+          return performSaveRef.current();
+        },
         triggerCodeComplete: () => {
           const view = cmRef.current?.view;
           if (!view) return;
@@ -549,9 +585,14 @@ export const EditorPane = memo(
           startCompletion(view);
         },
       }),
-      [path, applyPendingFocus, applyPendingGoto],
+      [path, fileExt, applyPendingFocus, applyPendingGoto],
     );
 
+    // A `.docx` is an archive of XML, not text, so it goes to the reader whatever the text read has
+    // to say about the file. Gating this on the read having *failed* meant the routing fell through
+    // for a `.docx` whose bytes happen to be text - and for an empty one - which then opened in the
+    // source editor, where an archive is nonsense, and it left the reader's own message unreachable.
+    if (fileExt === "docx") return <DocxPreview ref={docxRef} path={path} />;
     if (doc.status === "loading") {
       return (
         <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
@@ -567,7 +608,7 @@ export const EditorPane = memo(
       );
     }
     if (doc.status === "binary" || doc.status === "toolarge") {
-      const ext = path.split(".").pop()?.toLowerCase() ?? "";
+      const ext = fileExt;
       const isImage = [
         "png",
         "jpg",
@@ -624,7 +665,8 @@ export const EditorPane = memo(
         );
       }
 
-      const canForce = doc.status === "toolarge" && doc.size <= FORCE_READ_LIMIT;
+      const canForce =
+        doc.status === "toolarge" && doc.size <= FORCE_READ_LIMIT;
       return (
         <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
           <div className="text-sm text-foreground">
@@ -634,9 +676,11 @@ export const EditorPane = memo(
           </div>
           <div className="text-xs text-muted-foreground">
             {formatBytes(doc.size)} ·{" "}
-            {canForce
-              ? tr("editor.syntaxDisabled")
-              : tr("editor.previewUnsupported")}
+            {ext === "doc"
+              ? tr("editor.docUnsupported")
+              : canForce
+                ? tr("editor.syntaxDisabled")
+                : tr("editor.previewUnsupported")}
           </div>
           {canForce && (
             <button
@@ -655,6 +699,17 @@ export const EditorPane = memo(
       <div className="flex h-full min-h-0 zoom-exempt">
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {renderToggle?.({ open: sideOpen, setOpen: setSideOpen })}
+          {isHtml && !renderToggle ? (
+            // Two stops rather than the Markdown control's three: an HTML file has no side-by-side
+            // column, so "rendered" replaces the source rather than joining it. No backdrop
+            // blur either: it would add a compositing layer.
+            <MarkdownViewToggle
+              mode={htmlRendering ? "rendered" : "raw"}
+              onChange={(mode) => setHtmlRendered(mode === "rendered")}
+              renderedDisabled={dirty}
+              renderedHint={tr("markdown.saveToPreview")}
+            />
+          ) : null}
           {pendingDraft ? (
             // A draft from an interrupted session: a narrow bar that neither blocks
             // editing nor changes the file on its own.
@@ -707,26 +762,48 @@ export const EditorPane = memo(
               {tr("editor.preview.title")}
             </button>
           )}
-          <CodeMirror
-            ref={cmRef}
-            value={doc.content}
-            onChange={onChange}
-            theme={themeExt}
-            extensions={extensions}
-            height="100%"
-            className="verta-code-editor flex-1 min-h-0 overflow-hidden"
-            basicSetup={{
-              lineNumbers: true,
-              highlightActiveLineGutter: true,
-              foldGutter: true,
-              bracketMatching: true,
-              closeBrackets: true,
-              autocompletion: true,
-              highlightActiveLine: true,
-              highlightSelectionMatches: true,
-              searchKeymap: true,
-            }}
-          />
+          {htmlRendering ? (
+            // The same browser-level preview the PDF stop uses, pointed at the file over the asset
+            // protocol, which `frame-src` already allows - so no CSP change, and no parser between
+            // the file and what it looks like.
+            //
+            // The URL is built segment by segment rather than with `convertFileSrc`: that encodes the
+            // whole path as one segment, and a page whose stylesheet is `./style.css` then resolves it
+            // to `http://asset.localhost/style.css` and renders unstyled. See `htmlPreviewUrl`.
+            //
+            // `sandbox` is the browser preview's own list, and it stops short of
+            // `allow-top-navigation`: with it, a page could navigate the Tauri webview itself and
+            // put `window.__TAURI__` on an origin of its choosing.
+            <iframe
+              key={`${path}#html-preview`}
+              src={htmlPreviewUrl(path)}
+              title={path.split(/[\\/]/).pop() ?? path}
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+              referrerPolicy="no-referrer"
+              className="h-full min-h-0 w-full flex-1 border-0 bg-white"
+            />
+          ) : (
+            <CodeMirror
+              ref={cmRef}
+              value={doc.content}
+              onChange={onChange}
+              theme={themeExt}
+              extensions={extensions}
+              height="100%"
+              className="verta-code-editor flex-1 min-h-0 overflow-hidden"
+              basicSetup={{
+                lineNumbers: true,
+                highlightActiveLineGutter: true,
+                foldGutter: true,
+                bracketMatching: true,
+                closeBrackets: true,
+                autocompletion: true,
+                highlightActiveLine: true,
+                highlightSelectionMatches: true,
+                searchKeymap: true,
+              }}
+            />
+          )}
         </div>
         {previewKind !== "none" && (
           <SidePreview

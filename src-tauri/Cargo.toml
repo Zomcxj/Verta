@@ -58,6 +58,14 @@ shared_child = "1"
 # Screenshots are stored as PNG. `image` is already in the dependency tree (a transitive dep
 # upstream left behind), so enable only png here rather than dragging in a pile of decoders.
 image = { version = "0.25", default-features = false, features = ["png"] }
+# The `.docx` reader (modules/docx.rs): a Word file is a ZIP of XML. `zip` is taken without its
+# default features - those add zopfli, zlib-rs and four other codecs for formats a document does not
+# use - so only its flate2 backend is on. flate2 is named here too because that backend has to come
+# from somewhere: zip declares it with `default-features = false`, and the Deflate entries Word
+# writes need a decompressor that is actually enabled.
+flate2 = "1"
+zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
+quick-xml = { version = "0.39", default-features = false }
 tauri-plugin-log = "2"
 tauri-plugin-os = "2"
 tauri-plugin-store = "2"

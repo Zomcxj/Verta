@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   type AgentComponent,
+  batchFailureNotice,
+  batchIds,
   hasUpdate,
+  type UpdateReason,
   upgradable,
+  updateReason,
   updateRows,
   upgradedNotice,
 } from "./useAgentVersions";
@@ -187,5 +191,98 @@ describe("upgradedNotice", () => {
       name: "pi-lens",
       version: null,
     });
+  });
+});
+
+describe("batchIds", () => {
+  it("is every row the list is showing, the unreadable ones included", () => {
+    // "缺少一键更新按钮": the button used to appear only when more than one row was *known* to be
+    // behind, so one behind row plus one row whose check was refused left nothing to click - even
+    // though both rows had their own button on screen.
+    const rows: AgentComponent[] = [
+      row({
+        id: "pi-git:obra/superpowers",
+        current: "1.0.0",
+        latest: "1.1.0",
+        compare: "revision",
+      }),
+      row({
+        id: "opencode-plugin:superpowers",
+        agent: "opencode",
+        current: "6.3.0",
+        latest: null,
+        error: "查询 obra/superpowers 失败：HTTP 403 Forbidden",
+      }),
+      row({ id: "opencode", agent: "opencode", current: "2.2.5", latest: "2.2.5" }),
+    ];
+    expect(batchIds(rows)).toEqual([
+      "pi-git:obra/superpowers",
+      "opencode-plugin:superpowers",
+    ]);
+  });
+
+  it("is empty when every row was read and is current", () => {
+    const rows: AgentComponent[] = [
+      row({ id: "pi", current: "1.4.0", latest: "1.4.0" }),
+    ];
+    expect(batchIds(rows)).toEqual([]);
+  });
+});
+
+describe("updateReason", () => {
+  const kindOf = (error: string | null): UpdateReason | null => updateReason(error);
+
+  it("reads the two statuses that mean the quota ran out", () => {
+    // The row that prompted this: "浮窗查询失败 HTTP 403 Forbidden 更新失败".
+    expect(
+      kindOf("查询 obra/superpowers 失败：HTTP 403 Forbidden（多为匿名读取的配额用完）"),
+    ).toEqual({ kind: "rateLimited", code: 403 });
+    expect(kindOf("查询 x 失败：HTTP 429")).toEqual({ kind: "rateLimited", code: 429 });
+  });
+
+  it("reads any other refusal as the status it is", () => {
+    expect(kindOf("查询 x 失败：HTTP 500")).toEqual({ kind: "http", code: 500 });
+  });
+
+  it("says nothing about a failure with no status in it", () => {
+    // A transport failure: the host never answered, so there is no status to report.
+    expect(kindOf("查询 x 失败：error sending request")).toEqual({
+      kind: "other",
+      code: null,
+    });
+    expect(kindOf(null)).toBeNull();
+  });
+});
+
+describe("batchFailureNotice", () => {
+  it("names every failed component and quotes the first detail", () => {
+    // A batch runs several rows; the notice is one line, so every name appears - a user has to know
+    // which rows are still behind - and only the first detail is quoted.
+    expect(
+      batchFailureNotice([
+        { name: "superpowers", message: "npm error code 128" },
+        { name: "@dietrichgebert/ponytail", message: "" },
+      ]),
+    ).toEqual({
+      names: "superpowers, @dietrichgebert/ponytail",
+      detail: "npm error code 128",
+    });
+  });
+
+  it("keeps the detail to one line", () => {
+    // npm's failure is a dozen lines; pasted whole it would push the popover off the window.
+    const said = batchFailureNotice([
+      {
+        name: "superpowers",
+        message: ["npm error code 128", "npm error  An unknown git error", ""].join(
+          String.fromCharCode(10),
+        ),
+      },
+    ]);
+    expect(said?.detail).toBe("npm error code 128 npm error An unknown git error");
+  });
+
+  it("says nothing when nothing failed", () => {
+    expect(batchFailureNotice([])).toBeNull();
   });
 });

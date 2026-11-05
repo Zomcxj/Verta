@@ -5403,6 +5403,7 @@ dependencies = [
  "block2",
  "dirs",
  "drag",
+ "flate2",
  "fsevent-sys",
  "futures-util",
  "getrandom 0.4.3",
@@ -5422,6 +5423,7 @@ dependencies = [
  "objc2-foundation",
  "portable-pty",
  "proptest",
+ "quick-xml 0.39.4",
  "reqwest",
  "rusqlite",
  "rustls",
@@ -5447,6 +5449,7 @@ dependencies = [
  "which",
  "window-vibrancy 0.6.0",
  "windows-sys 0.61.2",
+ "zip",
 ]
 
 [[package]]
@@ -6674,6 +6677,7 @@ checksum = "caa8cd6af31c3b31c6631b8f483848b91589021b28fffe50adada48d4f4d2ed1"
 dependencies = [
  "arbitrary",
  "crc32fast",
+ "flate2",
  "indexmap 2.14.0",
  "memchr",
 ]

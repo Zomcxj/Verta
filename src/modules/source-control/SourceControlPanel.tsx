@@ -53,6 +53,14 @@ import { joinPath } from "@/modules/explorer/lib/useFileTree";
 import { useT } from "@/modules/i18n";
 import { lineCounts, statusLetter, statusLetterLabel } from "@/modules/source-control/lineCounts";
 import {
+  allInPaneSelected,
+  filesInPane,
+  paneAction,
+  selectedInPane,
+  togglePaneSelection,
+  type ScmPane,
+} from "@/modules/source-control/panes";
+import {
   Alert02Icon,
   ArrowDown01Icon,
   ArrowRight01Icon,
@@ -88,7 +96,6 @@ import {
 import { StashSection } from "./StashSection";
 import type { SourceControlSummary } from "./useSourceControl";
 import {
-  type CheckState,
   type SourceControlFileEntry,
   useSourceControlPanel,
 } from "./useSourceControlPanel";
@@ -121,7 +128,7 @@ const ROW_HEIGHTS = {
 
 type RowDescriptor =
   | { kind: "banner-diverged"; key: string }
-  | { kind: "list-header"; key: string; count: number }
+  | { kind: "list-header"; key: string; count: number; pane: ScmPane }
   | { kind: "entry"; key: string; entry: SourceControlFileEntry };
 
 function basename(path: string): string {
@@ -182,12 +189,6 @@ function statusLetterColor(code: string): string {
     default:
       return "text-muted-foreground/70";
   }
-}
-
-function checkboxValue(state: CheckState): boolean | "indeterminate" {
-  if (state === "checked") return true;
-  if (state === "indeterminate") return "indeterminate";
-  return false;
 }
 
 function BranchDropdown({
@@ -514,6 +515,25 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [focusedRowKey, setFocusedRowKey] = useState<string | null>(null);
+  // Which half of the working tree the list shows. The changes pane first, like the editor's own
+  // source control: what you are about to stage is the more frequent question.
+  const [pane, setPane] = useState<ScmPane>("changes");
+  // A row's checkbox is a selection, not the action: nothing on disk changes until the button above
+  // the list acts on what is ticked. Cleared when the rows underneath change identity (another pane,
+  // another repository, or a batch that moved the ticked files).
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const paneRepoRoot = scm.repo?.repoRoot ?? null;
+  // The pane belongs to the repository it was chosen in: another repository's rows are different
+  // files, and the focused row key would name a row that no longer exists. Adjusted during render
+  // (the documented "store the previous value in state" pattern) rather than in an effect, so the
+  // list never paints one frame of the new repository under the old pane.
+  const [paneOwner, setPaneOwner] = useState<string | null>(null);
+  if (paneOwner !== paneRepoRoot) {
+    setPaneOwner(paneRepoRoot);
+    setPane("changes");
+    setSelected(new Set());
+    setFocusedRowKey(null);
+  }
 
   useEffect(() => {
     return () => {
@@ -558,13 +578,37 @@ export const SourceControlPanel = memo(function SourceControlPanel({
     : (commitDisabledReason ??
       t("scm.commitWith", { shortcut: commitShortcut }));
   const pushHint = scm.pushHint ?? t("scm.pushUnavailable");
+  const stagedCount = scm.stagedEntries.length;
+  const unstagedCount = scm.unstagedEntries.length;
+  // The list shows one pane at a time, so its header counts that pane's files rather than every
+  // changed file in the repository.
+  const paneFiles = useMemo(
+    () => filesInPane(scm.fileEntries, pane),
+    [pane, scm.fileEntries],
+  );
+  const paneCount = paneFiles.length;
+  // The ticked rows of the pane on screen: what the button acts on, read the same way the list
+  // header reads it.
+  const tickedPaths = selectedInPane(scm.fileEntries, pane, selected);
+  const tickedCount = tickedPaths.length;
+  const allTicked = allInPaneSelected(scm.fileEntries, pane, selected);
   const pushDisabledReason = fixedTargetPending
     ? t("scm.hint.repoLoading")
     : scm.actionBusy
       ? t("scm.hint.busy")
       : pushHint;
-  const stagedCount = scm.stagedEntries.length;
-  const changedCount = scm.fileEntries.length;
+  // The button above the list is the pane's action on the ticked rows, so its reason for being
+  // unavailable is that nothing is ticked - or that the repository is not ready, or busy.
+  const stageDisabledReason = fixedTargetPending
+    ? t("scm.hint.repoLoading")
+    : scm.actionBusy
+      ? t("scm.hint.busy")
+      : tickedCount === 0
+        ? t("scm.hint.nothingSelected")
+        : null;
+  const stageHint =
+    stageDisabledReason ??
+    (pane === "staged" ? t("scm.unstageSelected") : t("scm.stageSelected"));
   const pushStatusLabel = upstreamBadgeLabel(
     scm.status?.upstream,
     t("scm.noUpstream"),
@@ -645,18 +689,19 @@ export const SourceControlPanel = memo(function SourceControlPanel({
     if (isDiverged) {
       result.push({ kind: "banner-diverged", key: "banner-diverged" });
     }
-    if (changedCount > 0) {
+    if (paneCount > 0) {
       result.push({
         kind: "list-header",
         key: "list-header",
-        count: changedCount,
+        count: paneCount,
+        pane,
       });
-      for (const entry of scm.fileEntries) {
+      for (const entry of paneFiles) {
         result.push({ kind: "entry", key: entry.key, entry });
       }
     }
     return result;
-  }, [changedCount, isDiverged, scm.fileEntries]);
+  }, [isDiverged, pane, paneCount, paneFiles]);
 
   const rowKeyToIndex = useMemo(() => {
     const map = new Map<string, number>();
@@ -733,6 +778,33 @@ export const SourceControlPanel = memo(function SourceControlPanel({
     return row && row.kind === "entry" ? row.entry : null;
   }, [focusedRowKey, rowKeyToIndex, rows]);
 
+  /**
+   * A row's checkbox is a selection, not the action: the button above the list acts on what is
+   * ticked - staging in the changes pane, unstaging in the staged pane. Ticking a box therefore
+   * leaves the repository alone, which is the whole point of it (a tick used to stage on the spot).
+   */
+  const toggleTick = useCallback((path: string) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  const toggleAllTicked = useCallback(() => {
+    setSelected((current) => togglePaneSelection(scm.fileEntries, pane, current));
+  }, [pane, scm.fileEntries]);
+
+  const applyToTicked = useCallback(async () => {
+    const paths = selectedInPane(scm.fileEntries, pane, selected);
+    if (paths.length === 0) return;
+    await scm.setFilesStaged(paths, paneAction(pane) === "stage");
+    // Those paths have moved to the other pane; a selection naming them would name rows this pane no
+    // longer lists.
+    setSelected(new Set());
+  }, [pane, scm.fileEntries, scm.setFilesStaged, selected]);
+
   const handlePanelKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement | null;
@@ -773,8 +845,9 @@ export const SourceControlPanel = memo(function SourceControlPanel({
           if (meta) break;
           const entry = focusedEntry();
           if (entry) {
+            // The same reading as the row's checkbox: tick it, change nothing on disk.
             event.preventDefault();
-            void scm.toggleStageFile(entry);
+            toggleTick(entry.path);
           }
           break;
         }
@@ -790,7 +863,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
         }
       }
     },
-    [focusedEntry, handleRefresh, moveFocus, scm],
+    [focusedEntry, handleRefresh, moveFocus, scm, toggleTick],
   );
 
   if (!open) return null;
@@ -800,7 +873,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
 
   return (
     <TooltipProvider delayDuration={800} skipDelayDuration={300}>
-      <aside className="flex h-full min-w-0 flex-col [contain:layout_style]">
+      <aside className="flex min-h-0 min-w-0 flex-1 flex-col [contain:layout_style]">
         <ScmHeader
           repoRoot={fixedTargetPending ? null : (scm.repo?.repoRoot ?? null)}
           repoLabel={repoLabel}
@@ -936,7 +1009,37 @@ export const SourceControlPanel = memo(function SourceControlPanel({
                 </span>
               </div>
 
-              <div className="grid w-full grid-cols-2 gap-1.5">
+              <div className="grid w-full grid-cols-3 gap-1.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="xs"
+                      variant="secondary"
+                      data-scm-stage-all=""
+                      data-scm-selected-count={tickedCount}
+                      className="h-7 cursor-pointer text-[11.5px] font-medium disabled:cursor-not-allowed"
+                      disabled={stageDisabledReason !== null}
+                      onClick={() => void applyToTicked()}
+                    >
+                      {scm.actionBusy === "stage:selection"
+                        ? t("scm.staging")
+                        : scm.actionBusy === "unstage:selection"
+                          ? t("scm.unstaging")
+                          : pane === "staged"
+                            ? t("scm.unstage")
+                            : t("scm.stage")}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="bottom"
+                    className={cn(
+                      SOURCE_CONTROL_TOOLTIP_CLASS,
+                      "max-w-64 text-[10.5px]",
+                    )}
+                  >
+                    {stageHint}
+                  </TooltipContent>
+                </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -994,63 +1097,92 @@ export const SourceControlPanel = memo(function SourceControlPanel({
             {scm.allClean ? (
               <CleanTreeHint repoLabel={repoLabel} />
             ) : (
-              <div
-                ref={containerRef}
-                tabIndex={0}
-                role="listbox"
-                aria-label={t("scm.changedFiles")}
-                aria-activedescendant={
-                  focusedRowKey ? `scm-row-${focusedRowKey}` : undefined
-                }
-                onKeyDown={handlePanelKeyDown}
-                className="relative min-h-0 flex-1 outline-none focus-visible:ring-1 focus-visible:ring-primary/30"
-              >
+              <>
+                <PaneTabs
+                  pane={pane}
+                  stagedCount={stagedCount}
+                  unstagedCount={unstagedCount}
+                  onSelect={(next) => {
+                    setPane(next);
+                    // A selection belongs to the pane it was made in: the rows below are about to be
+                    // different files.
+                    setSelected(new Set());
+                  }}
+                />
                 <div
-                  ref={scrollRef}
-                  className="h-full overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]"
+                  ref={containerRef}
+                  tabIndex={0}
+                  role="listbox"
+                  aria-label={t("scm.changedFiles")}
+                  aria-activedescendant={
+                    focusedRowKey ? `scm-row-${focusedRowKey}` : undefined
+                  }
+                  onKeyDown={handlePanelKeyDown}
+                  className="relative min-h-0 flex-1 outline-none focus-visible:ring-1 focus-visible:ring-primary/30"
                 >
                   <div
-                    style={{
-                      height: virtualizer.getTotalSize(),
-                      position: "relative",
-                      width: "100%",
-                    }}
+                    ref={scrollRef}
+                    className="h-full overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]"
                   >
-                    {virtualizer.getVirtualItems().map((virtualRow) => {
-                      const row = rows[virtualRow.index];
-                      if (!row) return null;
-                      return (
-                        <div
-                          key={virtualRow.key}
-                          style={{
-                            position: "absolute",
-                            top: 0,
-                            left: 0,
-                            width: "100%",
-                            height: virtualRow.size,
-                            transform: `translateY(${virtualRow.start}px)`,
-                          }}
-                        >
+                    {paneCount === 0 ? (
+                      // One pane can be empty while the other is not, which the clean-tree hint
+                      // above would be wrong about: it speaks for the whole working tree.
+                      <p
+                        data-scm-empty=""
+                        className="px-3 py-2 text-[11px] text-muted-foreground"
+                      >
+                        {pane === "staged"
+                          ? scm.stagedEmptyText
+                          : scm.unstagedEmptyText}
+                      </p>
+                    ) : (
+                      <div
+                        style={{
+                          height: virtualizer.getTotalSize(),
+                          position: "relative",
+                          width: "100%",
+                        }}
+                      >
+                        {virtualizer.getVirtualItems().map((virtualRow) => {
+                          const row = rows[virtualRow.index];
+                          if (!row) return null;
+                          return (
+                            <div
+                              key={virtualRow.key}
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                width: "100%",
+                                height: virtualRow.size,
+                                transform: `translateY(${virtualRow.start}px)`,
+                              }}
+                            >
                           <RowRenderer
                             row={row}
                             focused={focusedRowKey === row.key}
                             selectedPath={scm.selected?.path ?? null}
                             actionBusy={scm.actionBusy}
-                            headerCheckState={scm.headerCheckState}
+                            allTicked={allTicked}
                             repoRoot={scm.repo?.repoRoot ?? null}
+                            pane={pane}
+                            tickedPaths={selected}
                             onFocusRow={setFocusedRowKey}
-                            onToggleAll={scm.toggleAll}
+                            onToggleAll={toggleAllTicked}
+                            onToggleTick={toggleTick}
                             onSelectFile={scm.selectFile}
                             onToggleStageFile={scm.toggleStageFile}
                             onDiscardFile={scm.requestDiscardFile}
                             onOpenFile={onOpenFile}
                           />
-                        </div>
-                      );
-                    })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
+              </>
             )}
           </>
         ) : null}
@@ -1145,10 +1277,17 @@ type RowRendererProps = {
   focused: boolean;
   selectedPath: string | null;
   actionBusy: string | null;
-  headerCheckState: CheckState;
+  /** Whether every row in the pane is ticked - what the list header's checkbox shows. */
+  allTicked: boolean;
   repoRoot: string | null;
+  /** Which pane's rows these are: the list header and the row labels both read it. */
+  pane: ScmPane;
+  /** The ticked paths of the whole panel; a row reads its own out of it. */
+  tickedPaths: ReadonlySet<string>;
   onFocusRow: (key: string | null) => void;
-  onToggleAll: () => Promise<void> | void;
+  onToggleAll: () => void;
+  /** Ticking a row: a selection, not a stage. */
+  onToggleTick: (path: string) => void;
   onSelectFile: (entry: SourceControlFileEntry) => Promise<void>;
   onToggleStageFile: (entry: SourceControlFileEntry) => Promise<void>;
   onDiscardFile: (entry: SourceControlFileEntry) => void;
@@ -1187,10 +1326,58 @@ function DivergedBanner() {
   );
 }
 
+/**
+ * The two panes of the working tree, as one strip above the list. The same shape as the sidebar
+ * rail's sessions/files switch, because it is the same kind of control: two views of one list, not
+ * an action and its fallback.
+ */
+function PaneTabs({
+  pane,
+  stagedCount,
+  unstagedCount,
+  onSelect,
+}: {
+  pane: ScmPane;
+  stagedCount: number;
+  unstagedCount: number;
+  onSelect: (pane: ScmPane) => void;
+}) {
+  const t = useT();
+  return (
+    <div className="flex shrink-0 items-stretch gap-1 border-b border-border/40 px-2 py-1">
+      {(["changes", "staged"] as const).map((id) => {
+        const active = pane === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            data-scm-pane={id}
+            aria-pressed={active}
+            onClick={() => onSelect(id)}
+            className={cn(
+              "flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+              active
+                ? "bg-foreground/[0.07] text-foreground dark:bg-foreground/[0.09]"
+                : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+            )}
+          >
+            <span className="truncate">
+              {t(id === "staged" ? "scm.pane.staged" : "scm.changes")}
+            </span>
+            <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full border border-border/60 px-1 text-[9.5px] font-semibold tabular-nums">
+              {id === "staged" ? stagedCount : unstagedCount}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ListHeader({
   row,
+  allTicked,
   actionBusy,
-  headerCheckState,
   onToggleAll,
 }: RowRendererProps & {
   row: Extract<RowDescriptor, { kind: "list-header" }>;
@@ -1199,19 +1386,21 @@ function ListHeader({
   return (
     <div className="flex h-7 items-center gap-2 px-3">
       <span className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/85">
-        {t("scm.changes")}
+        {t(row.pane === "staged" ? "scm.pane.staged" : "scm.changes")}
       </span>
       <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border/60 px-1 text-[9.5px] font-semibold tabular-nums text-muted-foreground">
         {row.count}
       </span>
+      {/* "All" here means all of this pane's rows are ticked - the button above is what acts on
+          them. */}
       {/* biome-ignore lint/a11y/noLabelWithoutControl: the label wraps a Radix checkbox, which renders a button with its own aria-label, so the control cannot be resolved statically */}
       <label className="ml-auto flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-[10.5px] font-medium text-muted-foreground hover:text-foreground">
         <span>{t("scm.all")}</span>
         <Checkbox
-          aria-label={t("scm.stageAll")}
-          checked={checkboxValue(headerCheckState)}
+          aria-label={t("scm.all")}
+          checked={allTicked}
           disabled={actionBusy !== null}
-          onCheckedChange={() => void onToggleAll()}
+          onCheckedChange={() => onToggleAll()}
           className="size-3.5"
         />
       </label>
@@ -1225,8 +1414,11 @@ const EntryRow = memo(function EntryRow({
   selectedPath,
   actionBusy,
   repoRoot,
+  pane,
+  tickedPaths,
   onFocusRow,
   onSelectFile,
+  onToggleTick,
   onToggleStageFile,
   onDiscardFile,
   onOpenFile,
@@ -1239,7 +1431,11 @@ const EntryRow = memo(function EntryRow({
   const isSelected = selectedPath === entry.path;
   const fileName = basename(entry.path);
   const pathLabel = entryPathLabel(entry);
-  const showDiscard = entry.unstaged;
+  // The pane says what the row's own controls mean. Its checkbox is the tick the button above acts
+  // on; discarding is offered only where there is a working-tree edit to lose.
+  const paneStaged = pane === "staged";
+  const ticked = tickedPaths.has(entry.path);
+  const showDiscard = !paneStaged;
   const isStageBusy =
     actionBusy === `stage:${entry.path}` ||
     actionBusy === `unstage:${entry.path}`;
@@ -1378,10 +1574,14 @@ const EntryRow = memo(function EntryRow({
               <Spinner className="size-3" />
             ) : (
               <Checkbox
-                aria-label={t("scm.stageFile", { path: entry.path })}
-                checked={checkboxValue(entry.checkState)}
+                aria-label={
+                  paneStaged
+                    ? t("scm.tickToUnstage", { path: entry.path })
+                    : t("scm.tickToStage", { path: entry.path })
+                }
+                checked={ticked}
                 disabled={disabled}
-                onCheckedChange={() => void onToggleStageFile(entry)}
+                onCheckedChange={() => onToggleTick(entry.path)}
                 className="size-3.5"
               />
             )}

@@ -6,6 +6,57 @@ export type ReadResult =
   | { kind: "binary"; size: number }
   | { kind: "toolarge"; size: number; limit: number };
 
+/** One styled piece of a paragraph's text. */
+export type DocxRun = {
+  text: string;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+};
+
+export type DocxBlock =
+  | {
+      kind: "paragraph";
+      /**
+       * Which `<w:p>` of the document part this is, counted from zero.
+       *
+       * It is the link between what is drawn and the element the writer has to touch, so it counts
+       * every paragraph of the part - the ones inside tables and the empty ones included.
+       */
+      index: number;
+      heading: number | null;
+      list: { ordered: boolean; level: number } | null;
+      runs: DocxRun[];
+    }
+  | { kind: "table"; rows: string[][] };
+
+/**
+ * What the file looked like when it was read.
+ *
+ * The writer refuses when this no longer matches, so a document saved in Word between the read and
+ * the edit is never overwritten.
+ */
+export type DocxGuard = { size: number; modifiedMs: number };
+
+/** What the Rust side reads out of a `.docx`; `truncated` means the document was longer than the
+ * block ceiling and what is here is its beginning. */
+export type DocxDocument = {
+  blocks: DocxBlock[];
+  truncated: boolean;
+  /** Whether the pane may edit this document in place; a truncated read may not be written back. */
+  editable: boolean;
+  /** The file's identity when it was read; the writer refuses if it no longer matches. */
+  guard: DocxGuard;
+};
+
+/** One paragraph's new text, addressed by its ordinal. */
+export type DocxEdit = { index: number; text: string };
+
+/** A paragraph to add after another one; the document must have the one it names. */
+export type DocxInsert = { after: number; text: string };
+
+
+
 export type DirEntry = {
   name: string;
   kind: "file" | "dir" | "symlink";
@@ -662,6 +713,46 @@ export const native = {
   readFile: (path: string) =>
     invoke<ReadResult>("fs_read_file", {
       path,
+      workspace: envForPath(path),
+    }),
+  // A `.docx` is not a text file and not an image, so it has a reader of its own: the archive is
+  // opened in Rust and comes back as blocks. See `src/modules/editor/DocxPreview.tsx`.
+  readDocx: (path: string) =>
+    invoke<DocxDocument>("fs_read_docx", {
+      path,
+      workspace: envForPath(path),
+    }),
+  /**
+   * Takes back the last change to a `.docx` and returns its new identity.
+   *
+   * Undo restores the document part that was there before the last write, which is the only way to
+   * bring back a deleted paragraph: its XML is not in the model any more.
+   */
+  undoDocx: (path: string, guard: DocxGuard) =>
+    invoke<DocxGuard>("fs_undo_docx", {
+      path,
+      guard,
+      workspace: envForPath(path),
+    }),
+  /**
+   * Writes edits back into a `.docx` and returns its new identity.
+   *
+   * The whole document is rewritten each time, so the call is idempotent and a lost request cannot
+   * leave half an edit behind.
+   */
+  writeDocx: (
+    path: string,
+    edits: DocxEdit[],
+    deleted: number[],
+    inserts: DocxInsert[],
+    guard: DocxGuard,
+  ) =>
+    invoke<DocxGuard>("fs_write_docx", {
+      path,
+      edits,
+      deleted,
+      inserts,
+      guard,
       workspace: envForPath(path),
     }),
   writeFile: (path: string, content: string) =>

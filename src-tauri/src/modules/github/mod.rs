@@ -9,7 +9,9 @@ mod activity;
 mod auth;
 mod ci;
 pub mod commands;
-mod gh;
+// The version check reads GitHub through this too, when it is logged in: see
+// modules/agent_versions.rs.
+pub(crate) mod gh;
 mod issues;
 mod permission;
 mod releases;
