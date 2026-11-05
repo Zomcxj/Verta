@@ -15,14 +15,25 @@ swap in the new date, and drop the `open` from the day before.
 ---
 
 <details open>
+<summary><strong>2026-11-05</strong></summary>
+
+**A compact session's details are one card that travels down the list**
+
+- `src/modules/launcher/components/CompactSessionCard.tsx` (new): the details of a compact row - title, numbers, directory - drawn as **one** card for the whole list, positioned with a `transform` and anchored to whichever row the pointer is on. Following the rows is therefore that transform changing: the eye tracks one panel along the list instead of watching a panel per row appear and disappear. This is the part of the edge-dock reference that survives a single webview - its bubble is one native window moved by a spring, and this is one element moved by a transition. The card is measured before it is shown and its first placement is not animated, so it is never seen at the window's corner; its text is keyed by session and fades in when the row changes, so the details are replaced while the card keeps moving.
+- `src/modules/launcher/lib/compactCardPosition.ts` (new) and its test: where the card sits for a row - the row's right side, the left when the card would run past the edge, clamped inside the window both ways, and following the row down by exactly one row. The width it is given comes from the card's own content, so a longer directory flips sides sooner; the card is as wide as its text asks for under a 19rem cap, rather than a fixed width that either crammed a long path or floated in empty space beside a short title - and rather than a minimum width, which is what bound it in practice (the content wanted 170px and a 13rem floor drew 208px).
+- `src/modules/launcher/components/SessionList.tsx`: the list owns the one card and hands it the hovered (or focused) row's position; a row no longer carries a tooltip of its own, and the row the card describes carries `aria-describedby`. The anchor is recomputed on scroll and resize, because a stationary pointer and a scrolling list move the row.
+- `src/styles/globals.css`: `.verta-compact-card` moves on `transform` at `--dur-base`/`--ease-soft` and fades at `--dur-fast`, from the window's own motion tokens; `data-ready` (set with the first placement) is what keeps that first appearance unanimated, and `.verta-compact-card-body` fades the swapped text in. Only transform and opacity are involved, and nothing declares `will-change`. Under reduced motion the card arrives where the row is and its text does not fade.
+- `src/styles/motionBudget.test.ts`, `src/modules/launcher/components/sessionRowDensity.test.ts`: the card's transition lengths as relations to those tokens, the body fading without moving, and the shape that makes it move - one card for the list, anchored, positioned by its transform, non-interactive, in the window's own surface.
+- `src/styles/globals.css`: floating layers are no longer paused while the window is unfocused. Entering from `opacity: 0` is what a one-shot entrance does, so a paused one is an empty layer rather than a cheaper one - measured with the window unfocused, hovering a compact row drew the details card with no text in it at all (the body's fade sat paused on its first frame). Every tooltip in the window had the same hole, a tooltip being something hover opens without the focus being asked for. These entrances run once for 160-320ms; the animations that repeat forever are the state indicators and keep their own rules.
+- `scripts/dev/probes/compact-card-roam.mjs` (new): hovers two rows in turn and requires the **same** element to come back with a different transform, a changed body and the described-by row following it; a per-row tooltip fails this by being a new element every time.
+
+</details>
+
+<details>
 <summary><strong>2026-11-04</strong></summary>
 
 **The right panel's repository belongs to the session that picked it, and three floating layers stop being see-through**
 
-- `src/components/ui/tooltip.tsx`: `TooltipContent` takes a `motion` - `pill` is the stock one-line label, `card` is for a panel of several lines and enters in one beat (see the stylesheet entry below).
-- `src/modules/launcher/components/SessionList.tsx`: a compact session's details panel asks for the card motion, so it arrives the way the rest of the window's surfaces do rather than as a label that happens to be tall.
-- `src/styles/globals.css`: `.verta-compact-card`, the details panel's entrance and exit. The slide, the fade and a slight overshoot all run 160ms, so it reads as one movement; it leaves in 120ms with no overshoot; only transform and opacity animate, and the direction follows the side it opens on. Under reduced motion it arrives at its resting place instead of moving there.
-- `src/styles/motionBudget.test.ts`: the panel's one-beat timing, its quicker exit and its reduced-motion fallback.
 - `src/modules/source-control/repositoryTarget.ts`, `src/app/App.tsx`: the repository the right panel is showing is remembered per session tab within a folder, not per folder - two sessions opened at one folder pinned the same sub-repository, so switching it in one switched it in the other. Picking a repository is a choice about what this session is looking at, and a folder holding several checkouts is exactly where two sessions differ. The scope still names its environment first, which is what a resolved answer is checked against.
 - `src/modules/notifications/lib/useAgentVersions.ts`: opening the bell clears the last upgrade's confirmation line. The popover checks again every time it opens, and that check now also drops "updated to X": the green line belonged to the visit that produced it, and without this it stayed until the app restarted.
 - `src/modules/projects/ProjectsView.tsx`: a local project row keeps one menu. The right-click copy of the ⋯ menu carried the same rows and the two read as duplicates; the panel's remote list offers its actions from ⋯ alone, so that is the one that stays.
