@@ -11,12 +11,7 @@ const body = readFileSync(path.join(here, "docxBodyDom.ts"), "utf8");
 
 describe("docx tables", () => {
   it("numbers the rows and cells so each has a key of its own", () => {
-    expect(
-      tableGrid([
-        ["a", "b"],
-        ["c"],
-      ]),
-    ).toEqual([
+    expect(tableGrid([["a", "b"], ["c"]])).toEqual([
       {
         id: 0,
         cells: [
@@ -79,7 +74,10 @@ describe("docx routing in the editor pane", () => {
     // ... and before the CodeMirror branch, or a document pane would fall through to a view it
     // does not have.
     expect(pane.indexOf("docxRef.current.undo()")).toBeLessThan(
-      pane.indexOf("const view = cmRef.current?.view;", pane.indexOf("undo: () => {")),
+      pane.indexOf(
+        "const view = cmRef.current?.view;",
+        pane.indexOf("undo: () => {"),
+      ),
     );
   });
 });
@@ -93,7 +91,9 @@ describe("the document body is one editable surface", () => {
     expect(preview).toMatch(/contentEditable=\{editable\}/);
     expect(preview).not.toMatch(/function EditableText/);
     // The paragraph's ordinal is still on the block, because the probes and the writer speak in it.
-    expect(preview).toMatch(/data-docx-editable=\{block\.ordinal \?\? undefined\}/);
+    expect(preview).toMatch(
+      /data-docx-editable=\{block\.ordinal \?\? undefined\}/,
+    );
   });
 
   it("leaves Enter, Backspace and the selection to the browser", () => {
@@ -134,6 +134,33 @@ describe("the document body is one editable surface", () => {
     expect(body).toMatch(/"data-num-id", previous\.dataset\.numId/);
   });
 
+  it("does not touch the caret while an input method is composing", () => {
+    // Chromium fires `input` for every composition update. Re-installing a selection on each of them
+    // is how a pinyin input method ends up committing one character at a time, so composition is
+    // left alone, and so is a normalisation that changed nothing.
+    expect(preview).toMatch(/isComposing/);
+    expect(body).toMatch(
+      /export function normalizeBody\(body: HTMLElement\): boolean/,
+    );
+  });
+
+  it("leaves a paste alone when the clipboard has no text", () => {
+    // `preventDefault` before the check swallowed every paste that was not plain text (an image, a
+    // table copied from a page) and did nothing with it.
+    const pasteAt = preview.indexOf("insertFromPaste");
+    const emptyAt = preview.indexOf("if (!text) return;", pasteAt);
+    const preventAt = preview.indexOf("event.preventDefault();", pasteAt);
+    expect(emptyAt).toBeGreaterThan(pasteAt);
+    expect(emptyAt).toBeLessThan(preventAt);
+  });
+
+  it("keeps typing that happened while a structural save was in flight", () => {
+    // The re-read rebuilds the body from the file, so anything typed after the snapshot but before
+    // the write landed would simply vanish from the pane.
+    expect(preview).toMatch(/leftover/);
+    expect(preview).toMatch(/for \(let attempt = 0; attempt < 3/);
+  });
+
   it("writes nothing for a body that has not changed", () => {
     // A save that sends nothing is a save that rewrites the whole archive and pushes an undo step
     // that takes back nothing.
@@ -154,6 +181,6 @@ describe("the document body is one editable surface", () => {
 
   it("re-reads only when a write moved the blocks around", () => {
     expect(preview).toMatch(/needsReread\(/);
-    expect(preview).toMatch(/baseline\.current = draft/);
+    expect(preview).toMatch(/baseline\.current = adoptDraft\(before, draft\)/);
   });
 });

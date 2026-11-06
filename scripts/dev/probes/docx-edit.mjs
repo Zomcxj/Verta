@@ -67,6 +67,15 @@ const CROSS_DOCUMENT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </w:body></w:document>`;
 const CROSS_FILE = "跨段删除.docx";
 
+/** A paragraph, a table, and another paragraph: a table sits between two lines that are both typed in. */
+const AFTER_TABLE_DOCUMENT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:p><w:r><w:t>before</w:t></w:r></w:p>
+<w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+<w:p><w:r><w:t>after</w:t></w:r></w:p>
+</w:body></w:document>`;
+const AFTER_TABLE_FILE = "表格之后.docx";
+
 /** A table above a paragraph: selecting the whole body must not take the table with it. */
 const TABLE_DOCUMENT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
@@ -640,6 +649,45 @@ try {
     fail(`the file's one paragraph is not the text the pane shows (${JSON.stringify(shown)})`);
   }
 
+  // ---- A second keystroke after a save in a document that has a table ----
+  // The baseline's ordinals come from a read that contains the table; the draft has no table block,
+  // because a table cannot be written back. Copied across by index, every paragraph after a table
+  // takes its neighbour's ordinal - and once the paragraph that was typed in has none, the next save
+  // names nothing at all. The pane still says 已保存 and the second keystroke never reaches the file.
+  const afterTablePath = buildArchive(AFTER_TABLE_FILE, AFTER_TABLE_DOCUMENT);
+  await openFile(afterTablePath, "the document with a table and a line after it");
+  if (!(await waitFor(`!!(${PANE})?.querySelector("[data-docx-body] table")`, 25000))) {
+    fail("the document with a table and a line after it did not open");
+  }
+  const afterTableCaret = await evaluate(`(() => {
+    const block = [...((${PANE})?.querySelectorAll("[data-docx-editable]") ?? [])].find(
+      (node) => (node.textContent || "").trim() === "after",
+    );
+    if (!block) return false;
+    (${PANE})?.querySelector("[data-docx-body]")?.focus();
+    return (${placeCaret.toString()})(block, block.textContent.length);
+  })()`);
+  if (!afterTableCaret) fail("the caret could not be put at the end of the line after the table");
+  await send("Input.insertText", { text: "X" });
+  await settle();
+  const firstSave = readParts(AFTER_TABLE_FILE);
+  if (!firstSave.document.includes("<w:t>afterX</w:t>")) {
+    fail(`the first keystroke after the table did not reach the file: ${firstSave.document}`);
+  }
+  await send("Input.insertText", { text: "Y" });
+  await settle();
+  const secondSave = readParts(AFTER_TABLE_FILE);
+  report.afterTable = {
+    first: (firstSave.document.match(/<w:t[^>]*>[^<]*<\/w:t>/g) ?? []).join(" "),
+    second: (secondSave.document.match(/<w:t[^>]*>[^<]*<\/w:t>/g) ?? []).join(" "),
+  };
+  if (!secondSave.document.includes("<w:t>afterXY</w:t>")) {
+    fail(`the second keystroke after the table did not reach the file: ${secondSave.document}`);
+  }
+  if (!secondSave.document.includes("<w:t>before</w:t>") || !secondSave.document.includes("<w:tbl>")) {
+    fail(`editing after the table changed something else: ${secondSave.document}`);
+  }
+
   // ---- A table is not deleted by a selection over the whole body ----
   const tablePath = buildArchive(TABLE_FILE, TABLE_DOCUMENT);
   await openFile(tablePath, "the document with a table");
@@ -666,7 +714,7 @@ try {
 
   report.ok = true;
   console.log(
-    `PASS: 就地改了第 1 段、删了第 2 段，并在另一份文档里用回车把一段拆成两段；停手后自动保存，磁盘上的 document.xml 与「原文只做这三处改动」逐字节相同（编辑 ${after.document.length} 字节、拆段 ${split.document.length} 字节），styles.xml 一个字节没动；Ctrl+Z 把「改字+删段」和「回车拆段」都还原成了原样；退格把两段并成一段、文末回车的第二行写得进去、跨段删除只留下一段、整篇删空也不伤表格。`,
+    `PASS: 就地改了第 1 段、删了第 2 段，并在另一份文档里用回车把一段拆成两段；停手后自动保存，磁盘上的 document.xml 与「原文只做这三处改动」逐字节相同（编辑 ${after.document.length} 字节、拆段 ${split.document.length} 字节），styles.xml 一个字节没动；Ctrl+Z 把「改字+删段」和「回车拆段」都还原成了原样；退格把两段并成一段、文末回车的第二行写得进去、跨段删除只留下一段、整篇删空也不伤表格；表格后面那段存过之后接着再打一个字，第二个字也进了文件（没有被序号错位吞掉）。`,
   );
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {

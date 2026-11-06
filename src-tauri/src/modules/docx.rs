@@ -307,7 +307,7 @@ fn rewrite_paragraph(paragraph: &str, text: &str) -> Result<String, String> {
     let mut out = String::with_capacity(paragraph.len() + text.len());
     let mut rest = paragraph;
     let mut written = false;
-    while let Some(open) = rest.find("<w:t") {
+    while let Some(open) = find_text_node(rest) {
         let after_open = &rest[open..];
         let Some(close) = after_open.find('>') else {
             return Err("文档里的文字节点没有闭合".into());
@@ -363,6 +363,26 @@ fn rewrite_paragraph(paragraph: &str, text: &str) -> Result<String, String> {
     }
     out.push_str(rest);
     Ok(out)
+}
+
+/// Where the next `<w:t>` text node starts, ignoring the elements that begin with the same
+/// characters: `<w:tabs>`, `<w:tab/>`, `<w:tc>`, and anything else in the `w:t` namespace.
+///
+/// The prefix is not enough. `<w:tabs>` matched it, its `>` was taken for the end of a text node and
+/// the search for `</w:t>` failed, which failed the whole save; `<w:tab/>` matched it and was
+/// rewritten to an empty text node, emptying the run that followed - the tab and the rest of the line
+/// vanished from the document.
+fn find_text_node(xml: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(at) = xml[from..].find("<w:t") {
+        let start = from + at;
+        let after = xml[start + "<w:t".len()..].chars().next();
+        if matches!(after, Some('>' | '/' | ' ')) {
+            return Some(start);
+        }
+        from = start + "<w:t".len();
+    }
+    None
 }
 
 /// The document part with the edited paragraphs replaced and the deleted ones dropped.
@@ -1295,6 +1315,48 @@ mod tests {
             "{written}"
         );
         assert!(!written.contains("plain"), "{written}");
+    }
+
+    #[test]
+    fn a_paragraph_with_custom_tab_stops_can_still_be_edited() {
+        // `<w:tabs>` starts with the same four characters as `<w:t>`: a scan that matched the prefix
+        // took the properties for a text node, could not find its end, and failed the whole save.
+        let xml = document(
+            r#"<w:p><w:pPr><w:tabs><w:tab w:val="left" w:pos="720"/></w:tabs></w:pPr><w:r><w:t>a</w:t></w:r></w:p>"#,
+        );
+        let written = rewrite_document_xml(
+            &xml,
+            &[DocxEdit {
+                index: 0,
+                text: "b".into(),
+            }],
+            &[],
+            &[],
+        )
+        .expect("a paragraph with tab stops is still editable");
+        assert!(written.contains("<w:tabs>"), "{written}");
+        assert!(written.contains("<w:t>b</w:t>"), "{written}");
+    }
+
+    #[test]
+    fn a_tab_inside_a_paragraph_is_not_taken_for_a_text_node() {
+        // A `<w:tab/>` sits between two runs. Treated as an empty `<w:t>`, the run after it was
+        // emptied - the tab and the rest of the line silently disappeared.
+        let xml = document(
+            r#"<w:p><w:r><w:t>a</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>c</w:t></w:r></w:p>"#,
+        );
+        let written = rewrite_document_xml(
+            &xml,
+            &[DocxEdit {
+                index: 0,
+                text: "a	c".into(),
+            }],
+            &[],
+            &[],
+        )
+        .expect("a paragraph with a tab is still editable");
+        assert!(written.contains("<w:tab/>"), "{written}");
+        assert!(written.contains("<w:t>a	c</w:t>"), "{written}");
     }
 
     #[test]

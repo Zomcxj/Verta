@@ -249,6 +249,25 @@ export function alignBlocks(
   return { edits, deleted, inserts };
 }
 
+/**
+ * The baseline after a write that sent exactly this draft.
+ *
+ * The ordinals come from the blocks the file had *before* the write, filtered the same way the draft
+ * is: a table is in the read and not in the draft, so copying ordinals across the unfiltered list
+ * shifts every paragraph after a table onto its neighbour - and the paragraph that was actually
+ * typed in drops out of the comparison, which is how a document ends up "saved" with nothing written.
+ */
+export function adoptDraft(
+  before: BaselineBlock[],
+  draft: DraftBlock[],
+): BaselineBlock[] {
+  const written = writable(before);
+  return draft.map((block, index) => ({
+    ...block,
+    ordinal: written[index]?.ordinal ?? null,
+  }));
+}
+
 /** Pairs of indexes (into `from`, into `to`) that are equal, longest such run. */
 function commonSubsequence(
   from: DraftBlock[],

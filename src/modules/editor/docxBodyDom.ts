@@ -133,7 +133,8 @@ function nestedLines(node: HTMLElement): Node[][] {
  * shape the pane reads back. Only structure is touched: text nodes are moved, never rewritten, so the
  * input method's composition is not disturbed.
  */
-export function normalizeBody(body: HTMLElement): void {
+export function normalizeBody(body: HTMLElement): boolean {
+  let changed = false;
   // A bare element (Enter's own `<div>`) is a block of whatever the block above it was.
   for (const child of [...body.childNodes]) {
     if (child instanceof HTMLElement && child.hasAttribute("data-block"))
@@ -142,6 +143,7 @@ export function normalizeBody(body: HTMLElement): void {
       const previous = child.previousElementSibling as HTMLElement | null;
       const kind = (previous?.getAttribute("data-block") ?? "p") as BlockKind;
       child.setAttribute("data-block", kind);
+      changed = true;
       if (kind === "li" && previous?.dataset.list) {
         child.setAttribute("data-list", previous.dataset.list);
         if (previous.dataset.numId) {
@@ -158,6 +160,7 @@ export function normalizeBody(body: HTMLElement): void {
       continue;
     }
     // Stray text directly under the body: give it a paragraph of its own.
+    changed = true;
     const wrap = document.createElement("div");
     wrap.setAttribute("data-block", "p");
     body.replaceChild(wrap, child);
@@ -168,15 +171,18 @@ export function normalizeBody(body: HTMLElement): void {
     if (!(block instanceof HTMLElement)) continue;
     const lines = splitLines(block);
     if (!lines) continue;
+    changed = true;
     for (const line of lines) body.insertBefore(line, block);
     body.removeChild(block);
   }
 
   if (body.children.length === 0) {
     body.appendChild(freshBlock(body, "p"));
+    changed = true;
   }
 
   markLists(body);
+  return changed;
 }
 
 /**

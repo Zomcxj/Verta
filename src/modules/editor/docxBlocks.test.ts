@@ -1,6 +1,7 @@
 import type { DocxDocument, DocxInsert } from "@/lib/native";
 import { describe, expect, it } from "vitest";
 import {
+  adoptDraft,
   alignBlocks,
   type BaselineBlock,
   blocksFromDocument,
@@ -45,8 +46,15 @@ describe("block alignment", () => {
   it("anchors a new line to the block it follows", () => {
     // Enter in the middle: what it was typed in stays, the tail becomes the new paragraph after it.
     expect(
-      alignBlocks([p("one", 0), p("two", 1)], [draft("one"), draft("tail"), draft("two")]),
-    ).toEqual({ edits: [], deleted: [], inserts: [{ after: 0, text: "tail" }] });
+      alignBlocks(
+        [p("one", 0), p("two", 1)],
+        [draft("one"), draft("tail"), draft("two")],
+      ),
+    ).toEqual({
+      edits: [],
+      deleted: [],
+      inserts: [{ after: 0, text: "tail" }],
+    });
   });
 
   it("anchors a new first line to nothing", () => {
@@ -89,7 +97,10 @@ describe("block alignment", () => {
       ordinal: null,
     };
     expect(
-      alignBlocks([p("one", 0), table, p("two", 1)], [draft("one"), draft("TWO")]),
+      alignBlocks(
+        [p("one", 0), table, p("two", 1)],
+        [draft("one"), draft("TWO")],
+      ),
     ).toEqual({ edits: [{ index: 1, text: "TWO" }], deleted: [], inserts: [] });
     expect(needsReread([p("one", 0), table], [draft("ONE")])).toBe(false);
   });
@@ -151,6 +162,41 @@ describe("block alignment", () => {
   });
 });
 
+describe("adopting what was just written", () => {
+  it("keeps the ordinals right when the document has a table", () => {
+    // The draft has no table block (a table cannot be written back), the baseline has one. Copying
+    // ordinals across by index therefore shifts every paragraph after a table: the next save names
+    // the wrong paragraph, and with nothing marked as changed it names none at all - the pane says
+    // 已保存 while the file has not moved.
+    const table: BaselineBlock = {
+      kind: "table",
+      list: null,
+      numId: null,
+      text: "",
+      ordinal: null,
+    };
+    const before = [p("a", 0), table, p("b", 1), p("c", 2)];
+    const typed = [draft("a"), draft("B"), draft("c")];
+    expect(adoptDraft(before, typed)).toEqual([
+      p("a", 0),
+      p("B", 1),
+      p("c", 2),
+    ]);
+    // And the next save sees the paragraph it changed, not a neighbour.
+    expect(
+      alignBlocks(adoptDraft(before, typed), [
+        draft("a"),
+        draft("BB"),
+        draft("c"),
+      ]),
+    ).toEqual({
+      edits: [{ index: 1, text: "BB" }],
+      deleted: [],
+      inserts: [],
+    });
+  });
+});
+
 describe("blocks from a read", () => {
   it("gives headings and list items their own kind", () => {
     const blocks = blocksFromDocument({
@@ -188,7 +234,9 @@ describe("blocks from a read", () => {
 
   it("keeps an empty paragraph as a blank line", () => {
     const blocks = blocksFromDocument({
-      blocks: [{ kind: "paragraph", index: 0, heading: null, list: null, runs: [] }],
+      blocks: [
+        { kind: "paragraph", index: 0, heading: null, list: null, runs: [] },
+      ],
       truncated: false,
       editable: true,
       guard: { size: 1, modifiedMs: 1 },
@@ -208,11 +256,17 @@ describe("blocks from the DOM", () => {
 
   it("treats a block the browser made as the one before it", () => {
     // Enter produces a bare <div>: it is a paragraph of whatever the block above it was.
-    expect(kindFromDataset({}, "h2")).toEqual({ kind: "h2", list: null, numId: null });
+    expect(kindFromDataset({}, "h2")).toEqual({
+      kind: "h2",
+      list: null,
+      numId: null,
+    });
   });
 
   it("keeps the numbering id and the list kind from the dataset", () => {
-    expect(kindFromDataset({ block: "li", list: "number", numId: "7" }, "p")).toEqual({
+    expect(
+      kindFromDataset({ block: "li", list: "number", numId: "7" }, "p"),
+    ).toEqual({
       kind: "li",
       list: "number",
       numId: 7,

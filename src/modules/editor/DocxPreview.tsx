@@ -19,6 +19,7 @@ import {
   useState,
 } from "react";
 import {
+  adoptDraft,
   alignBlocks,
   type BaselineBlock,
   blocksFromDocument,
@@ -201,8 +202,10 @@ const DocxBody = memo(function DocxBody({
         // Only paste is taken over: an input method composing in a hand-rolled editor is how a
         // Chinese input method gets broken, so everything else is left to the browser.
         const text = native.dataTransfer?.getData("text/plain") ?? "";
-        event.preventDefault();
+        // Checked before the default is cancelled: a paste with no text in it (an image, a table
+        // copied from a page) is left to the browser rather than swallowed and dropped.
         if (!text) return;
+        event.preventDefault();
         const lines = text.split(/\r?\n/);
         // `insertText` is deprecated and still the only way to put text in without destroying the
         // browser's own editing state (a raw range insertion loses the undo stack and the caret).
@@ -214,13 +217,20 @@ const DocxBody = memo(function DocxBody({
       }}
       onInput={(event) => {
         const body = event.currentTarget;
+        // An input method fires this for every composition update, and re-installing a selection in
+        // the middle of one is how pinyin gets committed a character at a time. Composition is left
+        // entirely to the browser.
+        if ((event.nativeEvent as InputEvent).isComposing) {
+          onEdited();
+          return;
+        }
         // Flattening may rebuild nodes, so the caret is remembered by line and offset within it and
-        // put back. A text offset alone is not enough: the end of a line and the start of the empty
-        // line below it are the same offset, so after Enter the next keystroke went into the line
-        // above.
+        // put back - but only when something was rebuilt. A caret that is already where the browser
+        // left it is not touched.
         const caret = caretInBody(body);
-        normalizeBody(body);
-        if (caret) placeCaretAtBlock(body, caret.position, caret.offset);
+        if (normalizeBody(body) && caret) {
+          placeCaretAtBlock(body, caret.position, caret.offset);
+        }
         onEdited();
       }}
       onBlur={() => {
@@ -415,12 +425,33 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
           inserts,
           current,
         );
-        // The draft lines up with the baseline one for one here: a write that changes the numbering
-        // re-reads instead of trusting this.
-        baseline.current = draft.map((block, index) => ({
-          ...block,
-          ordinal: before[index]?.ordinal ?? null,
-        }));
+        // Typing can land between the snapshot and this line, and a re-read would rebuild the body
+        // from the file and throw it away. What is left in the DOM is written before anything is
+        // read back, up to a couple of rounds - a structural save that keeps taking new input has
+        // to settle before the numbering can be trusted again.
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const leftover = alignBlocks(
+            adoptDraft(before, draft),
+            readDraftBlocks(body),
+          );
+          if (
+            leftover.edits.length === 0 &&
+            leftover.deleted.length === 0 &&
+            leftover.inserts.length === 0
+          ) {
+            break;
+          }
+          guard.current = await native.writeDocx(
+            path,
+            leftover.edits,
+            leftover.deleted,
+            leftover.inserts,
+            guard.current,
+          );
+        }
+        // The draft lines up with the writable baseline one for one here: a write that changes the
+        // numbering re-reads instead of trusting this.
+        baseline.current = adoptDraft(before, draft);
         setSave({ kind: "saved" });
         if (reread) {
           caretAfter.current = caretInBody(body);
