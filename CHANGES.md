@@ -15,6 +15,23 @@ swap in the new date, and drop the `open` from the day before.
 ---
 
 <details open>
+<summary><strong>2026-11-06</strong></summary>
+
+**A Word document is one editable body, and the details card stops arriving**
+
+- `src-tauri/src/modules/docx.rs`: a blank line is read as a paragraph of its own instead of being dropped, and a self-closing `<w:p/>` counts as one too - pressing Enter at the end of a document wrote a paragraph that the next read threw away, which left the caret nowhere to land; a `ListItem` now carries the numbering definition it asks for, so two adjacent lists can be told apart; writing text into a paragraph that has no `<w:t>` creates a run instead of refusing the whole save (a blank line, or a line holding only an image, is exactly where typing starts after Enter); `DocxInsert.after` is optional, so a new line can go in front of everything in a body whose first element is a table or which has no paragraphs at all; a save whose part is byte-identical to the one it read writes nothing and remembers nothing, and the same document part is never stacked twice - one Ctrl+Z after either used to take back nothing.
+- `src/modules/editor/docxBlocks.ts` and its test (new): what the pane sends the writer, computed by aligning the lines on screen against the lines the file has - the identical ends are dropped, the middle is matched by longest common subsequence so a line keeps its own paragraph (and with it its style and numbering) while its neighbours are edited, and what is left over pairs up in order as a retype, so fixing a typo is one edit rather than a deletion plus an insertion. Also: what a block claims to be, what a block the browser created inherits from the line above it, and whether a write moved the numbering enough that the file has to be read again.
+- `src/modules/editor/docxBodyDom.ts` (new): the DOM the browser leaves behind, flattened back into one paragraph per direct child - a bare `<div>` from Enter follows the kind of the line above it, a `<br>` or a nested block ends the line, and the caret is carried across the rebuild by text offset. List markers are a pseudo-element fed by a `data-marker` attribute assigned here, so a marker is never part of a paragraph's text and is never written to the file.
+- `src/modules/editor/DocxPreview.tsx`: the whole body is one editable surface instead of one per paragraph - a caret cannot move between two editable elements, so cross-paragraph selection, Backspace joining two lines and deleting several lines at once were impossible by construction. Enter, Backspace, the selection and the input method belong to the browser now; only paste is intercepted (as plain text, split into lines); every edit is aligned against the baseline and written 600ms after typing stops, or at once when the numbering moved; the baseline is updated by what was written, so a save never re-sends lines the file already has. `groupBlocks`, `isEditableBlock`, `pendingEdits` and the per-paragraph `EditableText` are gone.
+- `src/modules/editor/docxPreview.test.ts`: the list grouping and per-paragraph editing cases are gone with the code they pinned; what remains pins the routing, the save guard, the single editable surface, paste being the only key taken over, and the DOM being normalised after each edit.
+- `src/modules/editor/EditorPane.tsx`, `src/lib/native.ts`: `DocxInsert.after` is `number | null`, and the parsed list item carries `numId`.
+- `src/styles/globals.css`: `.verta-docx-marker::before` draws a list marker from `data-marker`; `.verta-compact-card` no longer fades in and its move transition is the only one left.
+- `src/modules/launcher/components/CompactSessionCard.tsx`: the transition is switched on one frame after the first placement rather than in the same commit. Applied together, the browser interpolated `transform: none` into the placement and the card flew in from the window's corner; now it appears where the row is and only a move to another row animates.
+- `src/styles/motionBudget.test.ts`, `src/modules/launcher/components/sessionRowDensity.test.ts`: the card's base rule has no hidden opacity and no opacity transition, and the placement-to-transition frame is pinned.
+
+</details>
+
+<details>
 <summary><strong>2026-11-05</strong></summary>
 
 **A compact session's details are one card that travels down the list**
