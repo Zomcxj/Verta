@@ -511,6 +511,11 @@ fn remember_part(path: &Path, part: &str) {
         return;
     };
     let entries = history.entry(path.to_path_buf()).or_default();
+    // The part about to be replaced is what undo restores, so remembering the same one twice makes a
+    // Ctrl+Z take back nothing: a save that wrote what the previous save already wrote is not a step.
+    if entries.last().is_some_and(|last| last == part) {
+        return;
+    }
     entries.push(part.to_string());
     if entries.len() > UNDO_DEPTH {
         entries.remove(0);
@@ -653,6 +658,12 @@ fn write_docx_sync(
     }
     let document = document.ok_or("这个 .docx 里没有 word/document.xml")?;
     let rewritten = rewrite_document_xml(&document, edits, deleted, inserts)?;
+    if rewritten == document {
+        // The pane re-sent what the file already says. Writing it again would cost a rewrite of the
+        // whole archive and push a history entry that takes back nothing, so one Ctrl+Z after it
+        // would look broken. Nothing changes, so nothing happens.
+        return Ok(guard_of(&meta));
+    }
     // The part that is about to be replaced is what undo restores.
     remember_part(path, &document);
     write_document_part(path, &bytes, &rewritten)
@@ -1666,6 +1677,48 @@ mod tests {
         undo_docx_sync(&path, &after_delete).expect("undo should land");
         assert_eq!(part_of(&path), original);
         assert!(part_of(&path).contains("<w:rPr><w:b/></w:rPr>"));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn the_same_part_is_not_remembered_twice() {
+        let document = "<w:document><w:body><w:p><w:r><w:t>x</w:t></w:r></w:p></w:body></w:document>";
+        let (path, guard) = archive_with(document);
+        let original = part_of(&path);
+
+        // Two saves that write the same text: the second one would otherwise push the same snapshot
+        // again, and one undo would then take back nothing at all.
+        let first = write_docx_sync(
+            &path,
+            &[DocxEdit {
+                index: 0,
+                text: "y".into(),
+            }],
+            &[],
+            &[],
+            &guard,
+        )
+        .expect("the first save lands");
+        let after_first = part_of(&path);
+        let second = write_docx_sync(
+            &path,
+            &[DocxEdit {
+                index: 0,
+                text: "y".into(),
+            }],
+            &[],
+            &[],
+            &first,
+        )
+        .expect("the second save lands");
+        assert_eq!(part_of(&path), after_first);
+
+        let undone = undo_docx_sync(&path, &second).expect("one undo");
+        assert_eq!(
+            part_of(&path),
+            original,
+            "one undo should get back to the original, not to y"
+        );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
