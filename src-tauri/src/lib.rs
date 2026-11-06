@@ -3,7 +3,7 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent_sessions, agent_versions, control, docx, drag, fonts, fs, git, github, history, lsp,
+    agent_sessions, agent_versions, control, csv, docx, drag, fonts, fs, git, github, history, lsp,
     projects, pty, screenshot, shell, vibrancy, workspace,
 };
 use std::path::PathBuf;
@@ -387,6 +387,8 @@ pub fn run() {
             pty::pty_list_shells,
             fs::tree::list_subdirs,
             fs::tree::fs_read_dir,
+            csv::fs_read_csv,
+            csv::fs_write_csv_cell,
             docx::fs_read_docx,
             docx::fs_write_docx,
             docx::fs_undo_docx,

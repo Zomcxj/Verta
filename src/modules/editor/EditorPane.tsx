@@ -31,6 +31,7 @@ import { useT } from "@/modules/i18n";
 import { MarkdownViewToggle } from "@/modules/markdown";
 import { toast } from "sonner";
 import { SidePreview, type ViewportMark, sidePreviewKind } from "./SidePreview";
+import { CsvPreview } from "./CsvPreview";
 import { DocxPreview, type DocxPreviewHandle } from "./DocxPreview";
 import { htmlPreviewUrl } from "./htmlPreviewUrl";
 import { diagnosticsReporter } from "./lib/diagnosticsReporter";
@@ -200,11 +201,22 @@ export const EditorPane = memo(
      * is offered only while the buffer is clean, exactly like the Markdown render stop.
      */
     const [htmlRendered, setHtmlRendered] = useState(false);
+    /**
+     * A `.csv` opens as the table it is.
+     *
+     * The source is one click away and still editable, but a file of a thousand rows is not
+     * something anyone reads as text - which is what "unreadable" looked like from the outside.
+     */
+    const [csvRendered, setCsvRendered] = useState(true);
     const fileExt = path.split(".").pop()?.toLowerCase() ?? "";
+    const isCsv = fileExt === "csv" || fileExt === "tsv";
     const isHtml = fileExt === "html" || fileExt === "htm";
     // Unsaveable edits come first: what the frame shows is the file on disk, so a dirty buffer has
     // to fall back to the source rather than preview the text that was last written.
     const htmlRendering = isHtml && htmlRendered && !dirty;
+    // Same rule as the HTML stop: the table shows the file on disk, so a dirty buffer falls back to
+    // the source rather than to a table of what was last written.
+    const csvRendering = isCsv && csvRendered && !dirty;
     const toggleSide = useCallback(() => setSideOpen((open) => !open), []);
     // A different file starts collapsed again: the setting is per view, and
     // carrying it over would silently reflow a file the user did not ask for.
@@ -592,7 +604,23 @@ export const EditorPane = memo(
     // to say about the file. Gating this on the read having *failed* meant the routing fell through
     // for a `.docx` whose bytes happen to be text - and for an empty one - which then opened in the
     // source editor, where an archive is nonsense, and it left the reader's own message unreachable.
-    if (fileExt === "docx") return <DocxPreview ref={docxRef} path={path} />;
+    if (fileExt === "docx") {
+      // The tab's dot is the same one a text file gets: it says "the file on disk is behind what
+      // you see", which is what closing the tab has to warn about.
+      return (
+        <DocxPreview
+          ref={docxRef}
+          path={path}
+          onDirtyChange={onDirtyChange}
+        />
+      );
+    }
+    // A `.csv` written in GB18030 is not UTF-8, so the *text* reader calls it a binary file - but
+    // its table is exactly what the reader for it is for: the Rust side decodes the file itself.
+    // Without this the table was unreachable for every Chinese export.
+    if (isCsv && csvRendering) {
+      return <CsvPreview path={path} />;
+    }
     if (doc.status === "loading") {
       return (
         <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
@@ -699,6 +727,14 @@ export const EditorPane = memo(
       <div className="flex h-full min-h-0 zoom-exempt">
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {renderToggle?.({ open: sideOpen, setOpen: setSideOpen })}
+          {isCsv && !renderToggle ? (
+            <MarkdownViewToggle
+              mode={csvRendering ? "rendered" : "raw"}
+              onChange={(mode) => setCsvRendered(mode === "rendered")}
+              renderedDisabled={dirty}
+              renderedHint={tr("markdown.saveToPreview")}
+            />
+          ) : null}
           {isHtml && !renderToggle ? (
             // Two stops rather than the Markdown control's three: an HTML file has no side-by-side
             // column, so "rendered" replaces the source rather than joining it. No backdrop
@@ -782,6 +818,8 @@ export const EditorPane = memo(
               referrerPolicy="no-referrer"
               className="h-full min-h-0 w-full flex-1 border-0 bg-white"
             />
+          ) : csvRendering ? (
+            <CsvPreview path={path} />
           ) : (
             <CodeMirror
               ref={cmRef}

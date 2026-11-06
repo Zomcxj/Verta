@@ -15,6 +15,23 @@ swap in the new date, and drop the `open` from the day before.
 ---
 
 <details open>
+<summary><strong>2026-11-07</strong></summary>
+
+**A Word document is drawn as the page Word drew, and a .csv is a table that can be corrected**
+
+- `src-tauri/src/modules/docx.rs`: the reader now brings back what the document looks like, not just what it says - a run's point size, colour and face; a paragraph's alignment, indents, spacing and the size its own line is drawn at; `word/styles.xml` resolved the way Word resolves it (`docDefaults`, then the `basedOn` chain root first, then the paragraph's own properties), without which a whole document is drawn at whatever fallback the pane happens to have; the default face out of `word/theme/theme1.xml`, because Word's default run names a theme font rather than a font; pictures (`r:embed` through the relationship table into `word/media/*`, handed over as `data:` URLs at the size `wp:extent` asks for, with per-image and total caps that skip rather than fail); and table cells as runs rather than strings, so a bold header comes out bold. The section's paper (`w:pgSz`, `w:pgMar`) is read too.
+- `src/modules/editor/DocxPreview.tsx`: the body is drawn on that paper - a white sheet of the section's size with its margins as padding - and every block carries its own box (size, face, colour, alignment, indents, space before and after, line height), with the document's own ink rather than the app's foreground, which on white paper had drawn a whole page in near-white.
+- `src/modules/editor/docxBodyDom.ts`: an empty paragraph is a line with a height, and the flattening now drops only the single `<br>` the browser puts at the end of a line instead of every empty line at the end - two Enters came back as none. A line that already ends in a `<br>` is not given a second one, which had put the caret between two of them and sent the next keystroke into a new paragraph.
+- `src/modules/editor/DocxPreview.tsx`: no save banner over the document (a text file has none, and the banner pushed the page down when it appeared); the tab's dot says what is owed instead, from an `onDirtyChange` the pane reports; the write waits as long as `editorAutoSaveDelay` says, and with autosave off it waits for the pane to lose focus; a structural write re-reads for the paragraph numbering but leaves the page alone, so Enter no longer flashes and rebuilds the lines below it; a paragraph is deleted by where it is on the page, since the ordinal written into the DOM goes stale the moment a line is inserted.
+- `src-tauri/src/modules/csv.rs` (new) and `csvPreview.test.ts`, `CsvPreview.tsx` (new): a `.csv` is read as a table - the delimiter decided by parsing the first line (counting characters calls a semicolon file comma-separated when its fields contain commas), RFC 4180 quoting with the commas, escaped quotes and newlines inside fields, CR / LF / CRLF all ending a record, GB18030 after UTF-8 for the exports Excel writes on a Chinese Windows, and a BOM that does not become part of the first field. The pane draws it with a sticky header, virtualized rows and widths measured from the content, and says which delimiter and how many rows it read.
+- `src/modules/editor/CsvPreview.tsx`, `src-tauri/src/modules/csv.rs`: a cell is edited in place, and only that field's bytes are replaced - the file's quoting, line endings, other fields and the newline inside a quoted value all come back exactly as they were, which a re-serialization of the table would have quietly rewritten. A value is quoted only when it has to be, and a field already inside quotes keeps those quotes with its own doubled. The write is refused if the file changed since it was read.
+- `src/modules/editor/EditorPane.tsx`: `.csv` / `.tsv` opens as the table, with the source one click away and the table falling back to it while the buffer is dirty; a `.csv` that is not UTF-8 reaches the table instead of the "binary file" screen, which is where every Chinese export had been going.
+
+</details>
+
+---
+
+<details>
 <summary><strong>2026-11-06</strong></summary>
 
 **A Word document is one editable body, and the details card stops arriving**

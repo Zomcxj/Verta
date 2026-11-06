@@ -66,6 +66,10 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 flate2 = "1"
 zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
 quick-xml = { version = "0.39", default-features = false }
+# Pictures are handed to the pane as `data:` URLs, which is base64 in a string.
+base64 = { version = "0.22", default-features = false }
+# A `.csv` from Excel on a Chinese Windows is GB18030, not UTF-8.
+encoding_rs = { version = "0.8", default-features = false, features = ["fast-gb-hanzi-encode"] }
 tauri-plugin-log = "2"
 tauri-plugin-os = "2"
 tauri-plugin-store = "2"

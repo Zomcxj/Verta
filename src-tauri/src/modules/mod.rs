@@ -5,6 +5,7 @@ pub mod app_menu;
 #[cfg(feature = "bench")]
 pub mod bench;
 pub mod control;
+pub mod csv;
 pub mod docx;
 pub mod drag;
 pub mod fs;
