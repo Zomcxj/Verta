@@ -2,104 +2,28 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type { DocxBlock } from "@/lib/native";
-import {
-  groupBlocks,
-  isEditableBlock,
-  pendingEdits,
-  tableGrid,
-} from "./DocxPreview";
+import { tableGrid } from "./DocxPreview";
 
-const run = (text: string) => ({
-  text,
-  bold: false,
-  italic: false,
-  underline: false,
-});
-let nextIndex = 0;
-const paragraph = (
-  text: string,
-  over: {
-    heading?: number | null;
-    list?: { ordered: boolean; level: number; numId?: number } | null;
-    index?: number;
-  } = {},
-): DocxBlock => ({
-  kind: "paragraph",
-  // The ordinal the writer addresses this paragraph by; a document's own order is what it is.
-  index: over.index ?? nextIndex++,
-  heading: over.heading ?? null,
-  list: over.list ? { numId: 0, ...over.list } : null,
-  runs: [run(text)],
-});
+const here = path.dirname(fileURLToPath(import.meta.url));
+const pane = readFileSync(path.join(here, "EditorPane.tsx"), "utf8");
+const preview = readFileSync(path.join(here, "DocxPreview.tsx"), "utf8");
+const body = readFileSync(path.join(here, "docxBodyDom.ts"), "utf8");
 
-describe("docx blocks to groups", () => {
-  it("keeps a run of list items in one list", () => {
-    // Word marks numbering on each paragraph; the element that makes them read as a list is drawn
-    // here, so consecutive items have to end up under one of them.
-    const groups = groupBlocks([
-      paragraph("first", { list: { ordered: false, level: 0 } }),
-      paragraph("nested", { list: { ordered: false, level: 1 } }),
-      paragraph("second", { list: { ordered: false, level: 0 } }),
-    ]);
-    expect(groups).toHaveLength(1);
-    expect(groups[0]).toMatchObject({ kind: "list", ordered: false });
-    const items = groups[0].kind === "list" ? groups[0].items : [];
-    expect(items.map((item) => item.runs[0].text)).toEqual([
-      "first",
-      "nested",
-      "second",
-    ]);
-    expect(items.map((item) => item.level)).toEqual([0, 1, 0]);
-  });
-
-  it("takes the numbering style from the list's first item", () => {
-    const groups = groupBlocks([
-      paragraph("1.", { list: { ordered: true, level: 0 } }),
-      paragraph("2.", { list: { ordered: true, level: 0 } }),
-    ]);
-    expect(groups[0]).toMatchObject({ kind: "list", ordered: true });
-  });
-
-  it("ends a list at anything that is not a list item", () => {
-    const groups = groupBlocks([
-      paragraph("item", { list: { ordered: false, level: 0 } }),
-      paragraph("a paragraph"),
-      paragraph("another item", { list: { ordered: false, level: 0 } }),
-    ]);
-    expect(groups.map((group) => group.kind)).toEqual([
-      "list",
-      "block",
-      "list",
-    ]);
-  });
-
-  it("passes headings and tables through untouched", () => {
-    const table: DocxBlock = { kind: "table", rows: [["a", "b"]] };
-    const title = paragraph("Title", { heading: 2 });
-    const groups = groupBlocks([title, table]);
-    expect(groups.map((group) => group.kind)).toEqual(["block", "block"]);
-    expect(groups[0].kind === "block" && groups[0].block).toEqual(title);
-    expect(groups[1].kind === "block" && groups[1].block).toEqual(table);
-  });
-
-  it("numbers what it draws so each block has a key of its own", () => {
-    // A document's blocks have no identity beyond their position, and two identical paragraphs are
-    // normal, so the id is the position - assigned here, once, rather than read off a map callback.
-    const groups = groupBlocks([
-      paragraph("same"),
-      paragraph("same"),
-      paragraph("item", { list: { ordered: false, level: 0 } }),
-      paragraph("item", { list: { ordered: false, level: 0 } }),
-    ]);
-    expect(groups.map((group) => group.id)).toEqual([0, 1, 2]);
-    const items = groups[2].kind === "list" ? groups[2].items : [];
-    expect(items.map((item) => item.id)).toEqual([2, 3]);
-  });
-
-  it("numbers a table's rows and cells", () => {
-    expect(tableGrid([["a", "b"], ["c"]])).toEqual([
-      { id: 0, cells: [{ id: 0, text: "a" }, { id: 1, text: "b" }] },
+describe("docx tables", () => {
+  it("numbers the rows and cells so each has a key of its own", () => {
+    expect(
+      tableGrid([
+        ["a", "b"],
+        ["c"],
+      ]),
+    ).toEqual([
+      {
+        id: 0,
+        cells: [
+          { id: 0, text: "a" },
+          { id: 1, text: "b" },
+        ],
+      },
       { id: 1, cells: [{ id: 0, text: "c" }] },
     ]);
   });
@@ -109,10 +33,6 @@ describe("docx blocks to groups", () => {
  *  reader, a `.doc` says why it cannot, and the document scrolls with the bar the rest of the
  *  rendered documents have. */
 describe("docx routing in the editor pane", () => {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const pane = readFileSync(path.join(here, "EditorPane.tsx"), "utf8");
-  const preview = readFileSync(path.join(here, "DocxPreview.tsx"), "utf8");
-
   it("sends .docx to the reader, whatever the text read said about the file", () => {
     // The check sits before the file-read status branches: an archive is not text, so the reader is
     // what decides whether it can be read - not the text sniffer, whose answer for a `.docx` whose
@@ -164,84 +84,54 @@ describe("docx routing in the editor pane", () => {
   });
 });
 
-describe("docx editing", () => {
-  it("sends a new paragraph after the one it belongs to, in order", () => {
-    // Enter splits the paragraph it was pressed in: the text before the caret stays, the text after
-    // becomes a paragraph added after it.
-    expect(
-      pendingEdits(new Map([[1, "before"]]), new Set(), [
-        { after: 4, text: "second" },
-        { after: 1, text: "after" },
-      ]),
-    ).toEqual({
-      edits: [{ index: 1, text: "before" }],
-      deleted: [],
-      inserts: [
-        { after: 1, text: "after" },
-        { after: 4, text: "second" },
-      ],
-    });
+describe("the document body is one editable surface", () => {
+  it("collects the whole body into one editable surface", () => {
+    // One contentEditable for the document, not one per paragraph: a caret cannot move between two
+    // editable elements, so cross-paragraph selection, Backspace at the start of a line and deleting
+    // several lines at once were all impossible by construction.
+    expect(preview).toMatch(/data-docx-body=""/);
+    expect(preview).toMatch(/contentEditable=\{editable\}/);
+    expect(preview).not.toMatch(/function EditableText/);
+    // The paragraph's ordinal is still on the block, because the probes and the writer speak in it.
+    expect(preview).toMatch(/data-docx-editable=\{block\.ordinal \?\? undefined\}/);
   });
 
-  it("sends a new first line before the rest", () => {
-    // `after: null` is the top of the body. Sorting it as a number put it last, which is the one
-    // place it must not go.
-    expect(
-      pendingEdits(new Map(), new Set(), [
-        { after: 0, text: "second" },
-        { after: null, text: "first" },
-      ]).inserts,
-    ).toEqual([
-      { after: null, text: "first" },
-      { after: 0, text: "second" },
-    ]);
+  it("leaves Enter, Backspace and the selection to the browser", () => {
+    // Only paste is intercepted: an input method composing inside a hand-rolled editor is how a
+    // Chinese input method gets broken.
+    expect(preview).toMatch(/onBeforeInput/);
+    expect(preview).toMatch(/insertFromPaste/);
+    expect(preview).toMatch(/insertFromDrop/);
+    expect(preview).not.toMatch(/onSplit/);
+    expect(preview).not.toMatch(/event\.key !== "Enter"/);
   });
 
-  it("sends the typed paragraphs and the deletions, in document order", () => {
-    const texts = new Map([
-      [5, "second"],
-      [2, "first"],
-      [7, "gone"],
-    ]);
-    const deleted = new Set([7]);
-    expect(pendingEdits(texts, deleted, [])).toEqual({
-      edits: [
-        { index: 2, text: "first" },
-        { index: 5, text: "second" },
-      ],
-      deleted: [7],
-      inserts: [],
-    });
+  it("normalises the DOM after the browser has edited it", () => {
+    expect(preview).toMatch(/normalizeBody\(body\)/);
+    expect(preview).toMatch(/readDraftBlocks\(body\)/);
+    // Flattening rebuilds nodes, so the caret is carried across it by text offset.
+    expect(preview).toMatch(/placeCaretIn\(body, offset\)/);
+    expect(body).toMatch(/export function normalizeBody/);
+    expect(body).toMatch(/export function markLists/);
   });
 
-  it("does not send a paragraph that is both typed in and deleted", () => {
-    expect(pendingEdits(new Map([[3, "x"]]), new Set([3]), [])).toEqual({
-      edits: [],
-      deleted: [3],
-      inserts: [],
-    });
+  it("treats a line the browser created as the kind of the line above it", () => {
+    // Enter's own `<div>` carries nothing; under a heading it is another heading, under a list item
+    // it continues the list with the same numbering definition.
+    expect(body).toMatch(/child\.setAttribute\("data-block", kind\)/);
+    expect(body).toMatch(/"data-num-id", previous\.dataset\.numId/);
   });
 
-  it("edits a paragraph that has text, and nothing else", () => {
-    // A table is drawn from joined cell strings and cannot be mapped back to its cells; a paragraph
-    // with no runs has no text node for the writer to put anything into.
-    expect(isEditableBlock(paragraph("a"), true)).toBe(true);
-    expect(isEditableBlock({ kind: "table", rows: [["a"]] }, true)).toBe(false);
-    expect(
-      isEditableBlock({ kind: "paragraph", index: 0, heading: null, list: null, runs: [] }, true),
-    ).toBe(false);
-    // A read that stopped at the ceiling may not be written back at all.
-    expect(isEditableBlock(paragraph("a"), false)).toBe(false);
+  it("writes nothing for a body that has not changed", () => {
+    // A save that sends nothing is a save that rewrites the whole archive and pushes an undo step
+    // that takes back nothing.
+    expect(preview).toMatch(
+      /if \(edits\.length === 0 && deleted\.length === 0 && inserts\.length === 0\) \{/,
+    );
   });
 
-  it("numbers a list item by the paragraph it came from, not by its place in the list", () => {
-    // The list element is drawn here; the ordinal has to survive that, or deleting an item would
-    // delete a different paragraph.
-    const groups = groupBlocks([
-      paragraph("one", { list: { ordered: false, level: 0 }, index: 4 }),
-      paragraph("two", { list: { ordered: false, level: 0 }, index: 5 }),
-    ]);
-    const items = groups[0].kind === "list" ? groups[0].items : [];
-    expect(items.map((item) => item.index)).toEqual([4, 5]);
+  it("re-reads only when a write moved the blocks around", () => {
+    expect(preview).toMatch(/needsReread\(/);
+    expect(preview).toMatch(/baseline\.current = draft/);
   });
 });
