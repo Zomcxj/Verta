@@ -162,6 +162,30 @@ describe("block alignment", () => {
   });
 });
 
+describe("a no-break space in the file", () => {
+  it("is not an edit when the pane reads it back as a space", () => {
+    // The DOM turns some typed spaces into U+00A0 (a trailing one, a second one), so the draft has
+    // its spaces flattened. A paragraph the file wrote with a real no-break space then read back as
+    // "a b" while the baseline said "a\u{a0}b" - not equal, so every save re-sent that paragraph and
+    // rewrote its spacing even though nothing in it had been touched.
+    const read = blocksFromDocument({
+      blocks: [
+        {
+          kind: "paragraph",
+          index: 0,
+          heading: null,
+          list: null,
+          runs: [{ text: "a\u{a0}b", bold: false, italic: false, underline: false }],
+        },
+      ],
+      truncated: false,
+      editable: true,
+      guard: { size: 1, modifiedMs: 1 },
+    });
+    expect(alignBlocks(read, [draft("a b")])).toEqual({ edits: [], deleted: [], inserts: [] });
+  });
+});
+
 describe("adopting what was just written", () => {
   it("keeps the ordinals right when the document has a table", () => {
     // The draft has no table block (a table cannot be written back), the baseline has one. Copying

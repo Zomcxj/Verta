@@ -283,6 +283,13 @@ const DocxBody = memo(function DocxBody({
           | "h4"
           | "h5"
           | "h6";
+        // A nested list item is drawn one step in: the file says which level each item is on, and a
+        // document whose sub-items sit at the left margin reads as one flat list. The level is not
+        // part of what is compared or written - the writer keeps each paragraph's own properties -
+        // so this is drawn from the read and never sent back.
+        const read = doc.blocks[index];
+        const level =
+          block.kind === "li" && read?.kind === "paragraph" ? (read.list?.level ?? 0) : 0;
         return (
           <Tag
             key={`b${block.ordinal ?? index}`}
@@ -290,7 +297,9 @@ const DocxBody = memo(function DocxBody({
             data-docx-editable={block.ordinal ?? undefined}
             data-list={block.list ?? undefined}
             data-num-id={block.numId ?? undefined}
+            data-level={block.kind === "li" ? level : undefined}
             role={block.kind === "li" ? "listitem" : undefined}
+            style={level > 0 ? { paddingLeft: `${1.5 + level * 1.25}rem` } : undefined}
             className={classOf(block)}
           >
             {deleteButton(block.ordinal)}

@@ -398,23 +398,39 @@ fn rewrite_document_xml(
 ) -> Result<String, String> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
-    let mut ranges: Vec<(u32, usize, usize)> = Vec::new();
+    // (ordinal, start, end, is it a paragraph of the body rather than of a table cell)
+    let mut ranges: Vec<(u32, usize, usize, bool)> = Vec::new();
     let mut open: Option<(u32, usize)> = None;
     let mut next_paragraph: u32 = 0;
+    // A table's paragraphs are paragraphs too, and they come first in the byte order. Depth is what
+    // tells them apart: an insert "in front of everything" has to go in front of the body's first
+    // paragraph, not inside the first cell.
+    let mut tables: u32 = 0;
     loop {
         let before = reader.buffer_position() as usize;
         match reader.read_event() {
+            Ok(Event::Start(element)) if is_w(element.name(), b"tbl") => tables += 1,
+            Ok(Event::End(element)) if is_w(element.name(), b"tbl") => {
+                tables = tables.saturating_sub(1);
+            }
             Ok(Event::Start(element)) if is_w(element.name(), b"p") => {
                 open = Some((next_paragraph, before));
                 next_paragraph += 1;
             }
             Ok(Event::Empty(element)) if is_w(element.name(), b"p") => {
-                ranges.push((next_paragraph, before, reader.buffer_position() as usize));
+                ranges.push((
+                    next_paragraph,
+                    before,
+                    reader.buffer_position() as usize,
+                    tables == 0,
+                ));
                 next_paragraph += 1;
             }
             Ok(Event::End(element)) if is_w(element.name(), b"p") => {
                 if let Some((index, start)) = open.take() {
-                    ranges.push((index, start, reader.buffer_position() as usize));
+                    // The end event is read after the element's own content, so the depth still
+                    // counts the table this paragraph is in.
+                    ranges.push((index, start, reader.buffer_position() as usize, tables == 0));
                 }
             }
             Ok(Event::Eof) => break,
@@ -449,8 +465,10 @@ fn rewrite_document_xml(
     // Everything that asked for the top of the document, in the order the pane sent it. The style
     // comes from the first paragraph that is there, or from nothing at all in an empty body.
     let first_paragraph = ranges
-        .first()
-        .map(|(_, start, end)| &xml[*start..*end])
+        .iter()
+        .find(|(_, _, _, top_level)| *top_level)
+        .or_else(|| ranges.first())
+        .map(|(_, start, end, _)| &xml[*start..*end])
         .unwrap_or("");
     let leading: Vec<String> = inserts
         .iter()
@@ -461,12 +479,12 @@ fn rewrite_document_xml(
     let mut out = String::with_capacity(xml.len());
     let mut cursor = 0usize;
     let mut leading_written = false;
-    for (index, start, end) in &ranges {
+    for (index, start, end, top_level) in &ranges {
         if *start < cursor {
             continue;
         }
         out.push_str(&xml[cursor..*start]);
-        if !leading_written {
+        if !leading_written && *top_level {
             for paragraph in &leading {
                 out.push_str(paragraph);
             }
@@ -1384,6 +1402,36 @@ mod tests {
         let first = written.find("first").expect("the new paragraph is in the part");
         let second = written.find("second").expect("the old paragraph is in the part");
         assert!(first < second, "{written}");
+    }
+
+    #[test]
+    fn an_insert_at_the_top_does_not_land_inside_a_table() {
+        // A paragraph inside a table is a paragraph too, and it comes first. Inserting "in front of
+        // everything" at the first paragraph therefore put the new line inside the table's first
+        // cell - and gave it the cell's own paragraph properties, so a right-aligned cell produced a
+        // right-aligned body line.
+        let xml = document(
+            r#"<w:tbl><w:tr><w:tc><w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:t>after</w:t></w:r></w:p>"#,
+        );
+        let written = rewrite_document_xml(
+            &xml,
+            &[],
+            &[],
+            &[DocxInsert {
+                after: None,
+                text: "first".into(),
+            }],
+        )
+        .expect("an insert at the top should land");
+        let new_line = written.find("<w:t>first</w:t>").expect("the new line is in the part");
+        let table_end = written.find("</w:tbl>").expect("the table is in the part");
+        let old_line = written.find("<w:t>after</w:t>").expect("the old line is in the part");
+        assert!(new_line > table_end, "the new line went inside the table: {written}");
+        assert!(new_line < old_line, "the new line is not in front of the body's text: {written}");
+        // And it takes the style of a body paragraph, not of a cell.
+        let created = &written[..new_line];
+        let created = &created[created.rfind("<w:p>").expect("the new paragraph starts")..];
+        assert!(!created.contains("<w:jc"), "the new line took the cell's alignment: {written}");
     }
 
     #[test]

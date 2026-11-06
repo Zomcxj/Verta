@@ -9,6 +9,16 @@ const pane = readFileSync(path.join(here, "EditorPane.tsx"), "utf8");
 const preview = readFileSync(path.join(here, "DocxPreview.tsx"), "utf8");
 const body = readFileSync(path.join(here, "docxBodyDom.ts"), "utf8");
 
+describe("a nested list item", () => {
+  it("is drawn one step in from its parent", () => {
+    // The file says which level each item is on. Ignoring it puts a sub-item at the same margin as
+    // its parent, which reads as one flat list - and the numbering restarts looking wrong.
+    expect(preview).toMatch(/read\.list\?\.level/);
+    expect(preview).toMatch(/data-level=/);
+    expect(preview).toMatch(/paddingLeft/);
+  });
+});
+
 describe("docx tables", () => {
   it("numbers the rows and cells so each has a key of its own", () => {
     expect(tableGrid([["a", "b"], ["c"]])).toEqual([

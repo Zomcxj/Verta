@@ -125,11 +125,24 @@ export function blocksFromDocument(document: DocxDocument): BaselineBlock[] {
   });
 }
 
+/**
+ * Whether two texts are the same as far as the file is concerned.
+ *
+ * The DOM writes some typed spaces as U+00A0 (a second one, a trailing one), so the draft flattens
+ * them back to spaces. A paragraph the file itself wrote with a real no-break space would then never
+ * compare equal, and every save would re-send it and rewrite its spacing although nobody had touched
+ * it. The two are one character here.
+ */
+const sameText = (left: string, right: string) =>
+  left === right || flattenSpaces(left) === flattenSpaces(right);
+
+const flattenSpaces = (text: string) => text.replace(/ /g, " ");
+
 const sameBlock = (left: DraftBlock, right: DraftBlock) =>
   left.kind === right.kind &&
   left.list === right.list &&
   left.numId === right.numId &&
-  left.text === right.text;
+  sameText(left.text, right.text);
 
 /**
  * True when the pane has to read the file again after this write.
