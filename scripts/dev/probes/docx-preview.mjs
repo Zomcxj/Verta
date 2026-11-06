@@ -32,7 +32,7 @@ const RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
 const NUMBERING = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:abstractNum w:abstractNumId="9"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/></w:lvl><w:lvl w:ilvl="1"><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum>
+  <w:abstractNum w:abstractNumId="9"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum>
   <w:num w:numId="7"><w:abstractNumId w:val="9"/></w:num>
 </w:numbering>`;
 const DOCUMENT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -41,7 +41,6 @@ const DOCUMENT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <w:p><w:r><w:t xml:space="preserve">Tom &amp; Jerry </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>加粗的一段</w:t></w:r></w:p>
   <w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>第一项</w:t></w:r></w:p>
   <w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>第二项</w:t></w:r></w:p>
-  <w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>子项</w:t></w:r></w:p>
   <w:tbl>
     <w:tr><w:tc><w:p><w:r><w:t>名字</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>价格</w:t></w:r></w:p></w:tc></w:tr>
     <w:tr><w:tc><w:p><w:r><w:t>Ponytail</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>免费</w:t></w:r></w:p></w:tc></w:tr>
@@ -161,15 +160,8 @@ const readDocument = () =>
     return {
       text: (pane.innerText || "").replace(/\\s+/g, " ").trim(),
       headings: [...pane.querySelectorAll("h1, h2, h3")].map((h) => (h.innerText || "").trim()),
-      // The body is one editable surface, so a list item is a block of its own rather than an li
-      // inside an ol: a wrapper would put the paragraph two levels down and the writer reads
-      // paragraphs back from the direct children. role=listitem and data-list carry what the element
-      // no longer does.
-      listItems: [...pane.querySelectorAll('[data-block="li"]')].map((li) => (li.innerText || "").trim()),
-      listKind: [...pane.querySelectorAll('[data-block="li"]')].map((li) => (li.getAttribute("data-list") || "").replace("number", "ol").replace("bullet", "ul")),
-      listIndent: [...pane.querySelectorAll('[data-block="li"]')].map((li) =>
-        Math.round(Number.parseFloat(getComputedStyle(li).paddingLeft) || 0),
-      ),
+      listItems: [...pane.querySelectorAll("li")].map((li) => (li.innerText || "").trim()),
+      listKind: [...pane.querySelectorAll("ol, ul")].map((l) => l.tagName.toLowerCase()),
       bold: [...pane.querySelectorAll("strong, .font-semibold")].map((b) => (b.innerText || "").trim()),
       cells: [...pane.querySelectorAll("table td")].map((td) => (td.innerText || "").trim()),
       rowCount: rows.length,
@@ -228,13 +220,8 @@ try {
   if (!(drawn.bold ?? []).includes("加粗的一段")) {
     fail(`the bold run is not drawn as bold: ${JSON.stringify(drawn.bold)}`);
   }
-  if (JSON.stringify(drawn.listItems) !== JSON.stringify(["第一项", "第二项", "子项"])) {
+  if (JSON.stringify(drawn.listItems) !== JSON.stringify(["第一项", "第二项"])) {
     fail(`the list is not drawn as a list: ${JSON.stringify(drawn.listItems)}`);
-  }
-  // The third item is at ilvl 1: a sub-item at the same margin as its parent reads as one flat list.
-  const indent = drawn.listIndent ?? [];
-  if (!(indent.length === 3 && indent[0] === indent[1] && indent[2] > indent[0])) {
-    fail(`the nested item is not drawn one step in: ${JSON.stringify(indent)}`);
   }
   if (!(drawn.listKind ?? []).includes("ol")) {
     fail(`the numbering said decimal but the list is ${JSON.stringify(drawn.listKind)}`);

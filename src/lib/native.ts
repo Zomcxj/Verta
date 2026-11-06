@@ -25,8 +25,7 @@ export type DocxBlock =
        */
       index: number;
       heading: number | null;
-      /** `numId` names the numbering definition: two adjacent lists with different ids are two lists. */
-      list: { ordered: boolean; level: number; numId: number } | null;
+      list: { ordered: boolean; level: number } | null;
       runs: DocxRun[];
     }
   | { kind: "table"; rows: string[][] };
@@ -54,8 +53,7 @@ export type DocxDocument = {
 export type DocxEdit = { index: number; text: string };
 
 /** A paragraph to add after another one; the document must have the one it names. */
-/** A paragraph to add. `after: null` puts it in front of everything in the body. */
-export type DocxInsert = { after: number | null; text: string };
+export type DocxInsert = { after: number; text: string };
 
 
 

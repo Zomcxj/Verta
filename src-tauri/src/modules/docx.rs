@@ -49,9 +49,6 @@ pub struct ListItem {
     pub ordered: bool,
     /// Nesting depth, 0 for a top-level item.
     pub level: u8,
-    /// The numbering definition the paragraph asks for. Two adjacent lists with different ids are
-    /// two lists, and the pane can only reset its counter between them if it knows which is which.
-    pub num_id: u32,
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
@@ -254,14 +251,11 @@ fn escape_text(text: &str) -> String {
     escaped
 }
 
-/// A paragraph to add, and the paragraph it goes after.
-///
-/// `after: None` means "in front of everything": a body whose first element is a table, or one with
-/// no `<w:p>` at all, has no ordinal to name for the top of the document.
+/// A paragraph to add after another one; the document must have the one it names.
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DocxInsert {
-    pub after: Option<u32>,
+    pub after: u32,
     pub text: String,
 }
 
@@ -297,17 +291,13 @@ fn new_paragraph(source: &str, text: &str) -> String {
 ///
 /// The paragraph keeps everything it had - properties, run properties, bookmarks - and only the text
 /// node payloads change: the new text goes into the first one and the rest are emptied, so the element
-/// count and the XML around them stay what Word wrote.
-///
-/// A paragraph with no text node at all - a blank line the pane just created, a line holding only an
-/// image or a field - gets a run of its own, after its properties. Refusing that made a save fail as a
-/// whole whenever the caret was on a line with nothing on it, which is exactly where typing starts
-/// after Enter.
+/// count and the XML around them stay what Word wrote. A paragraph with no text node at all (an image,
+/// a field) cannot be represented this way, and saying so beats writing an empty run.
 fn rewrite_paragraph(paragraph: &str, text: &str) -> Result<String, String> {
     let mut out = String::with_capacity(paragraph.len() + text.len());
     let mut rest = paragraph;
     let mut written = false;
-    while let Some(open) = find_text_node(rest) {
+    while let Some(open) = rest.find("<w:t") {
         let after_open = &rest[open..];
         let Some(close) = after_open.find('>') else {
             return Err("文档里的文字节点没有闭合".into());
@@ -338,51 +328,10 @@ fn rewrite_paragraph(paragraph: &str, text: &str) -> Result<String, String> {
         }
     }
     if !written {
-        // A paragraph with no text node at all - a blank line Enter just created, a line holding
-        // only an image or a field. The text needs somewhere to live, so a run is created after the
-        // paragraph's own properties, in front of whatever else it holds.
-        if text.is_empty() {
-            return Ok(paragraph.to_string());
-        }
-        let needs_space = text.trim() != text;
-        let open = if needs_space {
-            "<w:t xml:space=\"preserve\">"
-        } else {
-            "<w:t>"
-        };
-        let run = format!("<w:r>{open}{}</w:t></w:r>", escape_text(text));
-        let at = rest
-            .find("</w:pPr>")
-            .map(|end| end + "</w:pPr>".len())
-            .or_else(|| rest.find('>').map(|end| end + 1))
-            .unwrap_or(0);
-        out.push_str(&rest[..at]);
-        out.push_str(&run);
-        out.push_str(&rest[at..]);
-        return Ok(out);
+        return Err("这一段没有文字，改不了".into());
     }
     out.push_str(rest);
     Ok(out)
-}
-
-/// Where the next `<w:t>` text node starts, ignoring the elements that begin with the same
-/// characters: `<w:tabs>`, `<w:tab/>`, `<w:tc>`, and anything else in the `w:t` namespace.
-///
-/// The prefix is not enough. `<w:tabs>` matched it, its `>` was taken for the end of a text node and
-/// the search for `</w:t>` failed, which failed the whole save; `<w:tab/>` matched it and was
-/// rewritten to an empty text node, emptying the run that followed - the tab and the rest of the line
-/// vanished from the document.
-fn find_text_node(xml: &str) -> Option<usize> {
-    let mut from = 0;
-    while let Some(at) = xml[from..].find("<w:t") {
-        let start = from + at;
-        let after = xml[start + "<w:t".len()..].chars().next();
-        if matches!(after, Some('>' | '/' | ' ')) {
-            return Some(start);
-        }
-        from = start + "<w:t".len();
-    }
-    None
 }
 
 /// The document part with the edited paragraphs replaced and the deleted ones dropped.
@@ -398,39 +347,23 @@ fn rewrite_document_xml(
 ) -> Result<String, String> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
-    // (ordinal, start, end, is it a paragraph of the body rather than of a table cell)
-    let mut ranges: Vec<(u32, usize, usize, bool)> = Vec::new();
+    let mut ranges: Vec<(u32, usize, usize)> = Vec::new();
     let mut open: Option<(u32, usize)> = None;
     let mut next_paragraph: u32 = 0;
-    // A table's paragraphs are paragraphs too, and they come first in the byte order. Depth is what
-    // tells them apart: an insert "in front of everything" has to go in front of the body's first
-    // paragraph, not inside the first cell.
-    let mut tables: u32 = 0;
     loop {
         let before = reader.buffer_position() as usize;
         match reader.read_event() {
-            Ok(Event::Start(element)) if is_w(element.name(), b"tbl") => tables += 1,
-            Ok(Event::End(element)) if is_w(element.name(), b"tbl") => {
-                tables = tables.saturating_sub(1);
-            }
             Ok(Event::Start(element)) if is_w(element.name(), b"p") => {
                 open = Some((next_paragraph, before));
                 next_paragraph += 1;
             }
             Ok(Event::Empty(element)) if is_w(element.name(), b"p") => {
-                ranges.push((
-                    next_paragraph,
-                    before,
-                    reader.buffer_position() as usize,
-                    tables == 0,
-                ));
+                ranges.push((next_paragraph, before, reader.buffer_position() as usize));
                 next_paragraph += 1;
             }
             Ok(Event::End(element)) if is_w(element.name(), b"p") => {
                 if let Some((index, start)) = open.take() {
-                    // The end event is read after the element's own content, so the depth still
-                    // counts the table this paragraph is in.
-                    ranges.push((index, start, reader.buffer_position() as usize, tables == 0));
+                    ranges.push((index, start, reader.buffer_position() as usize));
                 }
             }
             Ok(Event::Eof) => break,
@@ -453,43 +386,21 @@ fn rewrite_document_xml(
         }
     }
     for insert in inserts {
-        let Some(after) = insert.after else { continue };
-        if after >= count {
-            return Err(format!("要插入的位置不在文档里（序号 {after}）"));
+        if insert.after >= count {
+            return Err(format!("要插入的位置不在文档里（序号 {}）", insert.after));
         }
-        if deleted.contains(&after) {
+        if deleted.contains(&insert.after) {
             return Err("不能在删掉的段落后插入".into());
         }
     }
 
-    // Everything that asked for the top of the document, in the order the pane sent it. The style
-    // comes from the first paragraph that is there, or from nothing at all in an empty body.
-    let first_paragraph = ranges
-        .iter()
-        .find(|(_, _, _, top_level)| *top_level)
-        .or_else(|| ranges.first())
-        .map(|(_, start, end, _)| &xml[*start..*end])
-        .unwrap_or("");
-    let leading: Vec<String> = inserts
-        .iter()
-        .filter(|insert| insert.after.is_none())
-        .map(|insert| new_paragraph(first_paragraph, &insert.text))
-        .collect();
-
     let mut out = String::with_capacity(xml.len());
     let mut cursor = 0usize;
-    let mut leading_written = false;
-    for (index, start, end, top_level) in &ranges {
+    for (index, start, end) in &ranges {
         if *start < cursor {
             continue;
         }
         out.push_str(&xml[cursor..*start]);
-        if !leading_written && *top_level {
-            for paragraph in &leading {
-                out.push_str(paragraph);
-            }
-            leading_written = true;
-        }
         cursor = *end;
         if deleted.contains(index) {
             continue;
@@ -499,27 +410,11 @@ fn rewrite_document_xml(
             Some(edit) => out.push_str(&rewrite_paragraph(paragraph, &edit.text)?),
             None => out.push_str(paragraph),
         }
-        for insert in inserts.iter().filter(|insert| insert.after == Some(*index)) {
+        for insert in inserts.iter().filter(|insert| insert.after == *index) {
             out.push_str(&new_paragraph(paragraph, &insert.text));
         }
     }
-    let tail = &xml[cursor..];
-    if !leading_written && !leading.is_empty() {
-        // No paragraph was walked at all, so the top of the body is its last child position: the new
-        // paragraphs go in just before the body closes, and stay inside it.
-        if let Some(end) = tail.find("</w:body>") {
-            out.push_str(&tail[..end]);
-            for paragraph in &leading {
-                out.push_str(paragraph);
-            }
-            out.push_str(&tail[end..]);
-            return Ok(out);
-        }
-        for paragraph in &leading {
-            out.push_str(paragraph);
-        }
-    }
-    out.push_str(tail);
+    out.push_str(&xml[cursor..]);
     Ok(out)
 }
 
@@ -549,11 +444,6 @@ fn remember_part(path: &Path, part: &str) {
         return;
     };
     let entries = history.entry(path.to_path_buf()).or_default();
-    // The part about to be replaced is what undo restores, so remembering the same one twice makes a
-    // Ctrl+Z take back nothing: a save that wrote what the previous save already wrote is not a step.
-    if entries.last().is_some_and(|last| last == part) {
-        return;
-    }
     entries.push(part.to_string());
     if entries.len() > UNDO_DEPTH {
         entries.remove(0);
@@ -696,12 +586,6 @@ fn write_docx_sync(
     }
     let document = document.ok_or("这个 .docx 里没有 word/document.xml")?;
     let rewritten = rewrite_document_xml(&document, edits, deleted, inserts)?;
-    if rewritten == document {
-        // The pane re-sent what the file already says. Writing it again would cost a rewrite of the
-        // whole archive and push a history entry that takes back nothing, so one Ctrl+Z after it
-        // would look broken. Nothing changes, so nothing happens.
-        return Ok(guard_of(&meta));
-    }
     // The part that is about to be replaced is what undo restores.
     remember_part(path, &document);
     write_document_part(path, &bytes, &rewritten)
@@ -971,24 +855,9 @@ fn parse_blocks(
             }
             Ok(Event::Empty(element)) => {
                 let name = element.name();
-                // A self-closing `<w:p/>` is a paragraph element too, and takes its ordinal - and,
-                // outside a table, it is a block of its own: this is what a blank line looks like
-                // in a part Word wrote, and the pane needs it to draw the line the caret goes to.
+                // A self-closing `<w:p/>` is a paragraph element too, and takes its ordinal.
                 if is_w(name, b"p") {
-                    let index = next_paragraph;
                     next_paragraph += 1;
-                    if nested_table_depth == 0 && table.is_none() && cell.is_none() {
-                        if blocks.len() >= MAX_BLOCKS {
-                            truncated = true;
-                        } else {
-                            blocks.push(Block::Paragraph {
-                                index,
-                                heading: None,
-                                list: None,
-                                runs: Vec::new(),
-                            });
-                        }
-                    }
                 }
                 if nested_table_depth > 0 {
                     continue;
@@ -1075,14 +944,10 @@ fn parse_blocks(
                         }
                     } else if blocks.len() >= MAX_BLOCKS {
                         truncated = true;
-                    } else {
-                        // Every paragraph of the body is a block, blank ones included: a blank line
-                        // is where the caret goes when Enter is pressed at the end of a document,
-                        // and a read that dropped it left that caret nowhere to land.
+                    } else if !text.trim().is_empty() || finished.heading().is_some() {
                         let list = finished.numbering.as_ref().map(|(level, id)| ListItem {
                             ordered: ordered_numbers.contains(id),
                             level: *level,
-                            num_id: id.parse().unwrap_or_default(),
                         });
                         blocks.push(Block::Paragraph {
                             index: finished.index,
@@ -1193,7 +1058,7 @@ mod tests {
             vec![Block::Paragraph {
                 index: 0,
                 heading: None,
-                list: Some(ListItem { ordered: true, level: 1, num_id: 5 }),
+                list: Some(ListItem { ordered: true, level: 1 }),
                 runs: vec![Run { text: "item".into(), ..Default::default() }],
             }]
         );
@@ -1211,25 +1076,6 @@ mod tests {
             paragraphs(&parse_blocks(&bulleted, Some(numbering)).unwrap().0)[0],
             Block::Paragraph { list: Some(ListItem { ordered: false, .. }), .. }
         ));
-    }
-
-    #[test]
-    fn a_list_item_carries_the_numbering_definition_it_asks_for() {
-        // Two lists next to each other with different ids are two lists: the pane resets its counter
-        // when the id changes, and `ordered` alone cannot tell them apart.
-        let xml = document(
-            r#"<w:p><w:pPr><w:numPr><w:numId w:val="5"/></w:numPr></w:pPr><w:r><w:t>one</w:t></w:r></w:p>
-            <w:p><w:pPr><w:numPr><w:numId w:val="6"/></w:numPr></w:pPr><w:r><w:t>two</w:t></w:r></w:p>"#,
-        );
-        let blocks = parse_blocks(&xml, None).unwrap().0;
-        let ids: Vec<u32> = paragraphs(&blocks)
-            .iter()
-            .filter_map(|block| match block {
-                Block::Paragraph { list: Some(item), .. } => Some(item.num_id),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(ids, vec![5, 6]);
     }
 
     #[test]
@@ -1277,178 +1123,10 @@ mod tests {
     }
 
     #[test]
-    fn a_paragraph_of_only_whitespace_is_still_a_block() {
-        // It draws as a blank line, and the editor has to see it: its text may be a space the user
-        // typed, and the line has to keep its place in the document either way.
+    fn a_paragraph_of_only_whitespace_is_not_a_block() {
         let xml = document(r#"<w:p><w:r><w:t>   </w:t></w:r></w:p><w:p><w:r><w:t>real</w:t></w:r></w:p>"#);
         let blocks = parse_blocks(&xml, None).unwrap().0;
-        assert_eq!(paragraphs(&blocks).len(), 2);
-        assert!(matches!(&blocks[0], Block::Paragraph { index: 0, .. }));
-        assert!(matches!(&blocks[1], Block::Paragraph { index: 1, .. }));
-    }
-
-    #[test]
-    fn text_written_into_a_paragraph_that_had_none() {
-        // Enter at the end of a document writes an empty paragraph, then the next keystroke writes
-        // text into it. There is no <w:t> to put it in, so one has to be created - failing here
-        // failed the whole save, taking the other paragraphs' edits down with it.
-        let xml = document("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr></w:p>");
-        let written = rewrite_document_xml(
-            &xml,
-            &[DocxEdit {
-                index: 0,
-                text: "typed".into(),
-            }],
-            &[],
-            &[],
-        )
-        .expect("writing into an empty paragraph should land");
-        assert!(
-            written.contains("<w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:t>typed</w:t></w:r>"),
-            "{written}"
-        );
-    }
-
-    #[test]
-    fn a_mixed_paragraph_keeps_its_first_run_and_drops_the_rest() {
-        // The pane has no formatting commands, and the writer has one text per paragraph: the edit
-        // lands in the first run, which keeps its properties, and the other runs are emptied. Pinned
-        // here so nobody reads the loss of emphasis as a bug later - and so the text never goes
-        // missing.
-        let xml = document(
-            r#"<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>bold</w:t></w:r><w:r><w:t> plain</w:t></w:r></w:p>"#,
-        );
-        let written = rewrite_document_xml(
-            &xml,
-            &[DocxEdit {
-                index: 0,
-                text: "changed".into(),
-            }],
-            &[],
-            &[],
-        )
-        .expect("a mixed paragraph is still editable");
-        assert!(
-            written.contains("<w:rPr><w:b/></w:rPr><w:t>changed</w:t>"),
-            "{written}"
-        );
-        assert!(!written.contains("plain"), "{written}");
-    }
-
-    #[test]
-    fn a_paragraph_with_custom_tab_stops_can_still_be_edited() {
-        // `<w:tabs>` starts with the same four characters as `<w:t>`: a scan that matched the prefix
-        // took the properties for a text node, could not find its end, and failed the whole save.
-        let xml = document(
-            r#"<w:p><w:pPr><w:tabs><w:tab w:val="left" w:pos="720"/></w:tabs></w:pPr><w:r><w:t>a</w:t></w:r></w:p>"#,
-        );
-        let written = rewrite_document_xml(
-            &xml,
-            &[DocxEdit {
-                index: 0,
-                text: "b".into(),
-            }],
-            &[],
-            &[],
-        )
-        .expect("a paragraph with tab stops is still editable");
-        assert!(written.contains("<w:tabs>"), "{written}");
-        assert!(written.contains("<w:t>b</w:t>"), "{written}");
-    }
-
-    #[test]
-    fn a_tab_inside_a_paragraph_is_not_taken_for_a_text_node() {
-        // A `<w:tab/>` sits between two runs. Treated as an empty `<w:t>`, the run after it was
-        // emptied - the tab and the rest of the line silently disappeared.
-        let xml = document(
-            r#"<w:p><w:r><w:t>a</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>c</w:t></w:r></w:p>"#,
-        );
-        let written = rewrite_document_xml(
-            &xml,
-            &[DocxEdit {
-                index: 0,
-                text: "a	c".into(),
-            }],
-            &[],
-            &[],
-        )
-        .expect("a paragraph with a tab is still editable");
-        assert!(written.contains("<w:tab/>"), "{written}");
-        assert!(written.contains("<w:t>a	c</w:t>"), "{written}");
-    }
-
-    #[test]
-    fn an_empty_paragraph_round_trips_untouched() {
-        let xml = document("<w:p/><w:p><w:r><w:t>x</w:t></w:r></w:p>");
-        let written = rewrite_document_xml(&xml, &[], &[], &[]).expect("nothing to change");
-        assert_eq!(written, xml);
-    }
-
-    #[test]
-    fn an_insert_before_the_first_paragraph() {
-        // A table first, or a body with no <w:p> at all: the only place a new line can go is in
-        // front of everything, and `after` has no ordinal to name for it.
-        let xml = document("<w:p><w:r><w:t>second</w:t></w:r></w:p>");
-        let written = rewrite_document_xml(
-            &xml,
-            &[],
-            &[],
-            &[DocxInsert {
-                after: None,
-                text: "first".into(),
-            }],
-        )
-        .expect("an insert before the first paragraph should land");
-        let first = written.find("first").expect("the new paragraph is in the part");
-        let second = written.find("second").expect("the old paragraph is in the part");
-        assert!(first < second, "{written}");
-    }
-
-    #[test]
-    fn an_insert_at_the_top_does_not_land_inside_a_table() {
-        // A paragraph inside a table is a paragraph too, and it comes first. Inserting "in front of
-        // everything" at the first paragraph therefore put the new line inside the table's first
-        // cell - and gave it the cell's own paragraph properties, so a right-aligned cell produced a
-        // right-aligned body line.
-        let xml = document(
-            r#"<w:tbl><w:tr><w:tc><w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:t>after</w:t></w:r></w:p>"#,
-        );
-        let written = rewrite_document_xml(
-            &xml,
-            &[],
-            &[],
-            &[DocxInsert {
-                after: None,
-                text: "first".into(),
-            }],
-        )
-        .expect("an insert at the top should land");
-        let new_line = written.find("<w:t>first</w:t>").expect("the new line is in the part");
-        let table_end = written.find("</w:tbl>").expect("the table is in the part");
-        let old_line = written.find("<w:t>after</w:t>").expect("the old line is in the part");
-        assert!(new_line > table_end, "the new line went inside the table: {written}");
-        assert!(new_line < old_line, "the new line is not in front of the body's text: {written}");
-        // And it takes the style of a body paragraph, not of a cell.
-        let created = &written[..new_line];
-        let created = &created[created.rfind("<w:p>").expect("the new paragraph starts")..];
-        assert!(!created.contains("<w:jc"), "the new line took the cell's alignment: {written}");
-    }
-
-    #[test]
-    fn an_insert_into_a_body_that_has_no_paragraphs() {
-        let xml = document("");
-        let written = rewrite_document_xml(
-            &xml,
-            &[],
-            &[],
-            &[DocxInsert {
-                after: None,
-                text: "only".into(),
-            }],
-        )
-        .expect("an insert into an empty body should land");
-        assert!(written.contains("<w:t>only</w:t>"), "{written}");
-        assert!(written.contains("<w:body>"), "{written}");
+        assert_eq!(paragraphs(&blocks).len(), 1);
     }
 
     /// One paragraph of `xml` replaced by `text`, with the rest of the part untouched.
@@ -1516,12 +1194,10 @@ mod tests {
     }
 
     #[test]
-    fn a_paragraph_holding_an_image_takes_text_beside_it() {
-        // It used to be refused ("this paragraph has no text"), which failed the whole save when the
-        // caret was on such a line. The drawing has to survive: the text is a run added beside it,
-        // not a replacement for it.
+    fn a_paragraph_with_no_text_node_cannot_be_edited() {
+        // An image has no text to put anything into, and writing an empty run would drop it.
         let xml = "<w:document><w:body><w:p><w:r><w:drawing/></w:r></w:p></w:body></w:document>";
-        let written = rewrite_document_xml(
+        let error = rewrite_document_xml(
             xml,
             &[DocxEdit {
                 index: 0,
@@ -1530,9 +1206,8 @@ mod tests {
             &[],
             &[],
         )
-        .expect("a line holding an image can still be typed on");
-        assert!(written.contains("<w:drawing/>"), "{written}");
-        assert!(written.contains("<w:t>x</w:t>"), "{written}");
+        .unwrap_err();
+        assert!(error.contains("没有文字"), "{error}");
     }
 
     #[test]
@@ -1603,7 +1278,7 @@ mod tests {
             &[],
             &[],
             &[DocxInsert {
-                after: Some(0),
+                after: 0,
                 text: "added".into(),
             }],
         )
@@ -1623,7 +1298,7 @@ mod tests {
             &[],
             &[],
             &[DocxInsert {
-                after: Some(0),
+                after: 0,
                 text: "".into(),
             }],
         )
@@ -1642,7 +1317,7 @@ mod tests {
             &[],
             &[],
             &[DocxInsert {
-                after: Some(0),
+                after: 0,
                 text: " b & c".into(),
             }],
         )
@@ -1659,7 +1334,7 @@ mod tests {
             &[],
             &[],
             &[DocxInsert {
-                after: Some(4),
+                after: 4,
                 text: "x".into(),
             }]
         )
@@ -1670,7 +1345,7 @@ mod tests {
             &[],
             &[0],
             &[DocxInsert {
-                after: Some(0),
+                after: 0,
                 text: "x".into(),
             }]
         )
@@ -1691,7 +1366,7 @@ mod tests {
             }],
             &[],
             &[DocxInsert {
-                after: Some(0),
+                after: 0,
                 text: " me".into(),
             }],
             &guard,
@@ -1787,48 +1462,6 @@ mod tests {
         undo_docx_sync(&path, &after_delete).expect("undo should land");
         assert_eq!(part_of(&path), original);
         assert!(part_of(&path).contains("<w:rPr><w:b/></w:rPr>"));
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
-    }
-
-    #[test]
-    fn the_same_part_is_not_remembered_twice() {
-        let document = "<w:document><w:body><w:p><w:r><w:t>x</w:t></w:r></w:p></w:body></w:document>";
-        let (path, guard) = archive_with(document);
-        let original = part_of(&path);
-
-        // Two saves that write the same text: the second one would otherwise push the same snapshot
-        // again, and one undo would then take back nothing at all.
-        let first = write_docx_sync(
-            &path,
-            &[DocxEdit {
-                index: 0,
-                text: "y".into(),
-            }],
-            &[],
-            &[],
-            &guard,
-        )
-        .expect("the first save lands");
-        let after_first = part_of(&path);
-        let second = write_docx_sync(
-            &path,
-            &[DocxEdit {
-                index: 0,
-                text: "y".into(),
-            }],
-            &[],
-            &[],
-            &first,
-        )
-        .expect("the second save lands");
-        assert_eq!(part_of(&path), after_first);
-
-        undo_docx_sync(&path, &second).expect("one undo");
-        assert_eq!(
-            part_of(&path),
-            original,
-            "one undo should get back to the original, not to y"
-        );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -1948,33 +1581,14 @@ mod tests {
 
     #[test]
     fn a_paragraph_that_draws_nothing_still_takes_its_ordinal() {
-        // `<w:p/>` and a paragraph of spaces are blank lines, and they are elements of the part: the
-        // block after them is the third paragraph, not the first.
+        // `<w:p/>` and a paragraph of spaces are not drawn, but they are elements of the part: a
+        // writer that counted only the drawn ones would edit the wrong paragraph.
         let xml = "<w:document><w:body>            <w:p/>            <w:p><w:r><w:t> </w:t></w:r></w:p>            <w:p><w:r><w:t>third</w:t></w:r></w:p>            </w:body></w:document>";
         let blocks = parse_blocks(xml, None).unwrap().0;
-        let indexes: Vec<u32> = blocks
-            .iter()
-            .filter_map(|block| match block {
-                Block::Paragraph { index, .. } => Some(*index),
-                Block::Table { .. } => None,
-            })
-            .collect();
-        assert_eq!(indexes, vec![0, 1, 2], "{blocks:?}");
-        assert!(matches!(&blocks[2], Block::Paragraph { index: 2, .. }));
-    }
-
-    #[test]
-    fn an_empty_paragraph_keeps_its_place() {
-        // A blank line is a paragraph with no runs. Dropping it on read makes the ordinal after it
-        // shift, so pressing Enter at the end of a document writes a paragraph the next read throws
-        // away - and the caret lands nowhere.
-        let xml = document(
-            "<w:p><w:r><w:t>one</w:t></w:r></w:p><w:p/><w:p><w:r><w:t>three</w:t></w:r></w:p>",
-        );
-        let blocks = parse_blocks(&xml, None).unwrap().0;
-        assert_eq!(blocks.len(), 3, "{blocks:?}");
-        assert!(matches!(&blocks[1], Block::Paragraph { index: 1, runs, .. } if runs.is_empty()));
-        assert!(matches!(&blocks[2], Block::Paragraph { index: 2, .. }));
+        let Block::Paragraph { index, .. } = &blocks[0] else {
+            panic!("no paragraph: {blocks:?}");
+        };
+        assert_eq!(*index, 2);
     }
 
     #[test]

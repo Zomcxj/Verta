@@ -2,7 +2,9 @@ import {
   native,
   type DocxBlock,
   type DocxDocument,
+  type DocxEdit,
   type DocxGuard,
+  type DocxInsert,
   type DocxRun,
 } from "@/lib/native";
 import { useT } from "@/modules/i18n";
@@ -14,45 +16,30 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
-  useMemo,
   useRef,
   useState,
 } from "react";
-import {
-  adoptDraft,
-  alignBlocks,
-  type BaselineBlock,
-  blocksFromDocument,
-  needsReread,
-} from "./docxBlocks";
-import {
-  caretInBody,
-  normalizeBody,
-  placeCaretAtBlock,
-  readDraftBlocks,
-} from "./docxBodyDom";
 
 /**
- * A Word document, drawn from the blocks the Rust side read out of it - and edited in place.
+ * A Word document, drawn from the blocks the Rust side read out of it - and editable in place.
  *
  * A `.docx` is a ZIP, so the editor could only call it a binary file. The archive is opened in Rust
  * (see `src-tauri/src/modules/docx.rs`) and arrives here as paragraphs, lists and tables: no HTML
  * passthrough, so nothing in the document can inject anything into the window, and no parser in this
  * bundle.
  *
- * The whole body is one editable surface, not one per paragraph. A caret cannot move between two
- * editable elements, so a paragraph each made cross-paragraph selection, Backspace at the start of a
- * line, and deleting several lines at once impossible by construction. Here Enter, Backspace, the
- * selection and the input method all belong to the browser; only paste is intercepted, and after every
- * edit the DOM is flattened back into the one shape the writer understands - a direct child per
- * paragraph (see `docxBodyDom.ts`).
- *
- * Saving happens on its own shortly after typing stops, back into the same file. What is sent is the
- * difference against what the file already has, so an untouched paragraph keeps every byte Word wrote
- * for it, and an edit lands in the paragraph it was typed in.
+ * Editing is by paragraph. Typing replaces a paragraph's text - it goes into that paragraph's first
+ * run, and the rest are emptied, so a paragraph edited here loses any emphasis inside it, while every
+ * paragraph that is not touched keeps exactly what Word wrote. Saving happens on its own shortly after
+ * typing stops, back into the same file, because a document that has to be saved somewhere else is one
+ * the user has to remember to save.
  *
  * What the reader does not carry - images, text boxes, footnotes - is simply not drawn; a document
  * whose meaning is in a picture will read as its captions.
+ *
+ * Everything below numbers what it draws as it draws it. A document's blocks have no identity beyond
+ * their position (two identical paragraphs are normal), so a position-derived id, assigned once per
+ * read, is what gives React a stable key for them.
  */
 
 type LoadState =
@@ -69,6 +56,52 @@ type SaveState =
   /** The file changed under us. Saving again would overwrite whatever changed it. */
   | { kind: "stale"; message: string };
 
+/** One list item, numbered within its list. */
+export type DocxListItem = {
+  id: number;
+  index: number;
+  level: number;
+  runs: DocxRun[];
+};
+
+export type DocxGroup =
+  | { kind: "block"; id: number; block: DocxBlock }
+  | { kind: "list"; id: number; ordered: boolean; items: DocxListItem[] };
+
+/**
+ * Consecutive list items are one list: Word marks numbering per paragraph, so the paragraphs are
+ * where the information is and the element is what makes them read as a list.
+ */
+export function groupBlocks(blocks: DocxBlock[]): DocxGroup[] {
+  const groups: DocxGroup[] = [];
+  for (const [index, block] of blocks.entries()) {
+    const list = block.kind === "paragraph" ? block.list : null;
+    const runs = block.kind === "paragraph" ? block.runs : [];
+    const paragraphIndex = block.kind === "paragraph" ? block.index : -1;
+    if (!list) {
+      groups.push({ kind: "block", id: index, block });
+      continue;
+    }
+    const last = groups[groups.length - 1];
+    if (last?.kind === "list") {
+      last.items.push({
+        id: index,
+        index: paragraphIndex,
+        level: list.level,
+        runs,
+      });
+    } else {
+      groups.push({
+        kind: "list",
+        id: index,
+        ordered: list.ordered,
+        items: [{ id: index, index: paragraphIndex, level: list.level, runs }],
+      });
+    }
+  }
+  return groups;
+}
+
 /** The table's rows and cells, numbered so each has a key of its own. */
 export function tableGrid(
   rows: string[][],
@@ -77,6 +110,66 @@ export function tableGrid(
     id: rowIndex,
     cells: row.map((text, cellIndex) => ({ id: cellIndex, text })),
   }));
+}
+
+/**
+ * Whether this block can be edited in place.
+ *
+ * Only a paragraph with text in it: a table is drawn from joined cell strings, which cannot be mapped
+ * back to its cells, and a paragraph whose runs are empty has no text node for the writer to put
+ * anything into. A document read only in part is read-only for a different reason - saving from it
+ * would drop everything past the cut.
+ */
+export function isEditableBlock(
+  block: DocxBlock,
+  documentEditable: boolean,
+): boolean {
+  return (
+    documentEditable && block.kind === "paragraph" && block.runs.length > 0
+  );
+}
+
+/**
+ * What to send: the paragraphs that were typed in, the ones that were deleted, and the ones to add.
+ *
+ * A paragraph that was typed in and then deleted is not sent as an edit - the deletion wins.
+ */
+export function pendingEdits(
+  texts: Map<number, string>,
+  deleted: Set<number>,
+  inserts: DocxInsert[],
+): { edits: DocxEdit[]; deleted: number[]; inserts: DocxInsert[] } {
+  return {
+    edits: [...texts.entries()]
+      .filter(([index]) => !deleted.has(index))
+      .sort((left, right) => left[0] - right[0])
+      .map(([index, text]) => ({ index, text })),
+    deleted: [...deleted].sort((left, right) => left - right),
+    inserts: [...inserts].sort((left, right) => left.after - right.after),
+  };
+}
+
+/**
+ * Where the caret sits inside an editable element, as a character offset into its text.
+ *
+ * Pressing Enter splits the paragraph at the caret, so the offset is the whole question: without a
+ * selection the caret is taken to be at the end, which is what pressing Enter after typing looks like.
+ */
+export function caretOffset(element: HTMLElement): number {
+  const text = element.textContent ?? "";
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return text.length;
+  const range = selection.getRangeAt(0);
+  if (!element.contains(range.startContainer)) return text.length;
+  const before = range.cloneRange();
+  before.selectNodeContents(element);
+  before.setEnd(range.startContainer, range.startOffset);
+  return before.toString().length;
+}
+
+/** A paragraph's whole text, which is what an edit replaces. */
+function textOf(runs: DocxRun[]): string {
+  return runs.map((run) => run.text).join("");
 }
 
 const HEADING_CLASS = [
@@ -119,203 +212,66 @@ function Runs({ runs }: { runs: DocxRun[] }) {
   );
 }
 
-const BLOCK_CLASS: Record<string, string> = {
-  p: "group/block relative my-1.5 first:mt-0",
-  li: "group/block relative my-1 pl-6",
-  table: "my-3 overflow-x-auto",
-};
-
-function classOf(block: BaselineBlock): string {
-  if (block.kind === "table") return BLOCK_CLASS.table;
-  if (block.kind === "li") return BLOCK_CLASS.li;
-  if (block.kind === "p") return BLOCK_CLASS.p;
-  const level = Number.parseInt(block.kind.slice(1), 10);
-  return `group/block relative mt-4 mb-1.5 first:mt-0 ${HEADING_CLASS[level - 1] ?? ""}`;
-}
-
 /**
- * The document body: one editable surface for the whole document.
+ * A paragraph's text, editable in place.
  *
- * Deliberately uncontrolled. React re-renders this pane whenever the save status changes, and a
- * re-render would put the runs as they were read back over what the user just typed. So the body is
- * drawn once per read (`key={reloadKey}` in the parent) and the typed text lives in the DOM until it
- * is written to the file.
+ * The runs are drawn as they were read, so a paragraph with a bold word in it still shows that word
+ * bold until the paragraph is edited - the emphasis is only lost by an edit, which merges the runs.
+ *
+ * Deliberately uncontrolled: React re-renders this pane whenever the save status changes, and a
+ * re-render would put the original runs back over what the user just typed. So the component skips
+ * every re-render whose document text is unchanged, and the typed text lives in the DOM until it is
+ * written to the file.
  */
-const DocxBody = memo(function DocxBody({
-  doc,
-  editable,
-  bodyRef,
-  onEdited,
-  onDelete,
-}: {
-  doc: DocxDocument;
-  editable: boolean;
-  bodyRef: React.RefObject<HTMLDivElement | null>;
-  onEdited: () => void;
-  onDelete: (ordinal: number) => void;
-}) {
-  const t = useT();
-  const blocks = useMemo(() => blocksFromDocument(doc), [doc]);
-
-  useEffect(() => {
-    // Markers are pseudo-elements, so they have to be assigned before the first paint as well as
-    // after every edit.
-    if (bodyRef.current) normalizeBody(bodyRef.current);
-  }, [bodyRef]);
-
-  const deleteButton = (ordinal: number | null) =>
-    editable && ordinal !== null ? (
-      <button
-        type="button"
-        contentEditable={false}
-        data-docx-delete={ordinal}
-        title={t("editor.docx.deleteParagraph")}
-        aria-label={t("editor.docx.deleteParagraph")}
-        // A button inside an editable surface: without this the click moves the caret and the
-        // paragraph is the one that gets the focus.
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={() => onDelete(ordinal)}
-        className="absolute -left-5 top-1 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/block:opacity-60"
+const EditableText = memo(
+  function EditableText({
+    runs,
+    index,
+    onEdit,
+    onSplit,
+  }: {
+    runs: DocxRun[];
+    index: number;
+    onEdit: (index: number, text: string) => void;
+    onSplit: (index: number, before: string, after: string) => void;
+  }) {
+    return (
+      // `plaintext-only`: a paste arrives as text, not as whatever markup the clipboard held. Enter is
+      // swallowed because a new paragraph is not something this pane can write. No `role` and no
+      // `tabIndex`: a contenteditable element is already focusable and announced as editable, and a
+      // role here would only claim the paragraph is a form field.
+      // biome-ignore lint/a11y/noStaticElementInteractions: this is a paragraph of a document, not a form control - a textarea cannot flow inside the heading or list item it belongs to
+      <span
+        contentEditable="plaintext-only"
+        suppressContentEditableWarning
+        spellCheck={false}
+        data-docx-editable={index}
+        onInput={(event) =>
+          onEdit(index, event.currentTarget.textContent ?? "")
+        }
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" || event.shiftKey) return;
+          // Enter adds a paragraph, the way it does in Word: what is after the caret becomes the next
+          // paragraph, carrying this one's style. Shift+Enter is left alone for a line break.
+          event.preventDefault();
+          const typed = event.currentTarget.textContent ?? "";
+          const at = caretOffset(event.currentTarget);
+          onSplit(index, typed.slice(0, at), typed.slice(at));
+        }}
+        className="outline-none focus-visible:rounded-sm focus-visible:bg-accent/40"
       >
-        {/* An icon rather than a "×": the character would be part of the paragraph's own text, and
-            copying the document would carry it along. */}
-        <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
-      </button>
-    ) : null;
-
-  return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: this is the document itself, not a control: the editable surface is what the browser gives a caret and an input method to, and its handlers exist to keep the DOM readable back
-    <div
-      ref={bodyRef}
-      data-docx-body=""
-      contentEditable={editable}
-      suppressContentEditableWarning
-      spellCheck={false}
-      onBeforeInput={(event) => {
-        const native = event.nativeEvent as InputEvent;
-        if (
-          native.inputType !== "insertFromPaste" &&
-          native.inputType !== "insertFromDrop"
-        ) {
-          return;
-        }
-        // Only paste is taken over: an input method composing in a hand-rolled editor is how a
-        // Chinese input method gets broken, so everything else is left to the browser.
-        const text = native.dataTransfer?.getData("text/plain") ?? "";
-        // Checked before the default is cancelled: a paste with no text in it (an image, a table
-        // copied from a page) is left to the browser rather than swallowed and dropped.
-        if (!text) return;
-        event.preventDefault();
-        const lines = text.split(/\r?\n/);
-        // `insertText` is deprecated and still the only way to put text in without destroying the
-        // browser's own editing state (a raw range insertion loses the undo stack and the caret).
-        document.execCommand("insertText", false, lines[0]);
-        for (const line of lines.slice(1)) {
-          document.execCommand("insertParagraph");
-          if (line) document.execCommand("insertText", false, line);
-        }
-      }}
-      onInput={(event) => {
-        const body = event.currentTarget;
-        // An input method fires this for every composition update, and re-installing a selection in
-        // the middle of one is how pinyin gets committed a character at a time. Composition is left
-        // entirely to the browser.
-        if ((event.nativeEvent as InputEvent).isComposing) {
-          onEdited();
-          return;
-        }
-        // Flattening may rebuild nodes, so the caret is remembered by line and offset within it and
-        // put back - but only when something was rebuilt. A caret that is already where the browser
-        // left it is not touched.
-        const caret = caretInBody(body);
-        if (normalizeBody(body) && caret) {
-          placeCaretAtBlock(body, caret.position, caret.offset);
-        }
-        onEdited();
-      }}
-      onBlur={() => {
-        // Leaving the document is as good a moment as stopping typing.
-        onEdited();
-      }}
-      className="mx-auto max-w-[46rem] px-8 py-6 text-[13px] leading-relaxed text-foreground outline-none"
-    >
-      {blocks.map((block, index) => {
-        if (block.kind === "table") {
-          const table = doc.blocks[index];
-          if (table?.kind !== "table") return null;
-          // A table has no ordinal and nothing else to be known by: its place in the body is its
-          // identity, and the body is drawn once per read, so that place never moves underneath it.
-          const tableKey = `table-${index}`;
-          return (
-            <div
-              key={tableKey}
-              data-block="table"
-              className={classOf(block)}
-              contentEditable={false}
-            >
-              <table className="w-full border-collapse text-[12.5px]">
-                <tbody>
-                  {tableGrid(table.rows).map((row) => (
-                    <tr key={row.id}>
-                      {row.cells.map((cell) => (
-                        <td
-                          key={cell.id}
-                          className="border border-border/70 px-2 py-1 align-top"
-                        >
-                          {cell.text}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          );
-        }
-        // A heading is drawn as the heading element it is: the tag carries the structure a reader
-        // (or anything reading the page) uses, and it is still one direct child of the surface, so
-        // the flat shape the writer reads back is unchanged.
-        const Tag = (block.kind.startsWith("h") ? block.kind : "div") as
-          | "div"
-          | "h1"
-          | "h2"
-          | "h3"
-          | "h4"
-          | "h5"
-          | "h6";
-        // A nested list item is drawn one step in: the file says which level each item is on, and a
-        // document whose sub-items sit at the left margin reads as one flat list. The level is not
-        // part of what is compared or written - the writer keeps each paragraph's own properties -
-        // so this is drawn from the read and never sent back.
-        const read = doc.blocks[index];
-        const level =
-          block.kind === "li" && read?.kind === "paragraph" ? (read.list?.level ?? 0) : 0;
-        return (
-          <Tag
-            key={`b${block.ordinal ?? index}`}
-            data-block={block.kind}
-            data-docx-editable={block.ordinal ?? undefined}
-            data-list={block.list ?? undefined}
-            data-num-id={block.numId ?? undefined}
-            data-level={block.kind === "li" ? level : undefined}
-            role={block.kind === "li" ? "listitem" : undefined}
-            style={level > 0 ? { paddingLeft: `${1.5 + level * 1.25}rem` } : undefined}
-            className={classOf(block)}
-          >
-            {deleteButton(block.ordinal)}
-            <Runs
-              runs={
-                doc.blocks[index]?.kind === "paragraph"
-                  ? doc.blocks[index].runs
-                  : []
-              }
-            />
-          </Tag>
-        );
-      })}
-    </div>
-  );
-});
+        <Runs runs={runs} />
+      </span>
+    );
+  },
+  // The document's own text is what decides whether this needs redrawing: `runs` is a fresh array on
+  // every render of the pane, and comparing it by identity would wipe what the user is typing.
+  (prev, next) =>
+    prev.index === next.index &&
+    prev.onEdit === next.onEdit &&
+    prev.onSplit === next.onSplit &&
+    textOf(prev.runs) === textOf(next.runs),
+);
 
 /** What the shell can ask of an open document. */
 export type DocxPreviewHandle = {
@@ -334,20 +290,22 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
     const t = useT();
     const [state, setState] = useState<LoadState>({ kind: "loading" });
     const [save, setSave] = useState<SaveState>({ kind: "idle" });
-    /** The blocks the file has, as of the last read or the last successful write. */
-    const baseline = useRef<BaselineBlock[]>([]);
+    /** Paragraphs taken out of the document; a state so the block disappears as it is removed. */
+    const [removed, setRemoved] = useState<ReadonlySet<number>>(new Set());
+    /** What was typed, by paragraph ordinal. A ref: the DOM already shows it, so it needs no re-render. */
+    const texts = useRef(new Map<number, string>());
+    const deleted = useRef(new Set<number>());
+    /** Paragraphs to add, by the paragraph they follow. */
+    const inserts = useRef<DocxInsert[]>([]);
+    /** Where the caret belongs once a split has been written and read back. */
+    const focusAfter = useRef<number | null>(null);
     const root = useRef<HTMLDivElement | null>(null);
-    const bodyRef = useRef<HTMLDivElement | null>(null);
     /** The file the save state belongs to; a re-read of the same one is not a new document. */
     const openedPath = useRef(path);
     const guard = useRef<DocxGuard | null>(null);
     const timer = useRef<number | null>(null);
     const inFlight = useRef(false);
     const queued = useRef(false);
-    /** Which line the caret goes back into once a re-read has replaced the DOM. */
-    const caretAfter = useRef<{ position: number; offset: number } | null>(
-      null,
-    );
     /** Set when the file changed under us: nothing more is written until it is read again. */
     const stale = useRef(false);
     const [reloadKey, setReloadKey] = useState(0);
@@ -358,6 +316,10 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
       void reloadKey;
       let cancelled = false;
       setState({ kind: "loading" });
+      texts.current = new Map();
+      deleted.current = new Set();
+      inserts.current = [];
+      setRemoved(new Set());
       // A re-read of the same file keeps what the pane last said about saving it - a structural change
       // (Enter, a deletion) is read back, and "已保存" must not disappear just because the numbering was
       // refreshed. Opening a different file starts over.
@@ -373,7 +335,6 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
           // The reader reports the file's identity, so the first save has something to check against
           // without a second round trip.
           guard.current = document.guard;
-          baseline.current = blocksFromDocument(document);
           setState({ kind: "ready", document });
         })
         .catch((error: unknown) => {
@@ -395,76 +356,33 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
       [],
     );
 
-    // The caret is put back after the DOM has been replaced by a re-read. `state` is the dependency
-    // on purpose: it is what moves when the read lands, and the body only exists after it does.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: runs after a read, which is what `state` marks
-    useEffect(() => {
-      const caret = caretAfter.current;
-      const body = bodyRef.current;
-      if (caret === null || !body) return;
-      caretAfter.current = null;
-      body.focus();
-      placeCaretAtBlock(body, caret.position, caret.offset);
-    }, [state]);
-
     const write = useCallback(async () => {
       if (inFlight.current) {
         queued.current = true;
         return;
       }
       const current = guard.current;
-      const body = bodyRef.current;
-      if (!current || !body) return;
-      const draft = readDraftBlocks(body);
-      const before = baseline.current;
-      const { edits, deleted, inserts } = alignBlocks(before, draft);
-      if (edits.length === 0 && deleted.length === 0 && inserts.length === 0) {
-        return;
-      }
+      if (!current) return;
       inFlight.current = true;
       setSave({ kind: "saving" });
-      // A structural change moves every ordinal after it, so the file has to be read again
-      // afterwards; a pure text edit leaves the numbering alone and the caret where it is.
-      const reread = needsReread(before, draft);
+      // A structural change moves every ordinal after it, so the file has to be read again afterwards;
+      // a pure text edit leaves the numbering alone and the caret where it is.
+      const structural = deleted.current.size > 0 || inserts.current.length > 0;
       try {
-        guard.current = await native.writeDocx(
-          path,
+        const {
           edits,
-          deleted,
-          inserts,
-          current,
-        );
-        // Typing can land between the snapshot and this line, and a re-read would rebuild the body
-        // from the file and throw it away. What is left in the DOM is written before anything is
-        // read back, up to a couple of rounds - a structural save that keeps taking new input has
-        // to settle before the numbering can be trusted again.
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          const leftover = alignBlocks(
-            adoptDraft(before, draft),
-            readDraftBlocks(body),
-          );
-          if (
-            leftover.edits.length === 0 &&
-            leftover.deleted.length === 0 &&
-            leftover.inserts.length === 0
-          ) {
-            break;
-          }
-          guard.current = await native.writeDocx(
-            path,
-            leftover.edits,
-            leftover.deleted,
-            leftover.inserts,
-            guard.current,
-          );
-        }
-        // The draft lines up with the writable baseline one for one here: a write that changes the
-        // numbering re-reads instead of trusting this.
-        baseline.current = adoptDraft(before, draft);
+          deleted: gone,
+          inserts: added,
+        } = pendingEdits(texts.current, deleted.current, inserts.current);
+        const next = await native.writeDocx(path, edits, gone, added, current);
+        guard.current = next;
         setSave({ kind: "saved" });
-        if (reread) {
-          caretAfter.current = caretInBody(body);
+        if (structural) {
           setReloadKey((key) => key + 1);
+        } else {
+          // The file has these now. Keeping them would make the pane look dirty for ever, and "is
+          // anything unsaved" is the question Ctrl+Z asks.
+          texts.current.clear();
         }
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
@@ -495,38 +413,61 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
       }, SAVE_DELAY_MS);
     }, [write]);
 
+    const onEdit = useCallback(
+      (index: number, text: string) => {
+        texts.current.set(index, text);
+        schedule();
+      },
+      [schedule],
+    );
+
+    const onDelete = useCallback(
+      (index: number) => {
+        texts.current.delete(index);
+        deleted.current.add(index);
+        setRemoved((current) => new Set(current).add(index));
+        schedule();
+      },
+      [schedule],
+    );
+
     /**
-     * Something in the body changed.
+     * Enter: what is after the caret becomes the next paragraph.
      *
-     * A structural change is written at once rather than on the debounce: the paragraph numbering
-     * moved, and typing into a model whose numbering is stale is how an edit lands on the wrong
-     * paragraph.
+     * Written straight away rather than on the debounce, because the paragraph count changes: the
+     * re-read that follows is what puts the ordinals back in step with the file, and typing into a model
+     * whose numbering has moved on is how an edit lands on the wrong paragraph.
      */
-    const onEdited = useCallback(() => {
-      const body = bodyRef.current;
-      if (!body || stale.current) return;
-      if (needsReread(baseline.current, readDraftBlocks(body))) {
+    const onSplit = useCallback(
+      (index: number, before: string, after: string) => {
+        texts.current.set(index, before);
+        inserts.current.push({ after: index, text: after });
+        focusAfter.current = index + 1;
         if (timer.current !== null) {
           window.clearTimeout(timer.current);
           timer.current = null;
         }
         void write();
-        return;
-      }
-      schedule();
-    }, [schedule, write]);
-
-    const onDelete = useCallback(
-      (ordinal: number) => {
-        const body = bodyRef.current;
-        const block = body?.querySelector(`[data-docx-editable="${ordinal}"]`);
-        if (!body || !block) return;
-        block.remove();
-        normalizeBody(body);
-        void write();
       },
       [write],
     );
+
+    useEffect(() => {
+      const index = focusAfter.current;
+      if (index === null || state.kind !== "ready") return;
+      focusAfter.current = null;
+      const node = root.current?.querySelector<HTMLElement>(
+        `[data-docx-editable="${index}"]`,
+      );
+      if (!node) return;
+      node.focus();
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }, [state]);
 
     /**
      * Takes back the last change that reached the file.
@@ -571,17 +512,11 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
         window.clearTimeout(timer.current);
         timer.current = null;
       }
-      const body = bodyRef.current;
-      const pending =
-        body !== null &&
-        (() => {
-          const { edits, deleted, inserts } = alignBlocks(
-            baseline.current,
-            readDraftBlocks(body),
-          );
-          return edits.length + deleted.length + inserts.length > 0;
-        })();
-      if (pending) {
+      const unsaved =
+        texts.current.size > 0 ||
+        deleted.current.size > 0 ||
+        inserts.current.length > 0;
+      if (unsaved) {
         setReloadKey((key) => key + 1);
         return;
       }
@@ -619,7 +554,45 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
       );
     }
 
-    const { truncated, editable } = state.document;
+    const { blocks, truncated, editable } = state.document;
+    if (blocks.length === 0) {
+      return (
+        <div className="flex h-full items-center justify-center px-6 text-center text-xs text-muted-foreground">
+          {t("editor.docx.empty")}
+        </div>
+      );
+    }
+
+    const deleteButton = (index: number) =>
+      editable ? (
+        <button
+          type="button"
+          data-docx-delete={index}
+          title={t("editor.docx.deleteParagraph")}
+          aria-label={t("editor.docx.deleteParagraph")}
+          onClick={() => onDelete(index)}
+          className="absolute -left-5 top-1 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/block:opacity-60"
+        >
+          {/* An icon rather than a "×": the character would be part of the paragraph's own text, and
+            copying the document would carry it along. */}
+          <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+        </button>
+      ) : null;
+
+    const body = (index: number, runs: DocxRun[]) =>
+      isEditableBlock(
+        { kind: "paragraph", index, heading: null, list: null, runs },
+        editable,
+      ) ? (
+        <EditableText
+          runs={runs}
+          index={index}
+          onEdit={onEdit}
+          onSplit={onSplit}
+        />
+      ) : (
+        <Runs runs={runs} />
+      );
 
     return (
       // The same scroll class the rendered Markdown wears: a document read top to bottom gets the thin
@@ -664,28 +637,104 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
             </button>
           </div>
         ) : null}
-        <DocxBody
-          key={reloadKey}
-          doc={state.document}
-          editable={editable}
-          bodyRef={bodyRef}
-          onEdited={onEdited}
-          onDelete={onDelete}
-        />
-        {truncated ? (
-          <p className="mx-auto max-w-[46rem] border-t border-border/60 px-8 pt-2 text-[11.5px] text-muted-foreground">
-            {t("editor.docx.truncated")}
-          </p>
-        ) : null}
-        {!editable ? (
-          <p className="mx-auto max-w-[46rem] px-8 pb-4 text-[11.5px] text-muted-foreground">
-            {t("editor.docx.readOnly")}
-          </p>
-        ) : null}
+        <div className="mx-auto max-w-[46rem] px-8 py-6 text-[13px] leading-relaxed text-foreground">
+          {groupBlocks(blocks).map((group) => {
+            if (group.kind === "list") {
+              const List = group.ordered ? "ol" : "ul";
+              const visible = group.items.filter(
+                (item) => !removed.has(item.index),
+              );
+              if (visible.length === 0) return null;
+              return (
+                <List
+                  key={group.id}
+                  className={[
+                    "my-1.5 space-y-0.5 pl-5",
+                    group.ordered ? "list-decimal" : "list-disc",
+                  ].join(" ")}
+                >
+                  {visible.map((item) => (
+                    <li
+                      key={item.id}
+                      style={
+                        item.level > 0
+                          ? { marginLeft: `${item.level * 1.1}rem` }
+                          : undefined
+                      }
+                      className="group/block relative"
+                    >
+                      {deleteButton(item.index)}
+                      {body(item.index, item.runs)}
+                    </li>
+                  ))}
+                </List>
+              );
+            }
+            const block = group.block;
+            if (block.kind === "table") {
+              return (
+                <div key={group.id} className="my-3 overflow-x-auto">
+                  <table className="w-full border-collapse text-[12.5px]">
+                    <tbody>
+                      {tableGrid(block.rows).map((row) => (
+                        <tr key={row.id}>
+                          {row.cells.map((cell) => (
+                            <td
+                              key={cell.id}
+                              className="border border-border/70 px-2 py-1 align-top"
+                            >
+                              {cell.text}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            }
+            if (removed.has(block.index)) return null;
+            if (block.heading) {
+              const Heading = `h${block.heading}` as
+                | "h1"
+                | "h2"
+                | "h3"
+                | "h4"
+                | "h5"
+                | "h6";
+              return (
+                <Heading
+                  key={group.id}
+                  className={`group/block relative mt-4 mb-1.5 first:mt-0 ${HEADING_CLASS[block.heading - 1]}`}
+                >
+                  {deleteButton(block.index)}
+                  {body(block.index, block.runs)}
+                </Heading>
+              );
+            }
+            return (
+              <p
+                key={group.id}
+                className="group/block relative my-1.5 first:mt-0"
+              >
+                {deleteButton(block.index)}
+                {body(block.index, block.runs)}
+              </p>
+            );
+          })}
+
+          {truncated ? (
+            <p className="mt-4 border-t border-border/60 pt-2 text-[11.5px] text-muted-foreground">
+              {t("editor.docx.truncated")}
+            </p>
+          ) : null}
+          {!editable ? (
+            <p className="mt-2 text-[11.5px] text-muted-foreground">
+              {t("editor.docx.readOnly")}
+            </p>
+          ) : null}
+        </div>
       </div>
     );
   },
 );
-
-/** The parts of a read the pane draws, for the tests that pin the routing. */
-export type { DocxBlock };
