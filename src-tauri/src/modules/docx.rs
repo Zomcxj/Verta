@@ -254,11 +254,14 @@ fn escape_text(text: &str) -> String {
     escaped
 }
 
-/// A paragraph to add after another one; the document must have the one it names.
+/// A paragraph to add, and the paragraph it goes after.
+///
+/// `after: None` means "in front of everything": a body whose first element is a table, or one with
+/// no `<w:p>` at all, has no ordinal to name for the top of the document.
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DocxInsert {
-    pub after: u32,
+    pub after: Option<u32>,
     pub text: String,
 }
 
@@ -414,21 +417,41 @@ fn rewrite_document_xml(
         }
     }
     for insert in inserts {
-        if insert.after >= count {
-            return Err(format!("要插入的位置不在文档里（序号 {}）", insert.after));
+        let Some(after) = insert.after else { continue };
+        if after >= count {
+            return Err(format!("要插入的位置不在文档里（序号 {after}）"));
         }
-        if deleted.contains(&insert.after) {
+        if deleted.contains(&after) {
             return Err("不能在删掉的段落后插入".into());
         }
     }
 
+    // Everything that asked for the top of the document, in the order the pane sent it. The style
+    // comes from the first paragraph that is there, or from nothing at all in an empty body.
+    let first_paragraph = ranges
+        .first()
+        .map(|(_, start, end)| &xml[*start..*end])
+        .unwrap_or("");
+    let leading: Vec<String> = inserts
+        .iter()
+        .filter(|insert| insert.after.is_none())
+        .map(|insert| new_paragraph(first_paragraph, &insert.text))
+        .collect();
+
     let mut out = String::with_capacity(xml.len());
     let mut cursor = 0usize;
+    let mut leading_written = false;
     for (index, start, end) in &ranges {
         if *start < cursor {
             continue;
         }
         out.push_str(&xml[cursor..*start]);
+        if !leading_written {
+            for paragraph in &leading {
+                out.push_str(paragraph);
+            }
+            leading_written = true;
+        }
         cursor = *end;
         if deleted.contains(index) {
             continue;
@@ -438,11 +461,27 @@ fn rewrite_document_xml(
             Some(edit) => out.push_str(&rewrite_paragraph(paragraph, &edit.text)?),
             None => out.push_str(paragraph),
         }
-        for insert in inserts.iter().filter(|insert| insert.after == *index) {
+        for insert in inserts.iter().filter(|insert| insert.after == Some(*index)) {
             out.push_str(&new_paragraph(paragraph, &insert.text));
         }
     }
-    out.push_str(&xml[cursor..]);
+    let tail = &xml[cursor..];
+    if !leading_written && !leading.is_empty() {
+        // No paragraph was walked at all, so the top of the body is its last child position: the new
+        // paragraphs go in just before the body closes, and stay inside it.
+        if let Some(end) = tail.find("</w:body>") {
+            out.push_str(&tail[..end]);
+            for paragraph in &leading {
+                out.push_str(paragraph);
+            }
+            out.push_str(&tail[end..]);
+            return Ok(out);
+        }
+        for paragraph in &leading {
+            out.push_str(paragraph);
+        }
+    }
+    out.push_str(tail);
     Ok(out)
 }
 
@@ -1254,6 +1293,43 @@ mod tests {
         assert_eq!(written, xml);
     }
 
+    #[test]
+    fn an_insert_before_the_first_paragraph() {
+        // A table first, or a body with no <w:p> at all: the only place a new line can go is in
+        // front of everything, and `after` has no ordinal to name for it.
+        let xml = document("<w:p><w:r><w:t>second</w:t></w:r></w:p>");
+        let written = rewrite_document_xml(
+            &xml,
+            &[],
+            &[],
+            &[DocxInsert {
+                after: None,
+                text: "first".into(),
+            }],
+        )
+        .expect("an insert before the first paragraph should land");
+        let first = written.find("first").expect("the new paragraph is in the part");
+        let second = written.find("second").expect("the old paragraph is in the part");
+        assert!(first < second, "{written}");
+    }
+
+    #[test]
+    fn an_insert_into_a_body_that_has_no_paragraphs() {
+        let xml = document("");
+        let written = rewrite_document_xml(
+            &xml,
+            &[],
+            &[],
+            &[DocxInsert {
+                after: None,
+                text: "only".into(),
+            }],
+        )
+        .expect("an insert into an empty body should land");
+        assert!(written.contains("<w:t>only</w:t>"), "{written}");
+        assert!(written.contains("<w:body>"), "{written}");
+    }
+
     /// One paragraph of `xml` replaced by `text`, with the rest of the part untouched.
     fn edited(xml: &str, index: u32, text: &str) -> String {
         rewrite_document_xml(
@@ -1406,7 +1482,7 @@ mod tests {
             &[],
             &[],
             &[DocxInsert {
-                after: 0,
+                after: Some(0),
                 text: "added".into(),
             }],
         )
@@ -1426,7 +1502,7 @@ mod tests {
             &[],
             &[],
             &[DocxInsert {
-                after: 0,
+                after: Some(0),
                 text: "".into(),
             }],
         )
@@ -1445,7 +1521,7 @@ mod tests {
             &[],
             &[],
             &[DocxInsert {
-                after: 0,
+                after: Some(0),
                 text: " b & c".into(),
             }],
         )
@@ -1462,7 +1538,7 @@ mod tests {
             &[],
             &[],
             &[DocxInsert {
-                after: 4,
+                after: Some(4),
                 text: "x".into(),
             }]
         )
@@ -1473,7 +1549,7 @@ mod tests {
             &[],
             &[0],
             &[DocxInsert {
-                after: 0,
+                after: Some(0),
                 text: "x".into(),
             }]
         )
@@ -1494,7 +1570,7 @@ mod tests {
             }],
             &[],
             &[DocxInsert {
-                after: 0,
+                after: Some(0),
                 text: " me".into(),
             }],
             &guard,

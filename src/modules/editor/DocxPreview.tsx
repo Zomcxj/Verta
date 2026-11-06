@@ -145,7 +145,10 @@ export function pendingEdits(
       .sort((left, right) => left[0] - right[0])
       .map(([index, text]) => ({ index, text })),
     deleted: [...deleted].sort((left, right) => left - right),
-    inserts: [...inserts].sort((left, right) => left.after - right.after),
+    // `after: null` is the top of the body, which is in front of paragraph 0 - not equal to it.
+    inserts: [...inserts].sort(
+      (left, right) => (left.after ?? -1) - (right.after ?? -1),
+    ),
   };
 }
 

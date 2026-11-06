@@ -183,6 +183,20 @@ describe("docx editing", () => {
     });
   });
 
+  it("sends a new first line before the rest", () => {
+    // `after: null` is the top of the body. Sorting it as a number put it last, which is the one
+    // place it must not go.
+    expect(
+      pendingEdits(new Map(), new Set(), [
+        { after: 0, text: "second" },
+        { after: null, text: "first" },
+      ]).inserts,
+    ).toEqual([
+      { after: null, text: "first" },
+      { after: 0, text: "second" },
+    ]);
+  });
+
   it("sends the typed paragraphs and the deletions, in document order", () => {
     const texts = new Map([
       [5, "second"],

@@ -54,7 +54,8 @@ export type DocxDocument = {
 export type DocxEdit = { index: number; text: string };
 
 /** A paragraph to add after another one; the document must have the one it names. */
-export type DocxInsert = { after: number; text: string };
+/** A paragraph to add. `after: null` puts it in front of everything in the body. */
+export type DocxInsert = { after: number | null; text: string };
 
 
 
