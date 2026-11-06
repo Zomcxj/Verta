@@ -25,9 +25,9 @@ import {
   needsReread,
 } from "./docxBlocks";
 import {
-  caretOffsetIn,
+  caretInBody,
   normalizeBody,
-  placeCaretIn,
+  placeCaretAtBlock,
   readDraftBlocks,
 } from "./docxBodyDom";
 
@@ -214,10 +214,13 @@ const DocxBody = memo(function DocxBody({
       }}
       onInput={(event) => {
         const body = event.currentTarget;
-        // Flattening may rebuild nodes, so the caret is remembered by text offset and put back.
-        const offset = caretOffsetIn(body);
+        // Flattening may rebuild nodes, so the caret is remembered by line and offset within it and
+        // put back. A text offset alone is not enough: the end of a line and the start of the empty
+        // line below it are the same offset, so after Enter the next keystroke went into the line
+        // above.
+        const caret = caretInBody(body);
         normalizeBody(body);
-        if (offset !== null) placeCaretIn(body, offset);
+        if (caret) placeCaretAtBlock(body, caret.position, caret.offset);
         onEdited();
       }}
       onBlur={() => {
@@ -230,9 +233,16 @@ const DocxBody = memo(function DocxBody({
         if (block.kind === "table") {
           const table = doc.blocks[index];
           if (table?.kind !== "table") return null;
+          // A table has no ordinal and nothing else to be known by: its place in the body is its
+          // identity, and the body is drawn once per read, so that place never moves underneath it.
+          const tableKey = `table-${index}`;
           return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: a table has no ordinal and nothing else to be known by; its position is its identity
-            <div key={`t${index}`} className={classOf(block)} contentEditable={false}>
+            <div
+              key={tableKey}
+              data-block="table"
+              className={classOf(block)}
+              contentEditable={false}
+            >
               <table className="w-full border-collapse text-[12.5px]">
                 <tbody>
                   {tableGrid(table.rows).map((row) => (
@@ -252,18 +262,36 @@ const DocxBody = memo(function DocxBody({
             </div>
           );
         }
+        // A heading is drawn as the heading element it is: the tag carries the structure a reader
+        // (or anything reading the page) uses, and it is still one direct child of the surface, so
+        // the flat shape the writer reads back is unchanged.
+        const Tag = (block.kind.startsWith("h") ? block.kind : "div") as
+          | "div"
+          | "h1"
+          | "h2"
+          | "h3"
+          | "h4"
+          | "h5"
+          | "h6";
         return (
-          <div
+          <Tag
             key={`b${block.ordinal ?? index}`}
             data-block={block.kind}
             data-docx-editable={block.ordinal ?? undefined}
             data-list={block.list ?? undefined}
             data-num-id={block.numId ?? undefined}
+            role={block.kind === "li" ? "listitem" : undefined}
             className={classOf(block)}
           >
             {deleteButton(block.ordinal)}
-            <Runs runs={doc.blocks[index]?.kind === "paragraph" ? doc.blocks[index].runs : []} />
-          </div>
+            <Runs
+              runs={
+                doc.blocks[index]?.kind === "paragraph"
+                  ? doc.blocks[index].runs
+                  : []
+              }
+            />
+          </Tag>
         );
       })}
     </div>
@@ -297,8 +325,10 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
     const timer = useRef<number | null>(null);
     const inFlight = useRef(false);
     const queued = useRef(false);
-    /** Where the caret goes once a re-read has replaced the DOM. */
-    const caretAfter = useRef<number | null>(null);
+    /** Which line the caret goes back into once a re-read has replaced the DOM. */
+    const caretAfter = useRef<{ position: number; offset: number } | null>(
+      null,
+    );
     /** Set when the file changed under us: nothing more is written until it is read again. */
     const stale = useRef(false);
     const [reloadKey, setReloadKey] = useState(0);
@@ -329,7 +359,8 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
         })
         .catch((error: unknown) => {
           if (cancelled) return;
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           setState({ kind: "error", message });
         });
       // A slow read of a file the user has already closed must not land on the next one.
@@ -349,12 +380,12 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
     // on purpose: it is what moves when the read lands, and the body only exists after it does.
     // biome-ignore lint/correctness/useExhaustiveDependencies: runs after a read, which is what `state` marks
     useEffect(() => {
-      const offset = caretAfter.current;
+      const caret = caretAfter.current;
       const body = bodyRef.current;
-      if (offset === null || !body) return;
+      if (caret === null || !body) return;
       caretAfter.current = null;
       body.focus();
-      placeCaretIn(body, offset);
+      placeCaretAtBlock(body, caret.position, caret.offset);
     }, [state]);
 
     const write = useCallback(async () => {
@@ -392,7 +423,7 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
         }));
         setSave({ kind: "saved" });
         if (reread) {
-          caretAfter.current = caretOffsetIn(body);
+          caretAfter.current = caretInBody(body);
           setReloadKey((key) => key + 1);
         }
       } catch (error: unknown) {
@@ -448,9 +479,7 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
     const onDelete = useCallback(
       (ordinal: number) => {
         const body = bodyRef.current;
-        const block = body?.querySelector(
-          `[data-docx-editable="${ordinal}"]`,
-        );
+        const block = body?.querySelector(`[data-docx-editable="${ordinal}"]`);
         if (!body || !block) return;
         block.remove();
         normalizeBody(body);
@@ -565,7 +594,11 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
             data-docx-save={save.kind}
             className="sticky top-0 z-10 flex justify-end bg-background/80 px-3 py-0.5 text-[10.5px] text-muted-foreground"
           >
-            {t(save.kind === "saving" ? "editor.docx.saving" : "editor.docx.saved")}
+            {t(
+              save.kind === "saving"
+                ? "editor.docx.saving"
+                : "editor.docx.saved",
+            )}
           </div>
         ) : null}
         {save.kind === "failed" || save.kind === "stale" ? (
@@ -583,7 +616,11 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, { path: string }>(
               onClick={save.kind === "stale" ? reread : retry}
               className="shrink-0 rounded border border-current/40 px-1.5 py-0.5"
             >
-              {t(save.kind === "stale" ? "editor.docx.reread" : "editor.docx.retry")}
+              {t(
+                save.kind === "stale"
+                  ? "editor.docx.reread"
+                  : "editor.docx.retry",
+              )}
             </button>
           </div>
         ) : null}

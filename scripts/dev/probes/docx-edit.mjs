@@ -43,6 +43,38 @@ const SPLIT_DOCUMENT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </w:body></w:document>`;
 const SPLIT_FILE = "回车测试.docx";
 
+/** Two paragraphs, for the Backspace that joins them. */
+const JOIN_DOCUMENT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:p><w:r><w:t>alpha</w:t></w:r></w:p>
+<w:p><w:r><w:t>beta</w:t></w:r></w:p>
+</w:body></w:document>`;
+const JOIN_FILE = "退格合并.docx";
+
+/** One paragraph, for Enter at the very end of the document. */
+const END_DOCUMENT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:p><w:r><w:t>tail</w:t></w:r></w:p>
+</w:body></w:document>`;
+const END_FILE = "文末回车.docx";
+
+/** Three paragraphs, for a selection that spans them. */
+const CROSS_DOCUMENT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:p><w:r><w:t>alpha</w:t></w:r></w:p>
+<w:p><w:r><w:t>beta</w:t></w:r></w:p>
+<w:p><w:r><w:t>gamma</w:t></w:r></w:p>
+</w:body></w:document>`;
+const CROSS_FILE = "跨段删除.docx";
+
+/** A table above a paragraph: selecting the whole body must not take the table with it. */
+const TABLE_DOCUMENT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+<w:p><w:r><w:t>under</w:t></w:r></w:p>
+</w:body></w:document>`;
+const TABLE_FILE = "表格.docx";
+
 const report = {};
 // Failures are thrown rather than exited on, so the fixture is removed and the tabs closed on the way
 // out.
@@ -162,7 +194,9 @@ const pressUndo = async () => {
   const focused = await evaluate(`(() => {
     const node = (${PANE})?.querySelector("[data-docx-editable]");
     if (!node) return false;
-    node.focus();
+    // The editable surface is the body: a block inside it is not focusable on its own, and keys go
+    // to whatever has the focus.
+    (${PANE})?.querySelector("[data-docx-body]")?.focus();
     return true;
   })()`);
   if (!focused) fail("nothing in the document pane could take focus for Ctrl+Z");
@@ -177,6 +211,43 @@ const pressUndo = async () => {
     });
     await sleep(60);
   }
+};
+
+/** What a carriage return is, without an escape in the source. */
+const ENTER_TEXT = String.fromCharCode(13);
+
+/**
+ * One real key press: keydown and keyup, as the browser would see it.
+ *
+ * `text` is what makes Enter edit anything: sent as a raw key-down it is delivered to the page and
+ * then ignored by the editor, with no `beforeinput` and no change to the DOM (measured on this
+ * WebView2: a plain contenteditable splits on `keyDown` + `text: "
+"`, and does nothing on
+ * `rawKeyDown`). Backspace and Delete are the other way round - they need no text.
+ */
+const pressKey = async (key, code, virtualKeyCode, text) => {
+  for (const type of ["keyDown", "keyUp"]) {
+    await send("Input.dispatchKeyEvent", {
+      type,
+      key,
+      code,
+      windowsVirtualKeyCode: virtualKeyCode,
+      nativeVirtualKeyCode: virtualKeyCode,
+      ...(type === "keyDown" && text ? { text, unmodifiedText: text } : {}),
+    });
+    await sleep(60);
+  }
+};
+
+/** Waits for the pane to finish the save its own handler started. */
+const settle = async () => {
+  await sleep(900);
+  await waitForValue(
+    `((${PANE})?.querySelector("[data-docx-save]")?.getAttribute("data-docx-save") ?? "")`,
+    (value) => value === "saved" || value === "failed" || value === "stale",
+    30000,
+  );
+  await sleep(600);
 };
 
 /** The archive's parts, extracted with PowerShell (Node has no ZIP reader of its own). */
@@ -248,6 +319,12 @@ const placeCaret = (node, offset) => {
 };
 
 try {
+  // Editing keys need the window: a blurred page gets the keydown but no default action, so Enter
+  // did nothing at all and the probe read a document that had not changed.
+  await send("Page.bringToFront");
+  const focused = await evaluate(`document.hasFocus()`);
+  if (!focused) fail("the window is not focused, so no editing key would reach the document");
+
   // ---- The fixture: a real archive, assembled as a folder and zipped by PowerShell. ----
   const path = buildArchive(FILE, DOCUMENT);
   report.fixtureDir = DIR;
@@ -370,7 +447,9 @@ try {
   const placed = await evaluate(`(() => {
     const node = (${PANE})?.querySelector('[data-docx-editable="0"]');
     if (!node) return false;
-    node.focus();
+    // The editable surface is the body: a block inside it is not focusable on its own, and keys go
+    // to whatever has the focus.
+    (${PANE})?.querySelector("[data-docx-body]")?.focus();
     return (${placeCaret.toString()})(node, 4);
   })()`);
   if (!placed) fail("the caret could not be placed inside the paragraph");
@@ -382,6 +461,7 @@ try {
       code: "Enter",
       windowsVirtualKeyCode: 13,
       nativeVirtualKeyCode: 13,
+      ...(type === "keyDown" ? { text: ENTER_TEXT, unmodifiedText: ENTER_TEXT } : {}),
     });
   }
   // A split renumbers everything after it, so the pane reads the file again: two editable paragraphs
@@ -448,9 +528,145 @@ try {
     fail("Ctrl+Z did not restore the paragraph that was split");
   }
 
+  // ---- Backspace at the start of a line joins it to the one above ----
+  const joinPath = buildArchive(JOIN_FILE, JOIN_DOCUMENT);
+  await openFile(joinPath, "the document to join");
+  if (!(await waitFor(`(${PANE})?.querySelectorAll("[data-docx-editable]").length === 2`, 25000))) {
+    fail("the document to join did not open with two paragraphs");
+  }
+  const atStart = await evaluate(`(() => {
+    const node = (${PANE})?.querySelector('[data-docx-editable="1"]');
+    if (!node) return false;
+    // The editable surface is the body: a block inside it is not focusable on its own, and keys go
+    // to whatever has the focus.
+    (${PANE})?.querySelector("[data-docx-body]")?.focus();
+    return (${placeCaret.toString()})(node, 0);
+  })()`);
+  if (!atStart) fail("the caret could not be put at the start of the second paragraph");
+  await pressKey("Backspace", "Backspace", 8);
+  await settle();
+  const joined = readParts(JOIN_FILE);
+  const joinedExpected = JOIN_DOCUMENT.replace(
+    "<w:r><w:t>alpha</w:t></w:r></w:p>",
+    "<w:r><w:t>alphabeta</w:t></w:r></w:p>",
+  ).replace("<w:p><w:r><w:t>beta</w:t></w:r></w:p>", "");
+  // The first paragraph takes the joined text; the second one's element is gone, while the
+  // newline that preceded it stays - only the element's bytes are removed.
+  report.join = { bytes: joined.document.length, expected: joinedExpected.length };
+  if (joined.document !== joinedExpected) {
+    report.joinPart = joined.document.slice(0, 400);
+    fail("Backspace did not join the two lines");
+  }
+
+  // ---- Enter at the very end of the document adds a line that can be typed on ----
+  // The case that was dead before: an empty paragraph was dropped on read, so the caret had nowhere
+  // to land and the second line could never be written.
+  const endPath = buildArchive(END_FILE, END_DOCUMENT);
+  await openFile(endPath, "the document to extend");
+  if (!(await waitFor(`!!(${PANE})?.querySelector('[data-docx-editable="0"]')`, 25000))) {
+    fail("the document to extend did not open");
+  }
+  const atEnd = await evaluate(`(() => {
+    const node = (${PANE})?.querySelector('[data-docx-editable="0"]');
+    if (!node) return false;
+    // The editable surface is the body: a block inside it is not focusable on its own, and keys go
+    // to whatever has the focus.
+    (${PANE})?.querySelector("[data-docx-body]")?.focus();
+    return (${placeCaret.toString()})(node, node.textContent.length);
+  })()`);
+  if (!atEnd) fail("the caret could not be put at the end of the last paragraph");
+  await pressKey("Enter", "Enter", 13, ENTER_TEXT);
+  await sleep(700);
+  await send("Input.insertText", { text: "next" });
+  await settle();
+  const extended = readParts(END_FILE);
+  // Structure rather than bytes here: the new paragraph lands right after the first one, so the
+  // whitespace around it depends on where the writer sliced, and what matters is the two lines and
+  // their text.
+  const extendedTexts = [...extended.document.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(
+    (match) => match[1],
+  );
+  const extendedParagraphs = (extended.document.match(/<w:p[ >]/g) ?? []).length;
+  report.endEnter = { paragraphs: extendedParagraphs, texts: extendedTexts };
+  if (extendedParagraphs !== 2) {
+    fail(`Enter at the end of the document left ${extendedParagraphs} paragraphs, not two`);
+  }
+  if (extendedTexts.join("|") !== "tail|next") {
+    fail(`the two lines read ${JSON.stringify(extendedTexts)}, not tail then next`);
+  }
+
+  // ---- One deletion across three lines ----
+  const crossPath = buildArchive(CROSS_FILE, CROSS_DOCUMENT);
+  await openFile(crossPath, "the document to cut across");
+  if (!(await waitFor(`(${PANE})?.querySelectorAll("[data-docx-editable]").length === 3`, 25000))) {
+    fail("the document to cut across did not open with three paragraphs");
+  }
+  const selected = await evaluate(`(() => {
+    const body = (${PANE})?.querySelector("[data-docx-body]");
+    const first = (${PANE})?.querySelector('[data-docx-editable="0"]');
+    const last = (${PANE})?.querySelector('[data-docx-editable="2"]');
+    if (!body || !first || !last) return false;
+    // The blocks carry the delete affordance first, so the text is found by walking: taking the
+    // first child would put the range on a button.
+    const textIn = (block) => {
+      const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+      return walker.nextNode();
+    };
+    const start = textIn(first);
+    const end = textIn(last);
+    if (!start || !end) return false;
+    const range = document.createRange();
+    range.setStart(start, 2);
+    range.setEnd(end, 2);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    body.focus();
+    return true;
+  })()`);
+  if (!selected) fail("a selection across the three paragraphs could not be made");
+  await pressKey("Delete", "Delete", 46);
+  await settle();
+  const cut = readParts(CROSS_FILE);
+  const shown = await evaluate(
+    `((${PANE})?.querySelector("[data-docx-body]")?.textContent ?? "").trim()`,
+  );
+  const paragraphsInCut = cut.document.match(/<w:p[ >]/g) ?? [];
+  report.crossDelete = { paragraphs: paragraphsInCut.length, text: shown };
+  if (paragraphsInCut.length !== 1) {
+    fail(`a deletion across three lines left ${paragraphsInCut.length} paragraphs in the file`);
+  }
+  if (!cut.document.includes(`<w:t>${shown}</w:t>`)) {
+    fail(`the file's one paragraph is not the text the pane shows (${JSON.stringify(shown)})`);
+  }
+
+  // ---- A table is not deleted by a selection over the whole body ----
+  const tablePath = buildArchive(TABLE_FILE, TABLE_DOCUMENT);
+  await openFile(tablePath, "the document with a table");
+  if (!(await waitFor(`!!(${PANE})?.querySelector("[data-docx-body] table")`, 25000))) {
+    fail("the document with a table did not open with the table drawn");
+  }
+  await evaluate(`(() => {
+    const body = (${PANE})?.querySelector("[data-docx-body]");
+    const range = document.createRange();
+    range.selectNodeContents(body);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    body.focus();
+    return true;
+  })()`);
+  await pressKey("Delete", "Delete", 46);
+  await settle();
+  const withTable = readParts(TABLE_FILE);
+  report.tableKept = withTable.document.includes("<w:tbl>");
+  if (!report.tableKept) {
+    fail("selecting the whole body and deleting took the table with it");
+  }
+
   report.ok = true;
   console.log(
-    `PASS: 就地改了第 1 段、删了第 2 段，并在另一份文档里用回车把一段拆成两段；停手后自动保存，磁盘上的 document.xml 与「原文只做这三处改动」逐字节相同（编辑 ${after.document.length} 字节、拆段 ${split.document.length} 字节），styles.xml 一个字节没动；Ctrl+Z 把「改字+删段」和「回车拆段」都还原成了原样。`,
+    `PASS: 就地改了第 1 段、删了第 2 段，并在另一份文档里用回车把一段拆成两段；停手后自动保存，磁盘上的 document.xml 与「原文只做这三处改动」逐字节相同（编辑 ${after.document.length} 字节、拆段 ${split.document.length} 字节），styles.xml 一个字节没动；Ctrl+Z 把「改字+删段」和「回车拆段」都还原成了原样；退格把两段并成一段、文末回车的第二行写得进去、跨段删除只留下一段、整篇删空也不伤表格。`,
   );
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {

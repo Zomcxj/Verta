@@ -109,8 +109,20 @@ describe("the document body is one editable surface", () => {
   it("normalises the DOM after the browser has edited it", () => {
     expect(preview).toMatch(/normalizeBody\(body\)/);
     expect(preview).toMatch(/readDraftBlocks\(body\)/);
-    // Flattening rebuilds nodes, so the caret is carried across it by text offset.
-    expect(preview).toMatch(/placeCaretIn\(body, offset\)/);
+    // Flattening rebuilds nodes, so the caret is carried across it - by line and offset within it,
+    // because the end of a line and the start of the empty line below it are the same text offset.
+    const handlerAt = preview.indexOf("onInput={");
+    const normalizeAt = preview.indexOf("normalizeBody(body)", handlerAt);
+    const restoreAt = preview.indexOf(
+      "placeCaretAtBlock(body, caret.position, caret.offset)",
+      normalizeAt,
+    );
+    expect(handlerAt).toBeGreaterThan(-1);
+    expect(normalizeAt).toBeGreaterThan(handlerAt);
+    expect(restoreAt).toBeGreaterThan(normalizeAt);
+    // The offset-only pair is gone: it is what put the caret back at the end of the line above.
+    expect(preview).not.toMatch(/placeCaretIn\(/);
+    expect(preview).not.toMatch(/caretOffsetIn\(/);
     expect(body).toMatch(/export function normalizeBody/);
     expect(body).toMatch(/export function markLists/);
   });
@@ -128,6 +140,16 @@ describe("the document body is one editable surface", () => {
     expect(preview).toMatch(
       /if \(edits\.length === 0 && deleted\.length === 0 && inserts\.length === 0\) \{/,
     );
+  });
+
+  it("puts the caret back in the line it was in, not at that text offset", () => {
+    // Enter at the end of a line leaves the caret in the new empty one. Restored by text offset it
+    // landed at the end of the line above - the two positions have the same offset, because an empty
+    // block adds no characters - and the next keystroke typed into the wrong paragraph.
+    expect(body).toMatch(/export function caretInBody/);
+    expect(body).toMatch(/export function placeCaretAtBlock/);
+    expect(preview).toMatch(/caretInBody\(body\)/);
+    expect(preview).toMatch(/placeCaretAtBlock\(/);
   });
 
   it("re-reads only when a write moved the blocks around", () => {

@@ -160,8 +160,12 @@ const readDocument = () =>
     return {
       text: (pane.innerText || "").replace(/\\s+/g, " ").trim(),
       headings: [...pane.querySelectorAll("h1, h2, h3")].map((h) => (h.innerText || "").trim()),
-      listItems: [...pane.querySelectorAll("li")].map((li) => (li.innerText || "").trim()),
-      listKind: [...pane.querySelectorAll("ol, ul")].map((l) => l.tagName.toLowerCase()),
+      // The body is one editable surface, so a list item is a block of its own rather than an li
+      // inside an ol: a wrapper would put the paragraph two levels down and the writer reads
+      // paragraphs back from the direct children. role=listitem and data-list carry what the element
+      // no longer does.
+      listItems: [...pane.querySelectorAll('[data-block="li"]')].map((li) => (li.innerText || "").trim()),
+      listKind: [...pane.querySelectorAll('[data-block="li"]')].map((li) => (li.getAttribute("data-list") || "").replace("number", "ol").replace("bullet", "ul")),
       bold: [...pane.querySelectorAll("strong, .font-semibold")].map((b) => (b.innerText || "").trim()),
       cells: [...pane.querySelectorAll("table td")].map((td) => (td.innerText || "").trim()),
       rowCount: rows.length,

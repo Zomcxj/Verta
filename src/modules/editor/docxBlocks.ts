@@ -7,7 +7,16 @@ import type { DocxDocument, DocxEdit, DocxInsert } from "@/lib/native";
  * the DOM: each direct child carries the kind it was drawn as, and a child the browser created on its
  * own inherits the kind of the block above it.
  */
-export type BlockKind = "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "li" | "table";
+export type BlockKind =
+  | "p"
+  | "h1"
+  | "h2"
+  | "h3"
+  | "h4"
+  | "h5"
+  | "h6"
+  | "li"
+  | "table";
 
 /** One block as the pane has it on screen right now. */
 export type DraftBlock = {
@@ -49,7 +58,8 @@ export function kindFromDataset(
   fallback: BlockKind,
 ): Pick<DraftBlock, "kind" | "list" | "numId"> {
   const claimed = dataset.block;
-  const kind = claimed && KINDS.has(claimed) ? (claimed as BlockKind) : fallback;
+  const kind =
+    claimed && KINDS.has(claimed) ? (claimed as BlockKind) : fallback;
   if (kind !== "li") return { kind, list: null, numId: null };
   const numId = dataset.numId ? Number.parseInt(dataset.numId, 10) : Number.NaN;
   return {
@@ -68,7 +78,10 @@ export function readBlocks(
   for (const row of rows) {
     const claimed = row.dataset.block;
     if (claimed && KINDS.has(claimed)) {
-      blocks.push({ ...kindFromDataset(row.dataset, fallback), text: row.text });
+      blocks.push({
+        ...kindFromDataset(row.dataset, fallback),
+        text: row.text,
+      });
     } else {
       const previous = blocks[blocks.length - 1];
       const kind = previous?.kind ?? fallback;
@@ -89,7 +102,13 @@ export function blocksFromDocument(document: DocxDocument): BaselineBlock[] {
     if (block.kind === "table") {
       // A table has no paragraph ordinal of its own: it is drawn, and it is not editable, so it never
       // takes part in what is written back.
-      return { kind: "table", list: null, numId: null, text: "", ordinal: null };
+      return {
+        kind: "table",
+        list: null,
+        numId: null,
+        text: "",
+        ordinal: null,
+      };
     }
     const kind: BlockKind = block.heading
       ? (`h${block.heading}` as BlockKind)
@@ -123,13 +142,25 @@ export function needsReread(
   baseline: BaselineBlock[],
   draft: DraftBlock[],
 ): boolean {
-  if (baseline.length !== draft.length) return true;
-  return baseline.some(
+  const written = writable(baseline);
+  if (written.length !== draft.length) return true;
+  return written.some(
     (block, index) =>
       block.kind !== draft[index].kind ||
       block.list !== draft[index].list ||
       block.numId !== draft[index].numId,
   );
+}
+
+/**
+ * The blocks the writer can address.
+ *
+ * A table is drawn, not typed into, and it has no paragraph ordinal: counting one as a block would
+ * report every paragraph after it as moved - a re-read after every keystroke, and an alignment that
+ * pairs a paragraph with a table.
+ */
+function writable(blocks: BaselineBlock[]): BaselineBlock[] {
+  return blocks.filter((block) => block.kind !== "table");
 }
 
 /**
@@ -142,9 +173,10 @@ export function needsReread(
  * one edit rather than a deletion plus an insertion.
  */
 export function alignBlocks(
-  baseline: BaselineBlock[],
+  all: BaselineBlock[],
   draft: DraftBlock[],
 ): { edits: DocxEdit[]; deleted: number[]; inserts: DocxInsert[] } {
+  const baseline = writable(all);
   const edits: DocxEdit[] = [];
   const deleted: number[] = [];
   const inserts: DocxInsert[] = [];
@@ -169,7 +201,7 @@ export function alignBlocks(
     tail += 1;
   }
 
-  const from = baseline.slice(head, baseline.length - tail);
+  const from = writable(baseline).slice(head, baseline.length - tail);
   const to = draft.slice(head, draft.length - tail);
 
   /** The paragraph a new block goes after: the last one still in the file, or the top of the body. */
@@ -232,7 +264,10 @@ function commonSubsequence(
       const at = i * (columns + 1) + j;
       table[at] = sameBlock(from[i], to[j])
         ? table[(i + 1) * (columns + 1) + j + 1] + 1
-        : Math.max(table[(i + 1) * (columns + 1) + j], table[i * (columns + 1) + j + 1]);
+        : Math.max(
+            table[(i + 1) * (columns + 1) + j],
+            table[i * (columns + 1) + j + 1],
+          );
     }
   }
   const pairs: [number, number][] = [];

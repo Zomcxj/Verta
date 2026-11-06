@@ -78,6 +78,22 @@ describe("block alignment", () => {
     ).toEqual({ edits: [{ index: 1, text: "two" }], deleted: [], inserts: [] });
   });
 
+  it("leaves a table out of the comparison entirely", () => {
+    // A table has no paragraph ordinal and cannot be written back, so it is neither an edit nor a
+    // deletion: counting it as a block would report every paragraph after it as moved.
+    const table: BaselineBlock = {
+      kind: "table",
+      list: null,
+      numId: null,
+      text: "",
+      ordinal: null,
+    };
+    expect(
+      alignBlocks([p("one", 0), table, p("two", 1)], [draft("one"), draft("TWO")]),
+    ).toEqual({ edits: [{ index: 1, text: "TWO" }], deleted: [], inserts: [] });
+    expect(needsReread([p("one", 0), table], [draft("ONE")])).toBe(false);
+  });
+
   it("does not send a paragraph that is unchanged", () => {
     expect(alignBlocks([p("one", 0)], [draft("one")])).toEqual({
       edits: [],

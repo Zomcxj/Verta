@@ -2,7 +2,18 @@ import type { BlockKind, DraftBlock } from "./docxBlocks";
 import { readBlocks } from "./docxBlocks";
 
 /** Elements that end the line they are in when the browser creates them inside a block. */
-const LINE_BREAKERS = new Set(["BR", "DIV", "P", "LI", "H1", "H2", "H3", "H4", "H5", "H6"]);
+const LINE_BREAKERS = new Set([
+  "BR",
+  "DIV",
+  "P",
+  "LI",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+]);
 
 /**
  * The text of one block, which is what the writer stores.
@@ -21,7 +32,11 @@ export function readDraftBlocks(body: HTMLElement): DraftBlock[] {
     [...body.children]
       .filter(
         (child): child is HTMLElement =>
-          child instanceof HTMLElement && child.hasAttribute("data-block"),
+          child instanceof HTMLElement &&
+          child.hasAttribute("data-block") &&
+          // A table is drawn from joined cell strings and has no ordinal: it is not something the
+          // writer can take, so it is not part of what is read back.
+          child.getAttribute("data-block") !== "table",
       )
       .map((block) => ({
         dataset: block.dataset,
@@ -53,7 +68,8 @@ function freshBlock(source: HTMLElement, kind: BlockKind): HTMLElement {
  * the model has one line per paragraph, so they are cut apart here. `null` means one line already.
  */
 function splitLines(block: HTMLElement): HTMLElement[] | null {
-  if (!block.querySelector("br, div, p, li, h1, h2, h3, h4, h5, h6")) return null;
+  if (!block.querySelector("br, div, p, li, h1, h2, h3, h4, h5, h6"))
+    return null;
   const kind = (block.getAttribute("data-block") ?? "p") as BlockKind;
   const lines: HTMLElement[] = [];
   let line = freshBlock(block, kind);
@@ -83,7 +99,9 @@ function splitLines(block: HTMLElement): HTMLElement[] | null {
   while (lines.length > 1 && lines[lines.length - 1].childNodes.length === 0) {
     lines.pop();
   }
-  return lines;
+  // One line is not a split: replacing the block for that would throw away the `<br>` that gives an
+  // empty line somewhere for the caret to sit.
+  return lines.length > 1 ? lines : null;
 }
 
 /** The children of a nested block, as line contents. */
@@ -118,7 +136,8 @@ function nestedLines(node: HTMLElement): Node[][] {
 export function normalizeBody(body: HTMLElement): void {
   // A bare element (Enter's own `<div>`) is a block of whatever the block above it was.
   for (const child of [...body.childNodes]) {
-    if (child instanceof HTMLElement && child.hasAttribute("data-block")) continue;
+    if (child instanceof HTMLElement && child.hasAttribute("data-block"))
+      continue;
     if (child instanceof HTMLElement) {
       const previous = child.previousElementSibling as HTMLElement | null;
       const kind = (previous?.getAttribute("data-block") ?? "p") as BlockKind;
@@ -131,7 +150,10 @@ export function normalizeBody(body: HTMLElement): void {
       }
       continue;
     }
-    if (child.nodeType === Node.TEXT_NODE && (child.textContent ?? "").trim() === "") {
+    if (
+      child.nodeType === Node.TEXT_NODE &&
+      (child.textContent ?? "").trim() === ""
+    ) {
       body.removeChild(child);
       continue;
     }
@@ -188,42 +210,78 @@ export function markLists(body: HTMLElement): void {
   }
 }
 
-/** How far into the body's text the caret is, counting every block's characters in order. */
-export function caretOffsetIn(body: HTMLElement): number | null {
+/** Which block the caret is in, and how far into it: the position survives a re-read, an offset
+ *  shared by two blocks does not (the end of a line and the start of the empty one below it are the
+ *  same text offset). */
+export function caretInBody(
+  body: HTMLElement,
+): { position: number; offset: number } | null {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
   const range = selection.getRangeAt(0);
-  if (!body.contains(range.startContainer)) return null;
-  const before = document.createRange();
-  before.selectNodeContents(body);
-  before.setEnd(range.startContainer, range.startOffset);
-  return before.toString().length;
+  let block: HTMLElement | null = null;
+  let node: Node | null = range.startContainer;
+  while (node && node.parentNode !== body) node = node.parentNode;
+  if (node instanceof HTMLElement) block = node;
+  if (!block) return null;
+  const position = [...body.children].indexOf(block);
+  if (position < 0) return null;
+  const start = document.createRange();
+  start.selectNodeContents(block);
+  start.setEnd(range.startContainer, range.startOffset);
+  return { position, offset: start.toString().length };
 }
 
-/** Put the caret back at a character offset into the body's text. */
-export function placeCaretIn(body: HTMLElement, offset: number): void {
-  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
-  let remaining = offset;
-  let node = walker.nextNode();
-  while (node) {
-    const length = node.textContent?.length ?? 0;
-    if (remaining <= length) {
-      const range = document.createRange();
-      range.setStart(node, remaining);
-      range.collapse(true);
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      return;
-    }
-    remaining -= length;
-    node = walker.nextNode();
+/** Put the caret back into a block by its position in the body. */
+export function placeCaretAtBlock(
+  body: HTMLElement,
+  position: number,
+  offset: number,
+): void {
+  const blocks = [...body.children].filter(
+    (child): child is HTMLElement => child instanceof HTMLElement,
+  );
+  if (blocks.length === 0) return;
+  const block = blocks[Math.min(position, blocks.length - 1)];
+  const located = textPositionIn(block, offset);
+  if (located) {
+    setCaret(located.node, located.offset);
+    return;
   }
-  const last = body.lastElementChild;
-  if (!last) return;
+  // An empty line has no text node to sit in, and a caret placed on the element itself is
+  // canonicalised by the browser to the nearest text position - the end of the line above - so
+  // typing after Enter went into the previous paragraph. A `<br>` last in the line gives it a
+  // position of its own; last, because the line also holds what it draws but does not own (the
+  // delete affordance is `contenteditable=false`, so a caret in front of it belongs nowhere).
+  const br = document.createElement("br");
+  block.appendChild(br);
+  setCaret(block, block.childNodes.length - 1);
+}
+
+/** Where `offset` characters into a block's own text is, skipping what the block only draws. */
+function textPositionIn(
+  block: HTMLElement,
+  offset: number,
+): { node: Text; offset: number } | null {
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      node.parentElement?.closest('[contenteditable="false"]')
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT,
+  });
+  let remaining = offset;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const length = node.textContent?.length ?? 0;
+    if (remaining <= length) return { node: node as Text, offset: remaining };
+    remaining -= length;
+  }
+  return null;
+}
+
+function setCaret(node: Node, offset: number): void {
   const range = document.createRange();
-  range.selectNodeContents(last);
-  range.collapse(false);
+  range.setStart(node, offset);
+  range.collapse(true);
   const selection = window.getSelection();
   selection?.removeAllRanges();
   selection?.addRange(range);
