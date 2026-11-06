@@ -12,6 +12,38 @@ export type DocxRun = {
   bold: boolean;
   italic: boolean;
   underline: boolean;
+  /** Point size, when the file names one. */
+  size: number | null;
+  /** `#rrggbb`, when the run is not the document's own text colour. */
+  color: string | null;
+  /** The font the run names, Latin or East Asian. */
+  font: string | null;
+  /** A picture in this run, as a `data:` URL. */
+  image: string | null;
+  /** The size the document draws it at, in px. */
+  imageWidth: number | null;
+  imageHeight: number | null;
+};
+
+/** A paragraph's indents, in twips; a negative `firstLine` is a hanging indent. */
+export type DocxIndent = { left: number | null; firstLine: number | null };
+
+/** Space around a paragraph, in twips; `line` is 240ths of a line for `auto`, twips otherwise. */
+export type DocxSpacing = {
+  before: number | null;
+  after: number | null;
+  line: number | null;
+  lineRule: string | null;
+};
+
+/** The section's paper, in twips. */
+export type DocxPage = {
+  width: number | null;
+  height: number | null;
+  marginTop: number | null;
+  marginRight: number | null;
+  marginBottom: number | null;
+  marginLeft: number | null;
 };
 
 export type DocxBlock =
@@ -25,10 +57,17 @@ export type DocxBlock =
        */
       index: number;
       heading: number | null;
-      list: { ordered: boolean; level: number } | null;
+      /** `numId` names the numbering definition: two adjacent lists with different ids are two lists. */
+      list: { ordered: boolean; level: number; numId: number } | null;
       runs: DocxRun[];
+      /** `left` / `center` / `right` / `both`; absent means left. */
+      align: string | null;
+      /** The size its text inherits, in points - what an empty line is as tall as. */
+      size: number | null;
+      indent: DocxIndent | null;
+      spacing: DocxSpacing | null;
     }
-  | { kind: "table"; rows: string[][] };
+  | { kind: "table"; rows: DocxRun[][][] };
 
 /**
  * What the file looked like when it was read.
@@ -42,6 +81,8 @@ export type DocxGuard = { size: number; modifiedMs: number };
  * block ceiling and what is here is its beginning. */
 export type DocxDocument = {
   blocks: DocxBlock[];
+  /** The paper the section declares; absent means the pane draws A4. */
+  page: DocxPage | null;
   truncated: boolean;
   /** Whether the pane may edit this document in place; a truncated read may not be written back. */
   editable: boolean;
@@ -49,11 +90,26 @@ export type DocxDocument = {
   guard: DocxGuard;
 };
 
+/**
+ * A `.csv` as a table, read by the Rust side.
+ *
+ * The pane draws it and edits cells; the parsing (delimiter, quoting, encoding) is not the frontend's
+ * business.
+ */
+export type CsvDocument = {
+  delimiter: string;
+  rows: string[][];
+  columns: number;
+  truncated: boolean;
+  guard: DocxGuard;
+};
+
 /** One paragraph's new text, addressed by its ordinal. */
 export type DocxEdit = { index: number; text: string };
 
 /** A paragraph to add after another one; the document must have the one it names. */
-export type DocxInsert = { after: number; text: string };
+/** A paragraph to add. `after: null` puts it in front of everything in the body. */
+export type DocxInsert = { after: number | null; text: string };
 
 
 
@@ -717,6 +773,34 @@ export const native = {
     }),
   // A `.docx` is not a text file and not an image, so it has a reader of its own: the archive is
   // opened in Rust and comes back as blocks. See `src/modules/editor/DocxPreview.tsx`.
+  /** A `.csv` as a table. Read-only; a cell is changed through `writeCsvCell`. */
+  readCsv: (path: string) =>
+    invoke<CsvDocument>("fs_read_csv", {
+      path,
+      workspace: envForPath(path),
+    }),
+  /**
+   * Change one field of a `.csv`.
+   *
+   * Only that field's bytes are replaced, so the file's own quoting, line endings and untouched
+   * fields come back exactly as they were. `guard` is the identity the pane read; a file that has
+   * changed since is refused rather than merged.
+   */
+  writeCsvCell: (
+    path: string,
+    row: number,
+    column: number,
+    text: string,
+    guard: DocxGuard,
+  ) =>
+    invoke<DocxGuard>("fs_write_csv_cell", {
+      path,
+      row,
+      column,
+      text,
+      guard,
+      workspace: envForPath(path),
+    }),
   readDocx: (path: string) =>
     invoke<DocxDocument>("fs_read_docx", {
       path,

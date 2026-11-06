@@ -1,0 +1,298 @@
+import type { BlockKind, DraftBlock } from "./docxBlocks";
+import { readBlocks } from "./docxBlocks";
+
+/** Elements that end the line they are in when the browser creates them inside a block. */
+const LINE_BREAKERS = new Set([
+  "BR",
+  "DIV",
+  "P",
+  "LI",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+]);
+
+/**
+ * The text of one block, which is what the writer stores.
+ *
+ * `textContent`, not `innerText`: `innerText` honours CSS (a hidden block would read as empty) and it
+ * costs a layout on every keystroke. The browser's own line breaks are flattened into blocks by
+ * `normalizeBody` before this is ever asked, so a block holds one line.
+ */
+export function textOfBlock(block: HTMLElement): string {
+  return (block.textContent ?? "").replace(/\u00a0/g, " ");
+}
+
+/** The blocks of the body as the model wants them, in document order. */
+export function readDraftBlocks(body: HTMLElement): DraftBlock[] {
+  return readBlocks(
+    [...body.children]
+      .filter(
+        (child): child is HTMLElement =>
+          child instanceof HTMLElement &&
+          child.hasAttribute("data-block") &&
+          // A table is drawn from joined cell strings and has no ordinal: it is not something the
+          // writer can take, so it is not part of what is read back.
+          child.getAttribute("data-block") !== "table",
+      )
+      .map((block) => ({
+        dataset: block.dataset,
+        text: textOfBlock(block),
+      })),
+    "p",
+  );
+}
+
+/**
+ * The node's own line, as a fresh block: the attributes of the block it came out of, with nothing on
+ * the paragraph ordinal - the next read is what numbers it.
+ */
+function freshBlock(source: HTMLElement, kind: BlockKind): HTMLElement {
+  const block = document.createElement("div");
+  block.setAttribute("data-block", kind);
+  const list = source.dataset.list;
+  if (kind === "li" && list) block.setAttribute("data-list", list);
+  const numId = source.dataset.numId;
+  if (kind === "li" && numId) block.setAttribute("data-num-id", numId);
+  return block;
+}
+
+/**
+ * The lines inside one block.
+ *
+ * Everything the browser can do while typing - a soft break, a pasted multiline string, Enter inside
+ * an inline element - ends up as a `<br>` or a nested block element. Each of those ends the line, and
+ * the model has one line per paragraph, so they are cut apart here. `null` means one line already.
+ */
+function splitLines(block: HTMLElement): HTMLElement[] | null {
+  if (!block.querySelector("br, div, p, li, h1, h2, h3, h4, h5, h6"))
+    return null;
+  const kind = (block.getAttribute("data-block") ?? "p") as BlockKind;
+  const lines: HTMLElement[] = [];
+  let line = freshBlock(block, kind);
+  const push = () => {
+    lines.push(line);
+    line = freshBlock(block, kind);
+  };
+  const children = [...block.childNodes];
+  // Exactly one trailing `<br>` is the browser's way of keeping a caret in an empty last line: it
+  // ends the line rather than starting another. Dropping only that one is what lets a real blank
+  // line survive - the loop this replaced took every empty line at the end, so two Enters came back
+  // as none.
+  if (children[children.length - 1]?.nodeName === "BR") children.pop();
+  for (const node of children) {
+    if (node instanceof HTMLElement && LINE_BREAKERS.has(node.tagName)) {
+      if (node.tagName === "BR") {
+        push();
+        continue;
+      }
+      // A nested block: its own lines belong to the outer sequence, in order.
+      for (const inner of nestedLines(node)) {
+        for (const content of inner) line.appendChild(content);
+        push();
+      }
+      // The nested element's last line is empty when it ended with a break; keep it as a line.
+      continue;
+    }
+    line.appendChild(node);
+  }
+  lines.push(line);
+  // One line is not a split: replacing the block for that would throw away the `<br>` that gives an
+  // empty line somewhere for the caret to sit.
+  return lines.length > 1 ? lines : null;
+}
+
+/** The children of a nested block, as line contents. */
+function nestedLines(node: HTMLElement): Node[][] {
+  const lines: Node[][] = [[]];
+  for (const child of [...node.childNodes]) {
+    if (child instanceof HTMLElement && LINE_BREAKERS.has(child.tagName)) {
+      if (child.tagName === "BR") {
+        lines.push([]);
+        continue;
+      }
+      for (const inner of nestedLines(child)) {
+        lines[lines.length - 1].push(...inner);
+        lines.push([]);
+      }
+      continue;
+    }
+    lines[lines.length - 1].push(child);
+  }
+  if (lines.length > 1 && lines[lines.length - 1].length === 0) lines.pop();
+  return lines;
+}
+
+/**
+ * Make the DOM say what the model says: one direct child per paragraph, in order.
+ *
+ * The browser answers Enter, Backspace and a paste in its own way - a bare `<div>`, a `<br>`, a
+ * nested `<p>` - and nothing in the writer can take those. Whatever it made is flattened into the one
+ * shape the pane reads back. Only structure is touched: text nodes are moved, never rewritten, so the
+ * input method's composition is not disturbed.
+ */
+export function normalizeBody(body: HTMLElement): boolean {
+  let changed = false;
+  // A bare element (Enter's own `<div>`) is a block of whatever the block above it was.
+  for (const child of [...body.childNodes]) {
+    if (child instanceof HTMLElement && child.hasAttribute("data-block"))
+      continue;
+    if (child instanceof HTMLElement) {
+      const previous = child.previousElementSibling as HTMLElement | null;
+      const kind = (previous?.getAttribute("data-block") ?? "p") as BlockKind;
+      child.setAttribute("data-block", kind);
+      changed = true;
+      if (kind === "li" && previous?.dataset.list) {
+        child.setAttribute("data-list", previous.dataset.list);
+        if (previous.dataset.numId) {
+          child.setAttribute("data-num-id", previous.dataset.numId);
+        }
+      }
+      continue;
+    }
+    if (
+      child.nodeType === Node.TEXT_NODE &&
+      (child.textContent ?? "").trim() === ""
+    ) {
+      body.removeChild(child);
+      continue;
+    }
+    // Stray text directly under the body: give it a paragraph of its own.
+    changed = true;
+    const wrap = document.createElement("div");
+    wrap.setAttribute("data-block", "p");
+    body.replaceChild(wrap, child);
+    wrap.appendChild(child);
+  }
+
+  for (const block of [...body.children]) {
+    if (!(block instanceof HTMLElement)) continue;
+    const lines = splitLines(block);
+    if (!lines) continue;
+    changed = true;
+    for (const line of lines) body.insertBefore(line, block);
+    body.removeChild(block);
+  }
+
+  if (body.children.length === 0) {
+    body.appendChild(freshBlock(body, "p"));
+    changed = true;
+  }
+
+  markLists(body);
+  return changed;
+}
+
+/**
+ * Number what the list items show, in the DOM rather than in the text.
+ *
+ * The marker is a pseudo-element (see `globals.css`), so it is never part of a paragraph's text: a
+ * copied line does not carry it, and the writer never sees it. Word numbers per numbering definition,
+ * so the counter restarts whenever the definition changes.
+ */
+export function markLists(body: HTMLElement): void {
+  let numId: string | null = null;
+  let count = 0;
+  for (const block of body.children) {
+    if (!(block instanceof HTMLElement)) continue;
+    const kind = block.getAttribute("data-block");
+    if (kind !== "li") {
+      numId = null;
+      count = 0;
+      block.removeAttribute("data-marker");
+      continue;
+    }
+    const id = block.getAttribute("data-num-id");
+    if (id !== numId) {
+      numId = id;
+      count = 0;
+    }
+    count += 1;
+    const ordered = block.getAttribute("data-list") === "number";
+    block.setAttribute("data-marker", ordered ? `${count}.` : "•");
+    block.classList.add("verta-docx-marker");
+  }
+}
+
+/** Which block the caret is in, and how far into it: the position survives a re-read, an offset
+ *  shared by two blocks does not (the end of a line and the start of the empty one below it are the
+ *  same text offset). */
+export function caretInBody(
+  body: HTMLElement,
+): { position: number; offset: number } | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  let block: HTMLElement | null = null;
+  let node: Node | null = range.startContainer;
+  while (node && node.parentNode !== body) node = node.parentNode;
+  if (node instanceof HTMLElement) block = node;
+  if (!block) return null;
+  const position = [...body.children].indexOf(block);
+  if (position < 0) return null;
+  const start = document.createRange();
+  start.selectNodeContents(block);
+  start.setEnd(range.startContainer, range.startOffset);
+  return { position, offset: start.toString().length };
+}
+
+/** Put the caret back into a block by its position in the body. */
+export function placeCaretAtBlock(
+  body: HTMLElement,
+  position: number,
+  offset: number,
+): void {
+  const blocks = [...body.children].filter(
+    (child): child is HTMLElement => child instanceof HTMLElement,
+  );
+  if (blocks.length === 0) return;
+  const block = blocks[Math.min(position, blocks.length - 1)];
+  const located = textPositionIn(block, offset);
+  if (located) {
+    setCaret(located.node, located.offset);
+    return;
+  }
+  // An empty line has no text node to sit in, and a caret placed on the element itself is
+  // canonicalised by the browser to the nearest text position - the end of the line above - so
+  // typing after Enter went into the previous paragraph. A `<br>` last in the line gives it a
+  // position of its own; last, because the line also holds what it draws but does not own (the
+  // delete affordance is `contenteditable=false`, so a caret in front of it belongs nowhere).
+  //
+  // A line that already ends in a `<br>` - drawn empty, or left by the browser's own Enter - is not
+  // given a second one: two of them are two lines, and the caret between them is at the end of the
+  // first, so the next keystroke started a new paragraph instead of filling this one.
+  if (block.lastChild?.nodeName !== "BR") block.appendChild(document.createElement("br"));
+  setCaret(block, block.childNodes.length - 1);
+}
+
+/** Where `offset` characters into a block's own text is, skipping what the block only draws. */
+function textPositionIn(
+  block: HTMLElement,
+  offset: number,
+): { node: Text; offset: number } | null {
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      node.parentElement?.closest('[contenteditable="false"]')
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT,
+  });
+  let remaining = offset;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const length = node.textContent?.length ?? 0;
+    if (remaining <= length) return { node: node as Text, offset: remaining };
+    remaining -= length;
+  }
+  return null;
+}
+
+function setCaret(node: Node, offset: number): void {
+  const range = document.createRange();
+  range.setStart(node, offset);
+  range.collapse(true);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}

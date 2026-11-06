@@ -1157,3 +1157,17 @@ html[data-window-inactive]:not([data-window-hidden]) .verta-state-indicator * {
     opacity: 1;
   }
 }
+
+/* A document's list marker.
+   A pseudo-element rather than an element inside the line: it is never part of the paragraph's text,
+   so copying a line does not carry it and the writer never stores it. */
+.verta-docx-marker::before {
+  content: attr(data-marker);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1.1rem;
+  text-align: right;
+  color: color-mix(in oklab, currentColor 55%, transparent);
+  font-variant-numeric: tabular-nums;
+}

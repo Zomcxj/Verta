@@ -29,17 +29,69 @@ use super::workspace::{
 const MAX_DOCUMENT_BYTES: u64 = 16 * 1024 * 1024;
 /// The numbering part is a lookup table, never a document.
 const MAX_NUMBERING_BYTES: u64 = 4 * 1024 * 1024;
+/// Styles and theme are lookups, not documents; a generated one can still be large.
+const MAX_STYLES_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_THEME_BYTES: u64 = 2 * 1024 * 1024;
+/// One picture, and all of them together: a photo-heavy document is megabytes, and every byte
+/// of it crosses IPC inside one JSON string.
+const MAX_IMAGE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_IMAGES_BYTES: u64 = 16 * 1024 * 1024;
+/// EMU (English Metric Units) to CSS pixels at 96 dpi: 914400 EMU to the inch.
+const EMU_PER_PX: f64 = 9525.0;
 /// Documents are read to be looked at, and the frontend renders every block as an element; a bound
 /// keeps a 10 MB file from becoming a million nodes.
 const MAX_BLOCKS: usize = 20_000;
 
-#[derive(Serialize, Debug, Default, PartialEq, Eq, Clone)]
+#[derive(Serialize, Debug, Default, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Run {
     pub text: String,
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    /// Point size, when the file names one (`w:sz` is in half-points).
+    pub size: Option<f32>,
+    /// `#rrggbb`; Word's `auto` is not a colour and reads as none.
+    pub color: Option<String>,
+    /// The font the run names, Latin or East Asian, whichever it names.
+    pub font: Option<String>,
+    /// A picture in this run, as a `data:` URL. Word keeps the bytes in `word/media/`, and the pane
+    /// has nothing else to read them from.
+    pub image: Option<String>,
+    /// The size the document draws it at, in px; absent means "as it is".
+    pub image_width: Option<f32>,
+    pub image_height: Option<f32>,
+}
+
+/// A paragraph's box: indents, in twips (1/20 pt), negative for a hanging indent.
+#[derive(Serialize, Debug, Default, PartialEq, Eq, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Indent {
+    pub left: Option<i32>,
+    pub first_line: Option<i32>,
+}
+
+/// Space around and inside a paragraph, in twips; `line` is in twips for an exact rule and in
+/// 240ths of a line for `auto`.
+#[derive(Serialize, Debug, Default, PartialEq, Eq, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Spacing {
+    pub before: Option<i32>,
+    pub after: Option<i32>,
+    pub line: Option<i32>,
+    pub line_rule: Option<String>,
+}
+
+/// The paper: page size and margins, in twips. The pane draws a sheet of this shape.
+#[derive(Serialize, Debug, Default, PartialEq, Eq, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Page {
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+    pub margin_top: Option<i32>,
+    pub margin_right: Option<i32>,
+    pub margin_bottom: Option<i32>,
+    pub margin_left: Option<i32>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
@@ -49,9 +101,12 @@ pub struct ListItem {
     pub ordered: bool,
     /// Nesting depth, 0 for a top-level item.
     pub level: u8,
+    /// The numbering definition the paragraph asks for. Two adjacent lists with different ids are
+    /// two lists, and the pane can only reset its counter between them if it knows which is which.
+    pub num_id: u32,
 }
 
-#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Debug, PartialEq, Clone)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Block {
     /// A paragraph. `heading` is the outline level it declares (1-6), `list` the numbering it
@@ -62,15 +117,24 @@ pub enum Block {
         heading: Option<u8>,
         list: Option<ListItem>,
         runs: Vec<Run>,
+        /// `left`, `center`, `right`, `both`; absent means the default, which is left.
+        align: Option<String>,
+        /// The size the paragraph's text inherits, in points - what an empty line is as tall as.
+        size: Option<f32>,
+        indent: Option<Indent>,
+        spacing: Option<Spacing>,
     },
-    /// Rows of cells; each cell's paragraphs are joined by a space, since a cell is one line here.
-    Table { rows: Vec<Vec<String>> },
+    /// Rows of cells; each cell's paragraphs are joined by a space, since a cell is one line here,
+    /// but the styling of every piece is kept so a bold header is drawn bold.
+    Table { rows: Vec<Vec<Vec<Run>>> },
 }
 
-#[derive(Serialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DocxDocument {
     pub blocks: Vec<Block>,
+    /// The section's paper, when the file says. Absent means A4 as far as the pane is concerned.
+    pub page: Option<Page>,
     /// Reading a Word file is lossy here; when something was dropped the frontend can say so rather
     /// than pretend the document ended.
     pub truncated: bool,
@@ -112,10 +176,26 @@ fn read_docx_sync(path: &Path) -> Result<DocxDocument, String> {
         log::debug!("fs_read_docx read({}) failed: {error}", path.display());
         error.to_string()
     })?;
-    let (document, numbering) = parts(&bytes)?;
-    let (blocks, truncated) = parse_blocks(&document, numbering.as_deref())?;
+    let package = parts(&bytes)?;
+    let mut styles = parse_styles(&package.styles);
+    // The theme is where the default face lives; a document that names one in its styles keeps it.
+    let (theme_latin, theme_east_asian) = package
+        .theme
+        .as_deref()
+        .map(theme_fonts)
+        .unwrap_or((None, None));
+    if styles.default_run.font.is_none() {
+        styles.default_run.font = theme_latin.or(theme_east_asian);
+    }
+    let (blocks, truncated, page) = parse_document(
+        &package.document,
+        package.numbering.as_deref(),
+        &styles,
+        &package.images,
+    )?;
     Ok(DocxDocument {
         blocks,
+        page,
         truncated,
         editable: document_editable(truncated),
         guard: guard_of(&meta),
@@ -128,20 +208,49 @@ fn read_docx_sync(path: &Path) -> Result<DocxDocument, String> {
 /// PowerShell's `Compress-Archive` separates with backslashes, and writers vary the case. Both parts
 /// are read with a ceiling of their own, because the size a ZIP *declares* is not the size it will
 /// expand to.
-fn parts(bytes: &[u8]) -> Result<(String, Option<String>), String> {
+#[derive(Debug)]
+struct Package {
+    document: String,
+    numbering: Option<String>,
+    styles: String,
+    theme: Option<String>,
+    /// Relationship id to the picture it names, already as a `data:` URL.
+    images: std::collections::HashMap<String, String>,
+}
+
+fn parts(bytes: &[u8]) -> Result<Package, String> {
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
         .map_err(|error| format!("这不是一个可读的 .docx（ZIP 目录解析失败）：{error}"))?;
     let mut document = None;
     let mut numbering = None;
+    let mut styles = None;
+    let mut theme = None;
+    let mut rels = None;
+    // The picture bytes, by their file name inside the archive.
+    let mut media: std::collections::HashMap<String, (String, String)> =
+        std::collections::HashMap::new();
+    let mut media_bytes: u64 = 0;
     for index in 0..archive.len() {
         let mut entry = archive
             .by_index(index)
             .map_err(|error| format!("读取 .docx 内条目失败：{error}"))?;
         let name = entry.name().rsplit(['/', '\\']).next().unwrap_or("").to_string();
+        let path = entry.name().replace('\\', "/");
+        let in_media = path.contains("/media/");
         let wanted = if name.eq_ignore_ascii_case("document.xml") {
             Some(MAX_DOCUMENT_BYTES)
         } else if name.eq_ignore_ascii_case("numbering.xml") {
             Some(MAX_NUMBERING_BYTES)
+        } else if name.eq_ignore_ascii_case("styles.xml") {
+            Some(MAX_STYLES_BYTES)
+        } else if name.eq_ignore_ascii_case("theme1.xml") {
+            Some(MAX_THEME_BYTES)
+        } else if name.eq_ignore_ascii_case("document.xml.rels") {
+            Some(MAX_NUMBERING_BYTES)
+        } else if in_media {
+            // A picture bigger than the cap is skipped rather than failing the read: the text of
+            // the document is still what the pane is for.
+            Some(MAX_IMAGE_BYTES).filter(|_| media_bytes < MAX_IMAGES_BYTES)
         } else {
             None
         };
@@ -152,16 +261,42 @@ fn parts(bytes: &[u8]) -> Result<(String, Option<String>), String> {
                 entry.size() / 1024 / 1024
             ));
         }
+        if in_media {
+            let bytes = read_bytes(&mut entry, limit)?;
+            media_bytes += bytes.len() as u64;
+            let (Some(mime), Some(data)) = (image_mime(&name), encode_data_url(&bytes)) else {
+                continue;
+            };
+            media.insert(name, (mime.to_string(), data));
+            continue;
+        }
         let text = read_part(&mut entry, limit)?;
         if name.eq_ignore_ascii_case("document.xml") {
             document = Some(text);
+        } else if name.eq_ignore_ascii_case("styles.xml") {
+            styles = Some(text);
+        } else if name.eq_ignore_ascii_case("theme1.xml") {
+            theme = Some(text);
+        } else if name.eq_ignore_ascii_case("document.xml.rels") {
+            rels = Some(text);
         } else {
             numbering = Some(text);
         }
     }
     let document = document
         .ok_or_else(|| "这个 .docx 里没有 word/document.xml，无法读取内容".to_string())?;
-    Ok((document, numbering))
+    // The relationship table names which picture each `r:embed` points at.
+    let images = match (rels.as_deref(), media.is_empty()) {
+        (Some(rels), false) => image_relationships(rels, &media),
+        _ => std::collections::HashMap::new(),
+    };
+    Ok(Package {
+        document,
+        numbering,
+        styles: styles.unwrap_or_default(),
+        theme,
+        images,
+    })
 }
 
 /// Reads one entry up to `limit` bytes. A ZIP can claim a small uncompressed size and deliver more,
@@ -187,6 +322,28 @@ fn read_part(entry: &mut impl Read, limit: u64) -> Result<String, String> {
     String::from_utf8(buffer).map_err(|error| format!("内容不是 UTF-8：{error}"))
 }
 
+/// One entry's bytes, up to `limit`: a picture is not text and cannot go through the reader above.
+fn read_bytes(entry: &mut impl Read, limit: u64) -> Result<Vec<u8>, String> {
+    let mut buffer = Vec::new();
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        let read = entry
+            .read(&mut chunk)
+            .map_err(|error| format!("解压 .docx 内条目失败：{error}"))?;
+        if read == 0 {
+            break;
+        }
+        if buffer.len() as u64 + read as u64 > limit {
+            return Err(format!(
+                "内容解压后超过 {} MB，超出预览上限",
+                limit / 1024 / 1024
+            ));
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+    }
+    Ok(buffer)
+}
+
 /// A Word element, prefixed `w:` in every part Word writes. A part that declares the namespaces as
 /// default (no prefix) spells the same elements, so both are accepted - and only those two, so an
 /// `a:p` inside a drawing is not mistaken for a paragraph.
@@ -204,6 +361,35 @@ fn attribute(element: &BytesStart<'_>, local: &[u8]) -> Option<String> {
         .map(|value| value.into_owned())
 }
 
+/// A cell's runs, trimmed at both ends and with nothing left over from an empty paragraph.
+fn trimmed(runs: Vec<Run>) -> Vec<Run> {
+    let mut out: Vec<Run> = Vec::new();
+    for run in runs {
+        if run.text.is_empty() && run.image.is_none() {
+            continue;
+        }
+        out.push(run);
+    }
+    if let Some(first) = out.first_mut() {
+        first.text = first.text.trim_start().to_string();
+    }
+    if let Some(last) = out.last_mut() {
+        last.text = last.text.trim_end().to_string();
+    }
+    out.retain(|run| !run.text.is_empty() || run.image.is_some());
+    out
+}
+
+/// An attribute matched on its local name, whatever namespace prefix it carries.
+fn attribute_any(element: &BytesStart<'_>, local: &[u8]) -> Option<String> {
+    element
+        .attributes()
+        .flatten()
+        .find(|attribute| attribute.key.local_name().as_ref() == local)
+        .and_then(|attribute| attribute.unescape_value().ok())
+        .map(|value| value.into_owned())
+}
+
 /// One paragraph's new text, addressed by its ordinal among the part's `<w:p>` elements.
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -216,7 +402,7 @@ pub struct DocxEdit {
 ///
 /// A write is refused when this no longer matches: Word (or anything else) may have saved the file
 /// between the read and the edit, and overwriting that would throw away work the user did elsewhere.
-#[derive(serde::Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Deserialize, Serialize, Debug, Default, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DocxGuard {
     pub size: u64,
@@ -224,7 +410,7 @@ pub struct DocxGuard {
 }
 
 /// The file's identity right now, for a guard.
-fn guard_of(meta: &std::fs::Metadata) -> DocxGuard {
+pub(crate) fn guard_of(meta: &std::fs::Metadata) -> DocxGuard {
     let modified_ms = meta
         .modified()
         .ok()
@@ -251,11 +437,14 @@ fn escape_text(text: &str) -> String {
     escaped
 }
 
-/// A paragraph to add after another one; the document must have the one it names.
+/// A paragraph to add, and the paragraph it goes after.
+///
+/// `after: None` means "in front of everything": a body whose first element is a table, or one with
+/// no `<w:p>` at all, has no ordinal to name for the top of the document.
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DocxInsert {
-    pub after: u32,
+    pub after: Option<u32>,
     pub text: String,
 }
 
@@ -291,13 +480,17 @@ fn new_paragraph(source: &str, text: &str) -> String {
 ///
 /// The paragraph keeps everything it had - properties, run properties, bookmarks - and only the text
 /// node payloads change: the new text goes into the first one and the rest are emptied, so the element
-/// count and the XML around them stay what Word wrote. A paragraph with no text node at all (an image,
-/// a field) cannot be represented this way, and saying so beats writing an empty run.
+/// count and the XML around them stay what Word wrote.
+///
+/// A paragraph with no text node at all - a blank line the pane just created, a line holding only an
+/// image or a field - gets a run of its own, after its properties. Refusing that made a save fail as a
+/// whole whenever the caret was on a line with nothing on it, which is exactly where typing starts
+/// after Enter.
 fn rewrite_paragraph(paragraph: &str, text: &str) -> Result<String, String> {
     let mut out = String::with_capacity(paragraph.len() + text.len());
     let mut rest = paragraph;
     let mut written = false;
-    while let Some(open) = rest.find("<w:t") {
+    while let Some(open) = find_text_node(rest) {
         let after_open = &rest[open..];
         let Some(close) = after_open.find('>') else {
             return Err("文档里的文字节点没有闭合".into());
@@ -328,10 +521,106 @@ fn rewrite_paragraph(paragraph: &str, text: &str) -> Result<String, String> {
         }
     }
     if !written {
-        return Err("这一段没有文字，改不了".into());
+        // A paragraph with no text node at all - a blank line Enter just created, a line holding
+        // only an image or a field. The text needs somewhere to live, so a run is created after the
+        // paragraph's own properties, in front of whatever else it holds.
+        if text.is_empty() {
+            return Ok(paragraph.to_string());
+        }
+        let needs_space = text.trim() != text;
+        let open = if needs_space {
+            "<w:t xml:space=\"preserve\">"
+        } else {
+            "<w:t>"
+        };
+        let run = format!("<w:r>{open}{}</w:t></w:r>", escape_text(text));
+        let at = rest
+            .find("</w:pPr>")
+            .map(|end| end + "</w:pPr>".len())
+            .or_else(|| rest.find('>').map(|end| end + 1))
+            .unwrap_or(0);
+        out.push_str(&rest[..at]);
+        out.push_str(&run);
+        out.push_str(&rest[at..]);
+        return Ok(out);
     }
     out.push_str(rest);
     Ok(out)
+}
+
+/// The mime type of a picture, from its extension. Anything else is not drawn.
+fn image_mime(name: &str) -> Option<&'static str> {
+    let extension = name.rsplit('.').next()?.to_ascii_lowercase();
+    Some(match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        _ => return None,
+    })
+}
+
+/// The bytes as a `data:` URL - what an `<img src>` can use with nothing on disk to fetch.
+fn encode_data_url(bytes: &[u8]) -> Option<String> {
+    use base64::Engine;
+    // Only the payload is encoded here; the mime type is added by `image_mime`'s caller.
+    Some(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// Which relationship id names which picture, from `word/_rels/document.xml.rels`.
+fn image_relationships(
+    rels: &str,
+    media: &std::collections::HashMap<String, (String, String)>,
+) -> std::collections::HashMap<String, String> {
+    let mut images = std::collections::HashMap::new();
+    let mut reader = Reader::from_str(rels);
+    reader.config_mut().trim_text(false);
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
+                if element.name().local_name().as_ref() != b"Relationship" {
+                    continue;
+                }
+                let (Some(id), Some(target)) = (
+                    attribute_any(&element, b"Id"),
+                    attribute_any(&element, b"Target"),
+                ) else {
+                    continue;
+                };
+                let name = target.rsplit(['/', '\\']).next().unwrap_or("").to_string();
+                let Some((mime, payload)) = media.get(&name) else {
+                    continue;
+                };
+                images.insert(id, format!("data:{mime};base64,{payload}"));
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+    images
+}
+
+/// Where the next `<w:t>` text node starts, ignoring the elements that begin with the same
+/// characters: `<w:tabs>`, `<w:tab/>`, `<w:tc>`, and anything else in the `w:t` namespace.
+///
+/// The prefix is not enough. `<w:tabs>` matched it, its `>` was taken for the end of a text node and
+/// the search for `</w:t>` failed, which failed the whole save; `<w:tab/>` matched it and was
+/// rewritten to an empty text node, emptying the run that followed - the tab and the rest of the line
+/// vanished from the document.
+fn find_text_node(xml: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(at) = xml[from..].find("<w:t") {
+        let start = from + at;
+        let after = xml[start + "<w:t".len()..].chars().next();
+        if matches!(after, Some('>' | '/' | ' ')) {
+            return Some(start);
+        }
+        from = start + "<w:t".len();
+    }
+    None
 }
 
 /// The document part with the edited paragraphs replaced and the deleted ones dropped.
@@ -347,23 +636,39 @@ fn rewrite_document_xml(
 ) -> Result<String, String> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
-    let mut ranges: Vec<(u32, usize, usize)> = Vec::new();
+    // (ordinal, start, end, is it a paragraph of the body rather than of a table cell)
+    let mut ranges: Vec<(u32, usize, usize, bool)> = Vec::new();
     let mut open: Option<(u32, usize)> = None;
     let mut next_paragraph: u32 = 0;
+    // A table's paragraphs are paragraphs too, and they come first in the byte order. Depth is what
+    // tells them apart: an insert "in front of everything" has to go in front of the body's first
+    // paragraph, not inside the first cell.
+    let mut tables: u32 = 0;
     loop {
         let before = reader.buffer_position() as usize;
         match reader.read_event() {
+            Ok(Event::Start(element)) if is_w(element.name(), b"tbl") => tables += 1,
+            Ok(Event::End(element)) if is_w(element.name(), b"tbl") => {
+                tables = tables.saturating_sub(1);
+            }
             Ok(Event::Start(element)) if is_w(element.name(), b"p") => {
                 open = Some((next_paragraph, before));
                 next_paragraph += 1;
             }
             Ok(Event::Empty(element)) if is_w(element.name(), b"p") => {
-                ranges.push((next_paragraph, before, reader.buffer_position() as usize));
+                ranges.push((
+                    next_paragraph,
+                    before,
+                    reader.buffer_position() as usize,
+                    tables == 0,
+                ));
                 next_paragraph += 1;
             }
             Ok(Event::End(element)) if is_w(element.name(), b"p") => {
                 if let Some((index, start)) = open.take() {
-                    ranges.push((index, start, reader.buffer_position() as usize));
+                    // The end event is read after the element's own content, so the depth still
+                    // counts the table this paragraph is in.
+                    ranges.push((index, start, reader.buffer_position() as usize, tables == 0));
                 }
             }
             Ok(Event::Eof) => break,
@@ -386,21 +691,43 @@ fn rewrite_document_xml(
         }
     }
     for insert in inserts {
-        if insert.after >= count {
-            return Err(format!("要插入的位置不在文档里（序号 {}）", insert.after));
+        let Some(after) = insert.after else { continue };
+        if after >= count {
+            return Err(format!("要插入的位置不在文档里（序号 {after}）"));
         }
-        if deleted.contains(&insert.after) {
+        if deleted.contains(&after) {
             return Err("不能在删掉的段落后插入".into());
         }
     }
 
+    // Everything that asked for the top of the document, in the order the pane sent it. The style
+    // comes from the first paragraph that is there, or from nothing at all in an empty body.
+    let first_paragraph = ranges
+        .iter()
+        .find(|(_, _, _, top_level)| *top_level)
+        .or_else(|| ranges.first())
+        .map(|(_, start, end, _)| &xml[*start..*end])
+        .unwrap_or("");
+    let leading: Vec<String> = inserts
+        .iter()
+        .filter(|insert| insert.after.is_none())
+        .map(|insert| new_paragraph(first_paragraph, &insert.text))
+        .collect();
+
     let mut out = String::with_capacity(xml.len());
     let mut cursor = 0usize;
-    for (index, start, end) in &ranges {
+    let mut leading_written = false;
+    for (index, start, end, top_level) in &ranges {
         if *start < cursor {
             continue;
         }
         out.push_str(&xml[cursor..*start]);
+        if !leading_written && *top_level {
+            for paragraph in &leading {
+                out.push_str(paragraph);
+            }
+            leading_written = true;
+        }
         cursor = *end;
         if deleted.contains(index) {
             continue;
@@ -410,11 +737,27 @@ fn rewrite_document_xml(
             Some(edit) => out.push_str(&rewrite_paragraph(paragraph, &edit.text)?),
             None => out.push_str(paragraph),
         }
-        for insert in inserts.iter().filter(|insert| insert.after == *index) {
+        for insert in inserts.iter().filter(|insert| insert.after == Some(*index)) {
             out.push_str(&new_paragraph(paragraph, &insert.text));
         }
     }
-    out.push_str(&xml[cursor..]);
+    let tail = &xml[cursor..];
+    if !leading_written && !leading.is_empty() {
+        // No paragraph was walked at all, so the top of the body is its last child position: the new
+        // paragraphs go in just before the body closes, and stay inside it.
+        if let Some(end) = tail.find("</w:body>") {
+            out.push_str(&tail[..end]);
+            for paragraph in &leading {
+                out.push_str(paragraph);
+            }
+            out.push_str(&tail[end..]);
+            return Ok(out);
+        }
+        for paragraph in &leading {
+            out.push_str(paragraph);
+        }
+    }
+    out.push_str(tail);
     Ok(out)
 }
 
@@ -444,6 +787,11 @@ fn remember_part(path: &Path, part: &str) {
         return;
     };
     let entries = history.entry(path.to_path_buf()).or_default();
+    // The part about to be replaced is what undo restores, so remembering the same one twice makes a
+    // Ctrl+Z take back nothing: a save that wrote what the previous save already wrote is not a step.
+    if entries.last().is_some_and(|last| last == part) {
+        return;
+    }
     entries.push(part.to_string());
     if entries.len() > UNDO_DEPTH {
         entries.remove(0);
@@ -586,6 +934,12 @@ fn write_docx_sync(
     }
     let document = document.ok_or("这个 .docx 里没有 word/document.xml")?;
     let rewritten = rewrite_document_xml(&document, edits, deleted, inserts)?;
+    if rewritten == document {
+        // The pane re-sent what the file already says. Writing it again would cost a rewrite of the
+        // whole archive and push a history entry that takes back nothing, so one Ctrl+Z after it
+        // would look broken. Nothing changes, so nothing happens.
+        return Ok(guard_of(&meta));
+    }
     // The part that is about to be replaced is what undo restores.
     remember_part(path, &document);
     write_document_part(path, &bytes, &rewritten)
@@ -616,6 +970,15 @@ fn val(element: &BytesStart<'_>) -> Option<String> {
     attribute(element, b"val")
 }
 
+/// One run's text and the properties it states itself; the ones it inherits are applied when the
+/// paragraph closes, because only then is its style known.
+struct PendingRun {
+    text: String,
+    props: RunProps,
+    /// The relationship id of a picture in this run, and the size to draw it at.
+    image: Option<(String, Option<f32>, Option<f32>)>,
+}
+
 /// The paragraph being read. Word puts a run's properties before its text, so the styles are
 /// gathered as they appear and attached when the run closes.
 #[derive(Default)]
@@ -630,33 +993,59 @@ struct Paragraph {
     style: Option<String>,
     outline: Option<u8>,
     numbering: Option<(u8, String)>,
-    runs: Vec<Run>,
+    runs: Vec<PendingRun>,
     text: String,
-    bold: bool,
-    italic: bool,
-    underline: bool,
+    /// What the current run states about itself.
+    run_props: RunProps,
     in_run: bool,
     in_text: bool,
+    /// The relationship id of a picture seen in the current run, and its size.
+    image_rid: Option<String>,
+    image_width: Option<f32>,
+    image_height: Option<f32>,
+    /// What the paragraph itself states about its box; the rest comes from its style.
+    align: Option<String>,
+    ind_left: Option<i32>,
+    ind_first: Option<i32>,
+    sp_before: Option<i32>,
+    sp_after: Option<i32>,
+    sp_line: Option<i32>,
+    line_rule: Option<String>,
 }
 
 impl Paragraph {
     fn close_run(&mut self) {
         let text = std::mem::take(&mut self.text);
-        if !text.is_empty() {
-            self.runs.push(Run {
+        let image = self.image_rid.take().map(|rid| {
+            (
+                rid,
+                self.image_width.take(),
+                self.image_height.take(),
+            )
+        });
+        if !text.is_empty() || image.is_some() {
+            self.runs.push(PendingRun {
                 text,
-                bold: self.bold,
-                italic: self.italic,
-                underline: self.underline,
+                props: std::mem::take(&mut self.run_props),
+                image,
             });
         }
-        self.bold = false;
-        self.italic = false;
-        self.underline = false;
+        self.run_props = RunProps::default();
+        self.image_width = None;
+        self.image_height = None;
     }
 
-    fn text(&self) -> String {
-        self.runs.iter().map(|run| run.text.as_str()).collect()
+    /// This paragraph's own box, if it states one. Everything else comes from its style.
+    fn own_box(&self) -> ParaProps {
+        ParaProps {
+            align: self.align.clone(),
+            left: self.ind_left,
+            first_line: self.ind_first,
+            before: self.sp_before,
+            after: self.sp_after,
+            line: self.sp_line,
+            line_rule: self.line_rule.clone(),
+        }
     }
 
     /// The heading level this paragraph declares. Word writes `Heading2` in the paragraph style and
@@ -671,6 +1060,285 @@ impl Paragraph {
         });
         from_style.or(self.outline.map(|level| level.saturating_add(1)))
     }
+}
+
+/// What a run inherits when it says nothing itself: the document's defaults, then its paragraph
+/// style's, then its own `w:rPr`. Every field is "the file said" or "nobody said".
+#[derive(Default, Clone, PartialEq)]
+struct RunProps {
+    size: Option<f32>,
+    color: Option<String>,
+    font: Option<String>,
+    bold: Option<bool>,
+    italic: Option<bool>,
+    underline: Option<bool>,
+}
+
+impl RunProps {
+    /// `self` as the base and `over` as the winner: a run's own properties beat the ones it
+    /// inherits, and an absent property inherits rather than meaning "off".
+    fn over(self, over: &RunProps) -> RunProps {
+        RunProps {
+            size: over.size.or(self.size),
+            color: over.color.clone().or(self.color),
+            font: over.font.clone().or(self.font),
+            bold: over.bold.or(self.bold),
+            italic: over.italic.or(self.italic),
+            underline: over.underline.or(self.underline),
+        }
+    }
+}
+
+/// A paragraph's own box, same rule: absent means inherited.
+#[derive(Default, Clone)]
+struct ParaProps {
+    align: Option<String>,
+    left: Option<i32>,
+    first_line: Option<i32>,
+    before: Option<i32>,
+    after: Option<i32>,
+    line: Option<i32>,
+    line_rule: Option<String>,
+}
+
+impl ParaProps {
+    fn over(self, over: &ParaProps) -> ParaProps {
+        ParaProps {
+            align: over.align.clone().or(self.align),
+            left: over.left.or(self.left),
+            first_line: over.first_line.or(self.first_line),
+            before: over.before.or(self.before),
+            after: over.after.or(self.after),
+            line: over.line.or(self.line),
+            line_rule: over.line_rule.clone().or(self.line_rule),
+        }
+    }
+}
+
+#[derive(Default, Clone)]
+struct StyleDef {
+    based_on: Option<String>,
+    run: RunProps,
+    para: ParaProps,
+}
+
+/// What `word/styles.xml` says a paragraph looks like.
+///
+/// Almost nothing Word writes is on the paragraph itself: 11pt Calibri lives in `docDefaults`,
+/// a heading's 16pt bold lives in the `Heading1` style, and a document's own tweak lives in a style
+/// that `basedOn`s the built-in one. Reading only the paragraph therefore draws a whole document at
+/// whatever fallback the pane has - which is what "not like Word" looked like.
+#[derive(Default)]
+struct Styles {
+    default_run: RunProps,
+    default_para: ParaProps,
+    paragraphs: std::collections::HashMap<String, StyleDef>,
+}
+
+impl Styles {
+    /// The defaults a paragraph inherits, its style chain applied root first so the nearest wins.
+    fn resolve(&self, style: Option<&str>) -> (RunProps, ParaProps) {
+        let mut run = self.default_run.clone();
+        let mut para = self.default_para.clone();
+        let mut chain: Vec<&StyleDef> = Vec::new();
+        let mut id = style.map(str::to_string);
+        // `basedOn` chains are shallow; the bound is here because a file may name a cycle.
+        for _ in 0..8 {
+            let Some(name) = id.clone() else { break };
+            let Some(definition) = self.paragraphs.get(&name) else {
+                break;
+            };
+            chain.push(definition);
+            id = definition.based_on.clone();
+        }
+        for definition in chain.into_iter().rev() {
+            run = run.over(&definition.run);
+            para = para.over(&definition.para);
+        }
+        (run, para)
+    }
+}
+
+/// Where a property read from `styles.xml` belongs.
+#[derive(Clone, Copy, PartialEq)]
+enum StyleScope {
+    None,
+    DefaultsRun,
+    DefaultsPara,
+    StyleRun,
+    StylePara,
+}
+
+/// `word/styles.xml`, read for the two things the pane has to know: what a run looks like, and what a
+/// paragraph's box is.
+fn parse_styles(xml: &str) -> Styles {
+    let mut styles = Styles::default();
+    let mut scope = StyleScope::None;
+    let mut in_defaults = false;
+    // (is it a paragraph style, its id, what it says)
+    let mut current: Option<(bool, String, StyleDef)> = None;
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(false);
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
+                let name = element.name();
+                if is_w(name, b"docDefaults") {
+                    in_defaults = true;
+                } else if is_w(name, b"style") {
+                    let style_type = attribute(&element, b"type").unwrap_or_default();
+                    let id = attribute(&element, b"styleId").unwrap_or_default();
+                    if style_type == "paragraph" || style_type == "character" {
+                        current = Some((style_type == "paragraph", id, StyleDef::default()));
+                    }
+                } else if is_w(name, b"basedOn") {
+                    if let (Some((_, _, definition)), Some(value)) = (current.as_mut(), val(&element))
+                    {
+                        definition.based_on = Some(value);
+                    }
+                } else if is_w(name, b"rPr") {
+                    scope = if in_defaults {
+                        StyleScope::DefaultsRun
+                    } else if current.is_some() {
+                        StyleScope::StyleRun
+                    } else {
+                        StyleScope::None
+                    };
+                } else if is_w(name, b"pPr") {
+                    scope = if in_defaults {
+                        StyleScope::DefaultsPara
+                    } else if current.is_some() {
+                        StyleScope::StylePara
+                    } else {
+                        StyleScope::None
+                    };
+                } else if matches!(scope, StyleScope::DefaultsRun | StyleScope::StyleRun) {
+                    let props = match scope {
+                        StyleScope::DefaultsRun => &mut styles.default_run,
+                        _ => match current.as_mut() {
+                            Some((_, _, definition)) => &mut definition.run,
+                            None => continue,
+                        },
+                    };
+                    if is_w(name, b"sz") {
+                        props.size = val(&element)
+                            .and_then(|value| value.parse::<f32>().ok())
+                            .map(|half_points| half_points / 2.0);
+                    } else if is_w(name, b"color") {
+                        props.color = color_of(&element);
+                    } else if is_w(name, b"rFonts") {
+                        props.font = font_of(&element);
+                    } else if is_w(name, b"b") {
+                        props.bold = Some(toggled(&element));
+                    } else if is_w(name, b"i") {
+                        props.italic = Some(toggled(&element));
+                    } else if is_w(name, b"u") {
+                        props.underline = Some(toggled(&element));
+                    }
+                } else if matches!(scope, StyleScope::DefaultsPara | StyleScope::StylePara) {
+                    let props = match scope {
+                        StyleScope::DefaultsPara => &mut styles.default_para,
+                        _ => match current.as_mut() {
+                            Some((_, _, definition)) => &mut definition.para,
+                            None => continue,
+                        },
+                    };
+                    read_box(props, name, &element);
+                }
+            }
+            Ok(Event::End(element)) => {
+                let name = element.name();
+                if is_w(name, b"docDefaults") {
+                    in_defaults = false;
+                } else if is_w(name, b"rPr") || is_w(name, b"pPr") {
+                    scope = StyleScope::None;
+                } else if is_w(name, b"style") {
+                    if let Some((is_paragraph, id, definition)) = current.take() {
+                        if is_paragraph {
+                            styles.paragraphs.insert(id, definition);
+                        }
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+    styles
+}
+
+/// A paragraph's box from a `w:jc` / `w:ind` / `w:spacing` element.
+fn read_box(props: &mut ParaProps, name: QName<'_>, element: &BytesStart<'_>) {
+    if is_w(name, b"jc") {
+        props.align = val(element);
+    } else if is_w(name, b"ind") {
+        props.left = attribute(element, b"left").and_then(|value| value.parse().ok());
+        props.first_line = match attribute(element, b"hanging")
+            .and_then(|value| value.parse::<i32>().ok())
+        {
+            // A hanging indent is a first line that starts outdented.
+            Some(hanging) => Some(-hanging),
+            None => attribute(element, b"firstLine").and_then(|value| value.parse().ok()),
+        };
+    } else if is_w(name, b"spacing") {
+        props.before = attribute(element, b"before").and_then(|value| value.parse().ok());
+        props.after = attribute(element, b"after").and_then(|value| value.parse().ok());
+        props.line = attribute(element, b"line").and_then(|value| value.parse().ok());
+        props.line_rule = attribute(element, b"lineRule");
+    }
+}
+
+/// `w:color`, ignoring Word's `auto`.
+fn color_of(element: &BytesStart<'_>) -> Option<String> {
+    val(element)
+        .filter(|value| !value.eq_ignore_ascii_case("auto"))
+        .map(|value| format!("#{}", value.to_ascii_lowercase()))
+}
+
+/// `w:rFonts`: the Latin face, or the East Asian one, whichever the element names.
+fn font_of(element: &BytesStart<'_>) -> Option<String> {
+    attribute(element, b"ascii")
+        .or_else(|| attribute(element, b"hAnsi"))
+        .or_else(|| attribute(element, b"eastAsia"))
+        .filter(|value| !value.is_empty())
+}
+
+/// The fonts the theme names, Latin then East Asian.
+///
+/// Word's default run has no font of its own: it says `w:asciiTheme="minorHAnsi"` and the face is in
+/// `word/theme/theme1.xml`. Without it, a document that never picks a font is drawn in the pane's own
+/// fallback rather than in Calibri.
+fn theme_fonts(xml: &str) -> (Option<String>, Option<String>) {
+    let mut latin = None;
+    let mut east_asian = None;
+    let mut in_minor = false;
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(false);
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
+                let name = element.name();
+                let local = name.local_name();
+                if local.as_ref() == b"minorFont" {
+                    in_minor = true;
+                } else if in_minor && local.as_ref() == b"latin" {
+                    latin = attribute(&element, b"typeface");
+                } else if in_minor && local.as_ref() == b"ea" {
+                    east_asian = attribute(&element, b"typeface");
+                }
+            }
+            Ok(Event::End(element)) => {
+                if element.name().local_name().as_ref() == b"minorFont" {
+                    in_minor = false;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+    (latin, east_asian)
 }
 
 /// Numbered rather than bulleted, per numbering id. Built from `word/numbering.xml`, which pairs
@@ -765,12 +1433,62 @@ fn read_property(current: &mut Paragraph, name: QName<'_>, element: &BytesStart<
             *id = val(element).unwrap_or_default();
         }
     } else if current.in_run && is_w(name, b"b") {
-        current.bold = toggled(element);
+        current.run_props.bold = Some(toggled(element));
     } else if current.in_run && is_w(name, b"i") {
-        current.italic = toggled(element);
+        current.run_props.italic = Some(toggled(element));
     } else if current.in_run && is_w(name, b"u") {
         // `w:u` carries the line style (`single`, `double`, …); `none` is the one that is off.
-        current.underline = toggled(element);
+        current.run_props.underline = Some(toggled(element));
+    } else if current.in_run && is_w(name, b"sz") {
+        current.run_props.size = val(element)
+            .and_then(|value| value.parse::<f32>().ok())
+            .map(|half_points| half_points / 2.0);
+    } else if current.in_run && is_w(name, b"color") {
+        current.run_props.color = color_of(element);
+    } else if current.in_run && is_w(name, b"rFonts") {
+        current.run_props.font = font_of(element);
+    } else if !current.in_run && is_w(name, b"jc") {
+        current.align = val(element);
+    } else if !current.in_run && is_w(name, b"ind") {
+        let mut box_props = ParaProps {
+            align: None,
+            left: current.ind_left,
+            first_line: current.ind_first,
+            before: None,
+            after: None,
+            line: None,
+            line_rule: None,
+        };
+        read_box(&mut box_props, name, element);
+        current.ind_left = box_props.left;
+        current.ind_first = box_props.first_line;
+    } else if !current.in_run && is_w(name, b"spacing") {
+        let mut box_props = ParaProps {
+            align: None,
+            left: None,
+            first_line: None,
+            before: current.sp_before,
+            after: current.sp_after,
+            line: current.sp_line,
+            line_rule: current.line_rule.clone(),
+        };
+        read_box(&mut box_props, name, element);
+        current.sp_before = box_props.before;
+        current.sp_after = box_props.after;
+        current.sp_line = box_props.line;
+        current.line_rule = box_props.line_rule;
+    } else if name.local_name().as_ref() == b"blip" {
+        // `a:blip` lives in the drawing namespace, so its name is not `w:`; `r:embed` names the
+        // relationship the media file hangs off.
+        current.image_rid = attribute_any(element, b"embed").or_else(|| current.image_rid.clone());
+    } else if name.local_name().as_ref() == b"extent" {
+        // `wp:extent` carries the size the document draws the picture at, in EMU.
+        current.image_width = attribute(element, b"cx")
+            .and_then(|value| value.parse::<f64>().ok())
+            .map(|emu| (emu / EMU_PER_PX) as f32);
+        current.image_height = attribute(element, b"cy")
+            .and_then(|value| value.parse::<f64>().ok())
+            .map(|emu| (emu / EMU_PER_PX) as f32);
     } else if is_w(name, b"tab") {
         current.text.push('\t');
     } else if is_w(name, b"br") || is_w(name, b"cr") {
@@ -783,18 +1501,36 @@ fn read_property(current: &mut Paragraph, name: QName<'_>, element: &BytesStart<
 ///
 /// `numbering_xml` is optional: without it a list still reads as a list, with every item bulleted,
 /// which is closer than showing the items as ordinary paragraphs.
+/// The document without its styles or paper - what the tests below read a fixture with.
+#[cfg(test)]
 fn parse_blocks(
     document_xml: &str,
     numbering_xml: Option<&str>,
 ) -> Result<(Vec<Block>, bool), String> {
+    let (blocks, truncated, _) = parse_document(
+        document_xml,
+        numbering_xml,
+        &Styles::default(),
+        &std::collections::HashMap::new(),
+    )?;
+    Ok((blocks, truncated))
+}
+
+/// The document, read with the styles and the paper it declares.
+fn parse_document(
+    document_xml: &str,
+    numbering_xml: Option<&str>,
+    styles: &Styles,
+    images: &std::collections::HashMap<String, String>,
+) -> Result<(Vec<Block>, bool, Option<Page>), String> {
     let ordered_numbers = numbering_xml.map(ordered_number_ids).unwrap_or_default();
     let mut blocks: Vec<Block> = Vec::new();
     let mut truncated = false;
 
     let mut paragraph: Option<Paragraph> = None;
-    let mut table: Option<Vec<Vec<String>>> = None;
-    let mut row: Option<Vec<String>> = None;
-    let mut cell: Option<String> = None;
+    let mut table: Option<Vec<Vec<Vec<Run>>>> = None;
+    let mut row: Option<Vec<Vec<Run>>> = None;
+    let mut cell: Option<Vec<Run>> = None;
     // A table nested in a cell is not shown: its rows would be read as rows of the outer table.
     let mut nested_table_depth = 0usize;
     // quick-xml verifies the tags that are closed; nothing tells it a document ended in the middle
@@ -837,7 +1573,7 @@ fn parse_blocks(
                 if is_w(name, b"tr") {
                     row = Some(Vec::new());
                 } else if is_w(name, b"tc") {
-                    cell = Some(String::new());
+                    cell = Some(Vec::new());
                 } else if let Some(index) = paragraph_index {
                     paragraph = Some(Paragraph {
                         index,
@@ -855,9 +1591,28 @@ fn parse_blocks(
             }
             Ok(Event::Empty(element)) => {
                 let name = element.name();
-                // A self-closing `<w:p/>` is a paragraph element too, and takes its ordinal.
+                // A self-closing `<w:p/>` is a paragraph element too, and takes its ordinal - and,
+                // outside a table, it is a block of its own: this is what a blank line looks like
+                // in a part Word wrote, and the pane needs it to draw the line the caret goes to.
                 if is_w(name, b"p") {
+                    let index = next_paragraph;
                     next_paragraph += 1;
+                    if nested_table_depth == 0 && table.is_none() && cell.is_none() {
+                        if blocks.len() >= MAX_BLOCKS {
+                            truncated = true;
+                        } else {
+                            blocks.push(Block::Paragraph {
+                                index,
+                                heading: None,
+                                list: None,
+                                runs: Vec::new(),
+                                align: None,
+                                size: None,
+                                indent: None,
+                                spacing: None,
+                            });
+                        }
+                    }
                 }
                 if nested_table_depth > 0 {
                     continue;
@@ -917,8 +1672,8 @@ fn parse_blocks(
                         rows.push(cells);
                     }
                 } else if is_w(name, b"tc") {
-                    if let (Some(cells), Some(text)) = (row.as_mut(), cell.take()) {
-                        cells.push(text.trim().to_string());
+                    if let (Some(cells), Some(runs)) = (row.as_mut(), cell.take()) {
+                        cells.push(trimmed(runs));
                     }
                 } else if is_w(name, b"t") {
                     if let Some(current) = paragraph.as_mut() {
@@ -933,27 +1688,76 @@ fn parse_blocks(
                     let Some(finished) = paragraph.take() else {
                         continue;
                     };
-                    let text = finished.text();
-                    if cell.is_some() {
-                        // A cell's paragraph: its text belongs to the cell.
-                        if let Some(target) = cell.as_mut() {
-                            if !target.is_empty() {
-                                target.push(' ');
+                    let numbering = finished.numbering.clone();
+                    let style = finished.style.clone();
+                    let own = finished.own_box();
+                    let heading = finished.heading();
+                    let index = finished.index;
+                    let (inherited_run, inherited_box) = styles.resolve(style.as_deref());
+                    let placed = inherited_box.over(&own);
+                    let runs: Vec<Run> = finished
+                        .runs
+                        .into_iter()
+                        .map(|pending| {
+                            let props = inherited_run.clone().over(&pending.props);
+                            let picture = pending.image.as_ref();
+                            Run {
+                                text: pending.text,
+                                bold: props.bold.unwrap_or(false),
+                                italic: props.italic.unwrap_or(false),
+                                underline: props.underline.unwrap_or(false),
+                                size: props.size,
+                                color: props.color,
+                                font: props.font,
+                                image: picture.and_then(|(rid, _, _)| images.get(rid)).cloned(),
+                                image_width: picture.and_then(|(_, width, _)| *width),
+                                image_height: picture.and_then(|(_, _, height)| *height),
                             }
-                            target.push_str(text.trim());
+                        })
+                        .collect();
+                    if let Some(target) = cell.as_mut() {
+                        // A cell's paragraph belongs to the cell, one line: its runs are appended,
+                        // with a space between paragraphs.
+                        if !target.is_empty() && !runs.is_empty() {
+                            target.push(Run {
+                                text: " ".into(),
+                                ..Default::default()
+                            });
                         }
+                        target.extend(runs);
                     } else if blocks.len() >= MAX_BLOCKS {
                         truncated = true;
-                    } else if !text.trim().is_empty() || finished.heading().is_some() {
-                        let list = finished.numbering.as_ref().map(|(level, id)| ListItem {
+                    } else {
+                        // Every paragraph of the body is a block, blank ones included: a blank line
+                        // is where the caret goes when Enter is pressed at the end of a document,
+                        // and a read that dropped it left that caret nowhere to land.
+                        let list = numbering.as_ref().map(|(level, id)| ListItem {
                             ordered: ordered_numbers.contains(id),
                             level: *level,
+                            num_id: id.parse().unwrap_or_default(),
                         });
                         blocks.push(Block::Paragraph {
-                            index: finished.index,
-                            heading: finished.heading(),
+                            index,
+                            heading,
                             list,
-                            runs: finished.runs,
+                            runs,
+                            align: placed.align,
+                            size: inherited_run.size,
+                            indent: (placed.left.is_some() || placed.first_line.is_some()).then_some(
+                                Indent {
+                                    left: placed.left,
+                                    first_line: placed.first_line,
+                                },
+                            ),
+                            spacing: (placed.before.is_some()
+                                || placed.after.is_some()
+                                || placed.line.is_some())
+                            .then_some(Spacing {
+                                before: placed.before,
+                                after: placed.after,
+                                line: placed.line,
+                                line_rule: placed.line_rule,
+                            }),
                         });
                     }
                 }
@@ -971,7 +1775,43 @@ fn parse_blocks(
         }
     }
 
-    Ok((blocks, truncated))
+    Ok((blocks, truncated, read_page(document_xml)))
+}
+
+/// The section's paper: `w:pgSz` and `w:pgMar`, usually in the `w:sectPr` that ends the body.
+///
+/// Word writes one per section; a document with several sections has several, and the pane draws one
+/// sheet, so the last one wins - which is the one a reader scrolls into.
+fn read_page(document_xml: &str) -> Option<Page> {
+    let mut page = Page::default();
+    let mut seen = false;
+    let mut reader = Reader::from_str(document_xml);
+    reader.config_mut().trim_text(false);
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
+                let name = element.name();
+                if is_w(name, b"pgSz") {
+                    page.width = attribute(&element, b"w").and_then(|value| value.parse().ok());
+                    page.height = attribute(&element, b"h").and_then(|value| value.parse().ok());
+                    seen = true;
+                } else if is_w(name, b"pgMar") {
+                    page.margin_top = attribute(&element, b"top").and_then(|value| value.parse().ok());
+                    page.margin_right =
+                        attribute(&element, b"right").and_then(|value| value.parse().ok());
+                    page.margin_bottom =
+                        attribute(&element, b"bottom").and_then(|value| value.parse().ok());
+                    page.margin_left =
+                        attribute(&element, b"left").and_then(|value| value.parse().ok());
+                    seen = true;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+    seen.then_some(page)
 }
 
 #[cfg(test)]
@@ -1003,12 +1843,172 @@ mod tests {
                 heading: None,
                 list: None,
                 runs: vec![
-                    Run { text: "bold".into(), bold: true, italic: false, underline: false },
-                    Run { text: " then ".into(), bold: false, italic: false, underline: false },
-                    Run { text: "both".into(), bold: false, italic: true, underline: true },
+                    Run { text: "bold".into(), bold: true, ..Default::default() },
+                    Run { text: " then ".into(), ..Default::default() },
+                    Run { text: "both".into(), italic: true, underline: true, ..Default::default() },
                 ],
+                align: None,
+                size: None,
+                indent: None,
+                spacing: None,
             }]
         );
+    }
+
+    /// The styles part, in the shape Word writes one: defaults, then a paragraph style that another
+    /// one builds on.
+    fn styles_part() -> Styles {
+        parse_styles(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:docDefaults>
+    <w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:eastAsia="宋体"/><w:sz w:val="22"/></w:rPr></w:rPrDefault>
+    <w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault>
+  </w:docDefaults>
+  <w:style w:type="paragraph" w:styleId="Base"><w:pPr><w:ind w:left="720"/></w:pPr></w:style>
+  <w:style w:type="paragraph" w:styleId="Tight"><w:basedOn w:val="Base"/><w:pPr><w:spacing w:before="240"/></w:pPr><w:rPr><w:b/><w:sz w:val="32"/></w:rPr></w:style>
+</w:styles>"#,
+        )
+    }
+
+    /// A table's cell texts, which is what the cells used to be - the styling is checked separately.
+    fn table_texts(blocks: &[Block]) -> Vec<Vec<String>> {
+        blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Table { rows } => Some(
+                    rows.iter()
+                        .map(|row| {
+                            row.iter()
+                                .map(|cell| {
+                                    cell.iter()
+                                        .map(|run| run.text.as_str())
+                                        .collect::<String>()
+                                })
+                                .collect()
+                        })
+                        .collect(),
+                ),
+                _ => None,
+            })
+            .next()
+            .unwrap_or_default()
+    }
+
+    fn paragraph_of(blocks: &[Block]) -> &Block {
+        blocks
+            .iter()
+            .find(|block| matches!(block, Block::Paragraph { .. }))
+            .expect("a paragraph")
+    }
+
+    #[test]
+    fn a_run_carries_the_size_colour_and_face_the_file_gives_it() {
+        let xml = document(
+            r#"<w:p><w:r><w:rPr><w:sz w:val="28"/><w:color w:val="C00000"/><w:rFonts w:ascii="Georgia"/></w:rPr><w:t>red</w:t></w:r><w:r><w:rPr><w:color w:val="auto"/></w:rPr><w:t>auto</w:t></w:r></w:p>"#,
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        let Block::Paragraph { runs, .. } = paragraph_of(&blocks) else {
+            unreachable!()
+        };
+        assert_eq!(runs[0].size, Some(14.0));
+        assert_eq!(runs[0].color.as_deref(), Some("#c00000"));
+        assert_eq!(runs[0].font.as_deref(), Some("Georgia"));
+        // `auto` is not a colour: drawing it as one would paint black where the pane's own text
+        // colour belongs.
+        assert_eq!(runs[1].color, None);
+    }
+
+    #[test]
+    fn a_paragraph_box_comes_from_the_paragraph_then_its_style_chain() {
+        let xml = document(
+            r#"<w:p><w:pPr><w:pStyle w:val="Tight"/><w:jc w:val="center"/></w:pPr><w:r><w:t>centred</w:t></w:r></w:p>"#,
+        );
+        let (blocks, _, _) = parse_document(&xml, None, &styles_part(), &Default::default()).unwrap();
+        let Block::Paragraph { align, indent, spacing, runs, .. } = paragraph_of(&blocks) else {
+            unreachable!()
+        };
+        // Its own `w:jc` wins; the indent and the spacing come from the style, and the style's
+        // `basedOn` is where the indent lives.
+        assert_eq!(align.as_deref(), Some("center"));
+        assert_eq!(indent.as_ref().and_then(|value| value.left), Some(720));
+        assert_eq!(spacing.as_ref().and_then(|value| value.before), Some(240));
+        // The document default is 11pt; the style says 16 and bold, and the run says neither.
+        assert_eq!(runs[0].size, Some(16.0));
+        assert!(runs[0].bold);
+        assert_eq!(runs[0].font.as_deref(), Some("Calibri"));
+    }
+
+    #[test]
+    fn a_run_that_states_its_own_size_keeps_it_over_the_style() {
+        let xml = document(
+            r#"<w:p><w:pPr><w:pStyle w:val="Tight"/></w:pPr><w:r><w:rPr><w:sz w:val="18"/><w:b w:val="0"/></w:rPr><w:t>small</w:t></w:r></w:p>"#,
+        );
+        let (blocks, _, _) = parse_document(&xml, None, &styles_part(), &Default::default()).unwrap();
+        let Block::Paragraph { runs, .. } = paragraph_of(&blocks) else {
+            unreachable!()
+        };
+        assert_eq!(runs[0].size, Some(9.0));
+        // Inherited bold is on, and the run turns it off rather than saying nothing.
+        assert!(!runs[0].bold);
+    }
+
+    #[test]
+    fn the_paper_comes_from_the_section() {
+        let xml = document(
+            r#"<w:p><w:r><w:t>a</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1701" w:bottom="1134" w:left="1701"/></w:sectPr>"#,
+        );
+        let (_, _, page) = parse_document(&xml, None, &Styles::default(), &Default::default()).unwrap();
+        let page = page.expect("A4 in twips");
+        assert_eq!(page.width, Some(11906));
+        assert_eq!(page.height, Some(16838));
+        assert_eq!(page.margin_left, Some(1701));
+        // A document that names no section is drawn on the pane's own paper, not a wrong one.
+        let (_, _, none) = parse_document(&document("<w:p/>"), None, &Styles::default(), &Default::default()).unwrap();
+        assert!(none.is_none());
+    }
+
+    #[test]
+    fn a_picture_is_read_out_of_the_archive_at_the_size_it_is_drawn() {
+        let picture = r#"<w:p><w:r><w:drawing><wp:inline><wp:extent cx="952500" cy="476250"/><a:graphic><a:graphicData><a:blip r:embed="rId5"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>"#;
+        let bytes = archive(&[
+            ("[Content_Types].xml", "<Types/>"),
+            ("word/document.xml", &document(picture)),
+            (
+                "word/_rels/document.xml.rels",
+                r#"<Relationships><Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>"#,
+            ),
+            ("word/media/image1.png", "not really a png, but the bytes"),
+        ]);
+        let package = parts(&bytes).unwrap();
+        let image = package
+            .images
+            .get("rId5")
+            .expect("the relationship names the picture");
+        assert!(image.starts_with("data:image/png;base64,"), "{image}");
+        let (blocks, _, _) = parse_document(
+            &package.document,
+            None,
+            &Styles::default(),
+            &package.images,
+        )
+        .unwrap();
+        let Block::Paragraph { runs, .. } = paragraph_of(&blocks) else {
+            unreachable!()
+        };
+        // 952500 EMU is 100px, 476250 is 50px: the size the document draws it at.
+        assert_eq!(runs[0].image.as_deref(), Some(image.as_str()));
+        assert_eq!(runs[0].image_width, Some(100.0));
+        assert_eq!(runs[0].image_height, Some(50.0));
+    }
+
+    #[test]
+    fn the_theme_names_the_default_face() {
+        let theme = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:fontScheme><a:majorFont><a:latin typeface="Cambria"/><a:ea typeface="宋体"/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/><a:ea typeface="等线"/></a:minorFont></a:fontScheme></a:theme>"#;
+        let (latin, east_asian) = theme_fonts(theme);
+        assert_eq!(latin.as_deref(), Some("Calibri"));
+        assert_eq!(east_asian.as_deref(), Some("等线"));
     }
 
     #[test]
@@ -1058,8 +2058,12 @@ mod tests {
             vec![Block::Paragraph {
                 index: 0,
                 heading: None,
-                list: Some(ListItem { ordered: true, level: 1 }),
+                list: Some(ListItem { ordered: true, level: 1, num_id: 5 }),
                 runs: vec![Run { text: "item".into(), ..Default::default() }],
+                align: None,
+                size: None,
+                indent: None,
+                spacing: None,
             }]
         );
 
@@ -1079,6 +2083,25 @@ mod tests {
     }
 
     #[test]
+    fn a_list_item_carries_the_numbering_definition_it_asks_for() {
+        // Two lists next to each other with different ids are two lists: the pane resets its counter
+        // when the id changes, and `ordered` alone cannot tell them apart.
+        let xml = document(
+            r#"<w:p><w:pPr><w:numPr><w:numId w:val="5"/></w:numPr></w:pPr><w:r><w:t>one</w:t></w:r></w:p>
+            <w:p><w:pPr><w:numPr><w:numId w:val="6"/></w:numPr></w:pPr><w:r><w:t>two</w:t></w:r></w:p>"#,
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        let ids: Vec<u32> = paragraphs(&blocks)
+            .iter()
+            .filter_map(|block| match block {
+                Block::Paragraph { list: Some(item), .. } => Some(item.num_id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ids, vec![5, 6]);
+    }
+
+    #[test]
     fn reads_a_table_cell_by_cell() {
         let xml = document(
             r#"<w:tbl><w:tr><w:tc><w:p><w:r><w:t>a</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>b</w:t></w:r></w:p></w:tc></w:tr>
@@ -1086,14 +2109,28 @@ mod tests {
         );
         let (blocks, _) = parse_blocks(&xml, None).unwrap();
         assert_eq!(
-            blocks,
-            vec![Block::Table {
-                rows: vec![
-                    vec!["a".to_string(), "b".to_string()],
-                    vec!["c second".to_string(), String::new()],
-                ],
-            }]
+            table_texts(&blocks),
+            vec![
+                vec!["a".to_string(), "b".to_string()],
+                vec!["c second".to_string(), String::new()],
+            ]
         );
+    }
+
+    #[test]
+    fn a_cell_keeps_the_styling_of_its_runs() {
+        // A header row is bold because its runs are: reading a cell as one string lost that, and the
+        // table was drawn in one weight whatever Word said.
+        let xml = document(
+            r#"<w:tbl><w:tr><w:tc><w:p><w:r><w:rPr><w:b/><w:sz w:val="26"/></w:rPr><w:t>head</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"#,
+        );
+        let (blocks, _) = parse_blocks(&xml, None).unwrap();
+        let Block::Table { rows } = &blocks[0] else {
+            panic!("expected a table");
+        };
+        assert_eq!(rows[0][0][0].text, "head");
+        assert!(rows[0][0][0].bold);
+        assert_eq!(rows[0][0][0].size, Some(13.0));
     }
 
     #[test]
@@ -1104,8 +2141,8 @@ mod tests {
             </w:tc></w:tr></w:tbl>"#,
         );
         assert_eq!(
-            parse_blocks(&xml, None).unwrap().0,
-            vec![Block::Table { rows: vec![vec!["outer".to_string()]] }]
+            table_texts(&parse_blocks(&xml, None).unwrap().0),
+            vec![vec!["outer".to_string()]]
         );
     }
 
@@ -1123,10 +2160,178 @@ mod tests {
     }
 
     #[test]
-    fn a_paragraph_of_only_whitespace_is_not_a_block() {
+    fn a_paragraph_of_only_whitespace_is_still_a_block() {
+        // It draws as a blank line, and the editor has to see it: its text may be a space the user
+        // typed, and the line has to keep its place in the document either way.
         let xml = document(r#"<w:p><w:r><w:t>   </w:t></w:r></w:p><w:p><w:r><w:t>real</w:t></w:r></w:p>"#);
         let blocks = parse_blocks(&xml, None).unwrap().0;
-        assert_eq!(paragraphs(&blocks).len(), 1);
+        assert_eq!(paragraphs(&blocks).len(), 2);
+        assert!(matches!(&blocks[0], Block::Paragraph { index: 0, .. }));
+        assert!(matches!(&blocks[1], Block::Paragraph { index: 1, .. }));
+    }
+
+    #[test]
+    fn text_written_into_a_paragraph_that_had_none() {
+        // Enter at the end of a document writes an empty paragraph, then the next keystroke writes
+        // text into it. There is no <w:t> to put it in, so one has to be created - failing here
+        // failed the whole save, taking the other paragraphs' edits down with it.
+        let xml = document("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr></w:p>");
+        let written = rewrite_document_xml(
+            &xml,
+            &[DocxEdit {
+                index: 0,
+                text: "typed".into(),
+            }],
+            &[],
+            &[],
+        )
+        .expect("writing into an empty paragraph should land");
+        assert!(
+            written.contains("<w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:t>typed</w:t></w:r>"),
+            "{written}"
+        );
+    }
+
+    #[test]
+    fn a_mixed_paragraph_keeps_its_first_run_and_drops_the_rest() {
+        // The pane has no formatting commands, and the writer has one text per paragraph: the edit
+        // lands in the first run, which keeps its properties, and the other runs are emptied. Pinned
+        // here so nobody reads the loss of emphasis as a bug later - and so the text never goes
+        // missing.
+        let xml = document(
+            r#"<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>bold</w:t></w:r><w:r><w:t> plain</w:t></w:r></w:p>"#,
+        );
+        let written = rewrite_document_xml(
+            &xml,
+            &[DocxEdit {
+                index: 0,
+                text: "changed".into(),
+            }],
+            &[],
+            &[],
+        )
+        .expect("a mixed paragraph is still editable");
+        assert!(
+            written.contains("<w:rPr><w:b/></w:rPr><w:t>changed</w:t>"),
+            "{written}"
+        );
+        assert!(!written.contains("plain"), "{written}");
+    }
+
+    #[test]
+    fn a_paragraph_with_custom_tab_stops_can_still_be_edited() {
+        // `<w:tabs>` starts with the same four characters as `<w:t>`: a scan that matched the prefix
+        // took the properties for a text node, could not find its end, and failed the whole save.
+        let xml = document(
+            r#"<w:p><w:pPr><w:tabs><w:tab w:val="left" w:pos="720"/></w:tabs></w:pPr><w:r><w:t>a</w:t></w:r></w:p>"#,
+        );
+        let written = rewrite_document_xml(
+            &xml,
+            &[DocxEdit {
+                index: 0,
+                text: "b".into(),
+            }],
+            &[],
+            &[],
+        )
+        .expect("a paragraph with tab stops is still editable");
+        assert!(written.contains("<w:tabs>"), "{written}");
+        assert!(written.contains("<w:t>b</w:t>"), "{written}");
+    }
+
+    #[test]
+    fn a_tab_inside_a_paragraph_is_not_taken_for_a_text_node() {
+        // A `<w:tab/>` sits between two runs. Treated as an empty `<w:t>`, the run after it was
+        // emptied - the tab and the rest of the line silently disappeared.
+        let xml = document(
+            r#"<w:p><w:r><w:t>a</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>c</w:t></w:r></w:p>"#,
+        );
+        let written = rewrite_document_xml(
+            &xml,
+            &[DocxEdit {
+                index: 0,
+                text: "a	c".into(),
+            }],
+            &[],
+            &[],
+        )
+        .expect("a paragraph with a tab is still editable");
+        assert!(written.contains("<w:tab/>"), "{written}");
+        assert!(written.contains("<w:t>a	c</w:t>"), "{written}");
+    }
+
+    #[test]
+    fn an_empty_paragraph_round_trips_untouched() {
+        let xml = document("<w:p/><w:p><w:r><w:t>x</w:t></w:r></w:p>");
+        let written = rewrite_document_xml(&xml, &[], &[], &[]).expect("nothing to change");
+        assert_eq!(written, xml);
+    }
+
+    #[test]
+    fn an_insert_before_the_first_paragraph() {
+        // A table first, or a body with no <w:p> at all: the only place a new line can go is in
+        // front of everything, and `after` has no ordinal to name for it.
+        let xml = document("<w:p><w:r><w:t>second</w:t></w:r></w:p>");
+        let written = rewrite_document_xml(
+            &xml,
+            &[],
+            &[],
+            &[DocxInsert {
+                after: None,
+                text: "first".into(),
+            }],
+        )
+        .expect("an insert before the first paragraph should land");
+        let first = written.find("first").expect("the new paragraph is in the part");
+        let second = written.find("second").expect("the old paragraph is in the part");
+        assert!(first < second, "{written}");
+    }
+
+    #[test]
+    fn an_insert_at_the_top_does_not_land_inside_a_table() {
+        // A paragraph inside a table is a paragraph too, and it comes first. Inserting "in front of
+        // everything" at the first paragraph therefore put the new line inside the table's first
+        // cell - and gave it the cell's own paragraph properties, so a right-aligned cell produced a
+        // right-aligned body line.
+        let xml = document(
+            r#"<w:tbl><w:tr><w:tc><w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:t>after</w:t></w:r></w:p>"#,
+        );
+        let written = rewrite_document_xml(
+            &xml,
+            &[],
+            &[],
+            &[DocxInsert {
+                after: None,
+                text: "first".into(),
+            }],
+        )
+        .expect("an insert at the top should land");
+        let new_line = written.find("<w:t>first</w:t>").expect("the new line is in the part");
+        let table_end = written.find("</w:tbl>").expect("the table is in the part");
+        let old_line = written.find("<w:t>after</w:t>").expect("the old line is in the part");
+        assert!(new_line > table_end, "the new line went inside the table: {written}");
+        assert!(new_line < old_line, "the new line is not in front of the body's text: {written}");
+        // And it takes the style of a body paragraph, not of a cell.
+        let created = &written[..new_line];
+        let created = &created[created.rfind("<w:p>").expect("the new paragraph starts")..];
+        assert!(!created.contains("<w:jc"), "the new line took the cell's alignment: {written}");
+    }
+
+    #[test]
+    fn an_insert_into_a_body_that_has_no_paragraphs() {
+        let xml = document("");
+        let written = rewrite_document_xml(
+            &xml,
+            &[],
+            &[],
+            &[DocxInsert {
+                after: None,
+                text: "only".into(),
+            }],
+        )
+        .expect("an insert into an empty body should land");
+        assert!(written.contains("<w:t>only</w:t>"), "{written}");
+        assert!(written.contains("<w:body>"), "{written}");
     }
 
     /// One paragraph of `xml` replaced by `text`, with the rest of the part untouched.
@@ -1194,10 +2399,12 @@ mod tests {
     }
 
     #[test]
-    fn a_paragraph_with_no_text_node_cannot_be_edited() {
-        // An image has no text to put anything into, and writing an empty run would drop it.
+    fn a_paragraph_holding_an_image_takes_text_beside_it() {
+        // It used to be refused ("this paragraph has no text"), which failed the whole save when the
+        // caret was on such a line. The drawing has to survive: the text is a run added beside it,
+        // not a replacement for it.
         let xml = "<w:document><w:body><w:p><w:r><w:drawing/></w:r></w:p></w:body></w:document>";
-        let error = rewrite_document_xml(
+        let written = rewrite_document_xml(
             xml,
             &[DocxEdit {
                 index: 0,
@@ -1206,8 +2413,9 @@ mod tests {
             &[],
             &[],
         )
-        .unwrap_err();
-        assert!(error.contains("没有文字"), "{error}");
+        .expect("a line holding an image can still be typed on");
+        assert!(written.contains("<w:drawing/>"), "{written}");
+        assert!(written.contains("<w:t>x</w:t>"), "{written}");
     }
 
     #[test]
@@ -1278,7 +2486,7 @@ mod tests {
             &[],
             &[],
             &[DocxInsert {
-                after: 0,
+                after: Some(0),
                 text: "added".into(),
             }],
         )
@@ -1298,7 +2506,7 @@ mod tests {
             &[],
             &[],
             &[DocxInsert {
-                after: 0,
+                after: Some(0),
                 text: "".into(),
             }],
         )
@@ -1317,7 +2525,7 @@ mod tests {
             &[],
             &[],
             &[DocxInsert {
-                after: 0,
+                after: Some(0),
                 text: " b & c".into(),
             }],
         )
@@ -1334,7 +2542,7 @@ mod tests {
             &[],
             &[],
             &[DocxInsert {
-                after: 4,
+                after: Some(4),
                 text: "x".into(),
             }]
         )
@@ -1345,7 +2553,7 @@ mod tests {
             &[],
             &[0],
             &[DocxInsert {
-                after: 0,
+                after: Some(0),
                 text: "x".into(),
             }]
         )
@@ -1366,7 +2574,7 @@ mod tests {
             }],
             &[],
             &[DocxInsert {
-                after: 0,
+                after: Some(0),
                 text: " me".into(),
             }],
             &guard,
@@ -1462,6 +2670,48 @@ mod tests {
         undo_docx_sync(&path, &after_delete).expect("undo should land");
         assert_eq!(part_of(&path), original);
         assert!(part_of(&path).contains("<w:rPr><w:b/></w:rPr>"));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn the_same_part_is_not_remembered_twice() {
+        let document = "<w:document><w:body><w:p><w:r><w:t>x</w:t></w:r></w:p></w:body></w:document>";
+        let (path, guard) = archive_with(document);
+        let original = part_of(&path);
+
+        // Two saves that write the same text: the second one would otherwise push the same snapshot
+        // again, and one undo would then take back nothing at all.
+        let first = write_docx_sync(
+            &path,
+            &[DocxEdit {
+                index: 0,
+                text: "y".into(),
+            }],
+            &[],
+            &[],
+            &guard,
+        )
+        .expect("the first save lands");
+        let after_first = part_of(&path);
+        let second = write_docx_sync(
+            &path,
+            &[DocxEdit {
+                index: 0,
+                text: "y".into(),
+            }],
+            &[],
+            &[],
+            &first,
+        )
+        .expect("the second save lands");
+        assert_eq!(part_of(&path), after_first);
+
+        undo_docx_sync(&path, &second).expect("one undo");
+        assert_eq!(
+            part_of(&path),
+            original,
+            "one undo should get back to the original, not to y"
+        );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -1581,14 +2831,33 @@ mod tests {
 
     #[test]
     fn a_paragraph_that_draws_nothing_still_takes_its_ordinal() {
-        // `<w:p/>` and a paragraph of spaces are not drawn, but they are elements of the part: a
-        // writer that counted only the drawn ones would edit the wrong paragraph.
+        // `<w:p/>` and a paragraph of spaces are blank lines, and they are elements of the part: the
+        // block after them is the third paragraph, not the first.
         let xml = "<w:document><w:body>            <w:p/>            <w:p><w:r><w:t> </w:t></w:r></w:p>            <w:p><w:r><w:t>third</w:t></w:r></w:p>            </w:body></w:document>";
         let blocks = parse_blocks(xml, None).unwrap().0;
-        let Block::Paragraph { index, .. } = &blocks[0] else {
-            panic!("no paragraph: {blocks:?}");
-        };
-        assert_eq!(*index, 2);
+        let indexes: Vec<u32> = blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Paragraph { index, .. } => Some(*index),
+                Block::Table { .. } => None,
+            })
+            .collect();
+        assert_eq!(indexes, vec![0, 1, 2], "{blocks:?}");
+        assert!(matches!(&blocks[2], Block::Paragraph { index: 2, .. }));
+    }
+
+    #[test]
+    fn an_empty_paragraph_keeps_its_place() {
+        // A blank line is a paragraph with no runs. Dropping it on read makes the ordinal after it
+        // shift, so pressing Enter at the end of a document writes a paragraph the next read throws
+        // away - and the caret lands nowhere.
+        let xml = document(
+            "<w:p><w:r><w:t>one</w:t></w:r></w:p><w:p/><w:p><w:r><w:t>three</w:t></w:r></w:p>",
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        assert_eq!(blocks.len(), 3, "{blocks:?}");
+        assert!(matches!(&blocks[1], Block::Paragraph { index: 1, runs, .. } if runs.is_empty()));
+        assert!(matches!(&blocks[2], Block::Paragraph { index: 2, .. }));
     }
 
     #[test]
@@ -1635,9 +2904,9 @@ mod tests {
                 &document(r#"<w:p><w:r><w:t>from the archive</w:t></w:r></w:p>"#),
             ),
         ]);
-        let (document_xml, numbering) = parts(&bytes).unwrap();
-        assert!(numbering.is_none());
-        let (blocks, _) = parse_blocks(&document_xml, None).unwrap();
+        let package = parts(&bytes).unwrap();
+        assert!(package.numbering.is_none());
+        let (blocks, _) = parse_blocks(&package.document, None).unwrap();
         let Block::Paragraph { runs, .. } = &blocks[0] else {
             panic!("expected a paragraph");
         };
@@ -1648,8 +2917,8 @@ mod tests {
     fn entry_names_are_matched_whatever_their_case_or_separator() {
         // `Compress-Archive` writes backslashes, and a writer may spell the part in any case.
         let bytes = archive(&[("WORD\\DOCUMENT.XML", "<w:document/>")]);
-        let (document_xml, _) = parts(&bytes).unwrap();
-        assert_eq!(document_xml, "<w:document/>");
+        let package = parts(&bytes).unwrap();
+        assert_eq!(package.document, "<w:document/>");
     }
 
     #[test]

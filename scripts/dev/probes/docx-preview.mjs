@@ -27,22 +27,44 @@ const BROKEN = "broken.docx";
 const TEXTY = "text-in-a-docx.docx";
 
 const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Default Extension="png" ContentType="image/png"/></Types>`;
 const RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
 const NUMBERING = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:abstractNum w:abstractNumId="9"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum>
+  <w:abstractNum w:abstractNumId="9"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/></w:lvl><w:lvl w:ilvl="1"><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum>
   <w:num w:numId="7"><w:abstractNumId w:val="9"/></w:num>
 </w:numbering>`;
+/** A 1x1 transparent PNG: the smallest real picture, written out of the probe's own bytes. */
+const PICTURE = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+const RELS_WITH_IMAGE = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>`;
+
+const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:docDefaults>
+    <w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:eastAsia="宋体"/><w:sz w:val="22"/></w:rPr></w:rPrDefault>
+    <w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault>
+  </w:docDefaults>
+  <w:style w:type="paragraph" w:styleId="Heading1"><w:pPr><w:spacing w:before="240" w:after="120"/></w:pPr><w:rPr><w:b/><w:sz w:val="32"/></w:rPr></w:style>
+</w:styles>`;
+
 const DOCUMENT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
   <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>终端智能体兵器谱</w:t></w:r></w:p>
   <w:p><w:r><w:t xml:space="preserve">Tom &amp; Jerry </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>加粗的一段</w:t></w:r></w:p>
+  <w:p><w:pPr><w:jc w:val="center"/><w:ind w:left="720" w:firstLine="360"/></w:pPr><w:r><w:rPr><w:color w:val="C00000"/></w:rPr><w:t>居中红字</w:t></w:r></w:p>
+  <w:p><w:r><w:drawing><wp:inline><wp:extent cx="952500" cy="476250"/><a:graphic><a:graphicData><a:blip r:embed="rId9"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>
+  <w:p/>
   <w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>第一项</w:t></w:r></w:p>
   <w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>第二项</w:t></w:r></w:p>
+  <w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>子项</w:t></w:r></w:p>
   <w:tbl>
-    <w:tr><w:tc><w:p><w:r><w:t>名字</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>价格</w:t></w:r></w:p></w:tc></w:tr>
+    <w:tr><w:tc><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>名字</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>价格</w:t></w:r></w:p></w:tc></w:tr>
     <w:tr><w:tc><w:p><w:r><w:t>Ponytail</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>免费</w:t></w:r></w:p></w:tc></w:tr>
   </w:tbl>
 </w:body></w:document>`;
@@ -160,9 +182,52 @@ const readDocument = () =>
     return {
       text: (pane.innerText || "").replace(/\\s+/g, " ").trim(),
       headings: [...pane.querySelectorAll("h1, h2, h3")].map((h) => (h.innerText || "").trim()),
-      listItems: [...pane.querySelectorAll("li")].map((li) => (li.innerText || "").trim()),
-      listKind: [...pane.querySelectorAll("ol, ul")].map((l) => l.tagName.toLowerCase()),
+      // The body is one editable surface, so a list item is a block of its own rather than an li
+      // inside an ol: a wrapper would put the paragraph two levels down and the writer reads
+      // paragraphs back from the direct children. role=listitem and data-list carry what the element
+      // no longer does.
+      listItems: [...pane.querySelectorAll('[data-block="li"]')].map((li) => (li.innerText || "").trim()),
+      listKind: [...pane.querySelectorAll('[data-block="li"]')].map((li) => (li.getAttribute("data-list") || "").replace("number", "ol").replace("bullet", "ul")),
+      listIndent: [...pane.querySelectorAll('[data-block="li"]')].map((li) =>
+        Math.round(Number.parseFloat(getComputedStyle(li).paddingLeft) || 0),
+      ),
       bold: [...pane.querySelectorAll("strong, .font-semibold")].map((b) => (b.innerText || "").trim()),
+      // The paper, and the box each block was drawn in: size, alignment, colour, indent, and how
+      // tall a paragraph with nothing in it came out.
+      paper: (() => {
+        const sheet = pane.querySelector("[data-docx-paper]");
+        if (!sheet) return null;
+        const style = getComputedStyle(sheet);
+        return {
+          width: Math.round(sheet.getBoundingClientRect().width),
+          paddingLeft: Math.round(Number.parseFloat(style.paddingLeft) || 0),
+        };
+      })(),
+      blocks: [...pane.querySelectorAll("[data-docx-editable]")].map((node) => {
+        const style = getComputedStyle(node);
+        return {
+          text: (node.innerText || "").trim(),
+          size: Math.round(Number.parseFloat(style.fontSize) || 0),
+          align: style.textAlign,
+          paddingLeft: Math.round(Number.parseFloat(style.paddingLeft) || 0),
+          textIndent: Math.round(Number.parseFloat(style.textIndent) || 0),
+          height: Math.round(node.getBoundingClientRect().height),
+        };
+      }),
+      images: [...pane.querySelectorAll("[data-docx-image]")].map((node) => ({
+        kind: (node.getAttribute("src") || "").slice(0, 22),
+        width: Math.round(node.getBoundingClientRect().width),
+        height: Math.round(node.getBoundingClientRect().height),
+      })),
+      boldCells: [...pane.querySelectorAll("td .font-semibold")].map((node) =>
+        (node.textContent || "").trim(),
+      ),
+      runs: [...pane.querySelectorAll("[data-docx-editable] span")].map((node) => ({
+        text: (node.textContent || "").trim(),
+        color: getComputedStyle(node).color,
+        font: getComputedStyle(node).fontFamily,
+        size: Math.round(Number.parseFloat(getComputedStyle(node).fontSize) || 0),
+      })),
       cells: [...pane.querySelectorAll("table td")].map((td) => (td.innerText || "").trim()),
       rowCount: rows.length,
       saysBinary: (pane.parentElement?.innerText || "").includes("二进制文件"),
@@ -178,9 +243,17 @@ try {
   mkdirSync(join(parts, "_rels"), { recursive: true });
   mkdirSync(join(parts, "word"), { recursive: true });
   writeFileSync(join(parts, "[Content_Types].xml"), CONTENT_TYPES);
-  writeFileSync(join(parts, "_rels", ".rels"), RELS);
+  writeFileSync(join(parts, "_rels", ".rels"), RELS_WITH_IMAGE);
+  mkdirSync(join(parts, "word", "_rels"), { recursive: true });
+  writeFileSync(
+    join(parts, "word", "_rels", "document.xml.rels"),
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>`,
+  );
+  mkdirSync(join(parts, "word", "media"), { recursive: true });
+  writeFileSync(join(parts, "word", "media", "image1.png"), PICTURE);
   writeFileSync(join(parts, "word", "document.xml"), DOCUMENT);
   writeFileSync(join(parts, "word", "numbering.xml"), NUMBERING);
+  writeFileSync(join(parts, "word", "styles.xml"), STYLES);
   const goodPath = join(DIR, GOOD);
   // `Compress-Archive` writes only `.zip`, so the archive is built under that name and renamed: the
   // extension is the whole difference between the two.
@@ -214,14 +287,70 @@ try {
   if (!(drawn.headings ?? []).includes("终端智能体兵器谱")) {
     fail(`the heading did not come through as a heading: ${JSON.stringify(drawn.headings)}`);
   }
+  // A4 is 11906 twips wide, and 15 twips make a pixel: 794px of paper, with a 2.54cm margin
+  // (1440 twips) as 96px of padding inside it.
+  const paper = drawn.paper ?? {};
+  if (Math.abs((paper.width ?? 0) - 794) > 3) {
+    fail(`the paper is ${paper.width}px wide, not an A4 sheet`);
+  }
+  if (Math.abs((paper.paddingLeft ?? 0) - 96) > 3) {
+    fail(`the left margin is ${paper.paddingLeft}px, not the 1440 twips the page declares`);
+  }
+  // The heading is 16pt in its style (and not the pane's own fallback): 32 half-points -> 21px.
+  const headingBox = (drawn.blocks ?? [])[0];
+  if (!headingBox || Math.abs(headingBox.size - 21) > 2) {
+    fail(`the heading is drawn at ${headingBox?.size}px, not the 16pt its style says: ${JSON.stringify(headingBox)}`);
+  }
+  // A line the file centres and indents is drawn centred and indented: 720 twips of left indent is
+  // 48px, and a 360-twip first-line indent is 24px.
+  const centred = (drawn.blocks ?? [])[2];
+  const centredRun = (drawn.runs ?? []).find((run) => run.text === "居中红字");
+  if (!centred || centred.align !== "center") {
+    fail(`a centred paragraph is drawn ${centred?.align}: ${JSON.stringify(centred)}`);
+  }
+  if (Math.abs(centred.paddingLeft - 48) > 2 || Math.abs(centred.textIndent - 24) > 2) {
+    fail(`the paragraph's indents are ${centred.paddingLeft}/${centred.textIndent}px, not 48/24`);
+  }
+  if (!centredRun || centredRun.color !== "rgb(192, 0, 0)") {
+    fail(`the red run is drawn ${centredRun?.color}: ${JSON.stringify(centredRun)}`);
+  }
+  // The document's ink is black: the app's foreground is a light grey in the dark theme, and
+  // inherited onto white paper it drew the page nearly invisible.
+  if (centredRun && (drawn.runs ?? [])[1]?.color !== "rgb(0, 0, 0)") {
+    fail(`the body text is drawn ${(drawn.runs ?? [])[1]?.color}, not black on white`);
+  }
+  // The body's face comes from the document defaults: Calibri, not whatever the pane would use.
+  if (!(centredRun.font ?? "").includes("Calibri")) {
+    fail(`the run is drawn in ${centredRun.font}, not the document's Calibri`);
+  }
+  // An empty paragraph is a line: drawn with no height it is a blank line nobody can see or click.
+  const blankBox = (drawn.blocks ?? [])[4];
+  if (!blankBox || blankBox.text !== "" || blankBox.height < 12) {
+    fail(`the blank line is ${blankBox?.height}px tall: ${JSON.stringify(blankBox)}`);
+  }
+  // A picture is drawn from the archive's own bytes, at the size the document asks for:
+  // 952500 EMU is 100px, 476250 is 50px.
+  const picture = (drawn.images ?? [])[0];
+  if (!picture || picture.kind !== "data:image/png;base64," || picture.width !== 100 || picture.height !== 50) {
+    fail(`the picture is not drawn from the document: ${JSON.stringify(drawn.images)}`);
+  }
+  // A cell is drawn from its runs, so a bold header stays bold.
+  if (JSON.stringify(drawn.boldCells ?? []) !== JSON.stringify(["名字", "价格"])) {
+    fail(`the header row is not bold: ${JSON.stringify(drawn.boldCells)}`);
+  }
   if (!(drawn.text ?? "").includes("Tom & Jerry")) {
     fail(`the escaped entity came through as something else: ${JSON.stringify(drawn.text?.slice(0, 80))}`);
   }
   if (!(drawn.bold ?? []).includes("加粗的一段")) {
     fail(`the bold run is not drawn as bold: ${JSON.stringify(drawn.bold)}`);
   }
-  if (JSON.stringify(drawn.listItems) !== JSON.stringify(["第一项", "第二项"])) {
+  if (JSON.stringify(drawn.listItems) !== JSON.stringify(["第一项", "第二项", "子项"])) {
     fail(`the list is not drawn as a list: ${JSON.stringify(drawn.listItems)}`);
+  }
+  // The third item is at ilvl 1: a sub-item at the same margin as its parent reads as one flat list.
+  const indent = drawn.listIndent ?? [];
+  if (!(indent.length === 3 && indent[0] === indent[1] && indent[2] > indent[0])) {
+    fail(`the nested item is not drawn one step in: ${JSON.stringify(indent)}`);
   }
   if (!(drawn.listKind ?? []).includes("ol")) {
     fail(`the numbering said decimal but the list is ${JSON.stringify(drawn.listKind)}`);
