@@ -1713,7 +1713,7 @@ mod tests {
         .expect("the second save lands");
         assert_eq!(part_of(&path), after_first);
 
-        let undone = undo_docx_sync(&path, &second).expect("one undo");
+        undo_docx_sync(&path, &second).expect("one undo");
         assert_eq!(
             part_of(&path),
             original,

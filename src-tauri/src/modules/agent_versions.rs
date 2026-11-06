@@ -39,7 +39,14 @@ use serde::Serialize;
 
 use crate::modules::proc::capture::{self, Limits};
 
-const NPM_TIMEOUT_SECS: u64 = 25;
+/// How long one upgrade may run.
+///
+/// The reads above answer in seconds; a write that fetches tarballs and rewrites a dependency tree
+/// does not. An npm install naming two plugins took 37s on a warm cache and over a minute on a cold
+/// one, and killing it at 100s reported "超时" for installs that were still working - which is what
+/// "老是升级失败" looked like from the outside. The limit is only here to stop a hung process, and it
+/// is the user's own click with the row saying it is working.
+const UPGRADE_TIMEOUT_SECS: u64 = 300;
 const VERSION_TIMEOUT_SECS: u64 = 15;
 /// `git ls-remote` is a network round trip with git's own startup in front of it.
 const GIT_TIMEOUT_SECS: u64 = 20;
@@ -1280,26 +1287,45 @@ pub fn upgrade(id: &str) -> Result<String, String> {
 
 /// Runs one upgrade command and reports what it said.
 fn run_upgrade(upgrade: &AgentUpgrade) -> Result<String, String> {
+    run_upgrade_with(upgrade, Duration::from_secs(UPGRADE_TIMEOUT_SECS))
+}
+
+/// The command an upgrade runs, as one line: the row's message has to say what was attempted.
+fn upgrade_label(upgrade: &AgentUpgrade) -> String {
+    format!("{} {}", upgrade.program, upgrade.args.join(" "))
+}
+
+fn run_upgrade_with(
+    upgrade: &AgentUpgrade,
+    timeout: Duration,
+) -> Result<String, String> {
     let args: Vec<&str> = upgrade.args.iter().map(String::as_str).collect();
-    let captured = run_tool(
-        &upgrade.program,
-        &args,
-        Duration::from_secs(NPM_TIMEOUT_SECS * 4),
-        false,
-        &[],
-    )?;
+    let label = upgrade_label(upgrade);
+    log::info!("agent upgrade: {label}");
+    let captured = run_tool(&upgrade.program, &args, timeout, false, &[])?;
     let stdout = String::from_utf8_lossy(&captured.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&captured.stderr).trim().to_string();
     if captured.timed_out {
-        return Err("升级命令超时".into());
+        // Named, so the next report of this is diagnosable: which command, how long, and that it was
+        // the clock rather than a refusal.
+        log::warn!(
+            "agent upgrade timed out after {:?}: {label}",
+            timeout
+        );
+        return Err(format!("升级命令超时（{label}）"));
     }
     if captured.exit_code != Some(0) {
         let detail = if stderr.is_empty() { stdout } else { stderr };
-        return Err(if detail.is_empty() {
-            format!("升级命令以 {} 退出", captured.exit_code.unwrap_or(-1))
+        let said = if detail.is_empty() {
+            format!("升级命令以 {} 退出（{label}）", captured.exit_code.unwrap_or(-1))
         } else {
             detail
-        });
+        };
+        log::warn!(
+            "agent upgrade failed (exit {:?}): {label} → {said}",
+            captured.exit_code
+        );
+        return Err(said);
     }
     Ok(if stdout.is_empty() { stderr } else { stdout })
 }
@@ -1695,5 +1721,18 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn a_timed_out_upgrade_says_which_command_and_that_it_was_the_time() {
+        // "升级失败" with nothing after it is what this used to say, and it is unfixable from the
+        // outside: the row cannot tell a network that never answered from a tree npm refused.
+        let upgrade = AgentUpgrade {
+            program: "ping".into(),
+            args: vec!["-n".into(), "6".into(), "127.0.0.1".into()],
+        };
+        let error = run_upgrade_with(&upgrade, Duration::from_millis(300)).unwrap_err();
+        assert!(error.contains("超时"), "{error}");
+        assert!(error.contains("ping"), "{error}");
     }
 }

@@ -28,6 +28,7 @@ swap in the new date, and drop the `open` from the day before.
 - `src/styles/globals.css`: `.verta-docx-marker::before` draws a list marker from `data-marker`; `.verta-compact-card` no longer fades in and its move transition is the only one left.
 - `src/modules/launcher/components/CompactSessionCard.tsx`: the transition is switched on one frame after the first placement rather than in the same commit. Applied together, the browser interpolated `transform: none` into the placement and the card flew in from the window's corner; now it appears where the row is and only a move to another row animates.
 - `src/styles/motionBudget.test.ts`, `src/modules/launcher/components/sessionRowDensity.test.ts`: the card's base rule has no hidden opacity and no opacity transition, and the placement-to-transition frame is pinned.
+- `src-tauri/src/modules/agent_versions.rs`: an upgrade is allowed five minutes instead of a hundred seconds, and a timeout now names the command it ran. An npm install naming two plugins took 37s on a warm cache and over a minute cold, so the hundred-second limit killed installs that were still working and reported them as a failure - "老是升级失败" from the outside. Every upgrade attempt is logged with its command, and a refusal or a timeout with its output, to `Verta.log`.
 
 </details>
 
