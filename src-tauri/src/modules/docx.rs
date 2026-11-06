@@ -294,8 +294,12 @@ fn new_paragraph(source: &str, text: &str) -> String {
 ///
 /// The paragraph keeps everything it had - properties, run properties, bookmarks - and only the text
 /// node payloads change: the new text goes into the first one and the rest are emptied, so the element
-/// count and the XML around them stay what Word wrote. A paragraph with no text node at all (an image,
-/// a field) cannot be represented this way, and saying so beats writing an empty run.
+/// count and the XML around them stay what Word wrote.
+///
+/// A paragraph with no text node at all - a blank line the pane just created, a line holding only an
+/// image or a field - gets a run of its own, after its properties. Refusing that made a save fail as a
+/// whole whenever the caret was on a line with nothing on it, which is exactly where typing starts
+/// after Enter.
 fn rewrite_paragraph(paragraph: &str, text: &str) -> Result<String, String> {
     let mut out = String::with_capacity(paragraph.len() + text.len());
     let mut rest = paragraph;
@@ -331,7 +335,28 @@ fn rewrite_paragraph(paragraph: &str, text: &str) -> Result<String, String> {
         }
     }
     if !written {
-        return Err("这一段没有文字，改不了".into());
+        // A paragraph with no text node at all - a blank line Enter just created, a line holding
+        // only an image or a field. The text needs somewhere to live, so a run is created after the
+        // paragraph's own properties, in front of whatever else it holds.
+        if text.is_empty() {
+            return Ok(paragraph.to_string());
+        }
+        let needs_space = text.trim() != text;
+        let open = if needs_space {
+            "<w:t xml:space=\"preserve\">"
+        } else {
+            "<w:t>"
+        };
+        let run = format!("<w:r>{open}{}</w:t></w:r>", escape_text(text));
+        let at = rest
+            .find("</w:pPr>")
+            .map(|end| end + "</w:pPr>".len())
+            .or_else(|| rest.find('>').map(|end| end + 1))
+            .unwrap_or(0);
+        out.push_str(&rest[..at]);
+        out.push_str(&run);
+        out.push_str(&rest[at..]);
+        return Ok(out);
     }
     out.push_str(rest);
     Ok(out)
@@ -1174,6 +1199,61 @@ mod tests {
         assert!(matches!(&blocks[1], Block::Paragraph { index: 1, .. }));
     }
 
+    #[test]
+    fn text_written_into_a_paragraph_that_had_none() {
+        // Enter at the end of a document writes an empty paragraph, then the next keystroke writes
+        // text into it. There is no <w:t> to put it in, so one has to be created - failing here
+        // failed the whole save, taking the other paragraphs' edits down with it.
+        let xml = document("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr></w:p>");
+        let written = rewrite_document_xml(
+            &xml,
+            &[DocxEdit {
+                index: 0,
+                text: "typed".into(),
+            }],
+            &[],
+            &[],
+        )
+        .expect("writing into an empty paragraph should land");
+        assert!(
+            written.contains("<w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:t>typed</w:t></w:r>"),
+            "{written}"
+        );
+    }
+
+    #[test]
+    fn a_mixed_paragraph_keeps_its_first_run_and_drops_the_rest() {
+        // The pane has no formatting commands, and the writer has one text per paragraph: the edit
+        // lands in the first run, which keeps its properties, and the other runs are emptied. Pinned
+        // here so nobody reads the loss of emphasis as a bug later - and so the text never goes
+        // missing.
+        let xml = document(
+            r#"<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>bold</w:t></w:r><w:r><w:t> plain</w:t></w:r></w:p>"#,
+        );
+        let written = rewrite_document_xml(
+            &xml,
+            &[DocxEdit {
+                index: 0,
+                text: "changed".into(),
+            }],
+            &[],
+            &[],
+        )
+        .expect("a mixed paragraph is still editable");
+        assert!(
+            written.contains("<w:rPr><w:b/></w:rPr><w:t>changed</w:t>"),
+            "{written}"
+        );
+        assert!(!written.contains("plain"), "{written}");
+    }
+
+    #[test]
+    fn an_empty_paragraph_round_trips_untouched() {
+        let xml = document("<w:p/><w:p><w:r><w:t>x</w:t></w:r></w:p>");
+        let written = rewrite_document_xml(&xml, &[], &[], &[]).expect("nothing to change");
+        assert_eq!(written, xml);
+    }
+
     /// One paragraph of `xml` replaced by `text`, with the rest of the part untouched.
     fn edited(xml: &str, index: u32, text: &str) -> String {
         rewrite_document_xml(
@@ -1239,10 +1319,12 @@ mod tests {
     }
 
     #[test]
-    fn a_paragraph_with_no_text_node_cannot_be_edited() {
-        // An image has no text to put anything into, and writing an empty run would drop it.
+    fn a_paragraph_holding_an_image_takes_text_beside_it() {
+        // It used to be refused ("this paragraph has no text"), which failed the whole save when the
+        // caret was on such a line. The drawing has to survive: the text is a run added beside it,
+        // not a replacement for it.
         let xml = "<w:document><w:body><w:p><w:r><w:drawing/></w:r></w:p></w:body></w:document>";
-        let error = rewrite_document_xml(
+        let written = rewrite_document_xml(
             xml,
             &[DocxEdit {
                 index: 0,
@@ -1251,8 +1333,9 @@ mod tests {
             &[],
             &[],
         )
-        .unwrap_err();
-        assert!(error.contains("没有文字"), "{error}");
+        .expect("a line holding an image can still be typed on");
+        assert!(written.contains("<w:drawing/>"), "{written}");
+        assert!(written.contains("<w:t>x</w:t>"), "{written}");
     }
 
     #[test]
