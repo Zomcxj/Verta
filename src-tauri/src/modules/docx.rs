@@ -49,6 +49,9 @@ pub struct ListItem {
     pub ordered: bool,
     /// Nesting depth, 0 for a top-level item.
     pub level: u8,
+    /// The numbering definition the paragraph asks for. Two adjacent lists with different ids are
+    /// two lists, and the pane can only reset its counter between them if it knows which is which.
+    pub num_id: u32,
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
@@ -855,9 +858,24 @@ fn parse_blocks(
             }
             Ok(Event::Empty(element)) => {
                 let name = element.name();
-                // A self-closing `<w:p/>` is a paragraph element too, and takes its ordinal.
+                // A self-closing `<w:p/>` is a paragraph element too, and takes its ordinal - and,
+                // outside a table, it is a block of its own: this is what a blank line looks like
+                // in a part Word wrote, and the pane needs it to draw the line the caret goes to.
                 if is_w(name, b"p") {
+                    let index = next_paragraph;
                     next_paragraph += 1;
+                    if nested_table_depth == 0 && table.is_none() && cell.is_none() {
+                        if blocks.len() >= MAX_BLOCKS {
+                            truncated = true;
+                        } else {
+                            blocks.push(Block::Paragraph {
+                                index,
+                                heading: None,
+                                list: None,
+                                runs: Vec::new(),
+                            });
+                        }
+                    }
                 }
                 if nested_table_depth > 0 {
                     continue;
@@ -944,10 +962,14 @@ fn parse_blocks(
                         }
                     } else if blocks.len() >= MAX_BLOCKS {
                         truncated = true;
-                    } else if !text.trim().is_empty() || finished.heading().is_some() {
+                    } else {
+                        // Every paragraph of the body is a block, blank ones included: a blank line
+                        // is where the caret goes when Enter is pressed at the end of a document,
+                        // and a read that dropped it left that caret nowhere to land.
                         let list = finished.numbering.as_ref().map(|(level, id)| ListItem {
                             ordered: ordered_numbers.contains(id),
                             level: *level,
+                            num_id: id.parse().unwrap_or_default(),
                         });
                         blocks.push(Block::Paragraph {
                             index: finished.index,
@@ -1058,7 +1080,7 @@ mod tests {
             vec![Block::Paragraph {
                 index: 0,
                 heading: None,
-                list: Some(ListItem { ordered: true, level: 1 }),
+                list: Some(ListItem { ordered: true, level: 1, num_id: 5 }),
                 runs: vec![Run { text: "item".into(), ..Default::default() }],
             }]
         );
@@ -1076,6 +1098,25 @@ mod tests {
             paragraphs(&parse_blocks(&bulleted, Some(numbering)).unwrap().0)[0],
             Block::Paragraph { list: Some(ListItem { ordered: false, .. }), .. }
         ));
+    }
+
+    #[test]
+    fn a_list_item_carries_the_numbering_definition_it_asks_for() {
+        // Two lists next to each other with different ids are two lists: the pane resets its counter
+        // when the id changes, and `ordered` alone cannot tell them apart.
+        let xml = document(
+            r#"<w:p><w:pPr><w:numPr><w:numId w:val="5"/></w:numPr></w:pPr><w:r><w:t>one</w:t></w:r></w:p>
+            <w:p><w:pPr><w:numPr><w:numId w:val="6"/></w:numPr></w:pPr><w:r><w:t>two</w:t></w:r></w:p>"#,
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        let ids: Vec<u32> = paragraphs(&blocks)
+            .iter()
+            .filter_map(|block| match block {
+                Block::Paragraph { list: Some(item), .. } => Some(item.num_id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ids, vec![5, 6]);
     }
 
     #[test]
@@ -1123,10 +1164,14 @@ mod tests {
     }
 
     #[test]
-    fn a_paragraph_of_only_whitespace_is_not_a_block() {
+    fn a_paragraph_of_only_whitespace_is_still_a_block() {
+        // It draws as a blank line, and the editor has to see it: its text may be a space the user
+        // typed, and the line has to keep its place in the document either way.
         let xml = document(r#"<w:p><w:r><w:t>   </w:t></w:r></w:p><w:p><w:r><w:t>real</w:t></w:r></w:p>"#);
         let blocks = parse_blocks(&xml, None).unwrap().0;
-        assert_eq!(paragraphs(&blocks).len(), 1);
+        assert_eq!(paragraphs(&blocks).len(), 2);
+        assert!(matches!(&blocks[0], Block::Paragraph { index: 0, .. }));
+        assert!(matches!(&blocks[1], Block::Paragraph { index: 1, .. }));
     }
 
     /// One paragraph of `xml` replaced by `text`, with the rest of the part untouched.
@@ -1581,14 +1626,33 @@ mod tests {
 
     #[test]
     fn a_paragraph_that_draws_nothing_still_takes_its_ordinal() {
-        // `<w:p/>` and a paragraph of spaces are not drawn, but they are elements of the part: a
-        // writer that counted only the drawn ones would edit the wrong paragraph.
+        // `<w:p/>` and a paragraph of spaces are blank lines, and they are elements of the part: the
+        // block after them is the third paragraph, not the first.
         let xml = "<w:document><w:body>            <w:p/>            <w:p><w:r><w:t> </w:t></w:r></w:p>            <w:p><w:r><w:t>third</w:t></w:r></w:p>            </w:body></w:document>";
         let blocks = parse_blocks(xml, None).unwrap().0;
-        let Block::Paragraph { index, .. } = &blocks[0] else {
-            panic!("no paragraph: {blocks:?}");
-        };
-        assert_eq!(*index, 2);
+        let indexes: Vec<u32> = blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Paragraph { index, .. } => Some(*index),
+                Block::Table { .. } => None,
+            })
+            .collect();
+        assert_eq!(indexes, vec![0, 1, 2], "{blocks:?}");
+        assert!(matches!(&blocks[2], Block::Paragraph { index: 2, .. }));
+    }
+
+    #[test]
+    fn an_empty_paragraph_keeps_its_place() {
+        // A blank line is a paragraph with no runs. Dropping it on read makes the ordinal after it
+        // shift, so pressing Enter at the end of a document writes a paragraph the next read throws
+        // away - and the caret lands nowhere.
+        let xml = document(
+            "<w:p><w:r><w:t>one</w:t></w:r></w:p><w:p/><w:p><w:r><w:t>three</w:t></w:r></w:p>",
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        assert_eq!(blocks.len(), 3, "{blocks:?}");
+        assert!(matches!(&blocks[1], Block::Paragraph { index: 1, runs, .. } if runs.is_empty()));
+        assert!(matches!(&blocks[2], Block::Paragraph { index: 2, .. }));
     }
 
     #[test]

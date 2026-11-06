@@ -21,7 +21,7 @@ const paragraph = (
   text: string,
   over: {
     heading?: number | null;
-    list?: { ordered: boolean; level: number } | null;
+    list?: { ordered: boolean; level: number; numId?: number } | null;
     index?: number;
   } = {},
 ): DocxBlock => ({
@@ -29,7 +29,7 @@ const paragraph = (
   // The ordinal the writer addresses this paragraph by; a document's own order is what it is.
   index: over.index ?? nextIndex++,
   heading: over.heading ?? null,
-  list: over.list ?? null,
+  list: over.list ? { numId: 0, ...over.list } : null,
   runs: [run(text)],
 });
 

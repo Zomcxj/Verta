@@ -25,7 +25,8 @@ export type DocxBlock =
        */
       index: number;
       heading: number | null;
-      list: { ordered: boolean; level: number } | null;
+      /** `numId` names the numbering definition: two adjacent lists with different ids are two lists. */
+      list: { ordered: boolean; level: number; numId: number } | null;
       runs: DocxRun[];
     }
   | { kind: "table"; rows: string[][] };
