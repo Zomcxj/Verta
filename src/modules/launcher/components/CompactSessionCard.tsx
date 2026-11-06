@@ -38,9 +38,10 @@ export function CompactSessionCard({ session, anchor, id }: Props) {
   const language = useLanguage();
   const ref = useRef<HTMLDivElement | null>(null);
   const [placement, setPlacement] = useState<CardPlacement | null>(null);
-  // Set in the same commit as the first placement: both the transform and the transition arrive
-  // together, so the browser has nothing to interpolate from and the card simply appears where the
-  // row is. Every placement after that animates.
+  // Switched on a frame after the first placement. Set in the same commit as the transform, the
+  // transition is already in effect when the transform changes, and the browser interpolates from
+  // `transform: none` - the card flies in from the window's corner. A frame later there is nothing to
+  // interpolate from: it is simply where the row is, and only a move to another row animates.
   const [ready, setReady] = useState(false);
 
   // The effect reads the anchor's numbers rather than the object: the list hands over a fresh object
@@ -70,8 +71,15 @@ export function CompactSessionCard({ session, anchor, id }: Props) {
         { width: window.innerWidth, height: window.innerHeight },
       ),
     );
-    setReady(true);
   }, [anchorTop, anchorLeft, anchorRight, sessionId]);
+
+  // One frame between the placement and the transition: the first paint has the card already where
+  // the row is and nothing to animate from, which is the difference between appearing and flying in.
+  useEffect(() => {
+    if (placement === null || ready) return;
+    const frame = requestAnimationFrame(() => setReady(true));
+    return () => cancelAnimationFrame(frame);
+  }, [placement, ready]);
 
   // Nothing is hovered: the card goes away and forgets where it was, so the next hover starts
   // without a slide in from the last row.

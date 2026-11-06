@@ -1128,22 +1128,22 @@ html[data-window-inactive]:not([data-window-hidden]) .verta-state-indicator * {
  * spring: `--dur-base` on `--ease-soft`, so the card keeps pace with a pointer without the snap a
  * shorter curve has.
  *
- * `data-ready` is set in the same commit as the first placement, so the first appearance is not
- * animated - the card is simply where the row is - and only a move between rows slides. Its content
- * is keyed by session, and `.verta-compact-card-body` fades in when the row changes, so the details
- * of the next session arrive while the card itself keeps travelling.
+ * `data-ready` is set one frame after the first placement, so the first appearance is not animated -
+ * the card is simply where the row is - and only a move between rows slides. Its content is keyed by
+ * session, and `.verta-compact-card-body` fades in when the row changes, so the details of the next
+ * session arrive while the card itself keeps travelling.
  *
  * Only transform and opacity are involved, and the card's width is fixed, so nothing reads the layout
  * between frames.
  */
 .verta-compact-card {
-  opacity: 0;
   transition: none;
 }
+/* The move, and only the move. The transition is switched on a frame after the first placement (see
+   the component), so the card is simply where the row is; an opacity transition here would fade it in
+   as if it were arriving. */
 .verta-compact-card[data-ready="true"] {
-  transition:
-    transform var(--dur-base) var(--ease-soft),
-    opacity var(--dur-fast) var(--ease-soft);
+  transition: transform var(--dur-base) var(--ease-soft);
 }
 .verta-compact-card-body {
   animation: verta-compact-card-body-in var(--dur-fast) var(--ease-soft) both;

@@ -121,18 +121,17 @@ describe("global motion budget", () => {
     // placement from animating, and the body fades in when the row changes so the panel is not the
     // thing being replaced. The class appears twice - once here and once under reduced motion, where
     // both are switched off - so the block is found by what it declares.
-    const rule = css.match(
-      /\.verta-compact-card\s*\{([^}]*opacity:\s*0[^}]*)\}/,
-    )?.[1];
-    // Hidden until it has been placed, and not transitioning before then: that is what keeps the
-    // first appearance from animating in from the window's corner.
-    expect(rule).toMatch(/opacity:\s*0/);
+    const rule = css.match(/\.verta-compact-card\s*\{([^}]*transition:\s*none[^}]*)\}/)?.[1];
+    // Not transitioning before it has been placed: the card appears where the row is, and a fade of
+    // its own would be the same "arriving" the user asked not to see.
     expect(rule).toMatch(/transition:\s*none/);
+    expect(rule).not.toMatch(/opacity:\s*0/);
     const moving = css.match(
       /\.verta-compact-card\[data-ready="true"\]\s*\{([^}]*)\}/,
     )?.[1];
     expect(moving).toMatch(/transform var\(--dur-base\) var\(--ease-soft\)/);
-    expect(moving).toMatch(/opacity var\(--dur-fast\) var\(--ease-soft\)/);
+    // Only the move: an opacity transition would fade the card in when it first appears.
+    expect(moving).not.toMatch(/opacity/);
     expect(moving).not.toMatch(/filter|backdrop|scale/);
     // Found by what it animates: the same class name appears in the reduced-motion block, where it
     // is switched off.

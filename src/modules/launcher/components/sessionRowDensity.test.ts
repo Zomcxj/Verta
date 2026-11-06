@@ -56,6 +56,18 @@ describe("a session row's density", () => {
     expect(cardSource).toContain("data-compact-card-body");
   });
 
+  it("shows the card where the row is, without an entrance", () => {
+    // The transition has to arrive a frame after the first placement: applied in the same commit, the
+    // browser interpolates `transform: none` into the placement and the card flies in from the
+    // window's corner - which is what the user saw. It appears placed, and only a move to another
+    // row animates.
+    expect(cardSource).toMatch(/requestAnimationFrame/);
+    expect(cardSource.indexOf("requestAnimationFrame")).toBeLessThan(
+      cardSource.indexOf("setReady(true)"),
+    );
+    expect(cardSource).toMatch(/cancelAnimationFrame/);
+  });
+
   it("paints the card in the window's own surface rather than a fixed one", () => {
     // The shared tooltip sheet is a one-line pill in the window's two theme colours, which is right
     // for a status label and wrong for three lines of text: in a light theme the row would open a
