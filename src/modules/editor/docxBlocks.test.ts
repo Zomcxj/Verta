@@ -1,0 +1,270 @@
+import type { DocxDocument, DocxInsert } from "@/lib/native";
+import { describe, expect, it } from "vitest";
+import {
+  alignBlocks,
+  type BaselineBlock,
+  blocksFromDocument,
+  type DraftBlock,
+  kindFromDataset,
+  needsReread,
+  readBlocks,
+} from "./docxBlocks";
+
+const p = (text: string, ordinal: number | null): BaselineBlock => ({
+  kind: "p",
+  list: null,
+  numId: null,
+  text,
+  ordinal,
+});
+const draft = (text: string): DraftBlock => ({
+  kind: "p",
+  list: null,
+  numId: null,
+  text,
+});
+
+describe("block alignment", () => {
+  it("reports a typed paragraph and nothing else", () => {
+    // The common case: one line changed, and the other lines must not be re-sent - the writer takes
+    // them as "replace this paragraph's text", which would flatten their formatting.
+    expect(
+      alignBlocks([p("one", 0), p("two", 1)], [draft("one"), draft("TWO")]),
+    ).toEqual({ edits: [{ index: 1, text: "TWO" }], deleted: [], inserts: [] });
+  });
+
+  it("turns a removed block into a deletion", () => {
+    expect(
+      alignBlocks(
+        [p("one", 0), p("two", 1), p("three", 2)],
+        [draft("one"), draft("three")],
+      ),
+    ).toEqual({ edits: [], deleted: [1], inserts: [] });
+  });
+
+  it("anchors a new line to the block it follows", () => {
+    // Enter in the middle: what it was typed in stays, the tail becomes the new paragraph after it.
+    expect(
+      alignBlocks([p("one", 0), p("two", 1)], [draft("one"), draft("tail"), draft("two")]),
+    ).toEqual({ edits: [], deleted: [], inserts: [{ after: 0, text: "tail" }] });
+  });
+
+  it("anchors a new first line to nothing", () => {
+    expect(alignBlocks([p("one", 0)], [draft("new"), draft("one")])).toEqual({
+      edits: [],
+      deleted: [],
+      inserts: [{ after: null, text: "new" }],
+    });
+  });
+
+  it("keeps the order of several new lines", () => {
+    expect(
+      alignBlocks([p("one", 0)], [draft("one"), draft("a"), draft("b")]),
+    ).toEqual({
+      edits: [],
+      deleted: [],
+      inserts: [
+        { after: 0, text: "a" },
+        { after: 0, text: "b" },
+      ],
+    });
+  });
+
+  it("pairs a removed and an added block as one edit when the counts match", () => {
+    // A typo fixed in place must not read as "delete the paragraph, insert another": that would drop
+    // its style and its numbering, and cost two writes where one belongs.
+    expect(
+      alignBlocks([p("one", 0), p("tow", 1)], [draft("one"), draft("two")]),
+    ).toEqual({ edits: [{ index: 1, text: "two" }], deleted: [], inserts: [] });
+  });
+
+  it("does not send a paragraph that is unchanged", () => {
+    expect(alignBlocks([p("one", 0)], [draft("one")])).toEqual({
+      edits: [],
+      deleted: [],
+      inserts: [],
+    });
+  });
+
+  it("clears the body when everything was selected and deleted", () => {
+    expect(alignBlocks([p("one", 0), p("two", 1)], [])).toEqual({
+      edits: [],
+      deleted: [0, 1],
+      inserts: [],
+    });
+  });
+
+  it("adds a line to an empty body", () => {
+    expect(alignBlocks([], [draft("first")])).toEqual({
+      edits: [],
+      deleted: [],
+      inserts: [{ after: null, text: "first" }],
+    });
+  });
+
+  it("anchors a new line to the last block that survived a deletion", () => {
+    // The line Enter created sits after the paragraph that was removed; its anchor has to be the one
+    // that is still in the file, or the writer refuses an insert after a deleted paragraph.
+    expect(
+      alignBlocks(
+        [p("one", 0), p("two", 1), p("three", 2)],
+        [draft("one"), draft("three"), draft("four")],
+      ),
+    ).toEqual({
+      edits: [],
+      deleted: [1],
+      inserts: [{ after: 2, text: "four" }],
+    });
+  });
+
+  it("keeps a list item's numbering id out of the edits", () => {
+    // Committed blocks carry what they were drawn with: an untouched list item is not re-sent.
+    const item: BaselineBlock = {
+      kind: "li",
+      list: "number",
+      numId: 7,
+      text: "item",
+      ordinal: 0,
+    };
+    const { ordinal: _ordinal, ...draftItem } = item;
+    expect(alignBlocks([item], [draftItem])).toEqual({
+      edits: [],
+      deleted: [],
+      inserts: [],
+    });
+  });
+});
+
+describe("blocks from a read", () => {
+  it("gives headings and list items their own kind", () => {
+    const blocks = blocksFromDocument({
+      blocks: [
+        {
+          kind: "paragraph",
+          index: 0,
+          heading: 2,
+          list: null,
+          runs: [{ text: "a", bold: false, italic: true, underline: false }],
+        },
+        {
+          kind: "paragraph",
+          index: 1,
+          heading: null,
+          list: { ordered: true, level: 0, numId: 7 },
+          runs: [{ text: "b", bold: false, italic: false, underline: false }],
+        },
+        { kind: "table", rows: [["a"]] },
+      ],
+      truncated: false,
+      editable: true,
+      guard: { size: 1, modifiedMs: 1 },
+    } as DocxDocument);
+    expect(blocks[0]).toMatchObject({ kind: "h2", text: "a", ordinal: 0 });
+    expect(blocks[1]).toMatchObject({
+      kind: "li",
+      list: "number",
+      numId: 7,
+      text: "b",
+      ordinal: 1,
+    });
+    expect(blocks[2]).toMatchObject({ kind: "table", ordinal: null, text: "" });
+  });
+
+  it("keeps an empty paragraph as a blank line", () => {
+    const blocks = blocksFromDocument({
+      blocks: [{ kind: "paragraph", index: 0, heading: null, list: null, runs: [] }],
+      truncated: false,
+      editable: true,
+      guard: { size: 1, modifiedMs: 1 },
+    } as DocxDocument);
+    expect(blocks).toEqual([p("", 0)]);
+  });
+});
+
+describe("blocks from the DOM", () => {
+  it("takes the kind a block carries", () => {
+    expect(kindFromDataset({ block: "h3" }, "p")).toEqual({
+      kind: "h3",
+      list: null,
+      numId: null,
+    });
+  });
+
+  it("treats a block the browser made as the one before it", () => {
+    // Enter produces a bare <div>: it is a paragraph of whatever the block above it was.
+    expect(kindFromDataset({}, "h2")).toEqual({ kind: "h2", list: null, numId: null });
+  });
+
+  it("keeps the numbering id and the list kind from the dataset", () => {
+    expect(kindFromDataset({ block: "li", list: "number", numId: "7" }, "p")).toEqual({
+      kind: "li",
+      list: "number",
+      numId: 7,
+    });
+  });
+
+  it("does not invent a numbering id", () => {
+    expect(kindFromDataset({ block: "li", list: "bullet" }, "p")).toEqual({
+      kind: "li",
+      list: "bullet",
+      numId: null,
+    });
+  });
+
+  it("reads the rows in order", () => {
+    expect(
+      readBlocks(
+        [
+          { dataset: { block: "p" }, text: "one" },
+          { dataset: {}, text: "two" },
+        ],
+        "p",
+      ),
+    ).toEqual([draft("one"), draft("two")]);
+  });
+
+  it("lets a bare row follow a heading", () => {
+    // The browser's own Enter gives a <div> with nothing on it; under a heading it is a heading.
+    expect(
+      readBlocks(
+        [
+          { dataset: { block: "h2" }, text: "title" },
+          { dataset: {}, text: "body" },
+        ],
+        "p",
+      ),
+    ).toEqual([
+      { kind: "h2", list: null, numId: null, text: "title" },
+      { kind: "h2", list: null, numId: null, text: "body" },
+    ]);
+  });
+});
+
+describe("when the pane has to read again", () => {
+  it("says so when the block count changed", () => {
+    expect(needsReread([p("one", 0)], [draft("one"), draft("two")])).toBe(true);
+  });
+
+  it("says so when a block changed kind", () => {
+    expect(
+      needsReread(
+        [p("one", 0)],
+        [{ kind: "h1", list: null, numId: null, text: "one" }],
+      ),
+    ).toBe(true);
+  });
+
+  it("says no for a text-only change", () => {
+    expect(needsReread([p("one", 0)], [draft("ONE")])).toBe(false);
+  });
+});
+
+/** The writer's shapes, checked here so the two sides cannot drift apart silently. */
+describe("what the writer is handed", () => {
+  it("hands a plain array of edits, ordinals and inserts", () => {
+    const result = alignBlocks([p("one", 0)], [draft("ONE"), draft("new")]);
+    const inserts: DocxInsert[] = result.inserts;
+    expect(result.edits).toEqual([{ index: 0, text: "ONE" }]);
+    expect(inserts).toEqual([{ after: 0, text: "new" }]);
+  });
+});
