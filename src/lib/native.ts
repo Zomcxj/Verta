@@ -23,6 +23,13 @@ export type DocxRun = {
   /** The size the document draws it at, in px. */
   imageWidth: number | null;
   imageHeight: number | null;
+  /**
+   * Which of the paragraph's drawings this is, counted from zero in the order the file writes them.
+   *
+   * It is the address a deletion names, and it counts drawings rather than pictures that survived the
+   * size cap, so a skipped picture does not shift the ones after it.
+   */
+  imageIndex?: number | null;
 };
 
 /** A paragraph's indents, in twips; a negative `firstLine` is a hanging indent. */
@@ -955,6 +962,26 @@ export const native = {
    * Undo restores the document part that was there before the last write, which is the only way to
    * bring back a deleted paragraph: its XML is not in the model any more.
    */
+  /**
+   * Takes one picture out of a `.docx`, named the way the reader numbered it.
+   *
+   * Only the picture goes: the paragraph, its text and its properties stay, and undo brings it back
+   * the same way it brings back a deleted paragraph.
+   */
+  deleteDocxImage: (
+    path: string,
+    paragraph: number,
+    index: number,
+    guard: DocxGuard,
+  ) =>
+    invoke<DocxGuard>("fs_delete_docx_image", {
+      path,
+      paragraph,
+      index,
+      guard,
+      workspace: envForPath(path),
+    }),
+
   undoDocx: (path: string, guard: DocxGuard) =>
     invoke<DocxGuard>("fs_undo_docx", {
       path,

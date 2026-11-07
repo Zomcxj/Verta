@@ -392,6 +392,7 @@ pub fn run() {
             docx::fs_read_docx,
             docx::fs_write_docx,
             docx::fs_undo_docx,
+            docx::fs_delete_docx_image,
             xlsx::fs_read_xlsx,
             xlsx::fs_read_xlsx_sheet,
             pptx::fs_read_pptx,

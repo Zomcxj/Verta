@@ -102,7 +102,15 @@ function numbered<T>(items: T[]): { id: number; item: T }[] {
   return items.map((item, id) => ({ id, item }));
 }
 
-function Runs({ runs }: { runs: DocxRun[] }) {
+function Runs({
+  runs,
+  onDeleteImage,
+}: {
+  runs: DocxRun[];
+  /** Given when these runs belong to a paragraph the writer can address. */
+  onDeleteImage?: (imageIndex: number) => void;
+}) {
+  const t = useT();
   return (
     <>
       {/* A paragraph's runs are an ordered list with no identity of their own; the text is the only
@@ -128,17 +136,38 @@ function Runs({ runs }: { runs: DocxRun[] }) {
           {run.image ? (
             // A picture is drawn from the archive's own bytes; it carries no text, so writing the
             // paragraph back leaves it where Word put it.
-            <img
-              src={run.image}
-              alt=""
-              data-docx-image=""
-              style={{
-                width: run.imageWidth ? `${Math.round(run.imageWidth)}px` : undefined,
-                height: run.imageHeight ? `${Math.round(run.imageHeight)}px` : undefined,
-                maxWidth: "100%",
-              }}
-              className="inline-block align-top"
-            />
+            <span
+              className="group/picture relative inline-block align-top"
+              // A control inside an editable surface: the removal must not put the caret into the
+              // picture and leave a keystroke waiting there.
+              contentEditable={false}
+            >
+              <img
+                src={run.image}
+                alt=""
+                data-docx-image=""
+                style={{
+                  width: run.imageWidth ? `${Math.round(run.imageWidth)}px` : undefined,
+                  height: run.imageHeight ? `${Math.round(run.imageHeight)}px` : undefined,
+                  maxWidth: "100%",
+                }}
+                className="inline-block align-top"
+              />
+              {onDeleteImage && run.imageIndex != null ? (
+                <button
+                  type="button"
+                  data-docx-image-delete={run.imageIndex}
+                  title={t("editor.docx.deleteImage")}
+                  aria-label={t("editor.docx.deleteImage")}
+                  // Without this the click moves the caret before the handler runs.
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => onDeleteImage(run.imageIndex as number)}
+                  className="absolute -right-2 -top-2 rounded-full bg-background/90 p-0.5 text-muted-foreground opacity-0 shadow transition-opacity hover:bg-accent hover:text-foreground group-hover/picture:opacity-100"
+                >
+                  <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+                </button>
+              ) : null}
+            </span>
           ) : (
             run.text
           )}
@@ -265,6 +294,7 @@ const DocxBody = memo(function DocxBody({
   available,
   onEdited,
   onDelete,
+  onDeleteImage,
 }: {
   doc: DocxDocument;
   editable: boolean;
@@ -273,6 +303,8 @@ const DocxBody = memo(function DocxBody({
   available: number;
   onEdited: () => void;
   onDelete: (ordinal: number) => void;
+  /** Takes one picture out, named by its paragraph and its number within it. */
+  onDeleteImage: (paragraph: number, index: number) => void;
 }) {
   const t = useT();
   const blocks = useMemo(() => blocksFromDocument(doc), [doc]);
@@ -463,7 +495,16 @@ const DocxBody = memo(function DocxBody({
             {/* An empty paragraph needs something in it, or it has no height and no place to put
                 the caret. This is the blank line. */}
             {read?.kind === "paragraph" && read.runs.length > 0 ? (
-              <Runs runs={read.runs} />
+              <Runs
+                runs={read.runs}
+                onDeleteImage={
+                  // Only a paragraph of the body is addressable: a cell's runs have no ordinal,
+                  // so offering a removal there would name something the writer cannot find.
+                  editable && read.index !== undefined
+                    ? (imageIndex) => onDeleteImage(read.index, imageIndex)
+                    : undefined
+                }
+              />
             ) : (
               <br />
             )}
@@ -764,6 +805,45 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, DocxPreviewProps>(
     }, [write]);
 
     /**
+     * Takes one picture out of the file.
+     *
+     * A pending save is settled first, so the picture is named against the numbering it was drawn
+     * with: a save that inserted a paragraph moves every ordinal after it.
+     */
+    const onDeleteImage = useCallback(
+      async (paragraph: number, index: number) => {
+        if (timer.current !== null) {
+          window.clearTimeout(timer.current);
+          timer.current = null;
+        }
+        const current = guard.current;
+        if (!current) return;
+        setSave({ kind: "saving" });
+        try {
+          guard.current = await native.deleteDocxImage(
+            path,
+            paragraph,
+            index,
+            current,
+          );
+          // The picture is gone from the file, so the page is read again rather than patched: the
+          // runs of that paragraph are no longer what the DOM holds.
+          setReloadKey((key) => key + 1);
+          setSave({ kind: "saved" });
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (message.includes("磁盘")) {
+            stale.current = true;
+            setSave({ kind: "stale", message });
+          } else {
+            setSave({ kind: "failed", message });
+          }
+        }
+      },
+      [path],
+    );
+
+    /**
      * Takes back the last change that reached the file.
      *
      * A pending save is cancelled first: it would land straight after the undo and put the change back.
@@ -896,6 +976,7 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, DocxPreviewProps>(
           available={available}
           onEdited={onEdited}
           onDelete={onDelete}
+          onDeleteImage={onDeleteImage}
         />
         {truncated ? (
           <p className="mx-auto max-w-[46rem] border-t border-border/60 px-8 pt-2 text-[11.5px] text-muted-foreground">

@@ -61,6 +61,11 @@ pub struct Run {
     /// The size the document draws it at, in px; absent means "as it is".
     pub image_width: Option<f32>,
     pub image_height: Option<f32>,
+    /// Which of the paragraph's drawings this is, counted from zero in the order the file writes
+    /// them. It is the address a deletion names, and it counts drawings rather than pictures that
+    /// survived the size cap, so a skipped picture does not shift the ones after it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_index: Option<u32>,
 }
 
 /// A paragraph's box: indents, in twips (1/20 pt), negative for a hanging indent.
@@ -620,11 +625,111 @@ fn find_text_node(xml: &str) -> Option<usize> {
 /// Byte slices, not a re-serialization: every element outside the touched paragraphs is copied out of
 /// the original exactly as Word wrote it, which is what keeps styles, namespace prefixes, attributes
 /// and anything this reader does not understand intact.
+/// One paragraph's bytes with one of its drawings taken out.
+///
+/// The drawing is what is cut, not the run: a run may hold text beside the picture, and taking the
+/// run would take that text with it. When the picture was the only thing in its run, the run goes
+/// too, because a run with nothing in it is a hollow element Word never writes.
+fn remove_drawing(paragraph: &str, index: u32) -> Result<String, String> {
+    let mut seen = 0u32;
+    let mut at = 0usize;
+    while let Some(found) = paragraph[at..].find("<w:drawing") {
+        let open = at + found;
+        let end = drawing_end(paragraph, open)?;
+        let this = seen;
+        seen += 1;
+        if this != index {
+            at = end;
+            continue;
+        }
+        // The run around it, when there is one to cut.
+        let mut start = open;
+        let mut stop = end;
+        if let Some((run_start, run_end)) = run_bounds(paragraph, open, end) {
+            if run_is_otherwise_empty(paragraph, run_start, run_end, open, end) {
+                start = run_start;
+                stop = run_end;
+            }
+        }
+        let mut out = String::with_capacity(paragraph.len());
+        out.push_str(&paragraph[..start]);
+        out.push_str(&paragraph[stop..]);
+        return Ok(out);
+    }
+    // The pane asked for a drawing this part does not have, which means the two disagree. Refusing
+    // is what keeps a stale picture number from rewriting a paragraph that is not the one meant.
+    Err(format!("这一段里没有第 {} 张图", index + 1))
+}
+
+/// Where a `<w:drawing>` that opens at `open` ends, after its closing tag.
+fn drawing_end(paragraph: &str, open: usize) -> Result<usize, String> {
+    let after = &paragraph[open + "<w:drawing".len()..];
+    let Some(close) = after.find('>') else {
+        return Err("文档里的图形元素没有闭合".into());
+    };
+    if after[..close].ends_with('/') {
+        return Ok(open + "<w:drawing".len() + close + 1);
+    }
+    let body = &after[close + 1..];
+    let Some(closed) = body.find("</w:drawing>") else {
+        return Err("文档里的图形元素没有闭合".into());
+    };
+    Ok(open + "<w:drawing".len() + close + 1 + closed + "</w:drawing>".len())
+}
+
+/// The `<w:r>` element around a drawing, as the byte range it occupies.
+fn run_bounds(paragraph: &str, open: usize, end: usize) -> Option<(usize, usize)> {
+    let before = &paragraph[..open];
+    let run_start = before.rfind("<w:r>").max(before.rfind("<w:r "))?;
+    let after = &paragraph[end..];
+    let closed = after.find("</w:r>")?;
+    Some((run_start, end + closed + "</w:r>".len()))
+}
+
+/// Whether a run holds nothing but its properties once a range is taken out of it.
+fn run_is_otherwise_empty(
+    paragraph: &str,
+    run_start: usize,
+    run_end: usize,
+    open: usize,
+    end: usize,
+) -> bool {
+    // The run's own opening tag is not content; what sits between it and its closing tag is.
+    let content_start = paragraph[run_start..]
+        .find('>')
+        .map(|at| run_start + at + 1)
+        .unwrap_or(run_start);
+    let mut rest = String::with_capacity(run_end - content_start);
+    rest.push_str(&paragraph[content_start..open]);
+    rest.push_str(&paragraph[end..run_end]);
+    // The closing tag is not content either.
+    if let Some(closed) = rest.rfind("</w:r>") {
+        rest.truncate(closed);
+    }
+    // `<w:rPr>` is the run's own styling, which draws nothing; a run left with only that is hollow.
+    while let Some(at) = rest.find("<w:rPr") {
+        let Some(close) = rest[at..].find('>') else {
+            break;
+        };
+        if rest[at..at + close].ends_with('/') {
+            rest.replace_range(at..at + close + 1, "");
+            continue;
+        }
+        let Some(closed) = rest[at..].find("</w:rPr>") else {
+            break;
+        };
+        rest.replace_range(at..at + closed + "</w:rPr>".len(), "");
+    }
+    rest.trim().is_empty()
+}
+
+
 fn rewrite_document_xml(
     xml: &str,
     edits: &[DocxEdit],
     deleted: &[u32],
     inserts: &[DocxInsert],
+    removals: &[DocxImageRemoval],
 ) -> Result<String, String> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
@@ -682,6 +787,11 @@ fn rewrite_document_xml(
             return Err(format!("要删的段不在文档里（序号 {index}）"));
         }
     }
+    for removal in removals {
+        if removal.paragraph >= count {
+            return Err(format!("图片所在的段不在文档里（序号 {}）", removal.paragraph));
+        }
+    }
     for insert in inserts {
         let Some(after) = insert.after else { continue };
         if after >= count {
@@ -724,7 +834,11 @@ fn rewrite_document_xml(
         if deleted.contains(index) {
             continue;
         }
-        let paragraph = &xml[*start..*end];
+        let mut paragraph = xml[*start..*end].to_string();
+        for removal in removals.iter().filter(|removal| removal.paragraph == *index) {
+            paragraph = remove_drawing(&paragraph, removal.index)?;
+        }
+        let paragraph = paragraph.as_str();
         match edits.iter().find(|edit| edit.index == *index) {
             Some(edit) => out.push_str(&rewrite_paragraph(paragraph, &edit.text)?),
             None => out.push_str(paragraph),
@@ -891,6 +1005,7 @@ fn write_docx_sync(
     edits: &[DocxEdit],
     deleted: &[u32],
     inserts: &[DocxInsert],
+    removals: &[DocxImageRemoval],
     guard: &DocxGuard,
 ) -> Result<DocxGuard, String> {
     let meta = std::fs::metadata(path).map_err(|error| format!("读取文件信息失败：{error}"))?;
@@ -925,7 +1040,7 @@ fn write_docx_sync(
         break;
     }
     let document = document.ok_or("这个 .docx 里没有 word/document.xml")?;
-    let rewritten = rewrite_document_xml(&document, edits, deleted, inserts)?;
+    let rewritten = rewrite_document_xml(&document, edits, deleted, inserts, removals)?;
     if rewritten == document {
         // The pane re-sent what the file already says. Writing it again would cost a rewrite of the
         // whole archive and push a history entry that takes back nothing, so one Ctrl+Z after it
@@ -935,6 +1050,15 @@ fn write_docx_sync(
     // The part that is about to be replaced is what undo restores.
     remember_part(path, &document);
     write_document_part(path, &bytes, &rewritten)
+}
+
+/// One picture to take out of the document, named the way the reader numbered it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocxImageRemoval {
+    /// The paragraph's ordinal among the part's `<w:p>` elements.
+    pub paragraph: u32,
+    /// Which of that paragraph's drawings, counted from zero in the order the file writes them.
+    pub index: u32,
 }
 
 /// Writes edits back into a `.docx`. `guard` is what the pane saw when it read the file.
@@ -952,7 +1076,32 @@ pub async fn fs_write_docx(
         let workspace = WorkspaceEnv::from_option(workspace);
         let target = resolve_path(&path, &workspace);
         authorize_parent(&app.state::<WorkspaceRegistry>(), &target)?;
-        write_docx_sync(&target, &edits, &deleted, &inserts, &guard)
+        write_docx_sync(&target, &edits, &deleted, &inserts, &[], &guard)
+    })
+    .await
+}
+
+/// Takes one picture out of a `.docx`.
+///
+/// `paragraph` and `index` are the address the reader handed the pane: the paragraph's ordinal and
+/// which of its drawings this is. Only the picture goes; the paragraph, its text and its properties
+/// stay, and Ctrl+Z brings it back the same way it brings back a deleted paragraph, by restoring the
+/// part that held it.
+#[tauri::command]
+pub async fn fs_delete_docx_image(
+    app: tauri::AppHandle,
+    path: String,
+    paragraph: u32,
+    index: u32,
+    guard: DocxGuard,
+    workspace: Option<WorkspaceEnv>,
+) -> Result<DocxGuard, String> {
+    blocking(move || {
+        let workspace = WorkspaceEnv::from_option(workspace);
+        let target = resolve_path(&path, &workspace);
+        authorize_parent(&app.state::<WorkspaceRegistry>(), &target)?;
+        let removals = [DocxImageRemoval { paragraph, index }];
+        write_docx_sync(&target, &[], &[], &[], &removals, &guard)
     })
     .await
 }
@@ -969,6 +1118,8 @@ struct PendingRun {
     props: RunProps,
     /// The relationship id of a picture in this run, and the size to draw it at.
     image: Option<(String, Option<f32>, Option<f32>)>,
+    /// Which of the paragraph's drawings this run holds.
+    image_index: Option<u32>,
 }
 
 /// The paragraph being read. Word puts a run's properties before its text, so the styles are
@@ -993,6 +1144,8 @@ struct Paragraph {
     in_text: bool,
     /// The relationship id of a picture seen in the current run, and its size.
     image_rid: Option<String>,
+    /// How many drawings this paragraph has finished a run for, which numbers the next one.
+    images_seen: u32,
     image_width: Option<f32>,
     image_height: Option<f32>,
     /// What the paragraph itself states about its box; the rest comes from its style.
@@ -1015,11 +1168,17 @@ impl Paragraph {
                 self.image_height.take(),
             )
         });
+        let image_index = image.as_ref().map(|_| {
+            let at = self.images_seen;
+            self.images_seen += 1;
+            at
+        });
         if !text.is_empty() || image.is_some() {
             self.runs.push(PendingRun {
                 text,
                 props: std::mem::take(&mut self.run_props),
                 image,
+                image_index,
             });
         }
         self.run_props = RunProps::default();
@@ -1704,6 +1863,7 @@ fn parse_document(
                                 image: picture.and_then(|(rid, _, _)| images.get(rid)).cloned(),
                                 image_width: picture.and_then(|(_, width, _)| *width),
                                 image_height: picture.and_then(|(_, _, height)| *height),
+                                image_index: pending.image_index,
                             }
                         })
                         .collect();
@@ -2175,8 +2335,7 @@ mod tests {
                 text: "typed".into(),
             }],
             &[],
-            &[],
-        )
+            &[], &[])
         .expect("writing into an empty paragraph should land");
         assert!(
             written.contains("<w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:t>typed</w:t></w:r>"),
@@ -2200,8 +2359,7 @@ mod tests {
                 text: "changed".into(),
             }],
             &[],
-            &[],
-        )
+            &[], &[])
         .expect("a mixed paragraph is still editable");
         assert!(
             written.contains("<w:rPr><w:b/></w:rPr><w:t>changed</w:t>"),
@@ -2224,8 +2382,7 @@ mod tests {
                 text: "b".into(),
             }],
             &[],
-            &[],
-        )
+            &[], &[])
         .expect("a paragraph with tab stops is still editable");
         assert!(written.contains("<w:tabs>"), "{written}");
         assert!(written.contains("<w:t>b</w:t>"), "{written}");
@@ -2245,8 +2402,7 @@ mod tests {
                 text: "a	c".into(),
             }],
             &[],
-            &[],
-        )
+            &[], &[])
         .expect("a paragraph with a tab is still editable");
         assert!(written.contains("<w:tab/>"), "{written}");
         assert!(written.contains("<w:t>a	c</w:t>"), "{written}");
@@ -2255,7 +2411,7 @@ mod tests {
     #[test]
     fn an_empty_paragraph_round_trips_untouched() {
         let xml = document("<w:p/><w:p><w:r><w:t>x</w:t></w:r></w:p>");
-        let written = rewrite_document_xml(&xml, &[], &[], &[]).expect("nothing to change");
+        let written = rewrite_document_xml(&xml, &[], &[], &[], &[]).expect("nothing to change");
         assert_eq!(written, xml);
     }
 
@@ -2271,8 +2427,7 @@ mod tests {
             &[DocxInsert {
                 after: None,
                 text: "first".into(),
-            }],
-        )
+            }], &[])
         .expect("an insert before the first paragraph should land");
         let first = written.find("first").expect("the new paragraph is in the part");
         let second = written.find("second").expect("the old paragraph is in the part");
@@ -2295,8 +2450,7 @@ mod tests {
             &[DocxInsert {
                 after: None,
                 text: "first".into(),
-            }],
-        )
+            }], &[])
         .expect("an insert at the top should land");
         let new_line = written.find("<w:t>first</w:t>").expect("the new line is in the part");
         let table_end = written.find("</w:tbl>").expect("the table is in the part");
@@ -2319,8 +2473,7 @@ mod tests {
             &[DocxInsert {
                 after: None,
                 text: "only".into(),
-            }],
-        )
+            }], &[])
         .expect("an insert into an empty body should land");
         assert!(written.contains("<w:t>only</w:t>"), "{written}");
         assert!(written.contains("<w:body>"), "{written}");
@@ -2335,8 +2488,7 @@ mod tests {
                 text: text.to_string(),
             }],
             &[],
-            &[],
-        )
+            &[], &[])
         .expect("the edit should apply")
     }
 
@@ -2374,7 +2526,7 @@ mod tests {
             <w:p><w:r><w:t>stays</w:t></w:r></w:p>\
             </w:body></w:document>";
         let out =
-            rewrite_document_xml(xml, &[], &[0], &[]).expect("the deletion should apply");
+            rewrite_document_xml(xml, &[], &[0], &[], &[]).expect("the deletion should apply");
         assert!(!out.contains("gone"));
         assert!(out.contains("stays"));
         assert_eq!(out, xml.replace("<w:p><w:r><w:t>gone</w:t></w:r></w:p>", ""));
@@ -2403,8 +2555,7 @@ mod tests {
                 text: "x".into(),
             }],
             &[],
-            &[],
-        )
+            &[], &[])
         .expect("a line holding an image can still be typed on");
         assert!(written.contains("<w:drawing/>"), "{written}");
         assert!(written.contains("<w:t>x</w:t>"), "{written}");
@@ -2420,10 +2571,9 @@ mod tests {
                 text: "x".into(),
             }],
             &[],
-            &[]
-        )
+            &[], &[])
         .is_err());
-        assert!(rewrite_document_xml(xml, &[], &[9], &[]).is_err());
+        assert!(rewrite_document_xml(xml, &[], &[9], &[], &[]).is_err());
     }
 
     #[test]
@@ -2480,8 +2630,7 @@ mod tests {
             &[DocxInsert {
                 after: Some(0),
                 text: "added".into(),
-            }],
-        )
+            }], &[])
         .expect("the insert should apply");
         // The properties of the paragraph it follows are copied, which is what keeps a new line under
         // a heading a heading and one under a list item in the list.
@@ -2500,8 +2649,7 @@ mod tests {
             &[DocxInsert {
                 after: Some(0),
                 text: "".into(),
-            }],
-        )
+            }], &[])
         .expect("the insert should apply");
         assert_eq!(
             out,
@@ -2519,8 +2667,7 @@ mod tests {
             &[DocxInsert {
                 after: Some(0),
                 text: " b & c".into(),
-            }],
-        )
+            }], &[])
         .expect("the insert should apply");
         assert!(out.contains("xml:space=\"preserve\""), "{out}");
         assert!(out.contains("b &amp; c"), "{out}");
@@ -2536,8 +2683,7 @@ mod tests {
             &[DocxInsert {
                 after: Some(4),
                 text: "x".into(),
-            }]
-        )
+            }], &[])
         .is_err());
         // And an insertion after a paragraph being deleted at the same time would land nowhere.
         assert!(rewrite_document_xml(
@@ -2547,9 +2693,183 @@ mod tests {
             &[DocxInsert {
                 after: Some(0),
                 text: "x".into(),
-            }]
-        )
+            }], &[])
         .is_err());
+    }
+
+    /// One picture run as Word writes it.
+    fn drawing(rid: &str) -> String {
+        format!(
+            r#"<w:r><w:drawing><wp:inline><wp:extent cx="952500" cy="476250"/><a:graphic><a:graphicData><a:blip r:embed="{rid}"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>"#
+        )
+    }
+
+    #[test]
+    fn a_paragraph_numbers_its_drawings_in_the_order_the_file_writes_them() {
+        // The number is the address a deletion names, so it has to be the file's order and not the
+        // order of the pictures that survived the size cap.
+        let body = format!(
+            "<w:p><w:r><w:t>before</w:t></w:r>{}<w:r><w:t>between</w:t></w:r>{}<w:r><w:t>after</w:t></w:r></w:p>",
+            drawing("rId5"),
+            drawing("rId6")
+        );
+        let (blocks, _, _) =
+            parse_document(&document(&body), None, &Styles::default(), &Default::default()).unwrap();
+        let Block::Paragraph { runs, .. } = paragraph_of(&blocks) else {
+            unreachable!()
+        };
+        let numbered: Vec<Option<u32>> = runs
+            .iter()
+            .filter(|run| run.image_index.is_some())
+            .map(|run| run.image_index)
+            .collect();
+        assert_eq!(numbered, vec![Some(0), Some(1)]);
+        // A run with no picture is not numbered at all.
+        assert_eq!(runs[0].image_index, None);
+    }
+
+    #[test]
+    fn a_drawing_is_cut_out_and_the_text_around_it_is_kept() {
+        let paragraph = format!(
+            "<w:p><w:r><w:t>before</w:t></w:r>{}<w:r><w:t>between</w:t></w:r>{}</w:p>",
+            drawing("rId5"),
+            drawing("rId6")
+        );
+        // The second one goes, and the first stays: cutting the wrong one would delete a picture the
+        // reader numbered differently.
+        let left = remove_drawing(&paragraph, 1).expect("the second drawing is there");
+        assert!(left.contains(r#"r:embed="rId5""#));
+        assert!(!left.contains(r#"r:embed="rId6""#));
+        assert!(left.contains("<w:t>between</w:t>"));
+        let left = remove_drawing(&left, 0).expect("the first drawing is still there");
+        assert!(!left.contains("<w:drawing"));
+        assert!(left.contains("<w:t>before</w:t>"));
+        assert!(left.contains("<w:t>between</w:t>"));
+        // Asking for a picture the paragraph does not have is refused rather than rewriting the
+        // paragraph as if it had one.
+        assert!(remove_drawing("<w:p><w:r><w:t>x</w:t></w:r></w:p>", 0).is_err());
+    }
+
+    #[test]
+    fn the_run_a_picture_had_to_itself_goes_with_it() {
+        // Word never writes a run with nothing in it, so leaving one behind would be this writer's
+        // own artefact in the middle of the user's paragraph.
+        let paragraph = format!("<w:p><w:r><w:t>a</w:t></w:r>{}</w:p>", drawing("rId5"));
+        let left = remove_drawing(&paragraph, 0).expect("the drawing is there");
+        assert!(!left.contains("<w:drawing"), "{left}");
+        assert!(!left.contains("<w:r></w:r>"), "{left}");
+        assert_eq!(left, "<w:p><w:r><w:t>a</w:t></w:r></w:p>");
+    }
+
+    #[test]
+    fn a_run_that_held_text_beside_the_picture_keeps_the_text() {
+        // The picture is cut, not the run: the run's own text is the user's, and taking it would lose
+        // a word the file never asked to lose.
+        let paragraph = r#"<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>caption</w:t><w:drawing><wp:inline/></w:drawing></w:r></w:p>"#;
+        let left = remove_drawing(paragraph, 0).expect("the drawing is there");
+        assert!(!left.contains("<w:drawing"), "{left}");
+        assert!(left.contains("<w:t>caption</w:t>"), "{left}");
+        assert!(left.contains("<w:rPr><w:b/></w:rPr>"), "{left}");
+    }
+
+    #[test]
+    fn deleting_a_picture_leaves_the_paragraph_and_its_text_alone() {
+        let body = format!(
+            "<w:p><w:r><w:t>keep me</w:t></w:r>{}</w:p><w:p><w:r><w:t>second line</w:t></w:r></w:p>",
+            drawing("rId5")
+        );
+        let (path, guard) = archive_with(&document(&body));
+        let written = write_docx_sync(
+            &path,
+            &[],
+            &[],
+            &[],
+            &[DocxImageRemoval {
+                paragraph: 0,
+                index: 0,
+            }],
+            &guard,
+        )
+        .expect("removing the picture should land");
+
+        let part = part_of(&path);
+        assert!(!part.contains("<w:drawing"), "{part}");
+        assert!(part.contains("<w:t>keep me</w:t>"), "{part}");
+        assert!(part.contains("<w:t>second line</w:t>"), "{part}");
+
+        let read_back = read_docx_sync(&path).expect("the reader should read it back");
+        let texts: Vec<String> = read_back
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Paragraph { runs, .. } => Some(
+                    runs.iter()
+                        .map(|run| run.text.as_str())
+                        .collect::<String>(),
+                ),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts, vec!["keep me".to_string(), "second line".to_string()]);
+        // The picture is gone from what the pane would draw, too.
+        let pictures: usize = read_back
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Paragraph { runs, .. } => {
+                    Some(runs.iter().filter(|run| run.image_index.is_some()).count())
+                }
+                _ => None,
+            })
+            .sum();
+        assert_eq!(pictures, 0);
+        assert_ne!(written, guard);
+    }
+
+    #[test]
+    fn a_picture_number_the_document_does_not_have_is_refused() {
+        let (path, guard) = archive_with(&document("<w:p><w:r><w:t>x</w:t></w:r></w:p>"));
+        let error = write_docx_sync(
+            &path,
+            &[],
+            &[],
+            &[],
+            &[DocxImageRemoval {
+                paragraph: 0,
+                index: 0,
+            }],
+            &guard,
+        )
+        .expect_err("there is no picture to remove");
+        assert!(error.contains("没有第 1 张图"), "{error}");
+        // Refused means nothing was written, so the part is exactly as it arrived.
+        assert!(part_of(&path).contains("<w:t>x</w:t>"));
+    }
+
+    #[test]
+    fn undoing_a_picture_deletion_brings_it_back() {
+        let body = format!(
+            "<w:p><w:r><w:t>keep me</w:t></w:r>{}</w:p>",
+            drawing("rId5")
+        );
+        let (path, guard) = archive_with(&document(&body));
+        let written = write_docx_sync(
+            &path,
+            &[],
+            &[],
+            &[],
+            &[DocxImageRemoval {
+                paragraph: 0,
+                index: 0,
+            }],
+            &guard,
+        )
+        .expect("removing the picture should land");
+        assert!(!part_of(&path).contains("<w:drawing"));
+
+        let restored = undo_docx_sync(&path, &written).expect("undo should land");
+        assert!(part_of(&path).contains("<w:drawing"), "the picture should be back");
+        assert_ne!(restored, guard);
     }
 
     #[test]
@@ -2569,8 +2889,7 @@ mod tests {
                 after: Some(0),
                 text: " me".into(),
             }],
-            &guard,
-        )
+            &[], &guard,)
         .expect("the split should land");
 
         let read_back = read_docx_sync(&path).expect("the reader should read it back");
@@ -2618,8 +2937,7 @@ mod tests {
             }],
             &[],
             &[],
-            &guard,
-        )
+            &[], &guard,)
         .expect("the first edit should land");
         let first = part_of(&path);
         assert_ne!(first, original);
@@ -2632,8 +2950,7 @@ mod tests {
             }],
             &[],
             &[],
-            &after_first,
-        )
+            &[], &after_first,)
         .expect("the second edit should land");
         assert_ne!(part_of(&path), first);
 
@@ -2656,7 +2973,7 @@ mod tests {
         let (path, guard) = archive_with(document);
         let original = part_of(&path);
 
-        let after_delete = write_docx_sync(&path, &[], &[1], &[], &guard).expect("delete should land");
+        let after_delete = write_docx_sync(&path, &[], &[1], &[], &[], &guard).expect("delete should land");
         assert!(!part_of(&path).contains("drop"));
 
         undo_docx_sync(&path, &after_delete).expect("undo should land");
@@ -2681,8 +2998,7 @@ mod tests {
             }],
             &[],
             &[],
-            &guard,
-        )
+            &[], &guard,)
         .expect("the first save lands");
         let after_first = part_of(&path);
         let second = write_docx_sync(
@@ -2693,8 +3009,7 @@ mod tests {
             }],
             &[],
             &[],
-            &first,
-        )
+            &[], &first,)
         .expect("the second save lands");
         assert_eq!(part_of(&path), after_first);
 
@@ -2728,8 +3043,7 @@ mod tests {
             }],
             &[],
             &[],
-            &guard,
-        )
+            &[], &guard,)
         .expect("the edit should land");
         let before_undo = std::fs::read(&path).unwrap();
         let stale = DocxGuard {
@@ -2758,8 +3072,7 @@ mod tests {
             }],
             &[],
             &[],
-            &stale,
-        )
+            &[], &stale,)
         .unwrap_err();
         assert!(error.contains("磁盘"), "{error}");
         assert_eq!(std::fs::read(&path).unwrap(), before);
@@ -2781,8 +3094,7 @@ mod tests {
             }],
             &[1],
             &[],
-            &guard,
-        )
+            &[], &guard,)
         .expect("the write should land");
         // A new identity comes back, so the next edit in the same session is not refused as stale.
         assert_ne!(next, guard);

@@ -98,7 +98,8 @@ describe("the document on its paper", () => {
     expect(body).not.toMatch(/while \(lines\.length > 1/);
     expect(body).toMatch(/children\[children\.length - 1\]\?\.nodeName === "BR"/);
     // And an empty paragraph is drawn with something in it, or it has no height at all.
-    expect(preview).toMatch(/read\.runs\.length > 0 \? \(\s*<Runs runs=\{read\.runs\} \/>\s*\) : \(\s*<br \/>/);
+    expect(preview).toMatch(/read\.runs\.length > 0 \? \(\s*<Runs\s+runs=\{read\.runs\}/);
+    expect(preview).toMatch(/\) : \(\s*<br \/>/);
   });
 });
 
