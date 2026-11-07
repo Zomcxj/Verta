@@ -206,6 +206,9 @@ export const DEFAULT_PAGE = {
   marginLeft: 1440,
 };
 
+/** How many page breaks are marked before the rest are left alone, so a huge file stays cheap. */
+const MAX_PAGE_BREAKS = 400;
+
 /** Twips (1/20 pt) to CSS pixels at 96 dpi - 15 twips to the pixel. */
 const twipsToPx = (twips: number) => twips / 15;
 
@@ -293,6 +296,52 @@ function classOf(block: BaselineBlock): string {
 }
 
 /**
+ * Where one page's worth of text ends and the next begins, in the paper's own pixels.
+ *
+ * The body is one continuous column, so a page ends at a multiple of the text area: the page height
+ * less its top and bottom margins. The break is then moved up to the top of the block that would
+ * have crossed it, which is what Word does and what keeps the line from being cut in half.
+ *
+ * Written as arithmetic over block extents rather than over the DOM, so the rule can be tested
+ * without a browser.
+ */
+export function pageBreaks(
+  blocks: readonly (readonly [number, number])[],
+  textArea: number,
+  limit: number,
+): number[] {
+  if (textArea <= 0) return [];
+  const breaks: number[] = [];
+  let next = textArea;
+  for (const [start, bottom] of blocks) {
+    while (bottom > next && breaks.length < limit) {
+      // A block taller than a page starts one page and then the next, so the same offset must not
+      // be recorded twice.
+      if (breaks[breaks.length - 1] !== start && start > 0) breaks.push(start);
+      next += textArea;
+    }
+  }
+  return breaks;
+}
+
+/** Every top-level block of a body as the two numbers `pageBreaks` reads, in the paper's pixels. */
+function blockExtents(
+  body: HTMLElement,
+  scale: number,
+): [number, number][] {
+  if (scale <= 0) return [];
+  const top = body.getBoundingClientRect().top;
+  const out: [number, number][] = [];
+  for (const child of Array.from(body.children)) {
+    if (!(child instanceof HTMLElement)) continue;
+    const rect = child.getBoundingClientRect();
+    // `zoom` scales what the browser reports, and the text area is stated unscaled.
+    out.push([(rect.top - top) / scale, (rect.bottom - top) / scale]);
+  }
+  return out;
+}
+
+/**
  * The document body: one editable surface for the whole document.
  *
  * Deliberately uncontrolled. React re-renders this pane whenever the save status changes, and a
@@ -324,12 +373,15 @@ const DocxBody = memo(function DocxBody({
 }) {
   const t = useT();
   const blocks = useMemo(() => blocksFromDocument(doc), [doc]);
+  /** Where each page ends, in the paper's own pixels. Drawn, never written: the body is untouched. */
+  const [breaks, setBreaks] = useState<number[]>([]);
 
   useEffect(() => {
     // Markers are pseudo-elements, so they have to be assigned before the first paint as well as
     // after every edit.
     if (bodyRef.current) normalizeBody(bodyRef.current);
   }, [bodyRef]);
+
 
   const deleteButton = (ordinal: number | null) =>
     editable && ordinal !== null ? (
@@ -355,6 +407,11 @@ const DocxBody = memo(function DocxBody({
   const pageWidth = twipsToPx(page.width ?? DEFAULT_PAGE.width);
   // A page wider than the pane is shrunk to fit it; a page that fits is drawn at its own size.
   const scale = fittedPageScale(pageWidth, available);
+  const marginTop = twipsToPx(page.marginTop ?? DEFAULT_PAGE.marginTop);
+  const textArea =
+    twipsToPx(page.height ?? DEFAULT_PAGE.height) -
+    marginTop -
+    twipsToPx(page.marginBottom ?? DEFAULT_PAGE.marginBottom);
   const paper = {
     width: `${pageWidth}px`,
     minHeight: `${twipsToPx(page.height ?? DEFAULT_PAGE.height)}px`,
@@ -367,6 +424,18 @@ const DocxBody = memo(function DocxBody({
     zoom: scale,
   };
 
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const measure = () =>
+      setBreaks(pageBreaks(blockExtents(body, scale), textArea, MAX_PAGE_BREAKS));
+    measure();
+    // Typing changes how tall the body is, and a page break is a question about that height.
+    const observer = new ResizeObserver(measure);
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, [bodyRef, textArea, scale]);
+
   return (
     // The paper is the frame; the editable surface inside it is the document. Word's page is what a
     // reader recognises, and the margins are where the text stops.
@@ -377,8 +446,25 @@ const DocxBody = memo(function DocxBody({
         // The paper is white and the document's ink is its own: Word's text is black unless the
         // document says otherwise, and the app's foreground is a light colour in the dark theme -
         // inherited here it drew the whole page in near-white on white.
-        className="shrink-0 bg-white text-[13px] leading-relaxed text-black shadow-[0_1px_3px_rgba(0,0,0,0.16)]"
+        className="relative shrink-0 bg-white text-[13px] leading-relaxed text-black shadow-[0_1px_3px_rgba(0,0,0,0.16)]"
       >
+        {/* Where a page ends. A sibling of the editable body rather than a child of it: a marker
+            inside that surface would be text the browser could put a caret next to, and would be
+            read back as part of the document. */}
+        {breaks.map((offset, at) => (
+          <div
+            key={offset}
+            data-docx-page-break={at + 2}
+            contentEditable={false}
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 border-t border-dashed border-black/15"
+            style={{ top: marginTop + offset }}
+          >
+            <span className="absolute -top-[7px] right-1 bg-white px-1 text-[9.5px] tabular-nums text-black/35">
+              {at + 2}
+            </span>
+          </div>
+        ))}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: this is the document itself, not a control: the editable surface is what the browser gives a caret and an input method to, and its handlers exist to keep the DOM readable back */}
         <div
           ref={bodyRef}

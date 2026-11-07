@@ -2,7 +2,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { blockStyle, DEFAULT_PAGE, fallbackPx, fittedPageScale, tableGrid } from "./DocxPreview";
+import {
+  blockStyle,
+  DEFAULT_PAGE,
+  fallbackPx,
+  fittedPageScale,
+  pageBreaks,
+  tableGrid,
+} from "./DocxPreview";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pane = readFileSync(path.join(here, "EditorPane.tsx"), "utf8");
@@ -355,5 +362,45 @@ describe("fitting a page to the pane", () => {
     // The first frame has no measurement; scaling by a width of zero would draw nothing.
     expect(fittedPageScale(1700, 0)).toBe(1);
     expect(fittedPageScale(0, 1200)).toBe(1);
+  });
+});
+
+describe("where a page ends", () => {
+  it("breaks a page's worth down and starts the next at the block that crossed it", () => {
+    // A page holds 100 units of text. Blocks 0 and 1 fit; block 2 crosses the line at 100, so the
+    // page break goes above it rather than through the middle of it.
+    const blocks: [number, number][] = [
+      [0, 40],
+      [40, 80],
+      [80, 140],
+      [140, 220],
+    ];
+    expect(pageBreaks(blocks, 100, 10)).toEqual([80, 140]);
+  });
+
+  it("says nothing when the document is one page long", () => {
+    expect(pageBreaks([[0, 40], [40, 90]], 100, 10)).toEqual([]);
+    expect(pageBreaks([], 100, 10)).toEqual([]);
+  });
+
+  it("marks a block that overflows once, not once per page it covers", () => {
+    // A table taller than two pages would otherwise mark the same offset again for every page it
+    // runs over, and draw the line on top of itself.
+    expect(pageBreaks([[10, 350]], 100, 10)).toEqual([10]);
+    // A block that starts at the very top cannot be broken above itself, so a document that opens
+    // with an over-long table has no break to mark. Splitting the table is a different job.
+    expect(pageBreaks([[0, 350]], 100, 10)).toEqual([]);
+  });
+
+  it("stops at the limit rather than measuring a file the pane will not draw", () => {
+    const blocks: [number, number][] = Array.from({ length: 50 }, (_, at) => [
+      at * 100,
+      (at + 1) * 100,
+    ]);
+    expect(pageBreaks(blocks, 100, 3)).toHaveLength(3);
+  });
+
+  it("says nothing rather than dividing by a page with no room for text", () => {
+    expect(pageBreaks([[0, 10]], 0, 10)).toEqual([]);
   });
 });
