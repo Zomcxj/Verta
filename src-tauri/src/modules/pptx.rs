@@ -5,10 +5,15 @@
 //! text declares, and the pictures the slide's own relationship table points at, and hand the
 //! frontend a set of positioned boxes to draw.
 //!
-//! What this deliberately does not do: read the slide master or the layout a slide derives from, so
-//! a title that inherits its size and place from the master is drawn where the slide itself does not
-//! say - which is nowhere, unless the file wrote it. Charts, SmartArt, animations, transitions,
-//! notes and the old `.ppt` format (OLE2 rather than ZIP) are not read either.
+//! Colour and type are inherited rather than declared: a shape names a theme role such as `accent1`
+//! and the theme says what that is, and a title placeholder that states no size takes the master's.
+//! The chain is read here - slide, then its layout, then the layout's master, then the master's
+//! theme - because a deck whose theme is ignored loses three quarters of its colours.
+//!
+//! What this deliberately does not do: take a placeholder's *box* from its layout or master, so a
+//! shape that states no position is drawn at the origin rather than where the master puts it.
+//! Charts, SmartArt, animations, transitions, notes and the old `.ppt` format (OLE2 rather than
+//! ZIP) are not read either.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -22,6 +27,11 @@ use super::fs::blocking;
 use super::office::{
     attr, attr_full, attr_number, data_url, emu_to_px, flag, local, reference_of, relationships,
     srgb_color, text_of, Archive,
+};
+use super::pptx_color::{ColorRef, Theme};
+use super::pptx_theme::{
+    read_background, read_clr_map, read_master_styles, read_theme, LevelStyles, MasterStyles,
+    RunStyle,
 };
 use super::workspace::{authorize_read, resolve_path, WorkspaceEnv, WorkspaceRegistry};
 
@@ -107,6 +117,10 @@ pub struct PptxSlide {
     /// Its position in the deck, which is the order the file lists it in.
     pub index: u32,
     pub shapes: Vec<PptxShape>,
+    /// `#rrggbb` the slide is drawn on, which the slide, its layout or its master states. Absent
+    /// means white paper, which is what a deck with no background is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -136,6 +150,92 @@ pub async fn fs_read_pptx(
     .await
 }
 
+/// What a slide inherits from the parts above it: the theme, the master's text styles, and the
+/// layout's own text styles and background.
+///
+/// One deck usually has one or two masters and a dozen layouts, so these are read once per part and
+/// shared by every slide that points at them.
+#[derive(Debug, Default, Clone)]
+struct Inherited {
+    theme: Theme,
+    master: MasterStyles,
+    /// The layout's own background, used when the slide states none.
+    ///
+    /// The layout's text styles are deliberately not read: a layout states them per placeholder
+    /// shape, and a slide's own `a:lstStyle` is where a shape says how its text is set. Taking the
+    /// layout's list wholesale painted a 60pt title size over ordinary text boxes that the master
+    /// sets at 18pt.
+    layout_background: Option<String>,
+    /// The master's background, used when neither the slide nor the layout states one.
+    master_background: Option<String>,
+}
+
+/// The parts a slide inherits from, as the reader found them.
+fn inherited_for(
+    archive: &Archive,
+    slide_rels: &HashMap<String, String>,
+    layouts: &mut HashMap<String, Option<String>>,
+    masters: &mut HashMap<String, Inherited>,
+) -> Result<Inherited, String> {
+    let Some(layout) = slide_rels
+        .values()
+        .find(|target| target.contains("slideLayout"))
+        .cloned()
+    else {
+        return Ok(Inherited::default());
+    };
+    // The layout is read once and remembered, so a dozen slides on one layout do not each pay for
+    // it; `None` records a layout that has no master, which is different from one not yet read.
+    if let Some(master) = layouts.get(&layout) {
+        return Ok(match master {
+            Some(master) => masters.get(master).cloned().unwrap_or_default(),
+            None => Inherited::default(),
+        });
+    }
+    let layout_xml = archive
+        .text(&layout, MAX_PART_BYTES, ".pptx")?
+        .unwrap_or_default();
+    let layout_rels = slide_relationships(archive, &layout)?;
+    let Some(master_path) = layout_rels
+        .values()
+        .find(|target| target.contains("slideMaster"))
+        .cloned()
+    else {
+        layouts.insert(layout, None);
+        return Ok(Inherited::default());
+    };
+    layouts.insert(layout.clone(), Some(master_path.clone()));
+    if let Some(inherited) = masters.get(&master_path) {
+        let mut inherited = inherited.clone();
+        inherited.layout_background = read_background(&layout_xml, &inherited.theme);
+        return Ok(inherited);
+    }
+    let master_xml = archive
+        .text(&master_path, MAX_PART_BYTES, ".pptx")?
+        .unwrap_or_default();
+    let master_rels = slide_relationships(archive, &master_path)?;
+    let theme = match master_rels
+        .values()
+        .find(|target| target.contains("theme"))
+        .cloned()
+    {
+        Some(theme_path) => match archive.text(&theme_path, MAX_PART_BYTES, ".pptx")? {
+            Some(theme_xml) => read_theme(&theme_xml).with_roles(read_clr_map(&master_xml)),
+            // A master with no readable theme still says which slot each role means.
+            None => Theme::default().with_roles(read_clr_map(&master_xml)),
+        },
+        None => Theme::default().with_roles(read_clr_map(&master_xml)),
+    };
+    let inherited = Inherited {
+        layout_background: read_background(&layout_xml, &theme),
+        master_background: read_background(&master_xml, &theme),
+        master: read_master_styles(&master_xml),
+        theme,
+    };
+    masters.insert(master_path, inherited.clone());
+    Ok(inherited)
+}
+
 fn read_pptx_sync(path: &Path) -> Result<PptxDocument, String> {
     let bytes = std::fs::read(path).map_err(|error| {
         log::debug!("fs_read_pptx read({}) failed: {error}", path.display());
@@ -153,6 +253,8 @@ fn read_pptx_sync(path: &Path) -> Result<PptxDocument, String> {
     let mut slides = Vec::new();
     let mut images_bytes = 0u64;
     let mut truncated = order.len() > MAX_SLIDES;
+    let mut layouts: HashMap<String, Option<String>> = HashMap::new();
+    let mut masters: HashMap<String, Inherited> = HashMap::new();
     for (index, relationship_id) in order.iter().take(MAX_SLIDES).enumerate() {
         let Some(target) = rels.get(relationship_id) else {
             // A slide the deck lists and has no part for is a slide that cannot be drawn; the ones
@@ -160,21 +262,28 @@ fn read_pptx_sync(path: &Path) -> Result<PptxDocument, String> {
             slides.push(PptxSlide {
                 index: index as u32,
                 shapes: Vec::new(),
+                background: None,
             });
             continue;
         };
         let xml = archive.required(target, MAX_PART_BYTES, ".pptx")?;
         let slide_rels = slide_relationships(&archive, target)?;
+        let inherited = inherited_for(&archive, &slide_rels, &mut layouts, &mut masters)?;
+        let background = read_background(&xml, &inherited.theme)
+            .or_else(|| inherited.layout_background.clone())
+            .or_else(|| inherited.master_background.clone());
         let (shapes, cut) = parse_slide(
             &xml,
             &archive,
             &slide_rels,
+            &inherited,
             &mut images_bytes,
         )?;
         truncated |= cut;
         slides.push(PptxSlide {
             index: index as u32,
             shapes,
+            background,
         });
     }
     Ok(PptxDocument {
@@ -274,6 +383,15 @@ struct PendingShape {
     run: Option<PptxRun>,
     /// The relationship id of a picture, which is resolved into a `data:` URL when the shape ends.
     embed: Option<String>,
+    /// The placeholder this shape is, which decides which of the master's lists its text takes.
+    placeholder: Option<String>,
+    /// The shape's own `a:lstStyle`, which sits between the master's styles and the run's.
+    list_style: Option<LevelStyles>,
+    /// The colour a run states, kept unresolved until the shape ends so a theme role can be looked
+    /// up once rather than at every colour.
+    run_color: Option<ColorRef>,
+    /// The colour the shape's own fill states, likewise unresolved.
+    fill_color: Option<ColorRef>,
 }
 
 impl Default for PendingShape {
@@ -291,6 +409,10 @@ impl Default for PendingShape {
             paragraph: None,
             run: None,
             embed: None,
+            placeholder: None,
+            list_style: None,
+            run_color: None,
+            fill_color: None,
         }
     }
 }
@@ -304,6 +426,8 @@ struct Where {
     in_line: bool,
     /// Inside `<a:tbl>`, whose paragraphs are table cells and are not drawn by this reader.
     in_table: bool,
+    /// Inside a shape's `<a:lstStyle>`, whose levels are being collected.
+    in_list_style: bool,
     fill_target: Option<FillTarget>,
 }
 
@@ -318,6 +442,7 @@ fn parse_slide(
     xml: &str,
     archive: &Archive,
     slide_rels: &HashMap<String, String>,
+    inherited: &Inherited,
     images_bytes: &mut u64,
 ) -> Result<(Vec<PptxShape>, bool), String> {
     let mut shapes: Vec<PptxShape> = Vec::new();
@@ -328,6 +453,9 @@ fn parse_slide(
     let mut depth = 0usize;
     let mut shape_depth = 0usize;
     let mut in_text = false;
+    // The level a shape's own list style is being read at, and what that level states.
+    let mut list_level = 0usize;
+    let mut level_style: Option<RunStyle> = None;
 
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
@@ -354,9 +482,33 @@ fn parse_slide(
                     b"txBody" => in_text = true,
                     b"tbl" => where_.in_table = true,
                     b"ln" => where_.in_line = true,
+                    // A placeholder says which of the master's three lists its text takes, and
+                    // `type` is what a title is; `idx` alone is a body placeholder.
+                    b"ph" => {
+                        shape.placeholder = Some(
+                            attr(&element, b"type").unwrap_or_else(|| "body".to_string()),
+                        );
+                    }
+                    b"lstStyle" => {
+                        // The shape's own levels are read here rather than by a second pass over
+                        // the slide, so a shape's list style costs nothing extra.
+                        where_.in_list_style = true;
+                        shape.list_style = Some(LevelStyles::default());
+                    }
                     b"rPr" | b"defRPr" => {
                         where_.in_run_props = true;
                         read_run_props(&element, shape.run.as_mut());
+                        // Inside a list style, a `defRPr` states the level's own style rather than
+                        // a run's.
+                        if where_.in_list_style {
+                            level_style = Some(level_run_style(&element));
+                        }
+                    }
+                    b"lvl1pPr" | b"lvl2pPr" | b"lvl3pPr" | b"lvl4pPr" | b"lvl5pPr" | b"lvl6pPr"
+                    | b"lvl7pPr" | b"lvl8pPr" | b"lvl9pPr"
+                        if where_.in_list_style =>
+                    {
+                        list_level = level_of(&element);
                     }
                     b"solidFill" => {
                         // A colour inside the text body is never the shape's own background. Both
@@ -431,18 +583,41 @@ fn parse_slide(
                             shape.embed = Some(embed);
                         }
                     }
+                    // A colour written with children carries modifiers, so it is held unresolved
+                    // until its own end arrives, after those children have been read.
                     b"srgbClr" => {
                         let color = attr(&element, b"val")
                             .as_deref()
-                            .and_then(srgb_color);
+                            .and_then(srgb_color)
+                            .map(ColorRef::Srgb);
                         match where_.fill_target() {
-                            FillTarget::Shape => shape.fill = color,
-                            FillTarget::Run => {
-                                if let Some(run) = shape.run.as_mut() {
-                                    run.color = color;
-                                }
-                            }
+                            FillTarget::Shape => shape.fill_color = color,
+                            FillTarget::Run => shape.run_color = color,
                             FillTarget::None => {}
+                        }
+                    }
+                    b"schemeClr" => {
+                        let color = attr(&element, b"val").map(|role| ColorRef::Scheme {
+                            role,
+                            modifiers: Vec::new(),
+                        });
+                        match where_.fill_target() {
+                            FillTarget::Shape => shape.fill_color = color,
+                            FillTarget::Run => shape.run_color = color,
+                            FillTarget::None => {}
+                        }
+                    }
+                    // A modifier of the colour just named: `lumMod`, `lumOff`, `tint`, `shade`.
+                    b"lumMod" | b"lumOff" | b"tint" | b"shade" => {
+                        let value = attr_number::<f64>(&element, b"val").unwrap_or(0.0) / 1000.0;
+                        let name = String::from_utf8_lossy(&tag).to_string();
+                        let target = match where_.fill_target() {
+                            FillTarget::Shape => shape.fill_color.as_mut(),
+                            FillTarget::Run => shape.run_color.as_mut(),
+                            FillTarget::None => None,
+                        };
+                        if let Some(ColorRef::Scheme { modifiers, .. }) = target {
+                            modifiers.push((name, value));
                         }
                     }
                     _ => {}
@@ -462,7 +637,13 @@ fn parse_slide(
                             ..Default::default()
                         };
                         if shapes.len() < MAX_SHAPES {
-                            shapes.push(finish_shape(shape, slide_rels, archive, images_bytes)?);
+                            shapes.push(finish_shape(
+                                shape,
+                                slide_rels,
+                                archive,
+                                inherited,
+                                images_bytes,
+                            )?);
                         } else {
                             truncated = true;
                         }
@@ -470,6 +651,20 @@ fn parse_slide(
                     continue;
                 };
                 match tag.as_slice() {
+                    // A placeholder says which of the master's three lists its text takes. It is
+                    // written self-closed, so it arrives here rather than in the Start arm.
+                    b"ph" => {
+                        shape.placeholder = Some(
+                            attr(&element, b"type").unwrap_or_else(|| "body".to_string()),
+                        );
+                    }
+                    // A level wrapper written with no children still names its level.
+                    b"lvl1pPr" | b"lvl2pPr" | b"lvl3pPr" | b"lvl4pPr" | b"lvl5pPr" | b"lvl6pPr"
+                    | b"lvl7pPr" | b"lvl8pPr" | b"lvl9pPr"
+                        if where_.in_list_style =>
+                    {
+                        list_level = level_of(&element);
+                    }
                     b"br" => break_line(shape),
                     b"off" => {
                         shape.x = attr_number::<f64>(&element, b"x")
@@ -492,10 +687,48 @@ fn parse_slide(
                             .map(|rot| (rot / 60_000.0) as f32);
                     }
                     b"blip" => shape.embed = attr(&element, b"embed").or(shape.embed.take()),
-                    b"srgbClr" => {
-                        let color = attr(&element, b"val")
-                            .as_deref()
-                            .and_then(srgb_color);
+                    // A run's own properties are written self-closed in every real deck
+                    // (`<a:rPr sz="1800"/>`), so they are read here as well as in the Start arm.
+                    b"rPr" | b"defRPr" => {
+                        read_run_props(&element, shape.run.as_mut());
+                        if where_.in_list_style {
+                            level_style = Some(level_run_style(&element));
+                        }
+                    }
+                    b"latin" if where_.in_list_style => {
+                        if let Some(style) = level_style.as_mut() {
+                            style.font = attr(&element, b"typeface");
+                        }
+                    }
+                    b"latin" if shape.run.is_some() => {
+                        if let Some(run) = shape.run.as_mut() {
+                            run.font = attr(&element, b"typeface");
+                        }
+                    }
+                    b"srgbClr" if where_.in_list_style => {
+                        if let Some(style) = level_style.as_mut() {
+                            style.color = attr(&element, b"val").and_then(|value| srgb_color(&value));
+                        }
+                    }
+                    b"schemeClr" if where_.in_list_style => {
+                        if let Some(style) = level_style.as_mut() {
+                            style.color = attr(&element, b"val");
+                        }
+                    }
+                    // A colour written with no children is resolved here; one with modifiers is
+                    // resolved when its own end arrives, after those children have been read.
+                    b"srgbClr" | b"schemeClr" => {
+                        let color = match tag.as_slice() {
+                            b"srgbClr" => attr(&element, b"val")
+                                .as_deref()
+                                .and_then(srgb_color)
+                                .map(ColorRef::Srgb),
+                            _ => attr(&element, b"val").map(|role| ColorRef::Scheme {
+                                role,
+                                modifiers: Vec::new(),
+                            }),
+                        };
+                        let color = color.and_then(|color| color.resolve(&inherited.theme));
                         match where_.fill_target() {
                             FillTarget::Shape => shape.fill = color,
                             FillTarget::Run => {
@@ -506,9 +739,29 @@ fn parse_slide(
                             FillTarget::None => {}
                         }
                     }
+                    // A modifier of the colour just named: `lumMod`, `lumOff`, `tint`, `shade`.
+                    b"lumMod" | b"lumOff" | b"tint" | b"shade" => {
+                        let value = attr_number::<f64>(&element, b"val").unwrap_or(0.0) / 1000.0;
+                        let name = String::from_utf8_lossy(&tag).to_string();
+                        let target = match where_.fill_target() {
+                            FillTarget::Shape => shape.fill_color.as_mut(),
+                            FillTarget::Run => shape.run_color.as_mut(),
+                            FillTarget::None => None,
+                        };
+                        if let Some(ColorRef::Scheme { modifiers, .. }) = target {
+                            modifiers.push((name, value));
+                        }
+                    }
                     b"latin" if shape.run.is_some() => {
                         if let Some(run) = shape.run.as_mut() {
                             run.font = attr(&element, b"typeface");
+                        }
+                    }
+                    // A colour and a typeface inside a list style belong to the level, not to a
+                    // run that is being read at the same time.
+                    b"latin" if where_.in_list_style => {
+                        if let Some(style) = level_style.as_mut() {
+                            style.font = attr(&element, b"typeface");
                         }
                     }
                     b"pPr" if shape.paragraph.is_some() => {
@@ -556,6 +809,36 @@ fn parse_slide(
                         b"ln" => where_.in_line = false,
                         b"rPr" | b"defRPr" => where_.in_run_props = false,
                         b"solidFill" => where_.fill_target = None,
+                        // A colour is resolved when its own element ends, because its modifiers are
+                        // children of it and arrive before it closes.
+                        b"srgbClr" | b"schemeClr" => {
+                            let resolved = match where_.fill_target() {
+                                FillTarget::Shape => shape.fill_color.take(),
+                                FillTarget::Run => shape.run_color.take(),
+                                FillTarget::None => None,
+                            };
+                            let color = resolved.and_then(|color| color.resolve(&inherited.theme));
+                            match where_.fill_target() {
+                                FillTarget::Shape => shape.fill = color,
+                                FillTarget::Run => {
+                                    if let Some(run) = shape.run.as_mut() {
+                                        run.color = color;
+                                    }
+                                }
+                                FillTarget::None => {}
+                            }
+                        }
+                        b"lstStyle" => where_.in_list_style = false,
+                        b"lvl1pPr" | b"lvl2pPr" | b"lvl3pPr" | b"lvl4pPr" | b"lvl5pPr"
+                        | b"lvl6pPr" | b"lvl7pPr" | b"lvl8pPr" | b"lvl9pPr"
+                            if where_.in_list_style =>
+                        {
+                            if let (Some(style), Some(levels)) =
+                                (level_style.take(), shape.list_style.as_mut())
+                            {
+                                levels.set(list_level, style);
+                            }
+                        }
                         b"r" | b"fld" => {
                             if let (Some(paragraph), Some(run)) =
                                 (shape.paragraph.as_mut(), shape.run.take())
@@ -584,7 +867,13 @@ fn parse_slide(
                 if current.is_some() && depth == shape_depth {
                     if let Some(shape) = current.take() {
                         if shapes.len() < MAX_SHAPES {
-                            shapes.push(finish_shape(shape, slide_rels, archive, images_bytes)?);
+                            shapes.push(finish_shape(
+                                shape,
+                                slide_rels,
+                                archive,
+                                inherited,
+                                images_bytes,
+                            )?);
                         } else {
                             truncated = true;
                         }
@@ -659,11 +948,13 @@ fn align_of(element: &BytesStart<'_>) -> Option<String> {
     }
 }
 
-/// A shape as the pane draws it, with its picture resolved into a `data:` URL.
+/// A shape as the pane draws it, with its picture resolved into a `data:` URL and the styling it
+/// inherits from its layout, its master and the theme filled in.
 fn finish_shape(
     mut shape: PendingShape,
     slide_rels: &HashMap<String, String>,
     archive: &Archive,
+    inherited: &Inherited,
     images_bytes: &mut u64,
 ) -> Result<PptxShape, String> {
     if let Some(run) = shape.run.take() {
@@ -690,6 +981,16 @@ fn finish_shape(
             }
         }
     }
+    let fill = shape
+        .fill_color
+        .take()
+        .and_then(|color| color.resolve(&inherited.theme))
+        .or_else(|| shape.fill.take());
+    let paragraphs = apply_inheritance(
+        std::mem::take(&mut shape.paragraphs),
+        &shape,
+        inherited,
+    );
     Ok(PptxShape {
         x: shape.x,
         y: shape.y,
@@ -697,10 +998,110 @@ fn finish_shape(
         height: shape.height,
         rotation: shape.rotation,
         kind: shape.kind,
-        fill: shape.fill,
+        fill,
         image: shape.image,
-        paragraphs: shape.paragraphs,
+        paragraphs,
     })
+}
+
+/// Every paragraph of a shape with what it inherits from the shape, the layout and the master.
+///
+/// Three levels reach a run and the narrowest wins: the master's list for this kind of shape, the
+/// shape's own `a:lstStyle`, and the run's `<a:rPr>`. What none of them states stays unset, which
+/// leaves the pane drawing it at its own default rather than at a size the file never asked for.
+fn apply_inheritance(
+    paragraphs: Vec<PptxParagraph>,
+    shape: &PendingShape,
+    inherited: &Inherited,
+) -> Vec<PptxParagraph> {
+    let own = shape.list_style.clone().unwrap_or_default();
+    paragraphs
+        .into_iter()
+        .map(|mut paragraph| {
+            let level = paragraph.level as usize;
+            let master = inherited
+                .master
+                .for_placeholder(shape.placeholder.as_deref(), level);
+            let style = own.at(level).over(master);
+            for run in &mut paragraph.runs {
+                if run.size.is_none() {
+                    run.size = style.size;
+                }
+                if !run.bold {
+                    run.bold = style.bold.unwrap_or(false);
+                }
+                if !run.italic {
+                    run.italic = style.italic.unwrap_or(false);
+                }
+                if run.color.is_none() {
+                    run.color = style
+                        .color
+                        .as_deref()
+                        .and_then(|color| theme_colour(color, &inherited.theme));
+                }
+                if run.font.is_none() {
+                    run.font = style
+                        .font
+                        .as_deref()
+                        .map(|font| theme_font(font, &inherited.theme))
+                        .filter(|font| !font.is_empty());
+                }
+            }
+            // A run that named a theme slot for itself is drawn in the typeface that slot stands
+            // for, whether the slot came from the run or from a level above it.
+            for run in &mut paragraph.runs {
+                if let Some(font) = run.font.as_deref().map(|font| theme_font(font, &inherited.theme))
+                {
+                    run.font = (!font.is_empty()).then_some(font);
+                }
+            }
+            paragraph
+        })
+        .collect()
+}
+
+/// A colour a style states, resolved through the theme.
+///
+/// A style names either a literal `#rrggbb` or a theme role, and the two are told apart by the
+/// leading `#`: a role is a word such as `tx2`.
+fn theme_colour(stated: &str, theme: &Theme) -> Option<String> {
+    if stated.starts_with('#') {
+        return Some(stated.to_string());
+    }
+    let reference = ColorRef::Scheme {
+        role: stated.to_string(),
+        modifiers: Vec::new(),
+    };
+    reference.resolve(theme)
+}
+
+/// A typeface a style states, resolved through the theme when it names a slot such as `+mj-lt`.
+fn theme_font(stated: &str, theme: &Theme) -> String {
+    if stated.starts_with('+') {
+        return theme.font(stated).cloned().unwrap_or_default();
+    }
+    stated.to_string()
+}
+
+/// The level a `lvlNpPr` element stands for.
+fn level_of(element: &BytesStart<'_>) -> usize {
+    let name = String::from_utf8_lossy(element.name().as_ref()).to_string();
+    name.trim_start_matches(|character: char| !character.is_ascii_digit())
+        .trim_end_matches(|character: char| !character.is_ascii_digit())
+        .parse::<usize>()
+        .map(|depth| depth.saturating_sub(1))
+        .unwrap_or(0)
+}
+
+/// What a `defRPr` inside a list style states, with the colour and typeface its children carry.
+fn level_run_style(element: &BytesStart<'_>) -> RunStyle {
+    RunStyle {
+        size: attr_number::<f32>(element, b"sz").map(|size| size / 100.0),
+        bold: flag(element, b"b"),
+        italic: flag(element, b"i"),
+        color: None,
+        font: None,
+    }
 }
 
 #[cfg(test)]
@@ -993,6 +1394,157 @@ mod tests {
         assert_eq!(shape.kind, ShapeKind::Other);
         assert_eq!((shape.x, shape.y, shape.width, shape.height), (10.0, 20.0, 30.0, 40.0));
         assert!(shape.paragraphs.is_empty());
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // What a slide inherits from its theme, its master and its layout
+    // -----------------------------------------------------------------------------------------
+
+    /// A deck whose slide points at a layout, which points at a master, which points at a theme.
+    fn themed_deck(slide: &str, tag: &str) -> PptxDocument {
+        read_deck(
+            &size(),
+            slide,
+            &[
+                (
+                    "ppt/slides/_rels/slide1.xml.rels",
+                    &rels_xml(&[("rId9", "../slideLayouts/slideLayout1.xml")]),
+                ),
+                (
+                    "ppt/slideLayouts/slideLayout1.xml",
+                    r#"<?xml version="1.0"?><p:sldLayout xmlns:p="p" xmlns:a="a"><p:spTree/></p:sldLayout>"#,
+                ),
+                (
+                    "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+                    &rels_xml(&[("rId10", "../slideMasters/slideMaster1.xml")]),
+                ),
+                (
+                    "ppt/slideMasters/slideMaster1.xml",
+                    r#"<?xml version="1.0"?><p:sldMaster xmlns:p="p" xmlns:a="a"><p:clrMap bg1="lt1" tx1="dk1" tx2="dk2"/><p:txStyles><p:titleStyle><a:lvl1pPr><a:defRPr sz="3600" b="1"><a:solidFill><a:schemeClr val="tx2"/></a:solidFill></a:defRPr></a:lvl1pPr></p:titleStyle><p:bodyStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:bodyStyle><p:otherStyle><a:lvl1pPr><a:defRPr sz="1400"/></a:lvl1pPr></p:otherStyle></p:txStyles></p:sldMaster>"#,
+                ),
+                (
+                    "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+                    &rels_xml(&[("rId11", "../theme/theme1.xml")]),
+                ),
+                (
+                    "ppt/theme/theme1.xml",
+                    r#"<?xml version="1.0"?><a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Office"><a:dk1><a:srgbClr val="000000"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="44546A"/></a:dk2><a:accent1><a:srgbClr val="4472C4"/></a:accent1></a:clrScheme><a:fontScheme name="Office"><a:majorFont><a:latin typeface="Calibri Light"/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>"#,
+                ),
+            ],
+            tag,
+        )
+    }
+
+    #[test]
+    fn a_title_placeholder_takes_the_master_s_size_weight_and_colour() {
+        // The master says 36pt bold in `tx2`; before the theme was read every title was 18pt regular
+        // in black, which is what the pane's own default happened to be.
+        let body = r#"<a:p><a:r><a:rPr/><a:t>Title</a:t></a:r></a:p>"#;
+        let slide = slide_xml(&format!(
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="T"/></p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr><p:spPr><a:xfrm><a:off x="{}" y="{}"/><a:ext cx="{}" cy="{}"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/>{body}</p:txBody></p:sp>"#,
+            px(100), px(50), px(300), px(120)
+        ));
+        let document = themed_deck(&slide, "ph-title");
+        let run = &document.slides[0].shapes[0].paragraphs[0].runs[0];
+        assert_eq!(run.size, Some(36.0));
+        assert!(run.bold);
+        // `tx2` is a role the master's map points at `dk2`, so the colour is the slot, not the word.
+        assert_eq!(run.color, Some("#44546a".to_string()));
+    }
+
+    #[test]
+    fn a_plain_text_box_takes_the_master_s_other_style() {
+        // A box with no placeholder is not a title: taking the title's list wholesale is what put
+        // 60pt over ordinary text on a real deck.
+        let body = r#"<a:p><a:r><a:rPr/><a:t>plain</a:t></a:r></a:p>"#;
+        let document = themed_deck(&text_shape(body, None, None), "ph-plain");
+        let run = &document.slides[0].shapes[0].paragraphs[0].runs[0];
+        assert_eq!(run.size, Some(14.0));
+    }
+
+    #[test]
+    fn a_run_s_own_size_wins_over_the_master_s() {
+        let body = r#"<a:p><a:r><a:rPr sz="2400"/><a:t>big</a:t></a:r></a:p>"#;
+        let document = themed_deck(&text_shape(body, None, None), "ph-own-size");
+        let run = &document.slides[0].shapes[0].paragraphs[0].runs[0];
+        assert_eq!(run.size, Some(24.0));
+    }
+
+    #[test]
+    fn a_theme_colour_fills_the_shape() {
+        // `accent1` is a slot, so the fill is the theme's own colour for it.
+        let body = r#"<a:p><a:r><a:rPr/><a:t>x</a:t></a:r></a:p>"#;
+        let slide = slide_xml(&format!(
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Box"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="{}" y="{}"/><a:ext cx="{}" cy="{}"/></a:xfrm><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></p:spPr><p:txBody><a:bodyPr/>{body}</p:txBody></p:sp>"#,
+            px(100), px(50), px(300), px(120)
+        ));
+        let document = themed_deck(&slide, "theme-fill");
+        assert_eq!(
+            document.slides[0].shapes[0].fill,
+            Some("#4472c4".to_string())
+        );
+    }
+
+    #[test]
+    fn a_modifier_on_a_role_darkens_the_slot_it_resolves_to() {
+        let body = r#"<a:p><a:r><a:rPr/><a:t>x</a:t></a:r></a:p>"#;
+        let slide = slide_xml(&format!(
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Box"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="{}" y="{}"/><a:ext cx="{}" cy="{}"/></a:xfrm><a:solidFill><a:schemeClr val="accent1"><a:lumMod val="20000"/></a:schemeClr></a:solidFill></p:spPr><p:txBody><a:bodyPr/>{body}</p:txBody></p:sp>"#,
+            px(100), px(50), px(300), px(120)
+        ));
+        let document = themed_deck(&slide, "theme-modifier");
+        // `#4472c4` at a fifth of its lightness, which is the same arithmetic the colour module's
+        // own test pins.
+        assert_eq!(
+            document.slides[0].shapes[0].fill,
+            Some("#0d1728".to_string())
+        );
+    }
+
+    #[test]
+    fn a_shape_s_own_list_style_sets_the_level_it_states() {
+        let body = r#"<a:p><a:r><a:rPr/><a:t>x</a:t></a:r></a:p>"#;
+        let slide = slide_xml(&format!(
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Box"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="{}" y="{}"/><a:ext cx="{}" cy="{}"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle><a:lvl1pPr><a:defRPr sz="2000" b="1"/></a:lvl1pPr></a:lstStyle>{body}</p:txBody></p:sp>"#,
+            px(100), px(50), px(300), px(120)
+        ));
+        let document = themed_deck(&slide, "own-list-style");
+        let run = &document.slides[0].shapes[0].paragraphs[0].runs[0];
+        assert_eq!(run.size, Some(20.0));
+        assert!(run.bold);
+    }
+
+    #[test]
+    fn the_theme_font_replaces_the_slot_a_run_names() {
+        let body = r#"<a:p><a:r><a:rPr><a:latin typeface="+mj-lt"/></a:rPr><a:t>x</a:t></a:r></a:p>"#;
+        let document = themed_deck(&text_shape(body, None, None), "theme-font");
+        let run = &document.slides[0].shapes[0].paragraphs[0].runs[0];
+        assert_eq!(run.font, Some("Calibri Light".to_string()));
+    }
+
+    #[test]
+    fn a_slide_s_own_background_is_the_colour_it_states() {
+        let slide = r#"<?xml version="1.0"?><p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="1F3864"/></a:solidFill></p:bgPr></p:bg><p:spTree/></p:cSld></p:sld>"#;
+        let document = themed_deck(slide, "bg-own");
+        assert_eq!(document.slides[0].background, Some("#1f3864".to_string()));
+    }
+
+    #[test]
+    fn a_deck_with_no_theme_still_draws_its_slides() {
+        // A missing theme is a deck drawn as it was before: no inherited size, no inherited colour.
+        // Failing the whole read over it would lose text the slide does state.
+        let body = r#"<a:p><a:r><a:rPr/><a:t>still here</a:t></a:r></a:p>"#;
+        let document = read_deck(
+            &size(),
+            &slide_xml(&text_shape(body, None, None)),
+            &[],
+            "no-theme",
+        );
+        assert_eq!(document.slides.len(), 1);
+        let run = &document.slides[0].shapes[0].paragraphs[0].runs[0];
+        assert_eq!(run.text, "still here");
+        assert_eq!(run.size, None);
+        assert_eq!(document.slides[0].background, None);
     }
 
     #[test]

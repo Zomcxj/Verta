@@ -206,7 +206,12 @@ export type PptxShape = {
   paragraphs: PptxParagraph[];
 };
 
-export type PptxSlide = { index: number; shapes: PptxShape[] };
+export type PptxSlide = {
+  index: number;
+  shapes: PptxShape[];
+  /** `#rrggbb` the slide is drawn on; absent means white paper. */
+  background?: string;
+};
 
 /** A deck: the box every slide is placed in, and each slide's shapes. */
 export type PptxDocument = {

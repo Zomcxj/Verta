@@ -17,6 +17,8 @@ pub mod ipc_body;
 pub mod lsp;
 pub mod office;
 pub mod pptx;
+pub mod pptx_color;
+pub mod pptx_theme;
 pub mod proc;
 pub mod proxy;
 pub mod pty;

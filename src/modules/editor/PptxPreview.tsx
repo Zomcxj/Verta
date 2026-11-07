@@ -202,10 +202,16 @@ export function PptxPreview({ path }: { path: string }) {
             <div
               key={slide.index}
               data-pptx-slide={slide.index}
-              className="relative shrink-0 bg-white shadow-md"
-              // A slide is white paper: a run that names no colour is black ink, not the pane's
-              // own foreground, which on a dark theme would be near-white on white.
-              style={{ width: drawnWidth, height: drawnHeight, color: "#000000" }}
+              className="relative shrink-0 shadow-md"
+              // A slide is paper of the colour it states, or white when it states none: a run that
+              // names no colour is black ink, not the pane's own foreground, which on a dark theme
+              // would be near-white on white.
+              style={{
+                width: drawnWidth,
+                height: drawnHeight,
+                color: "#000000",
+                background: slide.background ?? "#ffffff",
+              }}
             >
               {slide.shapes.map((entry, at) => shape(entry, at))}
             </div>
