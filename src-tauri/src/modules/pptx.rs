@@ -30,8 +30,8 @@ use super::office::{
 };
 use super::pptx_color::{ColorRef, Theme};
 use super::pptx_theme::{
-    read_background, read_clr_map, read_master_styles, read_placeholder_boxes, read_theme,
-    LevelStyles, MasterStyles, PlaceholderBox, RunStyle,
+    read_background, read_background_picture, read_clr_map, read_master_styles,
+    read_placeholder_boxes, read_theme, LevelStyles, MasterStyles, PlaceholderBox, RunStyle,
 };
 use super::workspace::{authorize_read, resolve_path, WorkspaceEnv, WorkspaceRegistry};
 
@@ -121,6 +121,10 @@ pub struct PptxSlide {
     /// means white paper, which is what a deck with no background is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
+    /// A picture the slide is drawn on, as a `data:` URL, from the same three levels. A paper that
+    /// is a photograph states no colour, so at most one of these two is ever set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_image: Option<String>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -173,14 +177,23 @@ struct Inherited {
     layout_background: Option<String>,
     /// The master's background, used when neither the slide nor the layout states one.
     master_background: Option<String>,
+    /// The same three levels again, for a paper that is a picture rather than a colour.
+    layout_background_picture: Option<String>,
+    master_background_picture: Option<String>,
 }
 
 /// The parts a slide inherits from, as the reader found them.
+///
+/// Both caches are keyed by the part they describe, and the layout cache holds the layout already
+/// merged with its master. Caching "layout to master" instead and then answering from the master's
+/// entry gave every slide after the first of a layout the *previous* layout's boxes, which is a
+/// mistake that only shows once a deck has two layouts on one master.
 fn inherited_for(
     archive: &Archive,
     slide_rels: &HashMap<String, String>,
-    layouts: &mut HashMap<String, Option<String>>,
+    layouts: &mut HashMap<String, Inherited>,
     masters: &mut HashMap<String, Inherited>,
+    images_bytes: &mut u64,
 ) -> Result<Inherited, String> {
     let Some(layout) = slide_rels
         .values()
@@ -189,37 +202,47 @@ fn inherited_for(
     else {
         return Ok(Inherited::default());
     };
-    // The layout is read once and remembered, so a dozen slides on one layout do not each pay for
-    // it; `None` records a layout that has no master, which is different from one not yet read.
-    if let Some(master) = layouts.get(&layout) {
-        return Ok(match master {
-            Some(master) => masters.get(master).cloned().unwrap_or_default(),
-            None => Inherited::default(),
-        });
+    if let Some(inherited) = layouts.get(&layout) {
+        return Ok(inherited.clone());
     }
     let layout_xml = archive
         .text(&layout, MAX_PART_BYTES, ".pptx")?
         .unwrap_or_default();
     let layout_rels = slide_relationships(archive, &layout)?;
-    let Some(master_path) = layout_rels
+    let master_path = layout_rels
         .values()
         .find(|target| target.contains("slideMaster"))
-        .cloned()
-    else {
-        layouts.insert(layout, None);
-        return Ok(Inherited::default());
+        .cloned();
+    let mut inherited = match master_path {
+        Some(path) => match masters.get(&path) {
+            Some(cached) => cached.clone(),
+            None => {
+                let built = read_master(archive, &path, images_bytes)?;
+                masters.insert(path, built.clone());
+                built
+            }
+        },
+        None => Inherited::default(),
     };
-    layouts.insert(layout.clone(), Some(master_path.clone()));
-    if let Some(inherited) = masters.get(&master_path) {
-        let mut inherited = inherited.clone();
-        inherited.layout_background = read_background(&layout_xml, &inherited.theme);
-        inherited.layout_boxes = read_placeholder_boxes(&layout_xml, "布局")?;
-        return Ok(inherited);
-    }
+    // What the layout itself states sits in front of the master's.
+    inherited.layout_boxes = read_placeholder_boxes(&layout_xml, "布局")?;
+    inherited.layout_background = read_background(&layout_xml, &inherited.theme);
+    inherited.layout_background_picture =
+        background_picture(archive, &layout_xml, &layout_rels, images_bytes)?;
+    layouts.insert(layout, inherited.clone());
+    Ok(inherited)
+}
+
+/// What a master states: its theme, its levels of text style, and what it puts behind a slide.
+fn read_master(
+    archive: &Archive,
+    path: &str,
+    images_bytes: &mut u64,
+) -> Result<Inherited, String> {
     let master_xml = archive
-        .text(&master_path, MAX_PART_BYTES, ".pptx")?
+        .text(path, MAX_PART_BYTES, ".pptx")?
         .unwrap_or_default();
-    let master_rels = slide_relationships(archive, &master_path)?;
+    let master_rels = slide_relationships(archive, path)?;
     let theme = match master_rels
         .values()
         .find(|target| target.contains("theme"))
@@ -232,16 +255,50 @@ fn inherited_for(
         },
         None => Theme::default().with_roles(read_clr_map(&master_xml)),
     };
-    let inherited = Inherited {
-        layout_boxes: read_placeholder_boxes(&layout_xml, "布局")?,
+    Ok(Inherited {
         master_boxes: read_placeholder_boxes(&master_xml, "母版")?,
-        layout_background: read_background(&layout_xml, &theme),
         master_background: read_background(&master_xml, &theme),
+        master_background_picture: background_picture(
+            archive,
+            &master_xml,
+            &master_rels,
+            images_bytes,
+        )?,
         master: read_master_styles(&master_xml),
         theme,
+        // A master states nothing about layouts: those belong to the layout entries.
+        ..Inherited::default()
+    })
+}
+
+/// The picture a part puts behind its slides, as a `data:` URL.
+///
+/// A background is a picture the same way a shape's is, so it comes out of the same budget: a deck
+/// of a hundred slides inheriting one photograph would otherwise be a hundred copies of it.
+fn background_picture(
+    archive: &Archive,
+    xml: &str,
+    rels: &HashMap<String, String>,
+    images_bytes: &mut u64,
+) -> Result<Option<String>, String> {
+    let Some(embed) = read_background_picture(xml) else {
+        return Ok(None);
     };
-    masters.insert(master_path, inherited.clone());
-    Ok(inherited)
+    let Some(target) = rels.get(&embed) else {
+        return Ok(None);
+    };
+    if *images_bytes >= MAX_IMAGES_BYTES {
+        return Ok(None);
+    }
+    let budget = MAX_IMAGE_BYTES.min(MAX_IMAGES_BYTES - *images_bytes);
+    let Some(bytes) = archive.bytes(target, budget, ".pptx")? else {
+        return Ok(None);
+    };
+    let Some(url) = data_url(target, &bytes) else {
+        return Ok(None);
+    };
+    *images_bytes += bytes.len() as u64;
+    Ok(Some(url))
 }
 
 fn read_pptx_sync(path: &Path) -> Result<PptxDocument, String> {
@@ -261,7 +318,7 @@ fn read_pptx_sync(path: &Path) -> Result<PptxDocument, String> {
     let mut slides = Vec::new();
     let mut images_bytes = 0u64;
     let mut truncated = order.len() > MAX_SLIDES;
-    let mut layouts: HashMap<String, Option<String>> = HashMap::new();
+    let mut layouts: HashMap<String, Inherited> = HashMap::new();
     let mut masters: HashMap<String, Inherited> = HashMap::new();
     for (index, relationship_id) in order.iter().take(MAX_SLIDES).enumerate() {
         let Some(target) = rels.get(relationship_id) else {
@@ -271,15 +328,39 @@ fn read_pptx_sync(path: &Path) -> Result<PptxDocument, String> {
                 index: index as u32,
                 shapes: Vec::new(),
                 background: None,
+                background_image: None,
             });
             continue;
         };
         let xml = archive.required(target, MAX_PART_BYTES, ".pptx")?;
         let slide_rels = slide_relationships(&archive, target)?;
-        let inherited = inherited_for(&archive, &slide_rels, &mut layouts, &mut masters)?;
-        let background = read_background(&xml, &inherited.theme)
-            .or_else(|| inherited.layout_background.clone())
-            .or_else(|| inherited.master_background.clone());
+        let inherited = inherited_for(
+            &archive,
+            &slide_rels,
+            &mut layouts,
+            &mut masters,
+            &mut images_bytes,
+        )?;
+        // The first level that states a background at all is the one that answers, and it answers
+        // for both kinds: a slide drawn on a photograph does not also take its master's colour, which
+        // is what falling back with each kind on its own would have done.
+        let own_colour = read_background(&xml, &inherited.theme);
+        let own_picture = background_picture(&archive, &xml, &slide_rels, &mut images_bytes)?;
+        let (background, background_image) = if own_colour.is_some() || own_picture.is_some() {
+            (own_colour, own_picture)
+        } else if inherited.layout_background.is_some()
+            || inherited.layout_background_picture.is_some()
+        {
+            (
+                inherited.layout_background.clone(),
+                inherited.layout_background_picture.clone(),
+            )
+        } else {
+            (
+                inherited.master_background.clone(),
+                inherited.master_background_picture.clone(),
+            )
+        };
         let (shapes, cut) = parse_slide(
             &xml,
             &archive,
@@ -292,6 +373,7 @@ fn read_pptx_sync(path: &Path) -> Result<PptxDocument, String> {
             index: index as u32,
             shapes,
             background,
+            background_image,
         });
     }
     Ok(PptxDocument {
@@ -1565,6 +1647,84 @@ mod tests {
     }
 
     #[test]
+    fn a_slide_drawn_on_a_picture_carries_the_picture_as_a_data_url() {
+        // 38 of the 3857 slides measured here are drawn on a photograph, and every one of them came
+        // out as plain white paper: the background reader knew only about colours.
+        let xml = r#"<?xml version="1.0"?><p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r"><p:cSld><p:bg><p:bgPr><a:blipFill rotWithShape="1"><a:blip r:embed="rId3"/><a:stretch><a:fillRect/></a:stretch></a:blipFill></p:bgPr></p:bg><p:spTree/></p:cSld></p:sld>"#;
+        let document = read_deck_with_png(xml, "bg-picture");
+        let slide = &document.slides[0];
+        assert!(
+            slide
+                .background_image
+                .as_deref()
+                .is_some_and(|url| url.starts_with("data:image/png;base64,")),
+            "{:?}",
+            slide.background_image
+        );
+        // A paper that is a picture states no colour, so the two never both apply.
+        assert_eq!(slide.background, None);
+    }
+
+    /// A deck whose master paints its slides dark and whose slide states its own paper, if any.
+    fn deck_over_a_dark_master(slide: &str, tag: &str) -> PptxDocument {
+        let dir = std::env::temp_dir().join(format!("verta-pptx-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("deck.pptx");
+        let master = r#"<?xml version="1.0"?><p:sldMaster xmlns:p="p" xmlns:a="a"><p:bg><p:bgPr><a:solidFill><a:srgbClr val="1F3864"/></a:solidFill></p:bgPr></p:bg><p:spTree/></p:sldMaster>"#;
+        let layout = r#"<?xml version="1.0"?><p:sldLayout xmlns:p="p" xmlns:a="a"><p:spTree/></p:sldLayout>"#;
+        let parts: Vec<(&str, Vec<u8>)> = vec![
+            ("ppt/presentation.xml", size().into_bytes()),
+            (
+                "ppt/_rels/presentation.xml.rels",
+                rels_xml(&[("rId2", "slides/slide1.xml")]).into_bytes(),
+            ),
+            ("ppt/slides/slide1.xml", slide.as_bytes().to_vec()),
+            (
+                "ppt/slides/_rels/slide1.xml.rels",
+                rels_xml(&[
+                    ("rId3", "../media/image1.png"),
+                    ("rId9", "../slideLayouts/slideLayout1.xml"),
+                ])
+                .into_bytes(),
+            ),
+            ("ppt/slideLayouts/slideLayout1.xml", layout.as_bytes().to_vec()),
+            (
+                "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+                rels_xml(&[("rId10", "../slideMasters/slideMaster1.xml")]).into_bytes(),
+            ),
+            ("ppt/slideMasters/slideMaster1.xml", master.as_bytes().to_vec()),
+            ("ppt/media/image1.png", PNG.to_vec()),
+        ];
+        std::fs::write(&file, write_zip_bytes(&parts)).unwrap();
+        let document = read_pptx_sync(&file).unwrap();
+        std::fs::remove_file(&file).ok();
+        std::fs::remove_dir(&dir).ok();
+        document
+    }
+
+    #[test]
+    fn a_slide_on_its_own_picture_paper_does_not_also_take_the_master_s_colour() {
+        // The two kinds of paper fall back together, not one at a time: a slide drawn on a photograph
+        // has a paper, and reaching past it for the master's colour would paint one behind the other.
+        let slide = r#"<?xml version="1.0"?><p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r"><p:cSld><p:bg><p:bgPr><a:blipFill rotWithShape="1"><a:blip r:embed="rId3"/></a:blipFill></p:bgPr></p:bg><p:spTree/></p:cSld></p:sld>"#;
+        let document = deck_over_a_dark_master(slide, "paper-picture");
+        let read = &document.slides[0];
+        assert!(read.background_image.is_some(), "{:?}", read.background_image);
+        assert_eq!(read.background, None);
+    }
+
+    #[test]
+    fn a_slide_that_states_no_paper_takes_the_master_s_colour() {
+        let slide = r#"<?xml version="1.0"?><p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r"><p:cSld><p:spTree/></p:cSld></p:sld>"#;
+        let document = deck_over_a_dark_master(slide, "paper-master");
+        assert_eq!(
+            document.slides[0].background,
+            Some("#1f3864".to_string())
+        );
+        assert_eq!(document.slides[0].background_image, None);
+    }
+
+    #[test]
     fn a_slide_s_own_background_is_the_colour_it_states() {
         let slide = r#"<?xml version="1.0"?><p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="1F3864"/></a:solidFill></p:bgPr></p:bg><p:spTree/></p:cSld></p:sld>"#;
         let document = themed_deck(slide, "bg-own");
@@ -1609,6 +1769,84 @@ mod tests {
         assert_eq!((shape.x, shape.y), (1.0, 2.0));
         assert_eq!((shape.width, shape.height), (10.0, 3.0));
         assert_eq!(shape.paragraphs[0].runs[0].text, "Where am I");
+    }
+
+    #[test]
+    fn each_layout_gives_its_own_boxes_even_when_it_shares_a_master() {
+        // A deck's layouts almost always share one master. The first version cached "layout ->
+        // master" and then answered every slide on any layout from that master's entry, so from the
+        // second slide of the second layout on, a title took the *first* layout's title box.
+        let layout = |width: i64| {
+            format!(
+                r#"<?xml version="1.0"?><p:sldLayout xmlns:p="p" xmlns:a="a"><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="T"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{}" cy="{}"/></a:xfrm></p:spPr></p:sp></p:spTree></p:sldLayout>"#,
+                px(width),
+                px(100)
+            )
+        };
+        let body = r#"<a:p><a:r><a:rPr/><a:t>x</a:t></a:r></a:p>"#;
+        let title = slide_xml(&format!(
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="T"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/>{body}</p:txBody></p:sp>"#
+        ));
+        let layout_rels = rels_xml(&[("rId10", "../slideMasters/slideMaster1.xml")]);
+        let master = r#"<?xml version="1.0"?><p:sldMaster xmlns:p="p" xmlns:a="a"><p:spTree/></p:sldMaster>"#;
+
+        let mut parts: Vec<(&str, String)> = vec![
+            (
+                "ppt/presentation.xml",
+                presentation_xml(
+                    px(960),
+                    px(540),
+                    &[("256", "rId2"), ("257", "rId3"), ("258", "rId4")],
+                ),
+            ),
+            (
+                "ppt/_rels/presentation.xml.rels",
+                rels_xml(&[
+                    ("rId2", "slides/slide1.xml"),
+                    ("rId3", "slides/slide2.xml"),
+                    ("rId4", "slides/slide3.xml"),
+                ]),
+            ),
+            ("ppt/slideLayouts/slideLayout1.xml", layout(400)),
+            ("ppt/slideLayouts/slideLayout2.xml", layout(120)),
+            ("ppt/slideLayouts/_rels/slideLayout1.xml.rels", layout_rels.clone()),
+            ("ppt/slideLayouts/_rels/slideLayout2.xml.rels", layout_rels),
+            ("ppt/slideMasters/slideMaster1.xml", master.to_string()),
+        ];
+        // The first slide is on the wide layout, the next two on the narrow one: the third is the one
+        // the cache used to answer with the wrong layout's boxes.
+        for (at, target) in [
+            (1, "slideLayout1"),
+            (2, "slideLayout2"),
+            (3, "slideLayout2"),
+        ] {
+            parts.push((
+                Box::leak(format!("ppt/slides/slide{at}.xml").into_boxed_str()),
+                title.clone(),
+            ));
+            parts.push((
+                Box::leak(format!("ppt/slides/_rels/slide{at}.xml.rels").into_boxed_str()),
+                rels_xml(&[("rId9", &format!("../slideLayouts/{target}.xml"))]),
+            ));
+        }
+        let dir = std::env::temp_dir().join(format!("verta-pptx-layouts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("deck.pptx");
+        let borrowed: Vec<(&str, &str)> = parts
+            .iter()
+            .map(|(name, content)| (*name, content.as_str()))
+            .collect();
+        std::fs::write(&file, write_zip(&borrowed)).unwrap();
+        let document = read_pptx_sync(&file).unwrap();
+        std::fs::remove_file(&file).ok();
+        std::fs::remove_dir(&dir).ok();
+
+        let widths: Vec<f32> = document
+            .slides
+            .iter()
+            .map(|slide| slide.shapes[0].width)
+            .collect();
+        assert_eq!(widths, vec![400.0, 120.0, 120.0]);
     }
 
     #[test]

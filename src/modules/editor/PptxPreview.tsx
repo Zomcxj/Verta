@@ -210,7 +210,11 @@ export function PptxPreview({ path }: { path: string }) {
                 width: drawnWidth,
                 height: drawnHeight,
                 color: "#000000",
-                background: slide.background ?? "#ffffff",
+                // A paper that is a photograph covers the slide, the way PowerPoint draws it. The
+                // picture comes first because a slide drawn on one states no colour at all.
+                background: slide.backgroundImage
+                  ? `center / cover no-repeat url("${slide.backgroundImage}")`
+                  : (slide.background ?? "#ffffff"),
               }}
             >
               {slide.shapes.map((entry, at) => shape(entry, at))}
