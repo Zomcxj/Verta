@@ -7,7 +7,7 @@
 //! and hands the frontend a grid of already-formatted strings.
 //!
 //! What this deliberately does not do: write anything, formulas beyond the value the file last
-//! cached, charts, pivot tables, conditional formatting, or the old `.xls` format (a different
+//! cached, charts, pivot tables, data bars and icon sets, or the old `.xls` format (a different
 //! container, OLE2 rather than ZIP). A cell's number format is applied here rather than in the
 //! frontend, so the drawing rules live in one place with their tests.
 
@@ -102,6 +102,11 @@ pub struct XlsxCell {
     /// serial number it is stored as.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw: Option<String>,
+    /// Index into the sheet's `styles` of what a conditional rule paints here. It sits beside
+    /// `style` rather than replacing it, so the cell's own formatting is still what a rule that
+    /// states only a colour leaves alone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conditional: Option<u32>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -238,8 +243,9 @@ fn read_sheet_sync(path: &Path, name: &str) -> Result<XlsxSheet, String> {
         .text("xl/styles.xml", MAX_STYLES_BYTES, ".xlsx")?
         .unwrap_or_default();
     let styles = parse_styles(&styles_xml, &theme);
+    let dxfs = super::xlsx_conditional::read_dxfs(&styles_xml, &theme);
     let sheet_xml = archive.required(&target, MAX_PART_BYTES, ".xlsx")?;
-    parse_sheet(&sheet_xml, name, &shared, &styles)
+    parse_sheet(&sheet_xml, name, &shared, &styles, &dxfs, &theme)
 }
 
 /// The sheet names, in order, from `xl/workbook.xml`.
@@ -664,7 +670,7 @@ fn format_code(id: u32, custom: &HashMap<u32, String>) -> Option<String> {
 }
 
 /// A colour attribute as `#rrggbb`, from the three ways a workbook states one.
-fn color_of(element: &BytesStart<'_>, theme: &[String]) -> Option<String> {
+pub(crate) fn color_of(element: &BytesStart<'_>, theme: &[String]) -> Option<String> {
     if let Some(rgb) = attr(element, b"rgb") {
         return from_argb(&rgb);
     }
@@ -791,6 +797,8 @@ fn parse_sheet(
     name: &str,
     shared: &[String],
     styles: &Styles,
+    dxfs: &[CellStyle],
+    theme: &[String],
 ) -> Result<XlsxSheet, String> {
     let mut rows: Vec<XlsxRow> = Vec::new();
     let mut merges: Vec<Merge> = Vec::new();
@@ -1007,7 +1015,13 @@ fn parse_sheet(
         .map(|(index, size)| TrackSize { index, size })
         .collect();
     column_sizes.sort_by_key(|column| column.index);
-    let style_table = used_styles(&mut rows, styles);
+    let mut style_table = used_styles(&mut rows, styles);
+    // A rule is only worth reading in a sheet that states one, and walking the part a second time
+    // is not: the check is a substring of the sheet the reader has already parsed.
+    if xml.contains("<conditionalFormatting") {
+        let rules = super::xlsx_conditional::read_rules(xml, dxfs, theme);
+        super::xlsx_conditional::apply(&rules, &mut rows, &mut style_table);
+    }
     Ok(XlsxSheet {
         name: name.to_string(),
         rows,
@@ -1145,6 +1159,9 @@ fn finish_cell(cell: PendingCell, shared: &[String], styles: &Styles) -> XlsxCel
         kind,
         style: cell.style,
         raw,
+        // A conditional rule paints the cell after the whole sheet is read, because a duplicate is
+        // only a duplicate relative to the other cells.
+        conditional: None,
     }
 }
 
@@ -1952,6 +1969,61 @@ mod tests {
         std::fs::remove_file(&file).ok();
         std::fs::remove_dir(&dir).ok();
         sheet
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // What a conditional rule paints
+    // -----------------------------------------------------------------------------------------
+
+    /// A one-sheet workbook whose sheet carries a conditional rule, read back whole.
+    fn read_book_with_rule(sheet: &str, styles: &str, tag: &str) -> XlsxSheet {
+        let parts: Vec<(&'static str, String)> = vec![
+            ("xl/workbook.xml", workbook_xml(&[("S", "rId1")])),
+            (
+                "xl/_rels/workbook.xml.rels",
+                rels_xml(&[("rId1", "worksheets/sheet1.xml")]),
+            ),
+            ("xl/worksheets/sheet1.xml", sheet.to_string()),
+            ("xl/styles.xml", styles.to_string()),
+        ];
+        read_book(&parts, tag)
+    }
+
+    const DUPES: &str = r#"<?xml version="1.0"?>
+<styleSheet xmlns="s"><dxfs count="1"><dxf><fill><patternFill patternType="solid"><bgColor rgb="FFFF9900"/></patternFill></fill></dxf></dxfs></styleSheet>"#;
+
+    #[test]
+    fn a_duplicate_rule_reaches_the_cells_it_marks() {
+        // The rule a real journal list carries: highlight the names that appear twice. Reading the
+        // rule but not the differential format it points at would paint nothing.
+        let sheet = r#"<?xml version="1.0"?>
+<worksheet xmlns="s"><sheetData>
+<row r="1"><c r="A1" t="inlineStr"><is><t>材料学报</t></is></c></row>
+<row r="2"><c r="A2" t="inlineStr"><is><t>机械工程</t></is></c></row>
+<row r="3"><c r="A3" t="inlineStr"><is><t>材料学报</t></is></c></row>
+</sheetData>
+<conditionalFormatting sqref="A1:A3"><cfRule type="duplicateValues" dxfId="0" priority="1"/></conditionalFormatting>
+</worksheet>"#;
+        let read = read_book_with_rule(sheet, DUPES, "cf-dupe");
+        let painted: Vec<u32> = read
+            .rows
+            .iter()
+            .flat_map(|row| row.cells.iter())
+            .filter(|cell| cell.conditional.is_some())
+            .map(|cell| cell.column)
+            .collect();
+        assert_eq!(painted, vec![0, 0]);
+        let style = &read.styles[read.rows[0].cells[0].conditional.unwrap() as usize];
+        assert_eq!(style.fill, Some("#ff9900".to_string()));
+        // The cell that appears once is left alone.
+        assert_eq!(read.rows[1].cells[0].conditional, None);
+    }
+
+    #[test]
+    fn a_sheet_with_no_rule_sends_no_conditional_style() {
+        let sheet = r#"<?xml version="1.0"?><worksheet xmlns="s"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>x</t></is></c></row></sheetData></worksheet>"#;
+        let read = read_book_with_rule(sheet, DUPES, "cf-none");
+        assert_eq!(read.rows[0].cells[0].conditional, None);
     }
 
     // -----------------------------------------------------------------------------------------

@@ -132,6 +132,8 @@ export type XlsxCell = {
   kind: "number" | "text" | "boolean" | "error";
   style: number;
   raw?: string;
+  /** Index into the sheet's `styles` of what a conditional rule paints here, when one does. */
+  conditional?: number;
 };
 
 /** A row that has something in it; a sheet's empty middle is not sent. */

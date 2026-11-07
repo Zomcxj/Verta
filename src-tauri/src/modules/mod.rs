@@ -33,3 +33,4 @@ pub mod vibrancy;
 pub mod window_presentation;
 pub mod workspace;
 pub mod xlsx;
+pub mod xlsx_conditional;

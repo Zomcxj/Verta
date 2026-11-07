@@ -210,6 +210,11 @@ export function XlsxPreview({ path }: { path: string }) {
         if (!draws(merge, index, column)) return null;
         const data = rowsByIndex.get(index)?.cells.find((entry) => entry.column === column);
         const style = data ? sheet?.styles[data.style] : undefined;
+        // A conditional rule is the sheet asking a question about its own cells - which journal
+        // names appear twice, which scores are above the line - so what it paints is drawn, unlike
+        // the workbook's own decoration. It is worn over the cell's style and never replaces it.
+        const rule =
+          data?.conditional === undefined ? undefined : sheet?.styles[data.conditional];
         const width = merge
           ? total(widths.slice(merge.column, merge.column + merge.columnSpan))
           : widths[column];
@@ -239,10 +244,13 @@ export function XlsxPreview({ path }: { path: string }) {
               height: cellHeight,
               // The workbook's own font colour and fill are read but not drawn: the pane is themed,
               // so a cell reads in the theme's ink on the theme's surface rather than in whatever
-              // red-on-green the file happens to carry.
-              fontWeight: style?.bold ? 600 : undefined,
-              fontStyle: style?.italic ? "italic" : undefined,
+              // red-on-green the file happens to carry. A conditional rule is the exception, because
+              // what it states is not decoration but a statement about the value.
+              fontWeight: style?.bold || rule?.bold ? 600 : undefined,
+              fontStyle: style?.italic || rule?.italic ? "italic" : undefined,
               whiteSpace: style?.wrap ? "pre-wrap" : "nowrap",
+              background: rule?.fill ?? undefined,
+              color: rule?.color ?? undefined,
             }}
             title={data?.raw}
           >
