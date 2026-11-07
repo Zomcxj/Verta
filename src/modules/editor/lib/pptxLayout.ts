@@ -1,4 +1,4 @@
-import type { PptxParagraph, PptxRun } from "@/lib/native";
+import type { PptxParagraph, PptxRun, PptxSlide } from "@/lib/native";
 
 /**
  * A slide's arithmetic, kept out of the component so it can be tested on its own.
@@ -11,6 +11,21 @@ import type { PptxParagraph, PptxRun } from "@/lib/native";
 export function fitScale(slideWidth: number, available: number, zoom: number): number {
   if (slideWidth <= 0 || available <= 0) return zoom;
   return (available / slideWidth) * zoom;
+}
+
+/**
+ * What a slide is drawn on, as a CSS `background` value.
+ *
+ * A slide states one of three papers and the reader resolves which level answers, so at most one is
+ * ever set. A gradient and a picture are both drawn over the whole slide, and a slide that states
+ * neither is white paper, because that is what a deck with no background is.
+ */
+export function paperStyle(slide: PptxSlide): string {
+  if (slide.backgroundGradient) return slide.backgroundGradient;
+  if (slide.backgroundImage) {
+    return `center / cover no-repeat url("${slide.backgroundImage}")`;
+  }
+  return slide.background ?? "#ffffff";
 }
 
 /** How deep a paragraph sits, from its outline level. */

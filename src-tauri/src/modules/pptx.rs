@@ -30,8 +30,9 @@ use super::office::{
 };
 use super::pptx_color::{ColorRef, Theme};
 use super::pptx_theme::{
-    read_background, read_background_picture, read_clr_map, read_master_styles,
-    read_placeholder_boxes, read_theme, LevelStyles, MasterStyles, PlaceholderBox, RunStyle,
+    read_background, read_background_gradient, read_background_picture, read_clr_map,
+    read_master_styles, read_placeholder_boxes, read_theme, LevelStyles, MasterStyles,
+    PlaceholderBox, RunStyle,
 };
 use super::workspace::{authorize_read, resolve_path, WorkspaceEnv, WorkspaceRegistry};
 
@@ -121,10 +122,13 @@ pub struct PptxSlide {
     /// means white paper, which is what a deck with no background is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
-    /// A picture the slide is drawn on, as a `data:` URL, from the same three levels. A paper that
-    /// is a photograph states no colour, so at most one of these two is ever set.
+    /// A picture the slide is drawn on, as a `data:` URL, from the same three levels.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_image: Option<String>,
+    /// A CSS `linear-gradient(...)` the slide is drawn on, from the same three levels. A paper states
+    /// exactly one of a colour, a picture and a gradient, because a level answers as a whole.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_gradient: Option<String>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -168,18 +172,49 @@ struct Inherited {
     /// the layout states none.
     layout_boxes: HashMap<String, PlaceholderBox>,
     master_boxes: HashMap<String, PlaceholderBox>,
-    /// The layout's own background, used when the slide states none.
+    /// What the layout puts behind its slides, used when the slide states nothing.
     ///
     /// The layout's text styles are deliberately not read: a layout states them per placeholder
     /// shape, and a slide's own `a:lstStyle` is where a shape says how its text is set. Taking the
     /// layout's list wholesale painted a 60pt title size over ordinary text boxes that the master
     /// sets at 18pt.
-    layout_background: Option<String>,
-    /// The master's background, used when neither the slide nor the layout states one.
-    master_background: Option<String>,
-    /// The same three levels again, for a paper that is a picture rather than a colour.
-    layout_background_picture: Option<String>,
-    master_background_picture: Option<String>,
+    layout_paper: Paper,
+    /// What the master puts behind its slides, used when neither the slide nor the layout says.
+    master_paper: Paper,
+}
+
+/// What a slide is drawn on: a colour, a picture or a gradient, as whichever level states one.
+///
+/// The three are one value rather than three fields so that a level is answered as a whole. Reaching
+/// past a slide's own picture for its master's colour set both, and drew a colour behind a
+/// photograph.
+#[derive(Debug, Default, Clone)]
+struct Paper {
+    colour: Option<String>,
+    picture: Option<String>,
+    gradient: Option<String>,
+}
+
+impl Paper {
+    /// Whether this level states a paper at all, which decides whether the one below it is asked.
+    fn is_empty(&self) -> bool {
+        self.colour.is_none() && self.picture.is_none() && self.gradient.is_none()
+    }
+}
+
+/// The paper one part states.
+fn paper_of(
+    archive: &Archive,
+    xml: &str,
+    rels: &HashMap<String, String>,
+    theme: &Theme,
+    images_bytes: &mut u64,
+) -> Result<Paper, String> {
+    Ok(Paper {
+        colour: read_background(xml, theme),
+        picture: background_picture(archive, xml, rels, images_bytes)?,
+        gradient: read_background_gradient(xml, theme),
+    })
 }
 
 /// The parts a slide inherits from, as the reader found them.
@@ -226,9 +261,13 @@ fn inherited_for(
     };
     // What the layout itself states sits in front of the master's.
     inherited.layout_boxes = read_placeholder_boxes(&layout_xml, "布局")?;
-    inherited.layout_background = read_background(&layout_xml, &inherited.theme);
-    inherited.layout_background_picture =
-        background_picture(archive, &layout_xml, &layout_rels, images_bytes)?;
+    inherited.layout_paper = paper_of(
+        archive,
+        &layout_xml,
+        &layout_rels,
+        &inherited.theme,
+        images_bytes,
+    )?;
     layouts.insert(layout, inherited.clone());
     Ok(inherited)
 }
@@ -257,13 +296,7 @@ fn read_master(
     };
     Ok(Inherited {
         master_boxes: read_placeholder_boxes(&master_xml, "母版")?,
-        master_background: read_background(&master_xml, &theme),
-        master_background_picture: background_picture(
-            archive,
-            &master_xml,
-            &master_rels,
-            images_bytes,
-        )?,
+        master_paper: paper_of(archive, &master_xml, &master_rels, &theme, images_bytes)?,
         master: read_master_styles(&master_xml),
         theme,
         // A master states nothing about layouts: those belong to the layout entries.
@@ -329,6 +362,7 @@ fn read_pptx_sync(path: &Path) -> Result<PptxDocument, String> {
                 shapes: Vec::new(),
                 background: None,
                 background_image: None,
+                background_gradient: None,
             });
             continue;
         };
@@ -341,25 +375,15 @@ fn read_pptx_sync(path: &Path) -> Result<PptxDocument, String> {
             &mut masters,
             &mut images_bytes,
         )?;
-        // The first level that states a background at all is the one that answers, and it answers
-        // for both kinds: a slide drawn on a photograph does not also take its master's colour, which
-        // is what falling back with each kind on its own would have done.
-        let own_colour = read_background(&xml, &inherited.theme);
-        let own_picture = background_picture(&archive, &xml, &slide_rels, &mut images_bytes)?;
-        let (background, background_image) = if own_colour.is_some() || own_picture.is_some() {
-            (own_colour, own_picture)
-        } else if inherited.layout_background.is_some()
-            || inherited.layout_background_picture.is_some()
-        {
-            (
-                inherited.layout_background.clone(),
-                inherited.layout_background_picture.clone(),
-            )
+        // The first level that states a paper at all is the one that answers, and it answers as a
+        // whole: a slide drawn on a photograph does not also take its master's colour.
+        let own_paper = paper_of(&archive, &xml, &slide_rels, &inherited.theme, &mut images_bytes)?;
+        let paper = if !own_paper.is_empty() {
+            own_paper
+        } else if !inherited.layout_paper.is_empty() {
+            inherited.layout_paper.clone()
         } else {
-            (
-                inherited.master_background.clone(),
-                inherited.master_background_picture.clone(),
-            )
+            inherited.master_paper.clone()
         };
         let (shapes, cut) = parse_slide(
             &xml,
@@ -372,8 +396,9 @@ fn read_pptx_sync(path: &Path) -> Result<PptxDocument, String> {
         slides.push(PptxSlide {
             index: index as u32,
             shapes,
-            background,
-            background_image,
+            background: paper.colour,
+            background_image: paper.picture,
+            background_gradient: paper.gradient,
         });
     }
     Ok(PptxDocument {
@@ -1711,6 +1736,22 @@ mod tests {
         let read = &document.slides[0];
         assert!(read.background_image.is_some(), "{:?}", read.background_image);
         assert_eq!(read.background, None);
+    }
+
+    #[test]
+    fn a_slide_on_its_own_gradient_takes_that_and_not_the_master_s_colour() {
+        // A gradient used to be read as its first stop, which turned a light two-stop paper into a
+        // flat white one; it is now a paper in its own right and the master is not reached past.
+        let slide = r#"<?xml version="1.0"?><p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r"><p:cSld><p:bg><p:bgPr><a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="FFFFFF"/></a:gs><a:gs pos="100000"><a:srgbClr val="D9D9D9"/></a:gs></a:gsLst><a:lin ang="5400000" scaled="0"/></a:gradFill></p:bgPr></p:bg><p:spTree/></p:cSld></p:sld>"#;
+        let document = deck_over_a_dark_master(slide, "paper-gradient");
+        let read = &document.slides[0];
+        assert_eq!(
+            read.background_gradient.as_deref(),
+            Some("linear-gradient(180.0deg, #ffffff 0%, #d9d9d9 100%)")
+        );
+        // One kind of paper at a time: the gradient is not also read as a colour or a picture.
+        assert_eq!(read.background, None);
+        assert_eq!(read.background_image, None);
     }
 
     #[test]

@@ -222,10 +222,15 @@ export type PptxSlide = {
   background?: string;
   /**
    * A picture the slide is drawn on, as a `data:` URL, from the slide, its layout or its master.
-   *
-   * A paper that is a photograph states no colour, so at most one of the two is set.
    */
   backgroundImage?: string;
+  /**
+   * A CSS `linear-gradient(...)` the slide is drawn on, from the same three levels.
+   *
+   * A paper states exactly one of a colour, a picture and a gradient, because a level answers as a
+   * whole.
+   */
+  backgroundGradient?: string;
 };
 
 /** A deck: the box every slide is placed in, and each slide's shapes. */

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { PptxRun } from "@/lib/native";
-import { fitScale, paragraphAlign, paragraphIndent, paragraphText, runSizePx, runStyle } from "./pptxLayout";
+import type { PptxRun, PptxSlide } from "@/lib/native";
+import {
+  fitScale,
+  paperStyle,
+  paragraphAlign,
+  paragraphIndent,
+  paragraphText,
+  runSizePx,
+  runStyle,
+} from "./pptxLayout";
 
 describe("fitScale", () => {
   it("scales a slide to the room it has", () => {
@@ -97,5 +105,36 @@ describe("paragraphText", () => {
         ],
       }),
     ).toBe("one\ntwo");
+  });
+});
+
+describe("what a slide is drawn on", () => {
+  const slide = (over: Partial<PptxSlide> = {}): PptxSlide => ({
+    index: 0,
+    shapes: [],
+    ...over,
+  });
+
+  it("is white paper when the deck states no background", () => {
+    expect(paperStyle(slide())).toBe("#ffffff");
+  });
+
+  it("is the colour the deck states", () => {
+    expect(paperStyle(slide({ background: "#ececec" }))).toBe("#ececec");
+  });
+
+  it("covers the slide with the picture it states", () => {
+    // A paper that is a photograph fills the slide, the way PowerPoint draws it.
+    expect(paperStyle(slide({ backgroundImage: "data:image/png;base64,AA==" }))).toBe(
+      'center / cover no-repeat url("data:image/png;base64,AA==")',
+    );
+  });
+
+  it("is the gradient the deck states, drawn by the browser rather than approximated", () => {
+    // The reader used to answer a gradient with its first stop, which turned this paper into flat
+    // white; the value now says both stops and the angle.
+    expect(
+      paperStyle(slide({ backgroundGradient: "linear-gradient(180.0deg, #ffffff 0%, #d9d9d9 100%)" })),
+    ).toBe("linear-gradient(180.0deg, #ffffff 0%, #d9d9d9 100%)");
   });
 });

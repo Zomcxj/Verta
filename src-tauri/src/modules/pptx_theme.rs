@@ -365,6 +365,9 @@ pub(crate) fn read_background(xml: &str, theme: &Theme) -> Option<String> {
     let mut depth = 0usize;
     let mut colour: Option<String> = None;
     let mut role: Option<String> = None;
+    // A gradient's stops are colours too, and reporting the first of them as the slide's colour is
+    // a guess at a drawing rather than a reading of one. `read_background_gradient` answers those.
+    let mut gradient = false;
     loop {
         match reader.read_event() {
             Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
@@ -378,6 +381,7 @@ pub(crate) fn read_background(xml: &str, theme: &Theme) -> Option<String> {
                 }
                 match tag.as_slice() {
                     b"bgRef" => by_reference = true,
+                    b"gradFill" => gradient = true,
                     b"srgbClr" => {
                         colour = attr(&element, b"val").and_then(|value| srgb_color(&value));
                     }
@@ -396,7 +400,7 @@ pub(crate) fn read_background(xml: &str, theme: &Theme) -> Option<String> {
         }
     }
     let _ = depth;
-    if by_reference {
+    if by_reference || gradient {
         return None;
     }
     match (colour, role) {
@@ -420,6 +424,95 @@ impl PlaceholderBox {
     pub(crate) fn is_empty(&self) -> bool {
         self.width <= 0.0 || self.height <= 0.0
     }
+}
+
+/// The gradient a `p:bg` fills the slide with, as a CSS `linear-gradient`.
+///
+/// DrawingML states a gradient as stops along a line, and the line by an angle in 60000ths of a
+/// degree measured clockwise from pointing right. CSS measures its angle clockwise from pointing up,
+/// so every angle is turned by a right angle on the way out. A gradient that names no line is drawn
+/// top to bottom, which is what a writer means when it leaves the line out.
+pub(crate) fn read_background_gradient(xml: &str, theme: &Theme) -> Option<String> {
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(false);
+    let mut in_background = false;
+    let mut in_gradient = false;
+    let mut stops: Vec<(f64, String)> = Vec::new();
+    let mut angle: Option<f64> = None;
+    // The stop being read: where it sits along the line, and the colour it names with its modifiers.
+    let mut position: Option<f64> = None;
+    let mut reference: Option<super::pptx_color::ColorRef> = None;
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
+                match local(element.name()) {
+                    b"bg" => in_background = true,
+                    b"gradFill" if in_background => in_gradient = true,
+                    // `pos` is in thousandths of a percent.
+                    b"gs" if in_gradient => {
+                        position = attr_number::<f64>(&element, b"pos").map(|pos| pos / 1000.0);
+                        reference = None;
+                    }
+                    b"srgbClr" if in_gradient => {
+                        reference = attr(&element, b"val")
+                            .and_then(|value| srgb_color(&value))
+                            .map(super::pptx_color::ColorRef::Srgb);
+                    }
+                    b"schemeClr" if in_gradient => {
+                        reference =
+                            attr(&element, b"val").map(|role| super::pptx_color::ColorRef::Scheme {
+                                role,
+                                modifiers: Vec::new(),
+                            });
+                    }
+                    // A modifier of the stop's own colour, the same ones a shape's colour carries.
+                    b"lumMod" | b"lumOff" | b"tint" | b"shade" if in_gradient => {
+                        let value = attr_number::<f64>(&element, b"val").unwrap_or(0.0) / 1000.0;
+                        let name = String::from_utf8_lossy(local(element.name())).to_string();
+                        if let Some(super::pptx_color::ColorRef::Scheme { modifiers, .. }) =
+                            reference.as_mut()
+                        {
+                            modifiers.push((name, value));
+                        }
+                    }
+                    b"lin" if in_gradient => {
+                        angle = attr_number::<f64>(&element, b"ang").map(|value| value / 60_000.0);
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::End(element)) => match local(element.name()) {
+                b"gs" if in_gradient => {
+                    if let (Some(position), Some(reference)) = (position.take(), reference.take()) {
+                        if let Some(colour) = reference.resolve(theme) {
+                            stops.push((position, colour));
+                        }
+                    }
+                }
+                b"gradFill" => in_gradient = false,
+                b"bg" => in_background = false,
+                _ => {}
+            },
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+    if stops.len() < 2 {
+        return None;
+    }
+    stops.sort_by(|left, right| left.0.total_cmp(&right.0));
+    let stops: Vec<String> = stops
+        .iter()
+        .map(|(position, colour)| format!("{colour} {position:.0}%"))
+        .collect();
+    // DrawingML counts from pointing right, CSS from pointing up.
+    let degrees = angle
+        .map(|value| (value + 90.0).rem_euclid(360.0))
+        .unwrap_or(180.0);
+    Some(format!(
+        "linear-gradient({degrees:.1}deg, {})",
+        stops.join(", ")
+    ))
 }
 
 /// The picture a `p:bg` fills the slide with, named by the relationship it points at.
@@ -717,5 +810,48 @@ mod tests {
             r#"<p:bg><p:bgPr><a:solidFill><a:srgbClr val="1F3864"/></a:solidFill></p:bgPr></p:bg>"#;
         assert_eq!(read_background_picture(solid), None);
         assert_eq!(read_background_picture(""), None);
+    }
+
+    #[test]
+    fn a_gradient_background_becomes_a_css_gradient_with_the_angle_turned_a_right_angle() {
+        // DrawingML counts its angle clockwise from pointing right and CSS from pointing up, so the
+        // 90 degrees the file states is straight down on screen.
+        let xml = r#"<p:bg><p:bgPr><a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="FFFFFF"/></a:gs><a:gs pos="100000"><a:srgbClr val="D9D9D9"/></a:gs></a:gsLst><a:lin ang="5400000" scaled="0"/></a:gradFill></p:bgPr></p:bg>"#;
+        assert_eq!(
+            read_background_gradient(xml, &Theme::default()),
+            Some("linear-gradient(180.0deg, #ffffff 0%, #d9d9d9 100%)".to_string())
+        );
+        // A gradient is not a colour, so the colour reader says nothing rather than answering with
+        // its first stop.
+        assert_eq!(read_background(xml, &Theme::default()), None);
+        assert_eq!(read_background_picture(xml), None);
+    }
+
+    #[test]
+    fn a_gradient_over_a_theme_slot_applies_the_modifiers_its_stops_carry() {
+        // A stop may be a role with a `lumMod`, which is how a deck darkens its own background.
+        let theme = read_theme(THEME).with_roles(read_clr_map(MASTER));
+        let xml = r#"<p:bg><p:bgPr><a:gradFill><a:gsLst><a:gs pos="0"><a:schemeClr val="bg1"/></a:gs><a:gs pos="100000"><a:schemeClr val="bg1"><a:lumMod val="85000"/></a:schemeClr></a:gs></a:gsLst><a:lin ang="15000000" scaled="0"/></a:gradFill></p:bgPr></p:bg>"#;
+        // `bg1` is white here, at 85 percent of its lightness, and 250 degrees becomes 340.
+        assert_eq!(
+            read_background_gradient(xml, &theme),
+            Some("linear-gradient(340.0deg, #ffffff 0%, #d9d9d9 100%)".to_string())
+        );
+    }
+
+    #[test]
+    fn a_gradient_with_one_stop_or_none_is_not_a_gradient() {
+        let single = r#"<p:bg><p:bgPr><a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="FFFFFF"/></a:gs></a:gsLst><a:lin ang="0"/></a:gradFill></p:bgPr></p:bg>"#;
+        assert_eq!(read_background_gradient(single, &Theme::default()), None);
+        assert_eq!(read_background_gradient("", &Theme::default()), None);
+    }
+
+    #[test]
+    fn a_gradient_that_names_no_line_is_drawn_top_to_bottom() {
+        let xml = r#"<p:bg><p:bgPr><a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="000000"/></a:gs><a:gs pos="100000"><a:srgbClr val="FFFFFF"/></a:gs></a:gsLst></a:gradFill></p:bgPr></p:bg>"#;
+        assert_eq!(
+            read_background_gradient(xml, &Theme::default()),
+            Some("linear-gradient(180.0deg, #000000 0%, #ffffff 100%)".to_string())
+        );
     }
 }
