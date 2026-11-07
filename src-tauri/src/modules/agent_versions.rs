@@ -231,6 +231,7 @@ fn opencode_install_specs(
     plugins: &[OpencodePlugin],
     installed: &std::collections::HashMap<String, String>,
     targets: Option<&std::collections::HashSet<String>>,
+    newest_tags: &std::collections::HashMap<String, String>,
 ) -> Vec<String> {
     plugins
         .iter()
@@ -243,10 +244,18 @@ fn opencode_install_specs(
                     Some(version) => format!("{}@{}", plugin.name, version),
                     None => format!("{}@latest", plugin.name),
                 },
-                // A git plugin is installed from its own spec, which is how npm re-resolves the
-                // branch to wherever it is now; its installed version is not on the registry to pin
-                // to, and npm would fail the whole install over it.
-                PluginUpstream::Github(_) => format!("{}@{}", plugin.name, plugin.spec),
+                // A git plugin is installed from its own spec; its installed version is not on the
+                // registry to pin to, and npm would fail the whole install over that.
+                //
+                // A spec pinned to a tag (`#v7.0.0`) would install the commit it already has, so the
+                // row that was asked for moves to the newest tag the last check found. A row that
+                // was not asked for keeps the pin it has, which leaves it exactly where it is.
+                PluginUpstream::Github { repo, .. } => {
+                    match newest_tags.get(&repo).filter(|_| asked_for) {
+                        Some(tag) => format!("{}@github:{}#{}", plugin.name, repo, tag),
+                        None => format!("{}@{}", plugin.name, plugin.spec),
+                    }
+                }
             }
         })
         .collect()
@@ -279,7 +288,12 @@ fn opencode_plugins_upgrade(
         "--prefix".to_string(),
         dir.display().to_string(),
     ];
-    args.extend(opencode_install_specs(plugins, &installed, targets));
+    args.extend(opencode_install_specs(
+        plugins,
+        &installed,
+        targets,
+        &newest_tag_snapshot(),
+    ));
     AgentUpgrade {
         program: "npm".into(),
         args,
@@ -424,8 +438,13 @@ impl Http {
     ///
     /// The path taken by a `github:` plugin, which npm never sees: there is no registry document for
     /// it, only the repository, and its `package.json` is where the version it is on is written.
-    async fn published_repo_version(&self, repo: &str) -> Result<String, String> {
-        let path = format!("repos/{repo}/contents/package.json?ref=HEAD");
+    async fn published_repo_version(
+        &self,
+        repo: &str,
+        reference: Option<&str>,
+    ) -> Result<String, String> {
+        let reference = reference.unwrap_or("HEAD");
+        let path = format!("repos/{repo}/contents/package.json?ref={reference}");
         if let Some(text) = gh_api_raw(&path).await {
             let json: serde_json::Value = serde_json::from_str(&text)
                 .map_err(|error| format!("解析 {repo} 的 package.json 失败：{error}"))?;
@@ -437,7 +456,8 @@ impl Http {
         }
         // The contents endpoint with the raw media type hands back the file itself; the plain form
         // would be base64 inside JSON, which is another decode for nothing.
-        let url = format!("https://api.github.com/repos/{repo}/contents/package.json?ref=HEAD");
+        let url =
+            format!("https://api.github.com/repos/{repo}/contents/package.json?ref={reference}");
         let json = self
             .get(&url, repo, "application/vnd.github.raw")
             .await
@@ -447,6 +467,71 @@ impl Http {
             .map(str::to_string)
             .ok_or_else(|| format!("{repo} 的 package.json 没有 version"))
     }
+
+    /// The newest release a repository has tagged, and the version its manifest names there.
+    ///
+    /// A plugin installed as `github:owner/repo#v7.0.0` is pinned to a tag, so the newest thing it
+    /// can move to is the newest tag: naming its own spec again would install the same commit and a
+    /// click would do nothing. Reading the manifest at that tag rather than the tag's own name keeps
+    /// the comparison in the same terms as the installed version, which comes from a manifest too.
+    async fn newest_tagged_release(&self, repo: &str) -> Result<(String, String), String> {
+        let url = format!("https://api.github.com/repos/{repo}/tags?per_page=100");
+        let json = self
+            .get(&url, repo, "application/json")
+            .await
+            .map_err(Unread::message)?;
+        let newest = json
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|tag| tag.get("name").and_then(|name| name.as_str()))
+            .max_by(|left, right| tag_order(left).cmp(&tag_order(right)))
+            .map(str::to_string)
+            .ok_or_else(|| format!("{repo} 没有发布过 tag"))?;
+        // A release whose manifest cannot be read is still a release, and the tag itself says which
+        // one it is.
+        let version = match self.published_repo_version(repo, Some(&newest)).await {
+            Ok(version) => version,
+            Err(_) => newest.trim_start_matches('v').to_string(),
+        };
+        Ok((newest, version))
+    }
+}
+
+/// A tag as the numbers it is made of, so `v7.0.10` sorts above `v7.0.9` and `v7.0` below `v7.0.2`.
+fn tag_order(tag: &str) -> Vec<u64> {
+    tag.trim_start_matches('v')
+        .split(|character: char| !character.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| part.parse::<u64>().ok())
+        .collect()
+}
+
+/// The newest tag each repository was last seen publishing.
+///
+/// The upgrade command is built without the network - it is a pure function of the configuration
+/// and what is installed - so the tag an update is to move to is remembered from the check that
+/// found the update was there. An upgrade with no check behind it knows no tag and names the
+/// plugin's own spec, which is where it would have stayed anyway.
+fn newest_tags() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
+    static NEWEST: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+        std::sync::OnceLock::new();
+    NEWEST.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Remembers the tag a repository publishes, for the upgrade a click will build.
+fn remember_newest_tag(repo: &str, tag: &str) {
+    if let Ok(mut tags) = newest_tags().lock() {
+        tags.insert(repo.to_string(), tag.to_string());
+    }
+}
+
+/// What the last check found, as the install command reads it.
+fn newest_tag_snapshot() -> std::collections::HashMap<String, String> {
+    newest_tags()
+        .lock()
+        .map(|tags| tags.clone())
+        .unwrap_or_default()
 }
 
 /// One GitHub read through the logged-in `gh`, when there is one.
@@ -859,8 +944,12 @@ struct OpencodePlugin {
 enum PluginUpstream {
     /// An npm package, asked of the registry.
     Registry,
-    /// A GitHub repository, whose own `package.json` carries the version it is on.
-    Github(String),
+    /// A GitHub repository, whose own `package.json` carries the version it is on, and the ref the
+    /// spec pins (`#v7.0.0`, `#main`) when it pins one.
+    Github {
+        repo: String,
+        reference: Option<String>,
+    },
 }
 
 /// Reads a plugin spec as its upstream.
@@ -878,9 +967,21 @@ fn plugin_upstream(spec: &str) -> PluginUpstream {
     ];
     for prefix in PREFIXES {
         if let Some(rest) = spec.strip_prefix(prefix) {
-            let repo = rest.trim_end_matches(".git").trim_end_matches('/');
+            // `github:obra/superpowers#v7.0.0`: the ref is a fragment of the spec, not part of the
+            // path the repository is read from. Left inside the path, asking GitHub for that
+            // repository's `package.json` addressed `repos/obra/superpowers` with everything from
+            // the `#` on treated as a URL fragment - so the answer was the repository document,
+            // which has no `version`, and the row said the manifest had none.
+            let (path, reference) = match rest.split_once('#') {
+                Some((path, reference)) => (path, Some(reference.to_string())),
+                None => (rest, None),
+            };
+            let repo = path.trim_end_matches(".git").trim_end_matches('/');
             if !repo.is_empty() {
-                return PluginUpstream::Github(repo.to_string());
+                return PluginUpstream::Github {
+                    repo: repo.to_string(),
+                    reference: reference.filter(|reference| !reference.is_empty()),
+                };
             }
         }
     }
@@ -1052,7 +1153,13 @@ async fn opencode_plugin_remote(
 ) -> Result<String, String> {
     match plugin_upstream(&plugin.spec) {
         PluginUpstream::Registry => http.published_version(&plugin.name).await,
-        PluginUpstream::Github(repo) => http.published_repo_version(&repo).await,
+        PluginUpstream::Github { repo, .. } => {
+            let (tag, version) = http.newest_tagged_release(&repo).await?;
+            // The upgrade that follows a click is built without the network, so the tag is kept
+            // where it can be read then.
+            remember_newest_tag(&repo, &tag);
+            Ok(version)
+        }
     }
 }
 
@@ -1536,16 +1643,71 @@ mod tests {
         assert_eq!(plugin_upstream("5.3.2"), PluginUpstream::Registry);
         assert_eq!(
             plugin_upstream("github:obra/superpowers"),
-            PluginUpstream::Github("obra/superpowers".into())
+            PluginUpstream::Github {
+                repo: "obra/superpowers".into(),
+                reference: None
+            }
         );
         assert_eq!(
             plugin_upstream("git+https://github.com/obra/superpowers.git"),
-            PluginUpstream::Github("obra/superpowers".into())
+            PluginUpstream::Github {
+                repo: "obra/superpowers".into(),
+                reference: None
+            }
         );
         assert_eq!(
             plugin_upstream("git+ssh://git@github.com/obra/superpowers.git"),
-            PluginUpstream::Github("obra/superpowers".into())
+            PluginUpstream::Github {
+                repo: "obra/superpowers".into(),
+                reference: None
+            }
         );
+    }
+
+    #[test]
+    fn a_tag_in_the_spec_is_a_reference_and_not_part_of_the_path() {
+        // `github:obra/superpowers#v7.0.0` read as a repository named `obra/superpowers#v7.0.0`
+        // asked GitHub for `repos/obra/superpowers#v7.0.0/contents/package.json`, where everything
+        // from the `#` on is a URL fragment: the answer was the repository document, which carries
+        // no `version`, and the row said the manifest had none - so no plugin pinned to a tag could
+        // ever be told it had an update.
+        assert_eq!(
+            plugin_upstream("github:obra/superpowers#v7.0.0"),
+            PluginUpstream::Github {
+                repo: "obra/superpowers".into(),
+                reference: Some("v7.0.0".into())
+            }
+        );
+        assert_eq!(
+            plugin_upstream("github:DietrichGebert/ponytail#v5.1.0"),
+            PluginUpstream::Github {
+                repo: "DietrichGebert/ponytail".into(),
+                reference: Some("v5.1.0".into())
+            }
+        );
+        // A ref with nothing after it is not a ref.
+        assert_eq!(
+            plugin_upstream("github:obra/superpowers#"),
+            PluginUpstream::Github {
+                repo: "obra/superpowers".into(),
+                reference: None
+            }
+        );
+    }
+
+    #[test]
+    fn a_tag_sorts_by_its_numbers_and_not_by_its_text() {
+        // Sorted as text, v7.0.10 comes before v7.0.9, and the newest release would be read as an
+        // older one.
+        let mut tags = vec!["v7.0.9", "v7.0.10", "v7.0.2", "v6.9.9"];
+        tags.sort_by_key(|tag| tag_order(tag));
+        assert_eq!(tags, vec!["v6.9.9", "v7.0.2", "v7.0.9", "v7.0.10"]);
+        assert!(tag_order("v7.0") < tag_order("v7.0.2"));
+    }
+
+    /// No repository has published a tag this run, as a check that never ran would leave it.
+    fn no_tags() -> std::collections::HashMap<String, String> {
+        std::collections::HashMap::new()
     }
 
     /// The set of plugins a click asked for, as `opencode_install_specs` takes it.
@@ -1633,20 +1795,20 @@ mod tests {
             ("@b/other".to_string(), "1.4.0".to_string()),
         ]);
         assert_eq!(
-            opencode_install_specs(&plugins, &installed, Some(&set(&["@a/asked"]))),
+            opencode_install_specs(&plugins, &installed, Some(&set(&["@a/asked"])), &no_tags()),
             vec!["@a/asked@latest", "@b/other@1.4.0"]
         );
 
         // Asking for the other one pins the first instead: only the row that was clicked moves.
         assert_eq!(
-            opencode_install_specs(&plugins, &installed, Some(&set(&["@b/other"]))),
+            opencode_install_specs(&plugins, &installed, Some(&set(&["@b/other"])), &no_tags()),
             vec!["@a/asked@5.3.2", "@b/other@latest"]
         );
         // A plugin whose installed version cannot be read keeps the spec's own newest, which is what
         // every plugin used to get - an install must not fail over the pin.
         let none_installed = std::collections::HashMap::new();
         assert_eq!(
-            opencode_install_specs(&plugins, &none_installed, Some(&set(&["@a/asked"]))),
+            opencode_install_specs(&plugins, &none_installed, Some(&set(&["@a/asked"])), &no_tags()),
             vec!["@a/asked@latest", "@b/other@latest"]
         );
     }
@@ -1659,7 +1821,7 @@ mod tests {
             ("@b/two".to_string(), "2.0.0".to_string()),
         ]);
         assert_eq!(
-            opencode_install_specs(&plugins, &installed, None),
+            opencode_install_specs(&plugins, &installed, None, &no_tags()),
             vec!["@a/one@latest", "@b/two@latest"]
         );
     }
@@ -1677,8 +1839,57 @@ mod tests {
             ("@a/other".to_string(), "1.4.0".to_string()),
         ]);
         assert_eq!(
-            opencode_install_specs(&plugins, &installed, Some(&set(&["@a/other"]))),
+            opencode_install_specs(
+                &plugins,
+                &installed,
+                Some(&set(&["@a/other"])),
+                &no_tags(),
+            ),
             vec!["superpowers@github:obra/superpowers", "@a/other@latest"]
+        );
+    }
+
+    #[test]
+    fn a_plugin_pinned_to_a_tag_moves_to_the_newest_tag() {
+        // Naming its own spec again installs the commit it already has, so the click did nothing:
+        // the row said "更新失败" over a tag that had releases after it. The tag the last check found
+        // is what the install names, and only for the row that was clicked.
+        let plugins = vec![
+            plugin("superpowers", "github:obra/superpowers#v7.0.0"),
+            plugin("@a/other", "^1.0.0"),
+        ];
+        let installed = std::collections::HashMap::from([
+            ("superpowers".to_string(), "7.0.0".to_string()),
+            ("@a/other".to_string(), "1.4.0".to_string()),
+        ]);
+        let tags = std::collections::HashMap::from([(
+            "obra/superpowers".to_string(),
+            "v7.0.2".to_string(),
+        )]);
+        assert_eq!(
+            opencode_install_specs(
+                &plugins,
+                &installed,
+                Some(&set(&["superpowers"])),
+                &tags,
+            ),
+            vec![
+                "superpowers@github:obra/superpowers#v7.0.2",
+                "@a/other@1.4.0"
+            ]
+        );
+        // Asked about the other row, the pinned one is left at the pin it has.
+        assert_eq!(
+            opencode_install_specs(
+                &plugins,
+                &installed,
+                Some(&set(&["@a/other"])),
+                &tags,
+            ),
+            vec![
+                "superpowers@github:obra/superpowers#v7.0.0",
+                "@a/other@latest"
+            ]
         );
     }
 
