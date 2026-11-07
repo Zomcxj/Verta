@@ -4,6 +4,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "@/modules/i18n";
 import { envForPath } from "@/modules/workspace";
+import { type ColumnWidths, effectiveWidths } from "./lib/columnResize";
+import { useColumnDrag } from "./lib/useColumnDrag";
+import { columnOffsets } from "./lib/xlsxGrid";
 
 export type CsvDocument = {
   /** The character the fields are separated by, as it is in the file. */
@@ -59,8 +62,23 @@ export function CsvPreview({ path }: { path: string }) {
   const scroll = useRef<HTMLDivElement | null>(null);
   const { document, failed, rows, error, writeCell } = useCsv(path);
   const columns = document?.columns ?? 0;
-  const widths = useMemo(() => columnWidths(rows, columns), [rows, columns]);
+  const fileWidths = useMemo(() => columnWidths(rows, columns), [rows, columns]);
+  // A width the reader dragged, laid over what the file suggests. Nothing is written back: a
+  // `.csv` keeps its bytes, so the widths come back on reopening.
+  const [dragged, setDragged] = useState<ColumnWidths>(new Map());
+  const widths = useMemo(
+    () => effectiveWidths(columns, fileWidths, dragged),
+    [columns, fileWidths, dragged],
+  );
+  const offsets = useMemo(() => columnOffsets(widths), [widths]);
   const width = widths.reduce((total, column) => total + column, 0);
+  const headerRow = useRef<HTMLDivElement | null>(null);
+  const drag = useColumnDrag(headerRow, offsets, widths, setDragged);
+  // A different file starts from its own widths again.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: path is the only trigger this reset has
+  useEffect(() => {
+    setDragged(new Map());
+  }, [path]);
   const virtualizer = useVirtualizer({
     count: Math.max(rows.length - 1, 0),
     getScrollElement: () => scroll.current,
@@ -109,8 +127,9 @@ export function CsvPreview({ path }: { path: string }) {
       spellCheck={false}
       style={{ width: widths[column] ?? 72, minWidth: widths[column] ?? 72 }}
       className={[
-        "shrink-0 truncate border-r border-border/50 px-1.5 py-0.5 outline-none",
-        "focus:bg-accent/60 focus:ring-1 focus:ring-inset focus:ring-ring/40",
+        "shrink-0 truncate border-r border-border/50 px-1.5 py-0.5 text-foreground outline-none",
+        // A cell being edited is ringed rather than filled: the value is what should stand out.
+        "focus:ring-1 focus:ring-inset focus:ring-ring/40",
         bold ? "font-semibold" : "",
       ]
         .filter(Boolean)
@@ -150,8 +169,10 @@ export function CsvPreview({ path }: { path: string }) {
       <div ref={scroll} className="verta-doc-scroll min-h-0 flex-1 overflow-auto">
         <div style={{ width }} className="min-w-full">
           <div
-            className="sticky top-0 z-10 flex bg-muted/70"
-            style={{ height: HEADER_HEIGHT }}
+            ref={headerRow}
+            onPointerDown={drag.onPointerDown}
+            className="sticky top-0 z-10 flex bg-background"
+            style={{ height: HEADER_HEIGHT, cursor: drag.dragging === null ? undefined : "col-resize" }}
           >
             {header.map((text, column) => cell(0, column, text, true))}
           </div>
@@ -162,7 +183,7 @@ export function CsvPreview({ path }: { path: string }) {
                 <div
                   key={item.key}
                   data-csv-row={item.index}
-                  className="absolute left-0 flex border-b border-border/30 hover:bg-accent/40"
+                  className="absolute left-0 flex border-b border-border/30"
                   style={{ top: item.start, height: item.size, width }}
                 >
                   {Array.from({ length: columns }, (_, column) =>
@@ -193,17 +214,46 @@ function useCsv(path: string): {
   const [rows, setRows] = useState<string[][]>([]);
   const [error, setError] = useState<string | null>(null);
   const guard = useRef<DocxGuard | null>(null);
+  /**
+   * The write in flight, and the cells waiting behind it.
+   *
+   * The guard is the file's identity at the moment it was written, so it only moves when a write
+   * comes back. Two cells edited faster than one round trip would both send the identity the file
+   * had *before* the first one, and the second would be refused as a file changed underneath it -
+   * measured as an edit that never reached the file. The writes are therefore queued: each waits
+   * for the one before it and takes the identity that one brought back.
+   */
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  /**
+   * The cells edited since the read, so a reply that is stale for the file still shows on screen.
+   *
+   * A write that fails leaves the pane showing what the file holds; a cell edited after it must not
+   * be rolled back to that. Every edit is recorded here as it is queued, and the file's answer is
+   * laid under them.
+   */
+  const edited = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
     setState({ document: null, failed: false });
     setRows([]);
     setError(null);
+    // A new file is a new queue and a new set of edits.
+    queue.current = Promise.resolve();
+    edited.current = new Map();
     invoke<CsvDocument>("fs_read_csv", { path, workspace: envForPath(path) })
       .then((document) => {
         if (cancelled) return;
         guard.current = document.guard;
-        setRows(document.rows);
+        // The file as it was read, with the cells edited since laid over it: a reply that arrives
+        // after the user has typed on is the file's truth, not the screen's.
+        const rows = document.rows.map((line) => [...line]);
+        for (const [key, text] of edited.current) {
+          const [row, column] = key.split(":").map(Number);
+          if (!rows[row]) rows[row] = [];
+          rows[row][column] = text;
+        }
+        setRows(rows);
         setState({ document, failed: false });
       })
       .catch(() => {
@@ -216,28 +266,35 @@ function useCsv(path: string): {
 
   const writeCell = useCallback(
     async (row: number, column: number, text: string) => {
-      const current = guard.current;
-      if (!current) return;
-      try {
-        guard.current = await invoke<DocxGuard>("fs_write_csv_cell", {
-          path,
-          row,
-          column,
-          text,
-          guard: current,
-          workspace: envForPath(path),
-        });
+      const run = queue.current.then(async () => {
+        const current = guard.current;
+        if (!current) return;
+        // The cell shows what was typed as soon as it is typed: a queued edit is not a lost one.
+        edited.current.set(`${row}:${column}`, text);
         setRows((previous) => {
           const next = previous.map((line) => [...line]);
           if (!next[row]) next[row] = [];
           next[row][column] = text;
           return next;
         });
-        setError(null);
-      } catch (failure: unknown) {
-        // The pane keeps showing what it read, and says why the write did not land.
-        setError(failure instanceof Error ? failure.message : String(failure));
-      }
+        try {
+          guard.current = await invoke<DocxGuard>("fs_write_csv_cell", {
+            path,
+            row,
+            column,
+            text,
+            guard: current,
+            workspace: envForPath(path),
+          });
+          setError(null);
+        } catch (failure: unknown) {
+          // The pane keeps showing what it read, and says why the write did not land.
+          setError(failure instanceof Error ? failure.message : String(failure));
+        }
+      });
+      // The next cell waits for this one however this one turned out.
+      queue.current = run.catch(() => undefined);
+      await run;
     },
     [path],
   );

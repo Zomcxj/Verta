@@ -110,7 +110,8 @@ const startFrom = async (contents, label) => {
 };
 
 /** Type into a cell the way a reader would: focus it, change its text, leave it. */
-const editCell = async (row, column, text) => {
+const editCell = async (row, column, text, gapMs = 0) => {
+  if (gapMs > 0) await sleep(gapMs);
   const typed = await evaluate(`(() => {
     const pane = ${VISIBLE};
     const cell = pane?.querySelectorAll('[data-csv-cell="${row}"]')?.[${column}];
@@ -128,8 +129,38 @@ const editCell = async (row, column, text) => {
     if (readFileSync(FIXTURE(), "utf8").includes(text)) return;
     await sleep(200);
   }
-  fail(`the cell at row ${row} column ${column} never reached the file`);
+  // A refused write is reported by the pane itself, so ask it rather than only timing out.
+  const said = await evaluate(
+    `(${VISIBLE})?.firstElementChild?.innerText?.replace(/\\s+/g, " ").trim() ?? null`,
+  );
+  fail(
+    `the cell at row ${row} column ${column} never reached the file: the pane says ${JSON.stringify(said)}, the file is ${JSON.stringify(readFileSync(FIXTURE(), "utf8"))}`,
+  );
 };
+
+/**
+ * Wait for a value to show in a cell.
+ *
+ * The file changing is not the same as the screen changing: the pane updates the cell when the
+ * write comes back, which is one round trip after the bytes land. Reading the file and then typing
+ * into the next cell caught the pane before it had redrawn, and the second edit was sent with the
+ * identity the file had before the first one.
+ */
+const cellShows = async (row, column, text, timeoutMs = 8000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const shown = await evaluate(
+      `(${CELL_TEXT(row, column)})?.innerText?.trim() ?? null`,
+    );
+    if (shown === text) return true;
+    await sleep(200);
+  }
+  return false;
+};
+
+/** The text a cell is drawing. */
+const CELL_TEXT = (row, column) =>
+  `${VISIBLE}?.querySelectorAll('[data-csv-cell="${row}"]')?.[${column}]`;
 
 const readTable = () =>
   evaluate(`(() => {
@@ -169,6 +200,42 @@ try {
     fail(`the newline inside a quoted field split the row: ${JSON.stringify(quoted.second)}`);
   }
 
+  // ---- The table is themed: it reads in the theme's ink and carries no highlight of its own ----
+  const colors = await evaluate(`(() => {
+    const pane = ${VISIBLE};
+    const numbers = (value) => (value.match(/\\d+/g) || []).map(Number);
+    const header = pane.querySelector(".sticky")?.firstElementChild;
+    const row = pane.querySelector("[data-csv-row]");
+    const cell = row?.firstElementChild;
+    return {
+      // The theme's own ink, read off the page rather than off anything the file could set.
+      themeInk: getComputedStyle(document.body).color,
+      headerInk: header ? numbers(getComputedStyle(header).color) : null,
+      cellInk: cell ? getComputedStyle(cell).color : null,
+      rowFill: row ? getComputedStyle(row).backgroundColor : null,
+      rowClass: row ? row.className : "",
+      cellClass: cell ? cell.className : "",
+      headerClass: header ? header.className : "",
+    };
+  })()`);
+  report.colors = colors;
+  // A value reads in the theme's own ink: black on a light theme, white on this dark one.
+  if (colors.cellInk !== colors.themeInk) {
+    fail(`a cell's ink is ${colors.cellInk}, not the theme's ${colors.themeInk}`);
+  }
+  if (colors.rowFill !== "rgba(0, 0, 0, 0)") {
+    fail(`a row carries a fill of its own: ${colors.rowFill}`);
+  }
+  for (const [what, classes] of [
+    ["row", colors.rowClass],
+    ["cell", colors.cellClass],
+    ["header", colors.headerClass],
+  ]) {
+    if (/accent|bg-muted/.test(classes ?? "")) {
+      fail(`the ${what} still carries a highlight: ${classes}`);
+    }
+  }
+
   // ---- Changing a cell changes that field and nothing else ----
   const beforeEdit = readFileSync(FIXTURE(), "utf8");
   await editCell(2, 2, "42");
@@ -186,6 +253,9 @@ try {
   }
 
   // ---- A value with a comma in it is quoted, so the row still has three fields ----
+  // The pane redraws the cell when the write comes back, and only then does it hold the identity
+  // that write produced: typing into the next cell before that would send the old one.
+  if (!(await cellShows(2, 2, "42"))) fail("the edited cell never redrew with its new value");
   await editCell(1, 1, "a,b");
   const requoted = await readTable();
   report.cellQuote = { cell: requoted.first?.[1], file: readFileSync(FIXTURE(), "utf8") };
@@ -194,6 +264,28 @@ try {
   }
   if (!report.cellQuote.file.includes('"a,b"')) {
     fail(`the value was not quoted in the file: ${JSON.stringify(report.cellQuote.file)}`);
+  }
+
+  // ---- Two cells edited inside one round trip both reach the file ----
+  // Measured: the second edit was refused as "the file changed underneath", because both writes
+  // carried the identity the file had before either of them. The pane queues them now.
+  if (!(await cellShows(1, 1, "a,b"))) fail("the second edited cell never redrew");
+  await editCell(0, 2, "fast-1", 0);
+  await editCell(1, 0, "fast-2", 0);
+  await sleep(1200);
+  const fast = readFileSync(FIXTURE(), "utf8");
+  report.backToBack = {
+    file: fast,
+    first: fast.includes("fast-1"),
+    second: fast.includes("fast-2"),
+  };
+  if (!report.backToBack.first || !report.backToBack.second) {
+    const said = await evaluate(
+      `(${VISIBLE})?.firstElementChild?.innerText?.replace(/\\s+/g, " ").trim() ?? null`,
+    );
+    fail(
+      `a second edit inside one round trip was lost: ${JSON.stringify(report.backToBack)} says ${JSON.stringify(said)}`,
+    );
   }
 
   // ---- A semicolon export is not one column ----
