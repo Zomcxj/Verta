@@ -303,8 +303,8 @@ const DocxBody = memo(function DocxBody({
   available: number;
   onEdited: () => void;
   onDelete: (ordinal: number) => void;
-  /** Takes one picture out, named by its paragraph and its number within it. */
-  onDeleteImage: (paragraph: number, index: number) => void;
+  /** Takes one picture out, named by the number the reader gave it. */
+  onDeleteImage: (drawing: number) => void;
 }) {
   const t = useT();
   const blocks = useMemo(() => blocksFromDocument(doc), [doc]);
@@ -441,7 +441,10 @@ const DocxBody = memo(function DocxBody({
                           key={cell.id}
                           className="border border-border/70 px-2 py-1 align-top"
                         >
-                          <Runs runs={cell.runs} />
+                          <Runs
+                            runs={cell.runs}
+                            onDeleteImage={editable ? onDeleteImage : undefined}
+                          />
                         </td>
                       ))}
                     </tr>
@@ -497,13 +500,7 @@ const DocxBody = memo(function DocxBody({
             {read?.kind === "paragraph" && read.runs.length > 0 ? (
               <Runs
                 runs={read.runs}
-                onDeleteImage={
-                  // Only a paragraph of the body is addressable: a cell's runs have no ordinal,
-                  // so offering a removal there would name something the writer cannot find.
-                  editable && read.index !== undefined
-                    ? (imageIndex) => onDeleteImage(read.index, imageIndex)
-                    : undefined
-                }
+                onDeleteImage={editable ? onDeleteImage : undefined}
               />
             ) : (
               <br />
@@ -811,7 +808,7 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, DocxPreviewProps>(
      * with: a save that inserted a paragraph moves every ordinal after it.
      */
     const onDeleteImage = useCallback(
-      async (paragraph: number, index: number) => {
+      async (drawing: number) => {
         if (timer.current !== null) {
           window.clearTimeout(timer.current);
           timer.current = null;
@@ -820,12 +817,7 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, DocxPreviewProps>(
         if (!current) return;
         setSave({ kind: "saving" });
         try {
-          guard.current = await native.deleteDocxImage(
-            path,
-            paragraph,
-            index,
-            current,
-          );
+          guard.current = await native.deleteDocxImage(path, drawing, current);
           // The picture is gone from the file, so the page is read again rather than patched: the
           // runs of that paragraph are no longer what the DOM holds.
           setReloadKey((key) => key + 1);

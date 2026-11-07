@@ -372,6 +372,18 @@ fn attribute(element: &BytesStart<'_>, local: &[u8]) -> Option<String> {
         .map(|value| value.into_owned())
 }
 
+/// Where each `<w:drawing>` of a part starts, in order.
+fn drawing_offsets(xml: &str) -> Vec<usize> {
+    let mut offsets = Vec::new();
+    let mut at = 0usize;
+    while let Some(found) = xml[at..].find("<w:drawing") {
+        let start = at + found;
+        offsets.push(start);
+        at = start + "<w:drawing".len();
+    }
+    offsets
+}
+
 /// A cell's runs, trimmed at both ends and with nothing left over from an empty paragraph.
 fn trimmed(runs: Vec<Run>) -> Vec<Run> {
     let mut out: Vec<Run> = Vec::new();
@@ -625,7 +637,7 @@ fn find_text_node(xml: &str) -> Option<usize> {
 /// Byte slices, not a re-serialization: every element outside the touched paragraphs is copied out of
 /// the original exactly as Word wrote it, which is what keeps styles, namespace prefixes, attributes
 /// and anything this reader does not understand intact.
-/// One paragraph's bytes with one of its drawings taken out.
+/// A part's bytes with one of its drawings taken out.
 ///
 /// The drawing is what is cut, not the run: a run may hold text beside the picture, and taking the
 /// run would take that text with it. When the picture was the only thing in its run, the run goes
@@ -658,7 +670,7 @@ fn remove_drawing(paragraph: &str, index: u32) -> Result<String, String> {
     }
     // The pane asked for a drawing this part does not have, which means the two disagree. Refusing
     // is what keeps a stale picture number from rewriting a paragraph that is not the one meant.
-    Err(format!("这一段里没有第 {} 张图", index + 1))
+    Err(format!("文档里没有第 {} 张图", index + 1))
 }
 
 /// Where a `<w:drawing>` that opens at `open` ends, after its closing tag.
@@ -731,6 +743,15 @@ fn rewrite_document_xml(
     inserts: &[DocxInsert],
     removals: &[DocxImageRemoval],
 ) -> Result<String, String> {
+    // The pictures come out first, and the paragraphs are then walked over what is left: a drawing
+    // can sit in a table cell, and a cell has no place among the paragraph ordinals to be addressed
+    // by. Cutting first also keeps every ordinal below unchanged, since a removal never adds or
+    // removes a `<w:p>`.
+    let mut cut = xml.to_string();
+    for removal in removals {
+        cut = remove_drawing(&cut, removal.drawing)?;
+    }
+    let xml = cut.as_str();
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
     // (ordinal, start, end, is it a paragraph of the body rather than of a table cell)
@@ -787,11 +808,6 @@ fn rewrite_document_xml(
             return Err(format!("要删的段不在文档里（序号 {index}）"));
         }
     }
-    for removal in removals {
-        if removal.paragraph >= count {
-            return Err(format!("图片所在的段不在文档里（序号 {}）", removal.paragraph));
-        }
-    }
     for insert in inserts {
         let Some(after) = insert.after else { continue };
         if after >= count {
@@ -834,11 +850,7 @@ fn rewrite_document_xml(
         if deleted.contains(index) {
             continue;
         }
-        let mut paragraph = xml[*start..*end].to_string();
-        for removal in removals.iter().filter(|removal| removal.paragraph == *index) {
-            paragraph = remove_drawing(&paragraph, removal.index)?;
-        }
-        let paragraph = paragraph.as_str();
+        let paragraph = &xml[*start..*end];
         match edits.iter().find(|edit| edit.index == *index) {
             Some(edit) => out.push_str(&rewrite_paragraph(paragraph, &edit.text)?),
             None => out.push_str(paragraph),
@@ -1055,10 +1067,11 @@ fn write_docx_sync(
 /// One picture to take out of the document, named the way the reader numbered it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DocxImageRemoval {
-    /// The paragraph's ordinal among the part's `<w:p>` elements.
-    pub paragraph: u32,
-    /// Which of that paragraph's drawings, counted from zero in the order the file writes them.
-    pub index: u32,
+    /// Which of the part's drawings this is, counted from zero in the order the file writes them.
+    ///
+    /// Document wide rather than per paragraph, because a picture can sit in a table cell, whose
+    /// paragraphs have no place in the block model to hang a number on.
+    pub drawing: u32,
 }
 
 /// Writes edits back into a `.docx`. `guard` is what the pane saw when it read the file.
@@ -1091,8 +1104,7 @@ pub async fn fs_write_docx(
 pub async fn fs_delete_docx_image(
     app: tauri::AppHandle,
     path: String,
-    paragraph: u32,
-    index: u32,
+    drawing: u32,
     guard: DocxGuard,
     workspace: Option<WorkspaceEnv>,
 ) -> Result<DocxGuard, String> {
@@ -1100,7 +1112,7 @@ pub async fn fs_delete_docx_image(
         let workspace = WorkspaceEnv::from_option(workspace);
         let target = resolve_path(&path, &workspace);
         authorize_parent(&app.state::<WorkspaceRegistry>(), &target)?;
-        let removals = [DocxImageRemoval { paragraph, index }];
+        let removals = [DocxImageRemoval { drawing }];
         write_docx_sync(&target, &[], &[], &[], &removals, &guard)
     })
     .await
@@ -1118,8 +1130,9 @@ struct PendingRun {
     props: RunProps,
     /// The relationship id of a picture in this run, and the size to draw it at.
     image: Option<(String, Option<f32>, Option<f32>)>,
-    /// Which of the paragraph's drawings this run holds.
-    image_index: Option<u32>,
+    /// Where in the part the picture was named; the drawing list turns it into the number the pane
+    /// is given.
+    image_at: Option<usize>,
 }
 
 /// The paragraph being read. Word puts a run's properties before its text, so the styles are
@@ -1144,8 +1157,11 @@ struct Paragraph {
     in_text: bool,
     /// The relationship id of a picture seen in the current run, and its size.
     image_rid: Option<String>,
-    /// How many drawings this paragraph has finished a run for, which numbers the next one.
-    images_seen: u32,
+    /// Where in the part the picture of the current run was named.
+    ///
+    /// A byte offset rather than a counter: paragraphs inside a nested table are not read at all, so
+    /// a counter here would skip their pictures and shift every number after them.
+    image_at: Option<usize>,
     image_width: Option<f32>,
     image_height: Option<f32>,
     /// What the paragraph itself states about its box; the rest comes from its style.
@@ -1168,17 +1184,13 @@ impl Paragraph {
                 self.image_height.take(),
             )
         });
-        let image_index = image.as_ref().map(|_| {
-            let at = self.images_seen;
-            self.images_seen += 1;
-            at
-        });
+        let image_at = self.image_at.take();
         if !text.is_empty() || image.is_some() {
             self.runs.push(PendingRun {
                 text,
                 props: std::mem::take(&mut self.run_props),
                 image,
-                image_index,
+                image_at,
             });
         }
         self.run_props = RunProps::default();
@@ -1566,7 +1578,12 @@ fn toggled(element: &BytesStart<'_>) -> bool {
  * `<w:b/>`. Reading them only from a start tag left every heading a plain paragraph and every list
  * flat and unnumbered.
  */
-fn read_property(current: &mut Paragraph, name: QName<'_>, element: &BytesStart<'_>) {
+fn read_property(
+    current: &mut Paragraph,
+    name: QName<'_>,
+    element: &BytesStart<'_>,
+    at: usize,
+) {
     if is_w(name, b"pStyle") {
         current.style = val(element);
     } else if is_w(name, b"outlineLvl") {
@@ -1632,6 +1649,9 @@ fn read_property(current: &mut Paragraph, name: QName<'_>, element: &BytesStart<
         // `a:blip` lives in the drawing namespace, so its name is not `w:`; `r:embed` names the
         // relationship the media file hangs off.
         current.image_rid = attribute_any(element, b"embed").or_else(|| current.image_rid.clone());
+        if current.image_rid.is_some() {
+            current.image_at = Some(at);
+        }
     } else if name.local_name().as_ref() == b"extent" {
         // `wp:extent` carries the size the document draws the picture at, in EMU.
         current.image_width = attribute(element, b"cx")
@@ -1675,6 +1695,9 @@ fn parse_document(
     images: &std::collections::HashMap<String, String>,
 ) -> Result<(Vec<Block>, bool, Option<Page>), String> {
     let ordered_numbers = numbering_xml.map(ordered_number_ids).unwrap_or_default();
+    // Where each drawing starts, in the order the file writes them. The writer cuts by this same
+    // count, so the two cannot disagree about which picture a number names.
+    let drawings = drawing_offsets(document_xml);
     let mut blocks: Vec<Block> = Vec::new();
     let mut truncated = false;
 
@@ -1702,6 +1725,7 @@ fn parse_document(
         match reader.read_event() {
             Ok(Event::Start(element)) => {
                 let name = element.name();
+                let at = reader.buffer_position() as usize;
                 open_elements += 1;
                 // Counted before the table and nesting checks below, because a paragraph inside a
                 // cell is still a paragraph element of the part.
@@ -1736,12 +1760,13 @@ fn parse_document(
                     } else if is_w(name, b"t") {
                         current.in_text = true;
                     } else {
-                        read_property(current, name, &element);
+                        read_property(current, name, &element, at);
                     }
                 }
             }
             Ok(Event::Empty(element)) => {
                 let name = element.name();
+                let at = reader.buffer_position() as usize;
                 // A self-closing `<w:p/>` is a paragraph element too, and takes its ordinal - and,
                 // outside a table, it is a block of its own: this is what a blank line looks like
                 // in a part Word wrote, and the pane needs it to draw the line the caret goes to.
@@ -1769,7 +1794,7 @@ fn parse_document(
                     continue;
                 }
                 if let Some(current) = paragraph.as_mut() {
-                    read_property(current, name, &element);
+                    read_property(current, name, &element, at);
                 }
             }
             Ok(Event::Text(text)) => {
@@ -1863,7 +1888,12 @@ fn parse_document(
                                 image: picture.and_then(|(rid, _, _)| images.get(rid)).cloned(),
                                 image_width: picture.and_then(|(_, width, _)| *width),
                                 image_height: picture.and_then(|(_, _, height)| *height),
-                                image_index: pending.image_index,
+                                // The picture is named inside its own drawing, so the count of
+                                // drawings that start before it includes itself.
+                                image_index: pending.image_at.map(|at| {
+                                    (drawings.iter().take_while(|start| **start < at).count() as u32)
+                                        .saturating_sub(1)
+                                }),
                             }
                         })
                         .collect();
@@ -2750,6 +2780,86 @@ mod tests {
         assert!(remove_drawing("<w:p><w:r><w:t>x</w:t></w:r></w:p>", 0).is_err());
     }
 
+    /// A picture table for `parse_document`, so a cell keeps the run that holds one.
+    fn picture_map() -> std::collections::HashMap<String, String> {
+        std::collections::HashMap::from([
+            ("rId5".to_string(), "data:image/png;base64,AA==".to_string()),
+            ("rId6".to_string(), "data:image/png;base64,AA==".to_string()),
+        ])
+    }
+
+    #[test]
+    fn a_picture_in_a_table_cell_is_numbered_with_the_rest_of_the_part() {
+        // A cell's paragraphs have no place among the block ordinals, so the number has to count the
+        // part's drawings rather than one paragraph's. 182 of the pictures in the documents measured
+        // here sit inside a table, and none of them could be reached before.
+        let body = format!(
+            "<w:p><w:r><w:t>body</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r>{}</w:p></w:tc></w:tr></w:tbl>",
+            drawing("rId5")
+        );
+        let (blocks, _, _) =
+            parse_document(&document(&body), None, &Styles::default(), &picture_map()).unwrap();
+        let Block::Table { rows } = &blocks[1] else {
+            panic!("expected a table");
+        };
+        let numbered: Vec<Option<u32>> = rows[0][0]
+            .iter()
+            .filter(|run| run.image_index.is_some())
+            .map(|run| run.image_index)
+            .collect();
+        assert_eq!(numbered, vec![Some(0)]);
+    }
+
+    #[test]
+    fn a_picture_inside_a_table_cell_can_be_taken_out() {
+        let body = format!(
+            "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r>{}</w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:t>after</w:t></w:r></w:p>",
+            drawing("rId5")
+        );
+        let (path, guard) = archive_with(&document(&body));
+        write_docx_sync(
+            &path,
+            &[],
+            &[],
+            &[],
+            &[DocxImageRemoval { drawing: 0 }],
+            &guard,
+        )
+        .expect("removing a picture inside a table should land");
+
+        let part = part_of(&path);
+        assert!(!part.contains("<w:drawing"), "{part}");
+        // The table, its cell and its text are still there: the picture went, not the row.
+        assert!(part.contains("<w:tbl>"), "{part}");
+        assert!(part.contains("<w:t>cell</w:t>"), "{part}");
+        assert!(part.contains("<w:t>after</w:t>"), "{part}");
+        assert!(!part.contains("<w:r></w:r>"), "{part}");
+    }
+
+    #[test]
+    fn the_numbering_counts_a_picture_a_nested_table_holds_even_though_it_is_not_drawn() {
+        // A table inside a cell is not drawn here, and its paragraphs are not read - but the writer
+        // still counts the drawings of the whole part. Numbering by what was parsed would name the
+        // wrong picture the moment a nested table holds one.
+        let body = format!(
+            "<w:tbl><w:tr><w:tc><w:tbl><w:tr><w:tc><w:p>{}</w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:t>outer</w:t></w:r>{}</w:p></w:tc></w:tr></w:tbl>",
+            drawing("rId5"),
+            drawing("rId6")
+        );
+        let (blocks, _, _) =
+            parse_document(&document(&body), None, &Styles::default(), &picture_map()).unwrap();
+        let Block::Table { rows } = &blocks[0] else {
+            panic!("expected a table");
+        };
+        let numbered: Vec<Option<u32>> = rows[0][0]
+            .iter()
+            .filter(|run| run.image_index.is_some())
+            .map(|run| run.image_index)
+            .collect();
+        // The drawn one is the second drawing of the part, not the first.
+        assert_eq!(numbered, vec![Some(1)]);
+    }
+
     #[test]
     fn the_run_a_picture_had_to_itself_goes_with_it() {
         // Word never writes a run with nothing in it, so leaving one behind would be this writer's
@@ -2784,10 +2894,7 @@ mod tests {
             &[],
             &[],
             &[],
-            &[DocxImageRemoval {
-                paragraph: 0,
-                index: 0,
-            }],
+            &[DocxImageRemoval { drawing: 0 }],
             &guard,
         )
         .expect("removing the picture should land");
@@ -2834,10 +2941,7 @@ mod tests {
             &[],
             &[],
             &[],
-            &[DocxImageRemoval {
-                paragraph: 0,
-                index: 0,
-            }],
+            &[DocxImageRemoval { drawing: 0 }],
             &guard,
         )
         .expect_err("there is no picture to remove");
@@ -2858,10 +2962,7 @@ mod tests {
             &[],
             &[],
             &[],
-            &[DocxImageRemoval {
-                paragraph: 0,
-                index: 0,
-            }],
+            &[DocxImageRemoval { drawing: 0 }],
             &guard,
         )
         .expect("removing the picture should land");

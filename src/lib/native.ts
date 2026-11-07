@@ -963,21 +963,15 @@ export const native = {
    * bring back a deleted paragraph: its XML is not in the model any more.
    */
   /**
-   * Takes one picture out of a `.docx`, named the way the reader numbered it.
+   * Takes one picture out of a `.docx`, named by the number the reader gave it.
    *
    * Only the picture goes: the paragraph, its text and its properties stay, and undo brings it back
    * the same way it brings back a deleted paragraph.
    */
-  deleteDocxImage: (
-    path: string,
-    paragraph: number,
-    index: number,
-    guard: DocxGuard,
-  ) =>
+  deleteDocxImage: (path: string, drawing: number, guard: DocxGuard) =>
     invoke<DocxGuard>("fs_delete_docx_image", {
       path,
-      paragraph,
-      index,
+      drawing,
       guard,
       workspace: envForPath(path),
     }),

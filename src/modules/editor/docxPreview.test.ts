@@ -131,7 +131,7 @@ describe("docx tables", () => {
 
   it("draws a cell's runs rather than one flat string", () => {
     // A header row is bold because its runs are: a cell drawn as a string lost that.
-    expect(preview).toMatch(/<Runs runs=\{cell\.runs\} \/>/);
+    expect(preview).toMatch(/<Runs\s+runs=\{cell\.runs\}/);
   });
 });
 
