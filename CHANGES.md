@@ -76,6 +76,11 @@ swap in the new date, and drop the `open` from the day before.
 - `src-tauri/src/modules/pptx.rs`: a colour with children is resolved when its own element closes, because its modifiers arrive before it does, and a colour written with none is resolved where it stands. A run's properties, a placeholder and a level wrapper are all written self closed in real decks, so they are read from the empty element arm as well as from the one that has children.
 - `src/modules/editor/PptxPreview.tsx`: a slide is drawn on the colour it states, falling back to its layout's and then its master's, and on white paper when none of the three says anything. 426 of 3857 slides in the decks measured here state their own.
 - `src/lib/native.ts`: the background a slide carries.
+- `src-tauri/src/modules/pptx_theme.rs`: the boxes a layout and a master give their placeholders, by the key a slide addresses them with, which is `idx` when a slide names one and `type` when it does not. A placeholder in a real deck often states no transform at all, and a shape with no box is drawn zero by zero at the origin, which is a shape nobody can see.
+- `src-tauri/src/modules/pptx.rs`: a placeholder that states no box of its own is drawn in the layout's, and in the master's when the layout states none. A box the author moved is still its own. A placeholder that no level places stays where it was rather than being given a guess, because a guess would put text somewhere the file never asked for.
+
+Measured on five real decks where the gap was worst: text shapes with a visible box went from 596 to 744, and slides that drew nothing at all went from 123 to 59. One deck of lecture slides went from 30 blank slides to none.
+
 
 Measured across 118 real decks and 3857 slides: theme colours are 73 percent of every colour reference the reader had been ignoring, and every run now resolves one. A shape's own `lstStyle` turned out to be on 36.6 percent of shapes, so it is read rather than left for later.
 

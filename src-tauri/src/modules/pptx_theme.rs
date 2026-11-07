@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use quick_xml::events::Event;
 use quick_xml::Reader;
 
-use super::office::{attr, attr_number, flag, local, srgb_color};
+use super::office::{attr, attr_number, emu_to_px, flag, local, srgb_color};
 use super::pptx_color::Theme;
 
 /// The colour a master's `<p:clrMap>` says each role stands for, and the defaults when it says
@@ -406,6 +406,91 @@ pub(crate) fn read_background(xml: &str, theme: &Theme) -> Option<String> {
     }
 }
 
+/// The box a placeholder sits in, in the pixels of the slide's own coordinate space.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct PlaceholderBox {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) width: f32,
+    pub(crate) height: f32,
+}
+
+impl PlaceholderBox {
+    /// Whether the box has any area to draw in, which a box of zeroes does not.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.width <= 0.0 || self.height <= 0.0
+    }
+}
+
+/// The boxes a layout or a master gives its placeholders, by the key a slide addresses them with.
+///
+/// A slide's placeholder states its own `<a:xfrm>` when the author moved it, and nothing at all when
+/// the box is the one the layout or the master puts it in. Matching is by `idx` first and by `type`
+/// when the slide names no index, which is how PowerPoint finds the counterpart.
+pub(crate) fn read_placeholder_boxes(
+    xml: &str,
+    what: &str,
+) -> Result<HashMap<String, PlaceholderBox>, String> {
+    let mut boxes: HashMap<String, PlaceholderBox> = HashMap::new();
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(false);
+    // The placeholder being read, and the box it states.
+    let mut key: Option<String> = None;
+    let mut inside_shape = false;
+    let (mut x, mut y, mut width, mut height) = (None, None, None, None);
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
+                match local(element.name()) {
+                    b"sp" => {
+                        inside_shape = true;
+                        key = None;
+                        (x, y, width, height) = (None, None, None, None);
+                    }
+                    // `p:ph` is written self closed, so it arrives in this arm only.
+                    b"ph" if inside_shape => {
+                        let index = attr(&element, b"idx");
+                        let kind = attr(&element, b"type").unwrap_or_else(|| "body".to_string());
+                        key = Some(index.unwrap_or(kind));
+                    }
+                    b"off" if inside_shape => {
+                        x = attr_number::<f64>(&element, b"x").map(emu_to_px);
+                        y = attr_number::<f64>(&element, b"y").map(emu_to_px);
+                    }
+                    b"ext" if inside_shape => {
+                        width = attr_number::<f64>(&element, b"cx").map(emu_to_px);
+                        height = attr_number::<f64>(&element, b"cy").map(emu_to_px);
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::End(element)) => {
+                if local(element.name()) == b"sp" && inside_shape {
+                    inside_shape = false;
+                    if let (Some(key), Some(x), Some(y), Some(width), Some(height)) =
+                        (key.take(), x, y, width, height)
+                    {
+                        boxes.insert(
+                            key,
+                            PlaceholderBox {
+                                x,
+                                y,
+                                width,
+                                height,
+                            },
+                        );
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => return Err(format!("{what} 的形状树读不下去")),
+            _ => {}
+        }
+    }
+    Ok(boxes)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -528,5 +613,57 @@ mod tests {
             r#"<p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg>"#;
         assert_eq!(read_background(by_ref, &theme), None);
         assert_eq!(read_background("", &theme), None);
+    }
+
+    const LAYOUT: &str = r#"<?xml version="1.0"?>
+<p:sldLayout xmlns:p="p" xmlns:a="a">
+  <p:spTree>
+    <p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+      <p:spPr><a:xfrm><a:off x="9525" y="9525"/><a:ext cx="19050" cy="28575"/></a:xfrm></p:spPr></p:sp>
+    <p:sp><p:nvSpPr><p:cNvPr id="3" name="Body"/><p:nvPr><p:ph idx="1"/></p:nvPr></p:nvSpPr>
+      <p:spPr><a:xfrm><a:off x="38100" y="47625"/><a:ext cx="57150" cy="95250"/></a:xfrm></p:spPr></p:sp>
+    <p:pic><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="9525" cy="9525"/></a:xfrm></p:spPr></p:pic>
+  </p:spTree>
+</p:sldLayout>"#;
+
+    #[test]
+    fn a_layout_s_placeholders_are_found_by_the_key_a_slide_addresses_them_with() {
+        // A title has no index and is addressed by its type; a body placeholder carries `idx="1"`.
+        let boxes = read_placeholder_boxes(LAYOUT, "布局").unwrap();
+        assert_eq!(
+            boxes.get("title"),
+            Some(&PlaceholderBox {
+                x: 1.0,
+                y: 1.0,
+                width: 2.0,
+                height: 3.0
+            })
+        );
+        assert_eq!(
+            boxes.get("1"),
+            Some(&PlaceholderBox {
+                x: 4.0,
+                y: 5.0,
+                width: 6.0,
+                height: 10.0
+            })
+        );
+    }
+
+    #[test]
+    fn a_shape_that_is_not_a_placeholder_contributes_no_box() {
+        // The picture in that layout states a transform but has no `p:ph`, so it answers for no
+        // placeholder: reading it would give some slide a box that was meant for a picture.
+        let boxes = read_placeholder_boxes(LAYOUT, "布局").unwrap();
+        assert_eq!(boxes.len(), 2);
+    }
+
+    #[test]
+    fn a_placeholder_with_no_transform_answers_nothing_rather_than_a_box_of_zeroes() {
+        // A box of zeroes would be indistinguishable from a real one once the slide is drawn, and
+        // the caller falls back to the next level when a key is missing.
+        let xml = r#"<p:sldLayout xmlns:p="p" xmlns:a="a"><p:spTree><p:sp><p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr/></p:sp></p:spTree></p:sldLayout>"#;
+        let boxes = read_placeholder_boxes(xml, "布局").unwrap();
+        assert!(boxes.is_empty());
     }
 }
