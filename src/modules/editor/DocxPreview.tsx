@@ -97,6 +97,9 @@ const HEADING_CLASS = [
  */
 const SAVE_DELAY_FALLBACK_MS = 600;
 
+/** The drag payload that carries a picture's number, so a drop knows what it is holding. */
+const PICTURE_DRAG = "application/x-verta-picture";
+
 /** A list where order is the only identity there is: each entry gets the position as its id. */
 function numbered<T>(items: T[]): { id: number; item: T }[] {
   return items.map((item, id) => ({ id, item }));
@@ -105,10 +108,13 @@ function numbered<T>(items: T[]): { id: number; item: T }[] {
 function Runs({
   runs,
   onDeleteImage,
+  canMove,
 }: {
   runs: DocxRun[];
   /** Given when these runs belong to a paragraph the writer can address. */
   onDeleteImage?: (imageIndex: number) => void;
+  /** Whether a picture here may be picked up and dropped on another paragraph. */
+  canMove?: boolean;
 }) {
   const t = useT();
   return (
@@ -136,11 +142,18 @@ function Runs({
           {run.image ? (
             // A picture is drawn from the archive's own bytes; it carries no text, so writing the
             // paragraph back leaves it where Word put it.
+            // biome-ignore lint/a11y/noStaticElementInteractions: the picture is the document's own content, not a control: it is dragged with the mouse the way an image is in Word, and nothing is lost when it is not.
             <span
               className="group/picture relative inline-block align-top"
               // A control inside an editable surface: the removal must not put the caret into the
               // picture and leave a keystroke waiting there.
               contentEditable={false}
+              draggable={canMove === true && run.imageIndex != null}
+              onDragStart={(event) => {
+                if (run.imageIndex == null) return;
+                event.dataTransfer.setData(PICTURE_DRAG, String(run.imageIndex));
+                event.dataTransfer.effectAllowed = "move";
+              }}
             >
               <img
                 src={run.image}
@@ -295,6 +308,7 @@ const DocxBody = memo(function DocxBody({
   onEdited,
   onDelete,
   onDeleteImage,
+  onMoveImage,
 }: {
   doc: DocxDocument;
   editable: boolean;
@@ -305,6 +319,8 @@ const DocxBody = memo(function DocxBody({
   onDelete: (ordinal: number) => void;
   /** Takes one picture out, named by the number the reader gave it. */
   onDeleteImage: (drawing: number) => void;
+  /** Puts one picture at the end of a paragraph, named the way an edit names one. */
+  onMoveImage: (drawing: number, to: number) => void;
 }) {
   const t = useT();
   const blocks = useMemo(() => blocksFromDocument(doc), [doc]);
@@ -444,6 +460,7 @@ const DocxBody = memo(function DocxBody({
                           <Runs
                             runs={cell.runs}
                             onDeleteImage={editable ? onDeleteImage : undefined}
+                            canMove={editable}
                           />
                         </td>
                       ))}
@@ -493,6 +510,20 @@ const DocxBody = memo(function DocxBody({
             role={block.kind === "li" ? "listitem" : undefined}
             style={blockBox}
             className={classOf(block)}
+            onDragOver={(event: React.DragEvent) => {
+              if (!editable || block.ordinal == null) return;
+              if (!event.dataTransfer.types.includes(PICTURE_DRAG)) return;
+              // Without this the browser refuses the drop and the picture springs back.
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+            }}
+            onDrop={(event: React.DragEvent) => {
+              if (!editable || block.ordinal == null) return;
+              const carried = event.dataTransfer.getData(PICTURE_DRAG);
+              if (!carried) return;
+              event.preventDefault();
+              onMoveImage(Number(carried), block.ordinal);
+            }}
           >
             {deleteButton(block.ordinal)}
             {/* An empty paragraph needs something in it, or it has no height and no place to put
@@ -501,6 +532,7 @@ const DocxBody = memo(function DocxBody({
               <Runs
                 runs={read.runs}
                 onDeleteImage={editable ? onDeleteImage : undefined}
+                canMove={editable}
               />
             ) : (
               <br />
@@ -836,6 +868,39 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, DocxPreviewProps>(
     );
 
     /**
+     * Puts a picture at the end of another paragraph.
+     *
+     * A pending save is settled first, so the picture and the paragraph are named against the
+     * numbering they were drawn with: a save that inserted a paragraph moves every ordinal after it.
+     */
+    const onMoveImage = useCallback(
+      async (drawing: number, to: number) => {
+        if (timer.current !== null) {
+          window.clearTimeout(timer.current);
+          timer.current = null;
+        }
+        const current = guard.current;
+        if (!current) return;
+        setSave({ kind: "saving" });
+        try {
+          guard.current = await native.moveDocxImage(path, drawing, to, current);
+          // The picture is in another paragraph now, so the page is read again rather than patched.
+          setReloadKey((key) => key + 1);
+          setSave({ kind: "saved" });
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (message.includes("磁盘")) {
+            stale.current = true;
+            setSave({ kind: "stale", message });
+          } else {
+            setSave({ kind: "failed", message });
+          }
+        }
+      },
+      [path],
+    );
+
+    /**
      * Takes back the last change that reached the file.
      *
      * A pending save is cancelled first: it would land straight after the undo and put the change back.
@@ -969,6 +1034,7 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, DocxPreviewProps>(
           onEdited={onEdited}
           onDelete={onDelete}
           onDeleteImage={onDeleteImage}
+          onMoveImage={onMoveImage}
         />
         {truncated ? (
           <p className="mx-auto max-w-[46rem] border-t border-border/60 px-8 pt-2 text-[11.5px] text-muted-foreground">

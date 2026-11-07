@@ -976,6 +976,21 @@ export const native = {
       workspace: envForPath(path),
     }),
 
+  /**
+   * Moves one picture to the end of another paragraph.
+   *
+   * The picture travels with nothing else: the paragraph it left keeps its text, and the one it
+   * arrives in keeps everything it had.
+   */
+  moveDocxImage: (path: string, drawing: number, to: number, guard: DocxGuard) =>
+    invoke<DocxGuard>("fs_move_docx_image", {
+      path,
+      drawing,
+      to,
+      guard,
+      workspace: envForPath(path),
+    }),
+
   undoDocx: (path: string, guard: DocxGuard) =>
     invoke<DocxGuard>("fs_undo_docx", {
       path,
