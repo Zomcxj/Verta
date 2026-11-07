@@ -104,6 +104,118 @@ export type CsvDocument = {
   guard: DocxGuard;
 };
 
+/**
+ * How a worksheet's cell is drawn. The Rust side deduplicates these, so a sheet carries only the
+ * handful its cells actually use and each cell names one by index.
+ */
+export type XlsxCellStyle = {
+  bold: boolean;
+  italic: boolean;
+  align: "left" | "center" | "right" | null;
+  color: string | null;
+  fill: string | null;
+  /** The format code the value was written with, when it is not `General`. */
+  numberFormat: string | null;
+  wrap: boolean;
+};
+
+/**
+ * One cell of a worksheet.
+ *
+ * `text` is what to draw: the number format is applied in Rust, where its rules have tests. `raw`
+ * is the value under it, present only when the format changed it, so a date can still be read as
+ * the serial number it is stored as.
+ */
+export type XlsxCell = {
+  column: number;
+  text: string;
+  kind: "number" | "text" | "boolean" | "error";
+  style: number;
+  raw?: string;
+};
+
+/** A row that has something in it; a sheet's empty middle is not sent. */
+export type XlsxRow = { index: number; height?: number; cells: XlsxCell[] };
+
+/** A merged region, as its corner and how far it reaches. */
+export type XlsxMerge = {
+  row: number;
+  column: number;
+  rowSpan: number;
+  columnSpan: number;
+};
+
+/** A column's width or a row's height, in pixels. */
+export type XlsxTrack = { index: number; size: number };
+
+/** One worksheet, ready to draw. */
+export type XlsxSheet = {
+  name: string;
+  rows: XlsxRow[];
+  rowCount: number;
+  columns: number;
+  merges: XlsxMerge[];
+  columnSizes: XlsxTrack[];
+  rowHeights: XlsxTrack[];
+  frozenRows: number;
+  frozenColumns: number;
+  styles: XlsxCellStyle[];
+  truncated: boolean;
+};
+
+/** A workbook's sheets, in the order its tabs are drawn in. */
+export type XlsxWorkbook = {
+  sheets: { name: string; index: number }[];
+  truncated: boolean;
+};
+
+export type PptxRun = {
+  text: string;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  /** Point size. */
+  size?: number;
+  color?: string;
+  font?: string;
+};
+
+export type PptxParagraph = {
+  align?: "left" | "center" | "right" | "justify";
+  level: number;
+  bullets: boolean;
+  runs: PptxRun[];
+};
+
+/**
+ * One shape on a slide, placed in the slide's own pixels at 96 dpi.
+ *
+ * `image` is a `data:` URL, because a picture inside the archive has nothing on disk to fetch it
+ * from. A shape whose picture was too large keeps its box and has no image.
+ */
+export type PptxShape = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Degrees clockwise. */
+  rotation?: number;
+  kind: "text" | "picture" | "other";
+  fill?: string;
+  image?: string;
+  paragraphs: PptxParagraph[];
+};
+
+export type PptxSlide = { index: number; shapes: PptxShape[] };
+
+/** A deck: the box every slide is placed in, and each slide's shapes. */
+export type PptxDocument = {
+  width: number;
+  height: number;
+  slides: PptxSlide[];
+  truncated: boolean;
+};
+
 /** One paragraph's new text, addressed by its ordinal. */
 export type DocxEdit = { index: number; text: string };
 
@@ -803,6 +915,30 @@ export const native = {
     }),
   readDocx: (path: string) =>
     invoke<DocxDocument>("fs_read_docx", {
+      path,
+      workspace: envForPath(path),
+    }),
+  /**
+   * A workbook's sheet list.
+   *
+   * Read on its own so the pane can draw the tabs without reading a sheet: a workbook of fifty
+   * sheets read whole is a payload of tens of megabytes for the one the user is looking at.
+   */
+  readXlsx: (path: string) =>
+    invoke<XlsxWorkbook>("fs_read_xlsx", {
+      path,
+      workspace: envForPath(path),
+    }),
+  /** One sheet of a workbook, by the name the workbook gives it. */
+  readXlsxSheet: (path: string, name: string) =>
+    invoke<XlsxSheet>("fs_read_xlsx_sheet", {
+      path,
+      name,
+      workspace: envForPath(path),
+    }),
+  /** A presentation, as the slides it holds. Read-only; nothing here writes. */
+  readPptx: (path: string) =>
+    invoke<PptxDocument>("fs_read_pptx", {
       path,
       workspace: envForPath(path),
     }),

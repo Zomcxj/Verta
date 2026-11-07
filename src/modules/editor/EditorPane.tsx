@@ -33,6 +33,8 @@ import { toast } from "sonner";
 import { SidePreview, type ViewportMark, sidePreviewKind } from "./SidePreview";
 import { CsvPreview } from "./CsvPreview";
 import { DocxPreview, type DocxPreviewHandle } from "./DocxPreview";
+import { PptxPreview } from "./PptxPreview";
+import { XlsxPreview } from "./XlsxPreview";
 import { htmlPreviewUrl } from "./htmlPreviewUrl";
 import { diagnosticsReporter } from "./lib/diagnosticsReporter";
 import { useDiagnosticsStore } from "./lib/diagnosticsStore";
@@ -614,6 +616,14 @@ export const EditorPane = memo(
           onDirtyChange={onDirtyChange}
         />
       );
+    }
+    // A workbook and a deck are archives of XML too, so they reach their readers the same way and
+    // for the same reason: the text reader can only call them a binary file.
+    if (fileExt === "xlsx" || fileExt === "xlsm") {
+      return <XlsxPreview path={path} />;
+    }
+    if (fileExt === "pptx") {
+      return <PptxPreview path={path} />;
     }
     // A `.csv` written in GB18030 is not UTF-8, so the *text* reader calls it a binary file - but
     // its table is exactly what the reader for it is for: the Rust side decodes the file itself.

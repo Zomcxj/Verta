@@ -4,7 +4,7 @@ pub mod modules;
 use modules::app_menu;
 use modules::{
     agent_sessions, agent_versions, control, csv, docx, drag, fonts, fs, git, github, history, lsp,
-    projects, pty, screenshot, shell, vibrancy, workspace,
+    projects, pptx, pty, screenshot, shell, vibrancy, workspace, xlsx,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -392,6 +392,9 @@ pub fn run() {
             docx::fs_read_docx,
             docx::fs_write_docx,
             docx::fs_undo_docx,
+            xlsx::fs_read_xlsx,
+            xlsx::fs_read_xlsx_sheet,
+            pptx::fs_read_pptx,
             fs::file::fs_read_file,
             fs::file::fs_write_file,
             fs::file::fs_stat,

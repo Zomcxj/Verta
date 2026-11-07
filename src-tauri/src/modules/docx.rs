@@ -248,9 +248,9 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
         } else if name.eq_ignore_ascii_case("document.xml.rels") {
             Some(MAX_NUMBERING_BYTES)
         } else if in_media {
-            // A picture bigger than the cap is skipped rather than failing the read: the text of
-            // the document is still what the pane is for.
-            Some(MAX_IMAGE_BYTES).filter(|_| media_bytes < MAX_IMAGES_BYTES)
+            // A picture past the cap, or past what is left of the total, is skipped rather than
+            // failing the read: the text of the document is still what the pane is for.
+            (media_bytes < MAX_IMAGES_BYTES).then_some(MAX_IMAGE_BYTES)
         } else {
             None
         };
@@ -262,15 +262,18 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
             ));
         }
         if in_media {
-            let bytes = read_bytes(&mut entry, limit)?;
+            let bytes = read_bytes(&mut entry, limit, ".docx")?;
             media_bytes += bytes.len() as u64;
-            let (Some(mime), Some(data)) = (image_mime(&name), encode_data_url(&bytes)) else {
+            // One table of picture types serves all three Office readers.
+            let (Some(mime), Some(data)) =
+                (super::office::image_mime(&name), encode_data_url(&bytes))
+            else {
                 continue;
             };
             media.insert(name, (mime.to_string(), data));
             continue;
         }
-        let text = read_part(&mut entry, limit)?;
+        let text = read_part(&mut entry, limit, ".docx")?;
         if name.eq_ignore_ascii_case("document.xml") {
             document = Some(text);
         } else if name.eq_ignore_ascii_case("styles.xml") {
@@ -301,13 +304,16 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
 
 /// Reads one entry up to `limit` bytes. A ZIP can claim a small uncompressed size and deliver more,
 /// so the read itself is bounded rather than only its declared size.
-fn read_part(entry: &mut impl Read, limit: u64) -> Result<String, String> {
+///
+/// `what` is the container being read (`.docx`, `.xlsx`, `.pptx`), so the message names the file the
+/// user actually opened; the three readers share this because the archive is the same shape.
+pub(crate) fn read_part(entry: &mut impl Read, limit: u64, what: &str) -> Result<String, String> {
     let mut buffer = Vec::new();
     let mut chunk = [0u8; 64 * 1024];
     loop {
         let read = entry
             .read(&mut chunk)
-            .map_err(|error| format!("解压 .docx 内条目失败：{error}"))?;
+            .map_err(|error| format!("解压 {what} 内条目失败：{error}"))?;
         if read == 0 {
             break;
         }
@@ -323,13 +329,13 @@ fn read_part(entry: &mut impl Read, limit: u64) -> Result<String, String> {
 }
 
 /// One entry's bytes, up to `limit`: a picture is not text and cannot go through the reader above.
-fn read_bytes(entry: &mut impl Read, limit: u64) -> Result<Vec<u8>, String> {
+pub(crate) fn read_bytes(entry: &mut impl Read, limit: u64, what: &str) -> Result<Vec<u8>, String> {
     let mut buffer = Vec::new();
     let mut chunk = [0u8; 64 * 1024];
     loop {
         let read = entry
             .read(&mut chunk)
-            .map_err(|error| format!("解压 .docx 内条目失败：{error}"))?;
+            .map_err(|error| format!("解压 {what} 内条目失败：{error}"))?;
         if read == 0 {
             break;
         }
@@ -548,24 +554,10 @@ fn rewrite_paragraph(paragraph: &str, text: &str) -> Result<String, String> {
     Ok(out)
 }
 
-/// The mime type of a picture, from its extension. Anything else is not drawn.
-fn image_mime(name: &str) -> Option<&'static str> {
-    let extension = name.rsplit('.').next()?.to_ascii_lowercase();
-    Some(match extension.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "bmp" => "image/bmp",
-        "webp" => "image/webp",
-        "svg" => "image/svg+xml",
-        _ => return None,
-    })
-}
-
 /// The bytes as a `data:` URL - what an `<img src>` can use with nothing on disk to fetch.
 fn encode_data_url(bytes: &[u8]) -> Option<String> {
     use base64::Engine;
-    // Only the payload is encoded here; the mime type is added by `image_mime`'s caller.
+    // Only the payload is encoded here; the mime type is added by the relationship table's caller.
     Some(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
@@ -929,7 +921,7 @@ fn write_docx_sync(
                 entry.size() / 1024 / 1024
             ));
         }
-        document = Some(read_part(&mut entry, MAX_DOCUMENT_BYTES)?);
+        document = Some(read_part(&mut entry, MAX_DOCUMENT_BYTES, ".docx")?);
         break;
     }
     let document = document.ok_or("这个 .docx 里没有 word/document.xml")?;
