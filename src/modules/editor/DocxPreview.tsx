@@ -167,6 +167,19 @@ export const DEFAULT_PAGE = {
 /** Twips (1/20 pt) to CSS pixels at 96 dpi - 15 twips to the pixel. */
 const twipsToPx = (twips: number) => twips / 15;
 
+/**
+ * The scale a document's page is drawn at so that it fits the pane.
+ *
+ * A page wider than the pane - a landscape sheet, or a slide exported into a document - was drawn at
+ * its own width inside a centred row, so it overflowed both sides and its left edge could not be
+ * scrolled to. Fitting it to the pane keeps the page whole. A page that already fits is left at its
+ * own size: nothing here enlarges, because a document is not a slide to be projected.
+ */
+export function fittedPageScale(pageWidth: number, available: number): number {
+  if (pageWidth <= 0 || available <= 0) return 1;
+  return pageWidth > available ? available / pageWidth : 1;
+}
+
 /** A point size to CSS pixels at 96 dpi. */
 const pointsToPx = (points: number) => (points * 4) / 3;
 
@@ -249,12 +262,15 @@ const DocxBody = memo(function DocxBody({
   doc,
   editable,
   bodyRef,
+  available,
   onEdited,
   onDelete,
 }: {
   doc: DocxDocument;
   editable: boolean;
   bodyRef: React.RefObject<HTMLDivElement | null>;
+  /** The room the pane has, so a page wider than it is drawn to fit rather than clipped. */
+  available: number;
   onEdited: () => void;
   onDelete: (ordinal: number) => void;
 }) {
@@ -288,13 +304,19 @@ const DocxBody = memo(function DocxBody({
     ) : null;
 
   const page = { ...DEFAULT_PAGE, ...(doc.page ?? {}) };
+  const pageWidth = twipsToPx(page.width ?? DEFAULT_PAGE.width);
+  // A page wider than the pane is shrunk to fit it; a page that fits is drawn at its own size.
+  const scale = fittedPageScale(pageWidth, available);
   const paper = {
-    width: `${twipsToPx(page.width ?? DEFAULT_PAGE.width)}px`,
+    width: `${pageWidth}px`,
     minHeight: `${twipsToPx(page.height ?? DEFAULT_PAGE.height)}px`,
     paddingTop: `${twipsToPx(page.marginTop ?? DEFAULT_PAGE.marginTop)}px`,
     paddingRight: `${twipsToPx(page.marginRight ?? DEFAULT_PAGE.marginRight)}px`,
     paddingBottom: `${twipsToPx(page.marginBottom ?? DEFAULT_PAGE.marginBottom)}px`,
     paddingLeft: `${twipsToPx(page.marginLeft ?? DEFAULT_PAGE.marginLeft)}px`,
+    // `zoom` rather than a transform: it shrinks the page's own layout, so its width, its margins
+    // and its type all come down together and the row it sits in centres what is actually drawn.
+    zoom: scale,
   };
 
   return (
@@ -506,6 +528,8 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, DocxPreviewProps>(
     );
     const [state, setState] = useState<LoadState>({ kind: "loading" });
     const [save, setSave] = useState<SaveState>({ kind: "idle" });
+    /** How much room the pane has, so a page wider than it can be fitted to what there is. */
+    const [available, setAvailable] = useState(0);
     /** The blocks the file has, as of the last read or the last successful write. */
     const baseline = useRef<BaselineBlock[]>([]);
     const root = useRef<HTMLDivElement | null>(null);
@@ -523,6 +547,23 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, DocxPreviewProps>(
     /** Set when the file changed under us: nothing more is written until it is read again. */
     const stale = useRef(false);
     const [reloadKey, setReloadKey] = useState(0);
+
+    // The pane's own width, watched rather than read once: the window is resized, the side panel is
+    // dragged, and the tab is split, and the page has to come to scale again for each.
+    //
+    // It runs again when the document arrives, because the element it measures is only drawn once
+    // there is a document to draw: on the first pass the pane is still the loading notice, and the
+    // ref is null.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: the load state is the only trigger this measurement has
+    useEffect(() => {
+      const element = root.current;
+      if (!element) return;
+      const measure = () => setAvailable(element.clientWidth);
+      measure();
+      const observer = new ResizeObserver(measure);
+      observer.observe(element);
+      return () => observer.disconnect();
+    }, [state.kind]);
 
     useEffect(() => {
       // `reloadKey` is read here only to make this run again: reopening a document whose file changed
@@ -852,6 +893,7 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, DocxPreviewProps>(
           doc={state.document}
           editable={editable}
           bodyRef={bodyRef}
+          available={available}
           onEdited={onEdited}
           onDelete={onDelete}
         />

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { blockStyle, DEFAULT_PAGE, fallbackPx, tableGrid } from "./DocxPreview";
+import { blockStyle, DEFAULT_PAGE, fallbackPx, fittedPageScale, tableGrid } from "./DocxPreview";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pane = readFileSync(path.join(here, "EditorPane.tsx"), "utf8");
@@ -332,5 +332,27 @@ describe("the document body is one editable surface", () => {
   it("re-reads only when a write moved the blocks around", () => {
     expect(preview).toMatch(/needsReread\(/);
     expect(preview).toMatch(/baseline\.current = adoptDraft\(before, draft\)/);
+  });
+});
+
+describe("fitting a page to the pane", () => {
+  it("shrinks a page that is wider than the pane", () => {
+    // A slide exported into a document is 1700 CSS pixels wide, which is wider than the pane: drawn
+    // at its own width inside a centred row it overflowed both sides and its left edge could not be
+    // scrolled to at all.
+    expect(fittedPageScale(1700, 1200)).toBeCloseTo(1200 / 1700, 6);
+  });
+
+  it("leaves a page that already fits at its own size", () => {
+    // An A4 page is 794 pixels: the document is not a slide, and enlarging it would be a different
+    // document than the one the file describes.
+    expect(fittedPageScale(794, 1200)).toBe(1);
+    expect(fittedPageScale(794, 794)).toBe(1);
+  });
+
+  it("draws at its own size before the pane has been measured", () => {
+    // The first frame has no measurement; scaling by a width of zero would draw nothing.
+    expect(fittedPageScale(1700, 0)).toBe(1);
+    expect(fittedPageScale(0, 1200)).toBe(1);
   });
 });
