@@ -2188,7 +2188,11 @@ fn parse_document(
                     }
                     continue;
                 }
-                if nested_table_depth > 0 {
+                // A table inside a cell has no rows of the outer table: its own `tr` and `tc` are
+                // skipped, while its paragraphs are read into the cell it sits in. The model has no
+                // table for a table to sit inside, and dropping the text lost it - one real file
+                // keeps 171 characters in a table inside a cell.
+                if nested_table_depth > 0 && (is_w(name, b"tr") || is_w(name, b"tc")) {
                     continue;
                 }
                 if is_w(name, b"tr") {
@@ -2295,7 +2299,7 @@ fn parse_document(
                     }
                     continue;
                 }
-                if nested_table_depth > 0 {
+                if nested_table_depth > 0 && (is_w(name, b"tr") || is_w(name, b"tc")) {
                     continue;
                 }
                 if is_w(name, b"tr") {
@@ -2957,7 +2961,10 @@ mod tests {
     }
 
     #[test]
-    fn a_nested_table_does_not_become_rows_of_its_parent() {
+    fn a_nested_table_is_read_into_the_cell_it_sits_in() {
+        // A cell holds one line here and the model has no table for a table to sit inside, so a
+        // table inside a cell used to be skipped whole and its text lost. Its paragraphs are drawn
+        // in the cell now, one space apart, and its own rows stay out of the outer table's rows.
         let xml = document(
             r#"<w:tbl><w:tr><w:tc><w:p><w:r><w:t>outer</w:t></w:r></w:p>
             <w:tbl><w:tr><w:tc><w:p><w:r><w:t>inner</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
@@ -2965,8 +2972,33 @@ mod tests {
         );
         assert_eq!(
             table_texts(&parse_blocks(&xml, None).unwrap().0),
-            vec![vec!["outer".to_string()]]
+            vec![vec!["outer inner".to_string()]]
         );
+    }
+
+    #[test]
+    fn a_two_by_two_table_inside_a_cell_is_one_line_in_it() {
+        // The shape of the one real file that has this: 171 characters in a 2x2 table inside a cell
+        // of a table. Every cell of it is drawn, in reading order, and the outer table still has the
+        // one row and the one cell it states.
+        let xml = document(
+            r#"<w:tbl><w:tr><w:tc><w:p><w:r><w:t>outer</w:t></w:r></w:p>
+            <w:tbl>
+              <w:tr><w:tc><w:p><w:r><w:t>a</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>b</w:t></w:r></w:p></w:tc></w:tr>
+              <w:tr><w:tc><w:p><w:r><w:t>c</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>d</w:t></w:r></w:p></w:tc></w:tr>
+            </w:tbl>
+            </w:tc></w:tr></w:tbl>"#,
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        assert_eq!(
+            table_texts(&blocks),
+            vec![vec!["outer a b c d".to_string()]]
+        );
+        let Block::Table { rows } = &blocks[0] else {
+            panic!("expected one table");
+        };
+        assert_eq!(rows.len(), 1, "the outer table keeps its own rows");
+        assert_eq!(rows[0].len(), 1, "and its own cells");
     }
 
     #[test]
