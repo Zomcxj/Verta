@@ -6,7 +6,11 @@
 //! part and handed over as blocks, which the frontend draws with ordinary elements: no HTML
 //! passthrough, no parser in the frontend bundle, and nothing added to the size budget.
 //!
-//! What this deliberately does not do: images, text boxes, footnotes, and the old `.doc` format
+//! A text box is not drawn as a box: the model has no floating shapes, so the paragraphs inside one
+//! are drawn where the box is anchored. Word writes every box twice, once for readers that know
+//! DrawingML and once for readers that do not, and only the first copy is read.
+//!
+//! What this deliberately does not do: footnotes, comments and the old `.doc` format
 //! (a completely different container, OLE2 rather than ZIP). Revision marks are read as their
 //! accepted text - insertions kept, deletions dropped - which is what the document says it is.
 
@@ -363,6 +367,77 @@ fn is_w(name: QName<'_>, local: &[u8]) -> bool {
     full == local || (full.starts_with(b"w:") && &full[2..] == local)
 }
 
+/// A markup compatibility element, prefixed `mc:` in every part Word writes.
+fn is_mc(name: QName<'_>, local: &[u8]) -> bool {
+    let full = name.as_ref();
+    full == local || (full.starts_with(b"mc:") && &full[3..] == local)
+}
+
+/// What to read of a part that states the same thing twice for the sake of old readers.
+///
+/// Word writes a text box as DrawingML inside `mc:Choice` and again as VML inside `mc:Fallback`, and
+/// both copies hold paragraphs. Reading both put every text box in the document twice: one notes
+/// file of 20 boxes held 10 distinct texts, each drawn twice. A fallback exists only for readers that
+/// cannot use the choice, so this one skips it - unless the choice held nothing this reader draws (a
+/// paragraph or a table), in which case the fallback is all there is and is read as usual.
+#[derive(Default)]
+struct Alternates {
+    /// One entry per open `mc:AlternateContent`: whether its choice held anything to draw.
+    open: Vec<bool>,
+    /// How deep inside a fallback that is being skipped.
+    skipping: usize,
+}
+
+impl Alternates {
+    /// Told about every start element: says whether what it opens is to be left alone.
+    fn start(&mut self, name: QName<'_>) -> bool {
+        if self.skipping > 0 {
+            // Anything nested inside a skipped fallback is skipped too, including a fallback.
+            if is_mc(name, b"Fallback") {
+                self.skipping += 1;
+            }
+            return true;
+        }
+        if is_mc(name, b"AlternateContent") {
+            self.open.push(false);
+            return false;
+        }
+        if is_mc(name, b"Fallback") {
+            if self.open.last().copied().unwrap_or(false) {
+                self.skipping = 1;
+                return true;
+            }
+            return false;
+        }
+        // What this reader draws: the choice is worth taking if it holds one of these.
+        if is_w(name, b"p") || is_w(name, b"tbl") {
+            if let Some(taken) = self.open.last_mut() {
+                *taken = true;
+            }
+        }
+        false
+    }
+
+    /// Told about every end element: says whether it closed something inside a skipped fallback.
+    fn end(&mut self, name: QName<'_>) -> bool {
+        if self.skipping > 0 {
+            if is_mc(name, b"Fallback") {
+                self.skipping -= 1;
+            }
+            return true;
+        }
+        if is_mc(name, b"AlternateContent") {
+            self.open.pop();
+        }
+        false
+    }
+
+    /// Whether the reader is inside a fallback it is leaving alone.
+    fn skipping(&self) -> bool {
+        self.skipping > 0
+    }
+}
+
 fn attribute(element: &BytesStart<'_>, local: &[u8]) -> Option<String> {
     element
         .attributes()
@@ -712,21 +787,42 @@ fn drawing_cut(xml: &str, drawing: u32) -> Result<(usize, usize), String> {
 }
 
 /// Every `<w:p>` of a part as the byte range it occupies, by ordinal.
+///
+/// The ordinal is what the pane calls a paragraph, so this walk skips what the reader skips: a
+/// fallback copy of a text box is not one of the document's paragraphs.
 fn paragraph_spans(xml: &str) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
+    let mut alternates = Alternates::default();
     let mut open: Option<usize> = None;
     loop {
         let before = reader.buffer_position() as usize;
         match reader.read_event() {
-            Ok(Event::Start(element)) if is_w(element.name(), b"p") => open = Some(before),
-            Ok(Event::Empty(element)) if is_w(element.name(), b"p") => {
-                spans.push((before, reader.buffer_position() as usize));
+            Ok(Event::Start(element)) => {
+                if alternates.start(element.name()) {
+                    continue;
+                }
+                if is_w(element.name(), b"p") {
+                    open = Some(before);
+                }
             }
-            Ok(Event::End(element)) if is_w(element.name(), b"p") => {
-                if let Some(start) = open.take() {
-                    spans.push((start, reader.buffer_position() as usize));
+            Ok(Event::Empty(element)) => {
+                if alternates.skipping() {
+                    continue;
+                }
+                if is_w(element.name(), b"p") {
+                    spans.push((before, reader.buffer_position() as usize));
+                }
+            }
+            Ok(Event::End(element)) => {
+                if alternates.end(element.name()) {
+                    continue;
+                }
+                if is_w(element.name(), b"p") {
+                    if let Some(start) = open.take() {
+                        spans.push((start, reader.buffer_position() as usize));
+                    }
                 }
             }
             Ok(Event::Eof) => break,
@@ -860,37 +956,53 @@ fn rewrite_document_xml(
     reader.config_mut().trim_text(false);
     // (ordinal, start, end, is it a paragraph of the body rather than of a table cell)
     let mut ranges: Vec<(u32, usize, usize, bool)> = Vec::new();
-    let mut open: Option<(u32, usize)> = None;
+    let mut open: Vec<(u32, usize)> = Vec::new();
     let mut next_paragraph: u32 = 0;
     // A table's paragraphs are paragraphs too, and they come first in the byte order. Depth is what
     // tells them apart: an insert "in front of everything" has to go in front of the body's first
     // paragraph, not inside the first cell.
     let mut tables: u32 = 0;
+    let mut alternates = Alternates::default();
     loop {
         let before = reader.buffer_position() as usize;
         match reader.read_event() {
-            Ok(Event::Start(element)) if is_w(element.name(), b"tbl") => tables += 1,
-            Ok(Event::End(element)) if is_w(element.name(), b"tbl") => {
-                tables = tables.saturating_sub(1);
+            Ok(Event::Start(element)) => {
+                if alternates.start(element.name()) {
+                    continue;
+                }
+                if is_w(element.name(), b"tbl") {
+                    tables += 1;
+                } else if is_w(element.name(), b"p") {
+                    open.push((next_paragraph, before));
+                    next_paragraph += 1;
+                }
             }
-            Ok(Event::Start(element)) if is_w(element.name(), b"p") => {
-                open = Some((next_paragraph, before));
-                next_paragraph += 1;
+            Ok(Event::Empty(element)) => {
+                if alternates.skipping() {
+                    continue;
+                }
+                if is_w(element.name(), b"p") {
+                    ranges.push((
+                        next_paragraph,
+                        before,
+                        reader.buffer_position() as usize,
+                        tables == 0,
+                    ));
+                    next_paragraph += 1;
+                }
             }
-            Ok(Event::Empty(element)) if is_w(element.name(), b"p") => {
-                ranges.push((
-                    next_paragraph,
-                    before,
-                    reader.buffer_position() as usize,
-                    tables == 0,
-                ));
-                next_paragraph += 1;
-            }
-            Ok(Event::End(element)) if is_w(element.name(), b"p") => {
-                if let Some((index, start)) = open.take() {
-                    // The end event is read after the element's own content, so the depth still
-                    // counts the table this paragraph is in.
-                    ranges.push((index, start, reader.buffer_position() as usize, tables == 0));
+            Ok(Event::End(element)) => {
+                if alternates.end(element.name()) {
+                    continue;
+                }
+                if is_w(element.name(), b"tbl") {
+                    tables = tables.saturating_sub(1);
+                } else if is_w(element.name(), b"p") {
+                    if let Some((index, start)) = open.pop() {
+                        // The end event is read after the element's own content, so the depth still
+                        // counts the table this paragraph is in.
+                        ranges.push((index, start, reader.buffer_position() as usize, tables == 0));
+                    }
                 }
             }
             Ok(Event::Eof) => break,
@@ -1850,12 +1962,23 @@ fn parse_document(
     // guess; the unclosed case at the end of input is counted below.
     reader.config_mut().check_end_names = true;
 
+    let mut alternates = Alternates::default();
+    // A paragraph can open inside another: a text box holds paragraphs of its own, inside a run of
+    // the document's. The outer one is kept here and put back when the inner one closes, and what
+    // the inner ones wrote is drawn after it. The model has no floating boxes, so the text is drawn
+    // where the box is anchored - which keeps it in the document instead of dropping it, and keeps
+    // the anchored paragraph's own words, which replacing it used to lose.
+    let mut outer: Vec<Paragraph> = Vec::new();
+    let mut inside: Vec<Block> = Vec::new();
     loop {
         match reader.read_event() {
             Ok(Event::Start(element)) => {
                 let name = element.name();
                 let at = reader.buffer_position() as usize;
                 open_elements += 1;
+                if alternates.start(name) {
+                    continue;
+                }
                 // Counted before the table and nesting checks below, because a paragraph inside a
                 // cell is still a paragraph element of the part.
                 let paragraph_index = is_w(name, b"p").then(|| {
@@ -1879,6 +2002,9 @@ fn parse_document(
                 } else if is_w(name, b"tc") {
                     cell = Some(Vec::new());
                 } else if let Some(index) = paragraph_index {
+                    if let Some(open) = paragraph.take() {
+                        outer.push(open);
+                    }
                     paragraph = Some(Paragraph {
                         index,
                         ..Default::default()
@@ -1896,6 +2022,9 @@ fn parse_document(
             Ok(Event::Empty(element)) => {
                 let name = element.name();
                 let at = reader.buffer_position() as usize;
+                if alternates.skipping() {
+                    continue;
+                }
                 // A self-closing `<w:p/>` is a paragraph element too, and takes its ordinal - and,
                 // outside a table, it is a block of its own: this is what a blank line looks like
                 // in a part Word wrote, and the pane needs it to draw the line the caret goes to.
@@ -1961,6 +2090,9 @@ fn parse_document(
             Ok(Event::End(element)) => {
                 let name = element.name();
                 open_elements = open_elements.saturating_sub(1);
+                if alternates.end(name) {
+                    continue;
+                }
                 if is_w(name, b"tbl") {
                     if nested_table_depth > 0 {
                         nested_table_depth -= 1;
@@ -2036,7 +2168,7 @@ fn parse_document(
                             });
                         }
                         target.extend(runs);
-                    } else if blocks.len() >= MAX_BLOCKS {
+                    } else if blocks.len() + inside.len() >= MAX_BLOCKS {
                         truncated = true;
                     } else {
                         // Every paragraph of the body is a block, blank ones included: a blank line
@@ -2047,7 +2179,7 @@ fn parse_document(
                             level: *level,
                             num_id: id.parse().unwrap_or_default(),
                         });
-                        blocks.push(Block::Paragraph {
+                        let block = Block::Paragraph {
                             index,
                             heading,
                             list,
@@ -2069,7 +2201,19 @@ fn parse_document(
                                 line: placed.line,
                                 line_rule: placed.line_rule,
                             }),
-                        });
+                        };
+                        if outer.is_empty() {
+                            blocks.push(block);
+                        } else {
+                            inside.push(block);
+                        }
+                    }
+                    // The paragraph this one opened inside comes back, and what this one wrote is
+                    // drawn after it rather than before it.
+                    let body_paragraph = outer.is_empty();
+                    paragraph = outer.pop();
+                    if body_paragraph {
+                        blocks.append(&mut inside);
                     }
                 }
             }
@@ -2134,6 +2278,100 @@ mod tests {
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}</w:body></w:document>"#
         )
+    }
+
+    /// A paragraph that carries a text box, as Word writes one: the box twice over, once as
+    /// DrawingML inside `mc:Choice` and once as VML inside `mc:Fallback`.
+    fn paragraph_with_a_text_box() -> String {
+        document(
+            r#"<w:p><w:r><w:t>before</w:t></w:r><w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing><wps:txbx><w:txbxContent><w:p><w:r><w:t>boxed</w:t></w:r></w:p></w:txbxContent></wps:txbx></w:drawing></mc:Choice><mc:Fallback><w:pict><v:textbox><w:txbxContent><w:p><w:r><w:t>boxed</w:t></w:r></w:p></w:txbxContent></v:textbox></w:pict></mc:Fallback></mc:AlternateContent></w:r></w:p><w:p><w:r><w:t>after</w:t></w:r></w:p>"#,
+        )
+    }
+
+    /// The text of each paragraph block, in the order the pane draws them.
+    fn block_texts(blocks: &[Block]) -> Vec<String> {
+        blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Paragraph { runs, .. } => Some(runs.iter().map(|run| run.text.as_str()).collect()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_prefixed_checks_match() {
+        use quick_xml::name::QName as Q;
+        assert!(is_mc(Q(b"mc:AlternateContent"), b"AlternateContent"));
+        assert!(is_mc(Q(b"mc:Fallback"), b"Fallback"));
+        assert!(!is_mc(Q(b"w:p"), b"p"));
+        assert!(is_w(Q(b"w:p"), b"p"));
+    }
+
+    #[test]
+    fn a_text_box_written_twice_is_read_once() {
+        // Word writes every text box twice: once for readers that understand DrawingML and once for
+        // readers that do not. Reading both put every box in the document twice - one notes file of
+        // 20 boxes held 10 distinct texts, each drawn twice.
+        let xml = paragraph_with_a_text_box();
+        let (blocks, _) = parse_blocks(&xml, None).unwrap();
+        assert_eq!(block_texts(&blocks), vec!["before", "boxed", "after"]);
+        // And the ordinals are the document's own: the pane addresses paragraphs by them.
+        let indexes: Vec<u32> = blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Paragraph { index, .. } => Some(*index),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(indexes, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn an_edit_after_a_text_box_lands_in_the_paragraph_it_names() {
+        // The read and the write number paragraphs the same way, over both copies of a box and over
+        // the box's own paragraph. If they disagreed, an edit would land in another paragraph - or
+        // inside the box - and what came back would not be the document the reader was looking at.
+        let xml = document(
+            r#"<w:p><w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing><wps:txbx><w:txbxContent><w:p><w:r><w:t>boxed</w:t></w:r></w:p></w:txbxContent></wps:txbx></w:drawing></mc:Choice><mc:Fallback><w:pict><v:textbox><w:txbxContent><w:p><w:r><w:t>boxed</w:t></w:r></w:p></w:txbxContent></v:textbox></w:pict></mc:Fallback></mc:AlternateContent></w:r></w:p><w:p><w:r><w:t>one</w:t></w:r></w:p><w:p><w:r><w:t>two</w:t></w:r></w:p>"#,
+        );
+        let (blocks, _) = parse_blocks(&xml, None).unwrap();
+        // The box's anchor is the empty line before it; the box's own text follows it.
+        assert_eq!(block_texts(&blocks), vec!["", "boxed", "one", "two"]);
+        let last = blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Paragraph { index, .. } => Some(*index),
+                _ => None,
+            })
+            .next_back()
+            .expect("the document has paragraphs");
+        let written = rewrite_document_xml(
+            &xml,
+            &[DocxEdit {
+                index: last,
+                text: "changed".into(),
+            }],
+            &[], &[], &[], &[])
+        .expect("the last paragraph is editable");
+        assert!(written.contains("<w:t>changed</w:t>"), "{written}");
+        assert!(!written.contains("<w:t>two</w:t>"), "{written}");
+        assert!(written.contains("<w:t>one</w:t>"), "{written}");
+        // Both copies of the box are left as they were: an edit is not a rewrite of the box.
+        assert_eq!(written.matches("<w:t>boxed</w:t>").count(), 2, "{written}");
+    }
+
+    #[test]
+    fn a_text_box_that_only_has_a_fallback_is_still_read() {
+        // A part may state the old form alone. Skipping it there would lose the text, so the fallback
+        // is only left alone when the choice above it held something this reader draws. The
+        // paragraph the box is anchored in is kept as the empty line it is, because paragraph
+        // ordinals are what the writer addresses and they are the document's own.
+        let xml = document(
+            r#"<w:p><w:r><mc:AlternateContent><mc:Fallback><w:pict><v:textbox><w:txbxContent><w:p><w:r><w:t>only</w:t></w:r></w:p></w:txbxContent></v:textbox></w:pict></mc:Fallback></mc:AlternateContent></w:r></w:p>"#,
+        );
+        let (blocks, _) = parse_blocks(&xml, None).unwrap();
+        assert_eq!(block_texts(&blocks), vec!["", "only"]);
     }
 
     fn paragraphs(blocks: &[Block]) -> Vec<&Block> {
