@@ -203,6 +203,9 @@ const BLOCK_CLASS: Record<string, string> = {
   p: "group/block relative first:mt-0",
   li: "group/block relative pl-6",
   table: "my-3 overflow-x-auto",
+  // A footnote sits under the paragraph that cites it: smaller, quieter, and set off by a rule, the
+  // way Word draws it at the foot of a page.
+  note: "my-2 ml-6 border-l-2 border-border/60 pl-3 text-[11.5px] leading-relaxed text-muted-foreground",
 };
 
 /** A4 in twips, and the margins Word starts from; a document that names its own section wins. */
@@ -298,6 +301,7 @@ export function blockStyle(
 
 function classOf(block: BaselineBlock): string {
   if (block.kind === "table") return BLOCK_CLASS.table;
+  if (block.kind === "note") return BLOCK_CLASS.note;
   if (block.kind === "li") return BLOCK_CLASS.li;
   if (block.kind === "p") return BLOCK_CLASS.p;
   const level = Number.parseInt(block.kind.slice(1), 10);
@@ -674,6 +678,23 @@ const DocxBody = memo(function DocxBody({
                   ))}
                 </tbody>
               </table>
+            </div>
+          );
+        }
+        if (block.kind === "note") {
+          // The text of a footnote the block above cites. It is not part of that paragraph: the pane
+          // writes one text per paragraph, so a note folded into it would be saved into the body of
+          // the document. It is drawn here, read only, right after the paragraph that cites it, and
+          // like a table its place in the body is its identity.
+          const noteKey = `note-${index}`;
+          return (
+            <div
+              key={noteKey}
+              data-block="note"
+              className={classOf(block)}
+              contentEditable={false}
+            >
+              {t("editor.docx.note", { text: block.text })}
             </div>
           );
         }

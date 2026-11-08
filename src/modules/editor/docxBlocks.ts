@@ -16,7 +16,8 @@ export type BlockKind =
   | "h5"
   | "h6"
   | "li"
-  | "table";
+  | "table"
+  | "note";
 
 /** One block as the pane has it on screen right now. */
 export type DraftBlock = {
@@ -41,6 +42,7 @@ const KINDS: ReadonlySet<string> = new Set([
   "h6",
   "li",
   "table",
+  "note",
 ]);
 
 /** Beyond this many blocks on either side the LCS is skipped and leftovers pair up in order. */
@@ -99,14 +101,15 @@ export function readBlocks(
 /** The blocks a read produced, as the baseline the DOM is compared against. */
 export function blocksFromDocument(document: DocxDocument): BaselineBlock[] {
   return document.blocks.map((block) => {
-    if (block.kind === "table") {
-      // A table has no paragraph ordinal of its own: it is drawn, and it is not editable, so it never
-      // takes part in what is written back.
+    if (block.kind === "table" || block.kind === "note") {
+      // Neither has a paragraph ordinal of its own: both are drawn read only, so neither takes part
+      // in what is written back. A note especially must not: it is the text of a footnote, which
+      // lives in a part of its own, and writing it as a paragraph's words would put it in the body.
       return {
-        kind: "table",
+        kind: block.kind,
         list: null,
         numId: null,
-        text: "",
+        text: block.kind === "note" ? block.text : "",
         ordinal: null,
       };
     }
@@ -168,12 +171,12 @@ export function needsReread(
 /**
  * The blocks the writer can address.
  *
- * A table is drawn, not typed into, and it has no paragraph ordinal: counting one as a block would
- * report every paragraph after it as moved - a re-read after every keystroke, and an alignment that
- * pairs a paragraph with a table.
+ * A table and a note are drawn, not typed into, and neither has a paragraph ordinal: counting one as
+ * a block would report every paragraph after it as moved - a re-read after every keystroke, and an
+ * alignment that pairs a paragraph with a table.
  */
 function writable(blocks: BaselineBlock[]): BaselineBlock[] {
-  return blocks.filter((block) => block.kind !== "table");
+  return blocks.filter((block) => block.kind !== "table" && block.kind !== "note");
 }
 
 /**

@@ -136,6 +136,13 @@ pub enum Block {
     /// Rows of cells; each cell's paragraphs are joined by a space, since a cell is one line here,
     /// but the styling of every piece is kept so a bold header is drawn bold.
     Table { rows: Vec<Vec<Vec<Run>>> },
+    /// The text of a footnote the paragraph above cites.
+    ///
+    /// It is a block of its own and not part of that paragraph: the pane states one text per
+    /// paragraph and writes it back over the paragraph, so a note folded into the paragraph's text
+    /// would be written into the body of the document the first time the paragraph was edited. It
+    /// has no ordinal, like a table, and is not editable.
+    Note { text: String },
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -196,11 +203,17 @@ fn read_docx_sync(path: &Path) -> Result<DocxDocument, String> {
     if styles.default_run.font.is_none() {
         styles.default_run.font = theme_latin.or(theme_east_asian);
     }
+    let notes = package
+        .footnotes
+        .as_deref()
+        .map(read_notes)
+        .unwrap_or_default();
     let (blocks, truncated, page) = parse_document(
         &package.document,
         package.numbering.as_deref(),
         &styles,
         &package.images,
+        &notes,
     )?;
     Ok(DocxDocument {
         blocks,
@@ -221,6 +234,8 @@ fn read_docx_sync(path: &Path) -> Result<DocxDocument, String> {
 struct Package {
     document: String,
     numbering: Option<String>,
+    /// `word/footnotes.xml`: the notes the body only cites.
+    footnotes: Option<String>,
     styles: String,
     theme: Option<String>,
     /// Relationship id to the picture it names, already as a `data:` URL.
@@ -235,6 +250,7 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
     let mut styles = None;
     let mut theme = None;
     let mut rels = None;
+    let mut footnotes = None;
     // The picture bytes, by their file name inside the archive.
     let mut media: std::collections::HashMap<String, (String, String)> =
         std::collections::HashMap::new();
@@ -254,7 +270,9 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
             Some(MAX_STYLES_BYTES)
         } else if name.eq_ignore_ascii_case("theme1.xml") {
             Some(MAX_THEME_BYTES)
-        } else if name.eq_ignore_ascii_case("document.xml.rels") {
+        } else if name.eq_ignore_ascii_case("document.xml.rels")
+            || name.eq_ignore_ascii_case("footnotes.xml")
+        {
             Some(MAX_NUMBERING_BYTES)
         } else if in_media {
             // A picture past the cap, or past what is left of the total, is skipped rather than
@@ -291,6 +309,8 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
             theme = Some(text);
         } else if name.eq_ignore_ascii_case("document.xml.rels") {
             rels = Some(text);
+        } else if name.eq_ignore_ascii_case("footnotes.xml") {
+            footnotes = Some(text);
         } else {
             numbering = Some(text);
         }
@@ -305,6 +325,7 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
     Ok(Package {
         document,
         numbering,
+        footnotes,
         styles: styles.unwrap_or_default(),
         theme,
         images,
@@ -685,6 +706,87 @@ fn image_relationships(
         }
     }
     images
+}
+
+/// Draws the notes a paragraph cited, after the block that cited them.
+fn flush_notes(blocks: &mut Vec<Block>, pending: &mut Vec<String>, truncated: &mut bool) {
+    for text in pending.drain(..) {
+        if blocks.len() >= MAX_BLOCKS {
+            *truncated = true;
+            continue;
+        }
+        blocks.push(Block::Note { text });
+    }
+}
+
+/// The text of each footnote of a part, by the id a `w:footnoteReference` names.
+///
+/// Word keeps the notes in a part of their own and leaves a reference in the run that cites one, so
+/// the body of a note is nowhere in `document.xml`. The pane has no page foot to draw them in, so
+/// they are drawn after the paragraph that cites them. The parts also hold separators - the rule
+/// above the notes - which are marked by `w:type` and are not notes.
+fn read_notes(xml: &str) -> std::collections::HashMap<String, String> {
+    let mut notes = std::collections::HashMap::new();
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(false);
+    // The note being read: its id, and one string per paragraph of it.
+    let mut note: Option<(String, Vec<String>)> = None;
+    let mut in_text = false;
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
+                let name = element.name();
+                if is_w(name, b"footnote") {
+                    let reserved = attribute(&element, b"type").is_some_and(|kind| kind != "normal");
+                    note = attribute(&element, b"id")
+                        .filter(|_| !reserved)
+                        .map(|id| (id, Vec::new()));
+                } else if is_w(name, b"t") {
+                    in_text = true;
+                    if let Some((_, paragraphs)) = note.as_mut() {
+                        if paragraphs.is_empty() {
+                            paragraphs.push(String::new());
+                        }
+                    }
+                } else if is_w(name, b"p") {
+                    if let Some((_, paragraphs)) = note.as_mut() {
+                        if !paragraphs.is_empty() {
+                            paragraphs.push(String::new());
+                        }
+                    }
+                }
+            }
+            Ok(Event::End(element)) => {
+                let name = element.name();
+                if is_w(name, b"t") {
+                    in_text = false;
+                } else if is_w(name, b"footnote") {
+                    if let Some((id, paragraphs)) = note.take() {
+                        let text = paragraphs.join(" ").trim().to_string();
+                        if !text.is_empty() {
+                            notes.insert(id, text);
+                        }
+                    }
+                }
+            }
+            Ok(Event::Text(text)) => {
+                if !in_text {
+                    continue;
+                }
+                let Some((_, paragraphs)) = note.as_mut() else {
+                    continue;
+                };
+                let Some(current) = paragraphs.last_mut() else {
+                    continue;
+                };
+                let decoded = text.decode().unwrap_or_default();
+                current.push_str(&quick_xml::escape::unescape(&decoded).unwrap_or_default());
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+    notes
 }
 
 /// Where the next `<w:t>` text node starts, ignoring the elements that begin with the same
@@ -2118,6 +2220,7 @@ fn parse_blocks(
         numbering_xml,
         &Styles::default(),
         &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
     )?;
     Ok((blocks, truncated))
 }
@@ -2128,6 +2231,7 @@ fn parse_document(
     numbering_xml: Option<&str>,
     styles: &Styles,
     images: &std::collections::HashMap<String, String>,
+    notes: &std::collections::HashMap<String, String>,
 ) -> Result<(Vec<Block>, bool, Option<Page>), String> {
     let ordered_numbers = numbering_xml.map(ordered_number_ids).unwrap_or_default();
     // Where each drawing starts, in the order the file writes them. The writer cuts by this same
@@ -2164,6 +2268,9 @@ fn parse_document(
     // the anchored paragraph's own words, which replacing it used to lose.
     let mut outer: Vec<Paragraph> = Vec::new();
     let mut inside: Vec<Block> = Vec::new();
+    // The notes a paragraph cited, waiting for that paragraph to close: the pane has no page foot,
+    // so a note is drawn after the paragraph that cites it.
+    let mut pending_notes: Vec<String> = Vec::new();
     loop {
         match reader.read_event() {
             Ok(Event::Start(element)) => {
@@ -2207,6 +2314,10 @@ fn parse_document(
                         index,
                         ..Default::default()
                     });
+                } else if is_w(name, b"footnoteReference") {
+                    if let Some(note) = attribute(&element, b"id").and_then(|id| notes.get(&id)) {
+                        pending_notes.push(note.clone());
+                    }
                 } else if let Some(current) = paragraph.as_mut() {
                     if is_w(name, b"r") {
                         current.in_run = true;
@@ -2247,6 +2358,13 @@ fn parse_document(
                     }
                 }
                 if nested_table_depth > 0 {
+                    continue;
+                }
+                // Word writes the reference self-closing, which is the usual shape.
+                if is_w(name, b"footnoteReference") {
+                    if let Some(note) = attribute(&element, b"id").and_then(|id| notes.get(&id)) {
+                        pending_notes.push(note.clone());
+                    }
                     continue;
                 }
                 if let Some(current) = paragraph.as_mut() {
@@ -2296,6 +2414,7 @@ fn parse_document(
                         nested_table_depth -= 1;
                     } else if let Some(rows) = table.take() {
                         blocks.push(Block::Table { rows });
+                        flush_notes(&mut blocks, &mut pending_notes, &mut truncated);
                     }
                     continue;
                 }
@@ -2402,6 +2521,7 @@ fn parse_document(
                         };
                         if outer.is_empty() {
                             blocks.push(block);
+                            flush_notes(&mut blocks, &mut pending_notes, &mut truncated);
                         } else {
                             inside.push(block);
                         }
@@ -2751,7 +2871,7 @@ mod tests {
         let xml = document(
             r#"<w:p><w:pPr><w:pStyle w:val="Tight"/><w:jc w:val="center"/></w:pPr><w:r><w:t>centred</w:t></w:r></w:p>"#,
         );
-        let (blocks, _, _) = parse_document(&xml, None, &styles_part(), &Default::default()).unwrap();
+        let (blocks, _, _) = parse_document(&xml, None, &styles_part(), &Default::default(), &Default::default()).unwrap();
         let Block::Paragraph { align, indent, spacing, runs, .. } = paragraph_of(&blocks) else {
             unreachable!()
         };
@@ -2771,7 +2891,7 @@ mod tests {
         let xml = document(
             r#"<w:p><w:pPr><w:pStyle w:val="Tight"/></w:pPr><w:r><w:rPr><w:sz w:val="18"/><w:b w:val="0"/></w:rPr><w:t>small</w:t></w:r></w:p>"#,
         );
-        let (blocks, _, _) = parse_document(&xml, None, &styles_part(), &Default::default()).unwrap();
+        let (blocks, _, _) = parse_document(&xml, None, &styles_part(), &Default::default(), &Default::default()).unwrap();
         let Block::Paragraph { runs, .. } = paragraph_of(&blocks) else {
             unreachable!()
         };
@@ -2785,13 +2905,13 @@ mod tests {
         let xml = document(
             r#"<w:p><w:r><w:t>a</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1701" w:bottom="1134" w:left="1701"/></w:sectPr>"#,
         );
-        let (_, _, page) = parse_document(&xml, None, &Styles::default(), &Default::default()).unwrap();
+        let (_, _, page) = parse_document(&xml, None, &Styles::default(), &Default::default(), &Default::default()).unwrap();
         let page = page.expect("A4 in twips");
         assert_eq!(page.width, Some(11906));
         assert_eq!(page.height, Some(16838));
         assert_eq!(page.margin_left, Some(1701));
         // A document that names no section is drawn on the pane's own paper, not a wrong one.
-        let (_, _, none) = parse_document(&document("<w:p/>"), None, &Styles::default(), &Default::default()).unwrap();
+        let (_, _, none) = parse_document(&document("<w:p/>"), None, &Styles::default(), &Default::default(), &Default::default()).unwrap();
         assert!(none.is_none());
     }
 
@@ -2813,11 +2933,17 @@ mod tests {
             .get("rId5")
             .expect("the relationship names the picture");
         assert!(image.starts_with("data:image/png;base64,"), "{image}");
+        let notes = package
+            .footnotes
+            .as_deref()
+            .map(read_notes)
+            .unwrap_or_default();
         let (blocks, _, _) = parse_document(
             &package.document,
             None,
             &Styles::default(),
             &package.images,
+            &notes,
         )
         .unwrap();
         let Block::Paragraph { runs, .. } = paragraph_of(&blocks) else {
@@ -2958,6 +3084,59 @@ mod tests {
         assert_eq!(rows[0][0][0].text, "head");
         assert!(rows[0][0][0].bold);
         assert_eq!(rows[0][0][0].size, Some(13.0));
+    }
+
+    /// A footnotes part, as Word writes one: a separator, a continuation separator, and a note.
+    fn footnotes_part() -> String {
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:footnote w:type="separator" w:id="-1"><w:p><w:pPr><w:spacing w:after="0"/></w:pPr><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote><w:footnote w:id="1"><w:p><w:r><w:t>a note</w:t></w:r></w:p></w:footnote><w:footnote w:id="2"><w:p><w:r><w:t>line one</w:t></w:r></w:p><w:p><w:r><w:t>line two</w:t></w:r></w:p></w:footnote></w:footnotes>"#.to_string()
+    }
+
+    #[test]
+    fn a_footnote_s_text_is_read_apart_from_the_separators() {
+        // The part holds the rule above the notes as footnotes of their own, marked by `w:type`. They
+        // are not notes, and a note of two paragraphs is one note, not two.
+        let notes = read_notes(&footnotes_part());
+        assert_eq!(notes.get("1").map(String::as_str), Some("a note"));
+        assert_eq!(notes.get("2").map(String::as_str), Some("line one line two"));
+        assert!(!notes.contains_key("-1"), "the separator is not a note");
+        assert!(!notes.contains_key("0"), "the continuation separator is not a note");
+    }
+
+    #[test]
+    fn a_note_is_drawn_after_the_paragraph_that_cites_it() {
+        // The body only cites the note; its text is in another part. The pane has no page foot, so
+        // the note is drawn after the paragraph - as a block of its own, because a paragraph is what
+        // the pane hands back for writing, and a note folded into it would be written into the body.
+        let xml = document(
+            r#"<w:p><w:r><w:t>cited</w:t></w:r><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="1"/></w:r></w:p><w:p><w:r><w:t>after</w:t></w:r></w:p>"#,
+        );
+        let notes = read_notes(&footnotes_part());
+        let (blocks, truncated, _) =
+            parse_document(&xml, None, &Styles::default(), &Default::default(), &notes).unwrap();
+        assert!(!truncated);
+        // Three blocks: the paragraph that cites, the note, and the paragraph after it.
+        assert_eq!(blocks.len(), 3, "{blocks:?}");
+        assert_eq!(block_texts(&blocks), vec!["cited", "after"]);
+        assert!(matches!(&blocks[0], Block::Paragraph { index: 0, .. }));
+        let Block::Note { text } = &blocks[1] else {
+            panic!("expected a note between the two paragraphs: {blocks:?}");
+        };
+        assert_eq!(text, "a note");
+        assert!(matches!(&blocks[2], Block::Paragraph { index: 1, .. }));
+    }
+
+    #[test]
+    fn a_reference_the_notes_part_does_not_have_draws_nothing() {
+        // A part may cite a note it does not hold - a deleted note, or a file written by something
+        // else - and that must not become an empty line in the document.
+        let xml = document(
+            r#"<w:p><w:r><w:t>cited</w:t></w:r><w:r><w:footnoteReference w:id="99"/></w:r></w:p>"#,
+        );
+        let notes = read_notes(&footnotes_part());
+        let (blocks, _, _) =
+            parse_document(&xml, None, &Styles::default(), &Default::default(), &notes).unwrap();
+        assert_eq!(block_texts(&blocks), vec!["cited"]);
     }
 
     #[test]
@@ -3417,7 +3596,7 @@ mod tests {
             drawing("rId6")
         );
         let (blocks, _, _) =
-            parse_document(&document(&body), None, &Styles::default(), &Default::default()).unwrap();
+            parse_document(&document(&body), None, &Styles::default(), &Default::default(), &Default::default()).unwrap();
         let Block::Paragraph { runs, .. } = paragraph_of(&blocks) else {
             unreachable!()
         };
@@ -3471,7 +3650,7 @@ mod tests {
             drawing("rId5")
         );
         let (blocks, _, _) =
-            parse_document(&document(&body), None, &Styles::default(), &picture_map()).unwrap();
+            parse_document(&document(&body), None, &Styles::default(), &picture_map(), &Default::default()).unwrap();
         let Block::Table { rows } = &blocks[1] else {
             panic!("expected a table");
         };
@@ -3519,7 +3698,7 @@ mod tests {
             drawing("rId6")
         );
         let (blocks, _, _) =
-            parse_document(&document(&body), None, &Styles::default(), &picture_map()).unwrap();
+            parse_document(&document(&body), None, &Styles::default(), &picture_map(), &Default::default()).unwrap();
         let Block::Table { rows } = &blocks[0] else {
             panic!("expected a table");
         };
@@ -3804,6 +3983,7 @@ mod tests {
                     Some(runs.iter().map(|run| run.text.as_str()).collect::<String>())
                 }
                 Block::Table { .. } => None,
+                Block::Note { .. } => None,
             })
             .collect();
         assert_eq!(texts, vec!["Keep", " me"]);
@@ -4031,6 +4211,7 @@ mod tests {
             .filter_map(|block| match block {
                 Block::Paragraph { index, .. } => Some(*index),
                 Block::Table { .. } => None,
+                Block::Note { .. } => None,
             })
             .collect();
         assert_eq!(indexes, vec![0, 2]);
@@ -4047,6 +4228,7 @@ mod tests {
             .filter_map(|block| match block {
                 Block::Paragraph { index, .. } => Some(*index),
                 Block::Table { .. } => None,
+                Block::Note { .. } => None,
             })
             .collect();
         assert_eq!(indexes, vec![0, 1, 2], "{blocks:?}");

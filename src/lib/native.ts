@@ -74,7 +74,14 @@ export type DocxBlock =
       indent: DocxIndent | null;
       spacing: DocxSpacing | null;
     }
-  | { kind: "table"; rows: DocxRun[][][] };
+  | { kind: "table"; rows: DocxRun[][][] }
+  /**
+   * The text of a footnote the block above cites.
+   *
+   * It is drawn after that block and is not typed into: the pane writes one text per paragraph, and
+   * a note folded into its paragraph's text would be saved into the body of the document.
+   */
+  | { kind: "note"; text: string };
 
 /**
  * What the file looked like when it was read.

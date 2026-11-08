@@ -34,9 +34,11 @@ export function readDraftBlocks(body: HTMLElement): DraftBlock[] {
         (child): child is HTMLElement =>
           child instanceof HTMLElement &&
           child.hasAttribute("data-block") &&
-          // A table is drawn from joined cell strings and has no ordinal: it is not something the
-          // writer can take, so it is not part of what is read back.
-          child.getAttribute("data-block") !== "table",
+          // A table is drawn from joined cell strings, and a note is the text of a footnote, which
+          // lives in a part of its own. Neither has an ordinal and neither is something the writer
+          // can take, so neither is part of what is read back.
+          child.getAttribute("data-block") !== "table" &&
+          child.getAttribute("data-block") !== "note",
       )
       .map((block) => ({
         dataset: block.dataset,

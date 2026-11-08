@@ -392,3 +392,67 @@ describe("what the writer is handed", () => {
     expect(inserts).toEqual([{ after: 0, text: "new" }]);
   });
 });
+
+describe("a footnote", () => {
+  const note = (text: string): DocxDocument["blocks"][number] => ({ kind: "note", text });
+  const paragraph = (index: number, text: string): DocxDocument["blocks"][number] => ({
+    kind: "paragraph",
+    index,
+    heading: null,
+    list: null,
+    runs: [
+      {
+        text,
+        bold: false,
+        italic: false,
+        underline: false,
+        size: null,
+        color: null,
+        font: null,
+        image: null,
+        imageWidth: null,
+        imageHeight: null,
+      },
+    ],
+    align: null,
+    size: null,
+    indent: null,
+    spacing: null,
+  });
+  const document = (blocks: DocxDocument["blocks"]): DocxDocument => ({
+    blocks,
+    page: null,
+    truncated: false,
+    editable: true,
+    guard: { size: 0, modifiedMs: 0 },
+  });
+
+  it("is drawn with its text but has no paragraph ordinal", () => {
+    const read = blocksFromDocument(
+      document([paragraph(0, "cited"), note("a note"), paragraph(1, "after")]),
+    );
+    expect(read.map((block) => [block.kind, block.text, block.ordinal])).toEqual([
+      ["p", "cited", 0],
+      ["note", "a note", null],
+      ["p", "after", 1],
+    ]);
+  });
+
+  it("is not part of what is written back", () => {
+    // The note's text lives in the footnotes part, not in the paragraph. If the note counted as a
+    // block the writer can address, the draft - which never holds one - would look one block short
+    // and every save would delete a paragraph.
+    const baseline = blocksFromDocument(
+      document([paragraph(0, "cited"), note("a note"), paragraph(1, "after")]),
+    );
+    const draft: DraftBlock[] = [
+      { kind: "p", list: null, numId: null, text: "cited" },
+      { kind: "p", list: null, numId: null, text: "after" },
+    ];
+    expect(alignBlocks(baseline, draft)).toEqual({
+      edits: [],
+      deleted: [],
+      inserts: [],
+    });
+  });
+});
