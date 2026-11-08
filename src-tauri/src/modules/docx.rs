@@ -932,6 +932,95 @@ fn run_is_otherwise_empty(
 }
 
 
+/// The byte range of each paragraph's fallback copy, by the ordinal of the copy that is read.
+///
+/// Word writes a text box twice: DrawingML inside `mc:Choice` for readers that understand it, and
+/// VML inside `mc:Fallback` for readers that do not. Only the first copy is read, so an edit lands in
+/// it - and the second copy has to be written with the same text, or the file ends up holding two
+/// different texts for one box and the reader that sees the fallback sees the old one.
+///
+/// The copies pair up by position: the i-th paragraph of a fallback is the copy of the i-th paragraph
+/// of its choice, which is how Word writes them.
+fn fallback_mirrors(xml: &str) -> Vec<(u32, usize, usize)> {
+    /// One open `mc:AlternateContent`: the ordinals of the paragraphs of its choice, and where the
+    /// paragraphs of its fallback lie.
+    #[derive(Default)]
+    struct Pair {
+        choice: Vec<u32>,
+        fallback: Vec<(usize, usize)>,
+    }
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(false);
+    let mut alternates = Alternates::default();
+    let mut pairs: Vec<Pair> = Vec::new();
+    // (ordinal, start, is it a copy inside a fallback), one per open paragraph.
+    let mut open: Vec<(Option<u32>, usize, bool)> = Vec::new();
+    let mut next_paragraph: u32 = 0;
+    let mut mirrors: Vec<(u32, usize, usize)> = Vec::new();
+    loop {
+        let before = reader.buffer_position() as usize;
+        match reader.read_event() {
+            Ok(Event::Start(element)) => {
+                let name = element.name();
+                if alternates.start(name) {
+                    // The fallback's own contents are skipped by every other reader of this part;
+                    // this walk only wants to know where its paragraphs are.
+                    if is_w(name, b"p") {
+                        open.push((None, before, true));
+                    }
+                    continue;
+                }
+                if is_mc(name, b"AlternateContent") {
+                    pairs.push(Pair::default());
+                } else if is_w(name, b"p") {
+                    let ordinal = next_paragraph;
+                    next_paragraph += 1;
+                    if let Some(pair) = pairs.last_mut() {
+                        pair.choice.push(ordinal);
+                    }
+                    open.push((Some(ordinal), before, false));
+                }
+            }
+            Ok(Event::Empty(element)) => {
+                if alternates.skipping() {
+                    continue;
+                }
+                if is_w(element.name(), b"p") {
+                    next_paragraph += 1;
+                }
+            }
+            Ok(Event::End(element)) => {
+                let name = element.name();
+                if alternates.end(name) {
+                    if is_w(name, b"p") {
+                        if let Some((_, start, true)) = open.pop() {
+                            if let Some(pair) = pairs.last_mut() {
+                                pair.fallback.push((start, before));
+                            }
+                        }
+                    }
+                    continue;
+                }
+                if is_mc(name, b"AlternateContent") {
+                    if let Some(pair) = pairs.pop() {
+                        for (at, ordinal) in pair.choice.iter().enumerate() {
+                            if let Some(range) = pair.fallback.get(at) {
+                                mirrors.push((*ordinal, range.0, range.1));
+                            }
+                        }
+                    }
+                } else if is_w(name, b"p") {
+                    open.pop();
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+    mirrors
+}
+
 fn rewrite_document_xml(
     xml: &str,
     edits: &[DocxEdit],
@@ -1051,10 +1140,13 @@ fn rewrite_document_xml(
     let mut out = String::with_capacity(xml.len());
     let mut cursor = 0usize;
     let mut leading_written = false;
+    // Where each stretch of the original landed in the rewrite, so an offset can be carried across.
+    let mut copied: Vec<(usize, usize, usize)> = Vec::new();
     for (index, start, end, top_level) in &ranges {
         if *start < cursor {
             continue;
         }
+        copied.push((cursor, *start, out.len()));
         out.push_str(&xml[cursor..*start]);
         if !leading_written && *top_level {
             for paragraph in &leading {
@@ -1075,6 +1167,7 @@ fn rewrite_document_xml(
             out.push_str(&new_paragraph(paragraph, &insert.text));
         }
     }
+    copied.push((cursor, cursor + (xml.len() - cursor), out.len()));
     let tail = &xml[cursor..];
     if !leading_written && !leading.is_empty() {
         // No paragraph was walked at all, so the top of the body is its last child position: the new
@@ -1085,13 +1178,114 @@ fn rewrite_document_xml(
                 out.push_str(paragraph);
             }
             out.push_str(&tail[end..]);
-            return Ok(out);
+            return carried_edits(out, &copied, &ranges, xml, edits);
         }
         for paragraph in &leading {
             out.push_str(paragraph);
         }
     }
     out.push_str(tail);
+    carried_edits(out, &copied, &ranges, xml, edits)
+}
+
+/// Where a stretch of the original ended up, given the stretches that were copied verbatim.
+///
+/// Nothing here is arithmetic on lengths: a rewritten paragraph has a different length from the one
+/// it replaced, so an offset is carried by finding the copied stretch it belonged to.
+fn carried(from: usize, to: usize, copied: &[(usize, usize, usize)]) -> Option<(usize, usize)> {
+    let (old_from, _, new_from) = copied
+        .iter()
+        .find(|(old_from, old_to, _)| *old_from <= from && to <= *old_to)?;
+    let shift = new_from + (from - old_from);
+    Some((shift, shift + (to - from)))
+}
+
+/// Writes an edit into the text that was copied rather than rewritten.
+///
+/// Two kinds of paragraph carry text that the walk above cannot rewrite where it stands. A paragraph
+/// with another one nested in it - a text box inside a run - is emitted as the bytes it shares with
+/// its child, and the child is what the walk rewrites, so the paragraph's own words would be left as
+/// they were and an edit to them silently dropped. And a text box is read from its `mc:Choice` copy,
+/// so an edit lands there; the `mc:Fallback` copy is only there for older readers, and leaving it
+/// alone puts two different texts in the file for one box.
+///
+/// Both are found by where they landed in the rewrite - carried there by the copy log - and both are
+/// only written when the bytes landed verbatim, because a paragraph that was deleted, or that was
+/// rewritten along with its parent, is not something to write into any more.
+fn carried_edits(
+    mut out: String,
+    copied: &[(usize, usize, usize)],
+    ranges: &[(u32, usize, usize, bool)],
+    xml: &str,
+    edits: &[DocxEdit],
+) -> Result<String, String> {
+    // (from, to, replacement), applied from the end so the ranges below keep their places.
+    let mut writes: Vec<(usize, usize, String)> = Vec::new();
+    let mirrors = fallback_mirrors(xml);
+    for edit in edits {
+        for (index, start, end, _) in ranges {
+            if *index != edit.index {
+                continue;
+            }
+            // The paragraph's own bytes: everything outside the paragraphs nested in it. A box's
+            // skipped copy is nested in the paragraph too, and it is not the paragraph's own text,
+            // so it is neither rewritten nor blanked here.
+            let mut nested: Vec<(usize, usize)> = ranges
+                .iter()
+                .filter(|(_, from, to, _)| *from > *start && *to <= *end)
+                .map(|(_, from, to, _)| (*from, *to))
+                .chain(
+                    mirrors
+                        .iter()
+                        .filter(|(_, from, to)| *from > *start && *to <= *end)
+                        .map(|(_, from, to)| (*from, *to)),
+                )
+                .collect();
+            nested.sort_unstable();
+            let first = nested.first().map(|(from, _)| *from).unwrap_or(*end);
+            let last = nested.last().map(|(_, to)| *to).unwrap_or(*start);
+            let own = [
+                (*start, first, Some(edit.text.as_str())),
+                (last, *end, Some("")),
+            ];
+            for (from, to, text) in own {
+                if from >= to {
+                    continue;
+                }
+                let Some(text) = text else { continue };
+                if text.is_empty() && find_text_node(&xml[from..to]).is_none() {
+                    continue;
+                }
+                let Some((at, stop)) = carried(from, to, copied) else {
+                    continue;
+                };
+                if out.get(at..stop) != Some(&xml[from..to]) {
+                    continue;
+                }
+                writes.push((at, stop, rewrite_paragraph(&xml[from..to], text)?));
+            }
+        }
+        for (index, from, to) in &mirrors {
+            if *index != edit.index {
+                continue;
+            }
+            let Some((at, stop)) = carried(*from, *to, copied) else {
+                continue;
+            };
+            if out.get(at..stop) != Some(&xml[*from..*to]) {
+                continue;
+            }
+            writes.push((
+                at,
+                stop,
+                rewrite_paragraph(&xml[*from..*to], &edit.text)?,
+            ));
+        }
+    }
+    writes.sort_by_key(|write| std::cmp::Reverse(write.0));
+    for (at, stop, text) in writes {
+        out.replace_range(at..stop, &text);
+    }
     Ok(out)
 }
 
@@ -2288,6 +2482,26 @@ mod tests {
         )
     }
 
+    /// Every `<w:t>` of a part, in the order the file states them.
+    fn text_nodes(xml: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut reader = Reader::from_str(xml);
+        reader.config_mut().trim_text(false);
+        let mut inside = false;
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(element)) if is_w(element.name(), b"t") => inside = true,
+                Ok(Event::End(element)) if is_w(element.name(), b"t") => inside = false,
+                Ok(Event::Text(text)) if inside => {
+                    out.push(text.decode().unwrap_or_default().into_owned());
+                }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
+            }
+        }
+        out
+    }
+
     /// The text of each paragraph block, in the order the pane draws them.
     fn block_texts(blocks: &[Block]) -> Vec<String> {
         blocks
@@ -2359,6 +2573,66 @@ mod tests {
         assert!(written.contains("<w:t>one</w:t>"), "{written}");
         // Both copies of the box are left as they were: an edit is not a rewrite of the box.
         assert_eq!(written.matches("<w:t>boxed</w:t>").count(), 2, "{written}");
+    }
+
+    #[test]
+    fn an_edit_to_a_box_is_written_into_both_of_its_copies() {
+        // The box is read from its `mc:Choice` copy, so that is where the edit lands. The
+        // `mc:Fallback` copy is what an older reader shows, and leaving it as it was put two
+        // different texts in the file for one box.
+        let xml = paragraph_with_a_text_box();
+        let (blocks, _) = parse_blocks(&xml, None).unwrap();
+        let boxed = blocks
+            .iter()
+            .find_map(|block| match block {
+                Block::Paragraph { index, runs, .. }
+                    if runs.iter().any(|run| run.text == "boxed") =>
+                {
+                    Some(*index)
+                }
+                _ => None,
+            })
+            .expect("the box is a paragraph of the document");
+        let written = rewrite_document_xml(
+            &xml,
+            &[DocxEdit {
+                index: boxed,
+                text: "boxed again".into(),
+            }],
+            &[], &[], &[], &[])
+        .expect("a box's text is editable");
+        assert_eq!(
+            text_nodes(&written),
+            vec!["before", "boxed again", "boxed again", "after"],
+            "{written}"
+        );
+    }
+
+    #[test]
+    fn an_edit_to_a_paragraph_beside_a_box_leaves_the_box_alone() {
+        // The twin of the test above: nothing may be written into a copy that was not edited.
+        let xml = paragraph_with_a_text_box();
+        let (blocks, _) = parse_blocks(&xml, None).unwrap();
+        let first = blocks
+            .iter()
+            .find_map(|block| match block {
+                Block::Paragraph { index, .. } => Some(*index),
+                _ => None,
+            })
+            .expect("the document has paragraphs");
+        let written = rewrite_document_xml(
+            &xml,
+            &[DocxEdit {
+                index: first,
+                text: "before again".into(),
+            }],
+            &[], &[], &[], &[])
+        .expect("the first paragraph is editable");
+        assert_eq!(
+            text_nodes(&written),
+            vec!["before again", "boxed", "boxed", "after"],
+            "{written}"
+        );
     }
 
     #[test]
