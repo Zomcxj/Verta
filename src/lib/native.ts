@@ -76,12 +76,12 @@ export type DocxBlock =
     }
   | { kind: "table"; rows: DocxRun[][][] }
   /**
-   * The text of a footnote the block above cites.
+   * The text of a note the block above cites: a footnote, an endnote or a comment.
    *
    * It is drawn after that block and is not typed into: the pane writes one text per paragraph, and
    * a note folded into its paragraph's text would be saved into the body of the document.
    */
-  | { kind: "note"; text: string };
+  | { kind: "note"; source: "footnote" | "endnote" | "comment"; text: string };
 
 /**
  * What the file looked like when it was read.

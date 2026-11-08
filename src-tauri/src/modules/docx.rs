@@ -115,6 +115,18 @@ pub struct ListItem {
     pub num_id: u32,
 }
 
+/// Where a note's text is written in the file, which is also what the pane calls it.
+#[derive(Serialize, Debug, PartialEq, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub enum NoteSource {
+    /// `word/footnotes.xml`, cited by `w:footnoteReference`.
+    Footnote,
+    /// `word/endnotes.xml`, cited by `w:endnoteReference`.
+    Endnote,
+    /// `word/comments.xml`, cited by `w:commentReference`.
+    Comment,
+}
+
 #[derive(Serialize, Debug, PartialEq, Clone)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Block {
@@ -136,13 +148,13 @@ pub enum Block {
     /// Rows of cells; each cell's paragraphs are joined by a space, since a cell is one line here,
     /// but the styling of every piece is kept so a bold header is drawn bold.
     Table { rows: Vec<Vec<Vec<Run>>> },
-    /// The text of a footnote the paragraph above cites.
+    /// The text of a note the block above cites: a footnote, an endnote or a comment.
     ///
     /// It is a block of its own and not part of that paragraph: the pane states one text per
     /// paragraph and writes it back over the paragraph, so a note folded into the paragraph's text
     /// would be written into the body of the document the first time the paragraph was edited. It
     /// has no ordinal, like a table, and is not editable.
-    Note { text: String },
+    Note { text: String, source: NoteSource },
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -203,11 +215,7 @@ fn read_docx_sync(path: &Path) -> Result<DocxDocument, String> {
     if styles.default_run.font.is_none() {
         styles.default_run.font = theme_latin.or(theme_east_asian);
     }
-    let notes = package
-        .footnotes
-        .as_deref()
-        .map(read_notes)
-        .unwrap_or_default();
+    let notes = package_notes(&package);
     let (blocks, truncated, page) = parse_document(
         &package.document,
         package.numbering.as_deref(),
@@ -234,8 +242,11 @@ fn read_docx_sync(path: &Path) -> Result<DocxDocument, String> {
 struct Package {
     document: String,
     numbering: Option<String>,
-    /// `word/footnotes.xml`: the notes the body only cites.
+    /// `word/footnotes.xml`, `word/endnotes.xml`, `word/comments.xml`: the notes the body only
+    /// cites.
     footnotes: Option<String>,
+    endnotes: Option<String>,
+    comments: Option<String>,
     styles: String,
     theme: Option<String>,
     /// Relationship id to the picture it names, already as a `data:` URL.
@@ -251,6 +262,8 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
     let mut theme = None;
     let mut rels = None;
     let mut footnotes = None;
+    let mut endnotes = None;
+    let mut comments = None;
     // The picture bytes, by their file name inside the archive.
     let mut media: std::collections::HashMap<String, (String, String)> =
         std::collections::HashMap::new();
@@ -272,6 +285,8 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
             Some(MAX_THEME_BYTES)
         } else if name.eq_ignore_ascii_case("document.xml.rels")
             || name.eq_ignore_ascii_case("footnotes.xml")
+            || name.eq_ignore_ascii_case("endnotes.xml")
+            || name.eq_ignore_ascii_case("comments.xml")
         {
             Some(MAX_NUMBERING_BYTES)
         } else if in_media {
@@ -311,6 +326,10 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
             rels = Some(text);
         } else if name.eq_ignore_ascii_case("footnotes.xml") {
             footnotes = Some(text);
+        } else if name.eq_ignore_ascii_case("endnotes.xml") {
+            endnotes = Some(text);
+        } else if name.eq_ignore_ascii_case("comments.xml") {
+            comments = Some(text);
         } else {
             numbering = Some(text);
         }
@@ -326,6 +345,8 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
         document,
         numbering,
         footnotes,
+        endnotes,
+        comments,
         styles: styles.unwrap_or_default(),
         theme,
         images,
@@ -708,24 +729,96 @@ fn image_relationships(
     images
 }
 
+/// The notes a package holds, read out of the parts that carry them.
+///
+/// Footnotes and endnotes call their kind of note by name, and both mark their separators. A comment
+/// is just a `w:comment`, and the author it names is read past: what a reader needs from a comment is
+/// what it says.
+fn package_notes(package: &Package) -> Notes {
+    Notes {
+        footnotes: package
+            .footnotes
+            .as_deref()
+            .map(|xml| read_notes(xml, b"footnote"))
+            .unwrap_or_default(),
+        endnotes: package
+            .endnotes
+            .as_deref()
+            .map(|xml| read_notes(xml, b"endnote"))
+            .unwrap_or_default(),
+        comments: package
+            .comments
+            .as_deref()
+            .map(|xml| read_notes(xml, b"comment"))
+            .unwrap_or_default(),
+    }
+}
+
+/// The notes of the three parts, by the id a reference names.
+///
+/// Footnotes, endnotes and comments are all written the same way: the body holds a reference and the
+/// words are in a part of their own. They are read by the same walk and drawn the same way.
+#[derive(Default)]
+struct Notes {
+    footnotes: std::collections::HashMap<String, String>,
+    endnotes: std::collections::HashMap<String, String>,
+    comments: std::collections::HashMap<String, String>,
+}
+
+/// The kind of note a reference in the body points at, if it is one.
+///
+/// A comment is cited by `w:commentReference`, which is what Word writes inside the comment's own
+/// run; `w:commentRangeStart` and `w:commentRangeEnd` mark the span it applies to and appear in most
+/// files as well, but a file can hold a range with no reference, and reading those too would draw one
+/// comment twice in nearly every file that has any.
+fn reference_source(name: QName<'_>) -> Option<NoteSource> {
+    if is_w(name, b"footnoteReference") {
+        Some(NoteSource::Footnote)
+    } else if is_w(name, b"endnoteReference") {
+        Some(NoteSource::Endnote)
+    } else if is_w(name, b"commentReference") {
+        Some(NoteSource::Comment)
+    } else {
+        None
+    }
+}
+
+impl Notes {
+    /// The table a reference's ids are read from.
+    fn table(&self, source: NoteSource) -> &std::collections::HashMap<String, String> {
+        match source {
+            NoteSource::Footnote => &self.footnotes,
+            NoteSource::Endnote => &self.endnotes,
+            NoteSource::Comment => &self.comments,
+        }
+    }
+}
+
 /// Draws the notes a paragraph cited, after the block that cited them.
-fn flush_notes(blocks: &mut Vec<Block>, pending: &mut Vec<String>, truncated: &mut bool) {
-    for text in pending.drain(..) {
+fn flush_notes(
+    blocks: &mut Vec<Block>,
+    pending: &mut Vec<(NoteSource, String)>,
+    truncated: &mut bool,
+) {
+    for (source, text) in pending.drain(..) {
         if blocks.len() >= MAX_BLOCKS {
             *truncated = true;
             continue;
         }
-        blocks.push(Block::Note { text });
+        blocks.push(Block::Note { text, source });
     }
 }
 
-/// The text of each footnote of a part, by the id a `w:footnoteReference` names.
+/// The text of each note of a part, by the id a reference in the body names.
 ///
 /// Word keeps the notes in a part of their own and leaves a reference in the run that cites one, so
-/// the body of a note is nowhere in `document.xml`. The pane has no page foot to draw them in, so
-/// they are drawn after the paragraph that cites them. The parts also hold separators - the rule
-/// above the notes - which are marked by `w:type` and are not notes.
-fn read_notes(xml: &str) -> std::collections::HashMap<String, String> {
+/// the body of a note is nowhere in `document.xml`. The pane has no page foot or margin to draw them
+/// in, so they are drawn after the block that cites them. `element` is what one note is called in
+/// that part: `w:footnote`, `w:endnote` or `w:comment`.
+///
+/// The first two kinds of part also hold separators - the rule above the notes - which are marked by
+/// `w:type` and are not notes.
+fn read_notes(xml: &str, kind: &[u8]) -> std::collections::HashMap<String, String> {
     let mut notes = std::collections::HashMap::new();
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
@@ -736,7 +829,7 @@ fn read_notes(xml: &str) -> std::collections::HashMap<String, String> {
         match reader.read_event() {
             Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
                 let name = element.name();
-                if is_w(name, b"footnote") {
+                if is_w(name, kind) {
                     let reserved = attribute(&element, b"type").is_some_and(|kind| kind != "normal");
                     note = attribute(&element, b"id")
                         .filter(|_| !reserved)
@@ -760,7 +853,7 @@ fn read_notes(xml: &str) -> std::collections::HashMap<String, String> {
                 let name = element.name();
                 if is_w(name, b"t") {
                     in_text = false;
-                } else if is_w(name, b"footnote") {
+                } else if is_w(name, kind) {
                     if let Some((id, paragraphs)) = note.take() {
                         let text = paragraphs.join(" ").trim().to_string();
                         if !text.is_empty() {
@@ -2220,7 +2313,7 @@ fn parse_blocks(
         numbering_xml,
         &Styles::default(),
         &std::collections::HashMap::new(),
-        &std::collections::HashMap::new(),
+        &Notes::default(),
     )?;
     Ok((blocks, truncated))
 }
@@ -2231,7 +2324,7 @@ fn parse_document(
     numbering_xml: Option<&str>,
     styles: &Styles,
     images: &std::collections::HashMap<String, String>,
-    notes: &std::collections::HashMap<String, String>,
+    notes: &Notes,
 ) -> Result<(Vec<Block>, bool, Option<Page>), String> {
     let ordered_numbers = numbering_xml.map(ordered_number_ids).unwrap_or_default();
     // Where each drawing starts, in the order the file writes them. The writer cuts by this same
@@ -2268,9 +2361,9 @@ fn parse_document(
     // the anchored paragraph's own words, which replacing it used to lose.
     let mut outer: Vec<Paragraph> = Vec::new();
     let mut inside: Vec<Block> = Vec::new();
-    // The notes a paragraph cited, waiting for that paragraph to close: the pane has no page foot,
-    // so a note is drawn after the paragraph that cites it.
-    let mut pending_notes: Vec<String> = Vec::new();
+    // The notes a paragraph cited, waiting for that paragraph to close: the pane has no page foot or
+    // margin, so a note is drawn after the block that cites it.
+    let mut pending_notes: Vec<(NoteSource, String)> = Vec::new();
     loop {
         match reader.read_event() {
             Ok(Event::Start(element)) => {
@@ -2314,9 +2407,10 @@ fn parse_document(
                         index,
                         ..Default::default()
                     });
-                } else if is_w(name, b"footnoteReference") {
-                    if let Some(note) = attribute(&element, b"id").and_then(|id| notes.get(&id)) {
-                        pending_notes.push(note.clone());
+                } else if let Some(source) = reference_source(name) {
+                    let table = notes.table(source);
+                    if let Some(note) = attribute(&element, b"id").and_then(|id| table.get(&id)) {
+                        pending_notes.push((source, note.clone()));
                     }
                 } else if let Some(current) = paragraph.as_mut() {
                     if is_w(name, b"r") {
@@ -2361,9 +2455,10 @@ fn parse_document(
                     continue;
                 }
                 // Word writes the reference self-closing, which is the usual shape.
-                if is_w(name, b"footnoteReference") {
-                    if let Some(note) = attribute(&element, b"id").and_then(|id| notes.get(&id)) {
-                        pending_notes.push(note.clone());
+                if let Some(source) = reference_source(name) {
+                    let table = notes.table(source);
+                    if let Some(note) = attribute(&element, b"id").and_then(|id| table.get(&id)) {
+                        pending_notes.push((source, note.clone()));
                     }
                     continue;
                 }
@@ -2933,11 +3028,7 @@ mod tests {
             .get("rId5")
             .expect("the relationship names the picture");
         assert!(image.starts_with("data:image/png;base64,"), "{image}");
-        let notes = package
-            .footnotes
-            .as_deref()
-            .map(read_notes)
-            .unwrap_or_default();
+        let notes = package_notes(&package);
         let (blocks, _, _) = parse_document(
             &package.document,
             None,
@@ -3096,7 +3187,7 @@ mod tests {
     fn a_footnote_s_text_is_read_apart_from_the_separators() {
         // The part holds the rule above the notes as footnotes of their own, marked by `w:type`. They
         // are not notes, and a note of two paragraphs is one note, not two.
-        let notes = read_notes(&footnotes_part());
+        let notes = read_notes(&footnotes_part(), b"footnote");
         assert_eq!(notes.get("1").map(String::as_str), Some("a note"));
         assert_eq!(notes.get("2").map(String::as_str), Some("line one line two"));
         assert!(!notes.contains_key("-1"), "the separator is not a note");
@@ -3111,7 +3202,10 @@ mod tests {
         let xml = document(
             r#"<w:p><w:r><w:t>cited</w:t></w:r><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="1"/></w:r></w:p><w:p><w:r><w:t>after</w:t></w:r></w:p>"#,
         );
-        let notes = read_notes(&footnotes_part());
+        let notes = Notes {
+            footnotes: read_notes(&footnotes_part(), b"footnote"),
+            ..Default::default()
+        };
         let (blocks, truncated, _) =
             parse_document(&xml, None, &Styles::default(), &Default::default(), &notes).unwrap();
         assert!(!truncated);
@@ -3119,10 +3213,11 @@ mod tests {
         assert_eq!(blocks.len(), 3, "{blocks:?}");
         assert_eq!(block_texts(&blocks), vec!["cited", "after"]);
         assert!(matches!(&blocks[0], Block::Paragraph { index: 0, .. }));
-        let Block::Note { text } = &blocks[1] else {
+        let Block::Note { text, source } = &blocks[1] else {
             panic!("expected a note between the two paragraphs: {blocks:?}");
         };
         assert_eq!(text, "a note");
+        assert_eq!(source, &NoteSource::Footnote);
         assert!(matches!(&blocks[2], Block::Paragraph { index: 1, .. }));
     }
 
@@ -3133,10 +3228,82 @@ mod tests {
         let xml = document(
             r#"<w:p><w:r><w:t>cited</w:t></w:r><w:r><w:footnoteReference w:id="99"/></w:r></w:p>"#,
         );
-        let notes = read_notes(&footnotes_part());
+        let notes = Notes {
+            footnotes: read_notes(&footnotes_part(), b"footnote"),
+            ..Default::default()
+        };
         let (blocks, _, _) =
             parse_document(&xml, None, &Styles::default(), &Default::default(), &notes).unwrap();
         assert_eq!(block_texts(&blocks), vec!["cited"]);
+    }
+
+    /// A comments part, as Word writes one: the author and date are attributes.
+    fn comments_part() -> String {
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:comment w:id="1" w:author="A. Reviewer" w:date="2026-11-08T10:00:00Z" w:initials="AR"><w:p><w:r><w:t>check this number</w:t></w:r></w:p></w:comment><w:comment w:id="2" w:author="A. Reviewer"><w:p><w:r><w:t>and this one</w:t></w:r></w:p><w:p><w:r><w:t>too</w:t></w:r></w:p></w:comment></w:comments>"#.to_string()
+    }
+
+    #[test]
+    fn a_comment_s_text_is_read() {
+        // A comment is the whole of word/comments.xml; the body only holds a reference to it. 15 of
+        // the documents measured here have comments, 371 of them, and none of that text was drawn.
+        let comments = read_notes(&comments_part(), b"comment");
+        assert_eq!(comments.get("1").map(String::as_str), Some("check this number"));
+        assert_eq!(comments.get("2").map(String::as_str), Some("and this one too"));
+    }
+
+    #[test]
+    fn a_comment_is_drawn_after_the_paragraph_that_cites_it() {
+        let xml = document(
+            r#"<w:p><w:r><w:t>cited</w:t></w:r><w:r><w:commentReference w:id="1"/></w:r></w:p><w:p><w:r><w:t>after</w:t></w:r></w:p>"#,
+        );
+        let notes = Notes {
+            comments: read_notes(&comments_part(), b"comment"),
+            ..Default::default()
+        };
+        let (blocks, _, _) =
+            parse_document(&xml, None, &Styles::default(), &Default::default(), &notes).unwrap();
+        assert_eq!(blocks.len(), 3, "{blocks:?}");
+        assert_eq!(block_texts(&blocks), vec!["cited", "after"]);
+        let Block::Note { text, source } = &blocks[1] else {
+            panic!("expected a comment between the two paragraphs: {blocks:?}");
+        };
+        assert_eq!(text, "check this number");
+        assert_eq!(source, &NoteSource::Comment);
+    }
+
+    #[test]
+    fn a_comment_s_range_does_not_draw_it_a_second_time() {
+        // Word writes `w:commentRangeStart` and `w:commentRangeEnd` around the span a comment applies
+        // to, as well as the reference in its own run. Drawing the range as well would print every
+        // comment twice in nearly every file that has one.
+        let xml = document(
+            r#"<w:p><w:r><w:commentRangeStart w:id="1"/><w:t>cited</w:t><w:commentRangeEnd w:id="1"/></w:r><w:r><w:commentReference w:id="1"/></w:r></w:p>"#,
+        );
+        let notes = Notes {
+            comments: read_notes(&comments_part(), b"comment"),
+            ..Default::default()
+        };
+        let (blocks, _, _) =
+            parse_document(&xml, None, &Styles::default(), &Default::default(), &notes).unwrap();
+        let drawn: Vec<String> = blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Note { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(drawn, vec!["check this number".to_string()]);
+    }
+
+    #[test]
+    fn an_endnote_is_read_apart_from_its_separators() {
+        // The endnotes part has the same shape as the footnotes one, separators and all.
+        let xml = r#"<?xml version="1.0"?>
+<w:endnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:endnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:endnote><w:endnote w:id="1"><w:p><w:r><w:t>an endnote</w:t></w:r></w:p></w:endnote></w:endnotes>"#;
+        let endnotes = read_notes(xml, b"endnote");
+        assert_eq!(endnotes.get("1").map(String::as_str), Some("an endnote"));
+        assert!(!endnotes.contains_key("-1"));
     }
 
     #[test]

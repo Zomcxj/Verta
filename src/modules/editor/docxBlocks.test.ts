@@ -394,7 +394,10 @@ describe("what the writer is handed", () => {
 });
 
 describe("a footnote", () => {
-  const note = (text: string): DocxDocument["blocks"][number] => ({ kind: "note", text });
+  const note = (
+    text: string,
+    source: "footnote" | "endnote" | "comment" = "footnote",
+  ): DocxDocument["blocks"][number] => ({ kind: "note", source, text });
   const paragraph = (index: number, text: string): DocxDocument["blocks"][number] => ({
     kind: "paragraph",
     index,
@@ -436,6 +439,8 @@ describe("a footnote", () => {
       ["note", "a note", null],
       ["p", "after", 1],
     ]);
+    // And what kind of note it is, which is what the pane calls it.
+    expect(read[1].source).toBe("footnote");
   });
 
   it("is not part of what is written back", () => {

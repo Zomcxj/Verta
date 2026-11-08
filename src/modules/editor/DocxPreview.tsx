@@ -694,7 +694,14 @@ const DocxBody = memo(function DocxBody({
               className={classOf(block)}
               contentEditable={false}
             >
-              {t("editor.docx.note", { text: block.text })}
+              {t(
+                block.kind === "note" && block.source === "comment"
+                  ? "editor.docx.comment"
+                  : block.kind === "note" && block.source === "endnote"
+                    ? "editor.docx.endnote"
+                    : "editor.docx.note",
+                { text: block.text },
+              )}
             </div>
           );
         }
