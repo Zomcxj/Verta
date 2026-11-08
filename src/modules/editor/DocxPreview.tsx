@@ -36,6 +36,7 @@ import {
   anchorIndex,
   type BlockExtent,
   pagePadding,
+  pagePaddingToward,
   pageStarts,
   scrollAdjustment,
   visualScale,
@@ -494,16 +495,35 @@ const DocxBody = memo(function DocxBody({
       unpaginate(body);
       const extents = blockExtents(body, paperScale);
       const starts = pageStarts(extents, textArea);
-      if (starts.length > 1) {
-        for (const [index, padding] of pagePadding(starts, extents, pitch)) {
-          const block = body.children[index];
-          if (!(block instanceof HTMLElement)) continue;
-          // Already a whole number of pixels: `pagePadding` rounds as it goes so the pages count
-          // what they were actually given.
-          block.style.paddingTop = `${padding}px`;
-          PADDED.add(block);
-        }
+      const pads = new Map<number, number>(pagePadding(starts, extents, pitch));
+      const paint = (at: number, padding: number) => {
+        const block = body.children[at];
+        if (!(block instanceof HTMLElement)) return;
+        block.style.paddingTop = `${padding}px`;
+        PADDED.add(block);
+      };
+      for (const [at, padding] of pads) paint(at, padding);
+
+      // A padding is not always additive: a block that was letting its own margins collapse through
+      // it stops doing so once it has one, so the flow below moves by less than the padding asks
+      // for, and a page begins a line short of its sheet. What each page gained is therefore
+      // measured rather than predicted - and measured one page at a time from the top, because
+      // putting a page right moves every page below it. Correcting them all from a single
+      // measurement instead does not settle: the corrections feed each other and grow without
+      // bound, which on a real thesis was three sheets of padding within two rounds.
+      const bodyTop = body.getBoundingClientRect().top;
+      for (let page = 1; page < starts.length; page += 1) {
+        const at = starts[page];
+        const block = body.children[at];
+        if (!(block instanceof HTMLElement)) continue;
+        const current = pads.get(at) ?? 0;
+        const inkTop = (block.getBoundingClientRect().top - bodyTop) / paperScale + current;
+        const next = pagePaddingToward(current, inkTop, page * pitch);
+        if (next === current) continue;
+        pads.set(at, next);
+        paint(at, next);
       }
+
       drawSheets(pageHeight, pitch, starts.length);
       const afterTop = watch();
       if (!scroller || beforeTop === null || afterTop === null) return;

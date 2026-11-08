@@ -3,6 +3,7 @@ import {
   anchorIndex,
   type BlockExtent,
   pagePadding,
+  pagePaddingToward,
   pageStarts,
   scrollAdjustment,
   visualScale,
@@ -157,5 +158,26 @@ describe("the scale a rect is drawn at", () => {
     // to the end of the document.
     expect(visualScale(0, 8026)).toBe(1);
     expect(visualScale(7624, 0)).toBe(1);
+  });
+});
+
+describe("putting a page back on its sheet", () => {
+  it("does not touch a page that is already where it should be", () => {
+    expect(pagePaddingToward(300, 1150.5, 1150.5)).toBe(300);
+  });
+
+  it("gives a page back what it fell short by", () => {
+    // The shape of it, from a real thesis: a page whose first block was collapsing its own margins
+    // came out 21 high, because giving it a padding stopped the collapse and the move was not
+    // additive. Asked for one sheet at 1150.5 it sat at 1129.9, so its padding grows by 21.
+    expect(pagePaddingToward(277, 1129.9, 1150.5)).toBe(298);
+    // And the other way: a page that landed low has its padding taken back.
+    expect(pagePaddingToward(300, 1170, 1150.5)).toBe(281);
+  });
+
+  it("never asks for a padding below nothing", () => {
+    // A page cannot be pulled up by a style on a block, so a page that is too low keeps no padding.
+    expect(pagePaddingToward(20, 1300, 1150.5)).toBe(0);
+    expect(pagePaddingToward(0, 1300, 1150.5)).toBe(0);
   });
 });

@@ -105,6 +105,18 @@ export function visualScale(rectHeight: number, offsetHeight: number): number {
 }
 
 /**
+ * The padding a page should have, given where its first line is drawn now and where it has to be.
+ *
+ * A padding is not always additive, so a page can begin a line short of its sheet: the padding is
+ * asked for, the flow below it moves by less, and every page under it inherits the shortfall. The
+ * answer is therefore measured rather than predicted, and never negative: a page cannot be pulled
+ * back up by a style on a block.
+ */
+export function pagePaddingToward(current: number, inkTop: number, target: number): number {
+  return Math.max(0, current + Math.round(target - inkTop));
+}
+
+/**
  * How far to scroll to keep a block where it was, after everything above it moved.
  *
  * Both numbers are rect tops, which are in the window's pixels, and a scroll offset is in layout
