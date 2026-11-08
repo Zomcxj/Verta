@@ -34,6 +34,8 @@ export type BaselineBlock = DraftBlock & {
   ordinal: number | null;
   /** What kind of note this is, for the note blocks the pane draws read only. */
   source?: "footnote" | "endnote" | "comment";
+  /** Who wrote a comment, when the file says. */
+  author?: string;
 };
 
 const KINDS: ReadonlySet<string> = new Set([
@@ -116,6 +118,8 @@ export function blocksFromDocument(document: DocxDocument): BaselineBlock[] {
         text: block.kind === "note" ? block.text : "",
         ordinal: null,
         source: block.kind === "note" ? block.source : undefined,
+        author:
+          block.kind === "note" && block.author ? block.author : undefined,
       };
     }
     const kind: BlockKind = block.heading

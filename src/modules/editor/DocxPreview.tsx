@@ -696,11 +696,15 @@ const DocxBody = memo(function DocxBody({
             >
               {t(
                 block.kind === "note" && block.source === "comment"
-                  ? "editor.docx.comment"
+                  ? block.author
+                    ? "editor.docx.commentBy"
+                    : "editor.docx.comment"
                   : block.kind === "note" && block.source === "endnote"
                     ? "editor.docx.endnote"
                     : "editor.docx.note",
-                { text: block.text },
+                block.kind === "note" && block.author
+                  ? { text: block.text, author: block.author }
+                  : { text: block.text },
               )}
             </div>
           );

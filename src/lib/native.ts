@@ -81,7 +81,13 @@ export type DocxBlock =
    * It is drawn after that block and is not typed into: the pane writes one text per paragraph, and
    * a note folded into its paragraph's text would be saved into the body of the document.
    */
-  | { kind: "note"; source: "footnote" | "endnote" | "comment"; text: string };
+  | {
+      kind: "note";
+      source: "footnote" | "endnote" | "comment";
+      text: string;
+      /** Who wrote it; only a comment names one, and the pane shows it when it is there. */
+      author?: string | null;
+    };
 
 /**
  * What the file looked like when it was read.

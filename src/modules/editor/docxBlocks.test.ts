@@ -397,7 +397,8 @@ describe("a footnote", () => {
   const note = (
     text: string,
     source: "footnote" | "endnote" | "comment" = "footnote",
-  ): DocxDocument["blocks"][number] => ({ kind: "note", source, text });
+    author?: string,
+  ): DocxDocument["blocks"][number] => ({ kind: "note", source, text, author });
   const paragraph = (index: number, text: string): DocxDocument["blocks"][number] => ({
     kind: "paragraph",
     index,
@@ -441,6 +442,19 @@ describe("a footnote", () => {
     ]);
     // And what kind of note it is, which is what the pane calls it.
     expect(read[1].source).toBe("footnote");
+  });
+
+  it("keeps the name of whoever wrote a comment", () => {
+    // A comment is someone talking about the text, so the pane has to be able to say who.
+    const read = blocksFromDocument(
+      document([paragraph(0, "cited"), note("check this", "comment", "A. Reviewer")]),
+    );
+    expect(read[1].source).toBe("comment");
+    expect(read[1].author).toBe("A. Reviewer");
+    // A footnote names nobody, and the pane says nothing about an author then.
+    expect(blocksFromDocument(document([paragraph(0, "cited"), note("a note")]))[1].author).toBe(
+      undefined,
+    );
   });
 
   it("is not part of what is written back", () => {

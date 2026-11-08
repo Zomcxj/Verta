@@ -154,7 +154,14 @@ pub enum Block {
     /// paragraph and writes it back over the paragraph, so a note folded into the paragraph's text
     /// would be written into the body of the document the first time the paragraph was edited. It
     /// has no ordinal, like a table, and is not editable.
-    Note { text: String, source: NoteSource },
+    Note {
+        text: String,
+        source: NoteSource,
+        /// Who wrote it, when the part says. Only a comment names one: a footnote or an endnote is
+        /// the document's own voice.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        author: Option<String>,
+    },
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -754,15 +761,22 @@ fn package_notes(package: &Package) -> Notes {
     }
 }
 
+/// One note as its part states it: its text, and who wrote it when the part says.
+#[derive(Default, Clone)]
+struct NoteText {
+    text: String,
+    author: Option<String>,
+}
+
 /// The notes of the three parts, by the id a reference names.
 ///
 /// Footnotes, endnotes and comments are all written the same way: the body holds a reference and the
 /// words are in a part of their own. They are read by the same walk and drawn the same way.
 #[derive(Default)]
 struct Notes {
-    footnotes: std::collections::HashMap<String, String>,
-    endnotes: std::collections::HashMap<String, String>,
-    comments: std::collections::HashMap<String, String>,
+    footnotes: std::collections::HashMap<String, NoteText>,
+    endnotes: std::collections::HashMap<String, NoteText>,
+    comments: std::collections::HashMap<String, NoteText>,
 }
 
 /// The kind of note a reference in the body points at, if it is one.
@@ -785,7 +799,7 @@ fn reference_source(name: QName<'_>) -> Option<NoteSource> {
 
 impl Notes {
     /// The table a reference's ids are read from.
-    fn table(&self, source: NoteSource) -> &std::collections::HashMap<String, String> {
+    fn table(&self, source: NoteSource) -> &std::collections::HashMap<String, NoteText> {
         match source {
             NoteSource::Footnote => &self.footnotes,
             NoteSource::Endnote => &self.endnotes,
@@ -797,15 +811,19 @@ impl Notes {
 /// Draws the notes a paragraph cited, after the block that cited them.
 fn flush_notes(
     blocks: &mut Vec<Block>,
-    pending: &mut Vec<(NoteSource, String)>,
+    pending: &mut Vec<(NoteSource, NoteText)>,
     truncated: &mut bool,
 ) {
-    for (source, text) in pending.drain(..) {
+    for (source, note) in pending.drain(..) {
         if blocks.len() >= MAX_BLOCKS {
             *truncated = true;
             continue;
         }
-        blocks.push(Block::Note { text, source });
+        blocks.push(Block::Note {
+            text: note.text,
+            source,
+            author: note.author,
+        });
     }
 }
 
@@ -852,12 +870,12 @@ fn vml_size(style: &str) -> (Option<f32>, Option<f32>) {
 ///
 /// The first two kinds of part also hold separators - the rule above the notes - which are marked by
 /// `w:type` and are not notes.
-fn read_notes(xml: &str, kind: &[u8]) -> std::collections::HashMap<String, String> {
+fn read_notes(xml: &str, kind: &[u8]) -> std::collections::HashMap<String, NoteText> {
     let mut notes = std::collections::HashMap::new();
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
-    // The note being read: its id, and one string per paragraph of it.
-    let mut note: Option<(String, Vec<String>)> = None;
+    // The note being read: its id, who wrote it, and one string per paragraph of it.
+    let mut note: Option<(String, Option<String>, Vec<String>)> = None;
     let mut in_text = false;
     loop {
         match reader.read_event() {
@@ -867,16 +885,16 @@ fn read_notes(xml: &str, kind: &[u8]) -> std::collections::HashMap<String, Strin
                     let reserved = attribute(&element, b"type").is_some_and(|kind| kind != "normal");
                     note = attribute(&element, b"id")
                         .filter(|_| !reserved)
-                        .map(|id| (id, Vec::new()));
+                        .map(|id| (id, attribute(&element, b"author"), Vec::new()));
                 } else if is_w(name, b"t") {
                     in_text = true;
-                    if let Some((_, paragraphs)) = note.as_mut() {
+                    if let Some((_, _, paragraphs)) = note.as_mut() {
                         if paragraphs.is_empty() {
                             paragraphs.push(String::new());
                         }
                     }
                 } else if is_w(name, b"p") {
-                    if let Some((_, paragraphs)) = note.as_mut() {
+                    if let Some((_, _, paragraphs)) = note.as_mut() {
                         if !paragraphs.is_empty() {
                             paragraphs.push(String::new());
                         }
@@ -888,10 +906,14 @@ fn read_notes(xml: &str, kind: &[u8]) -> std::collections::HashMap<String, Strin
                 if is_w(name, b"t") {
                     in_text = false;
                 } else if is_w(name, kind) {
-                    if let Some((id, paragraphs)) = note.take() {
+                    if let Some((id, author, paragraphs)) = note.take() {
                         let text = paragraphs.join(" ").trim().to_string();
                         if !text.is_empty() {
-                            notes.insert(id, text);
+                            // A blank author is no author: some writers state the attribute empty.
+                            let author = author
+                                .map(|name| name.trim().to_string())
+                                .filter(|name| !name.is_empty());
+                            notes.insert(id, NoteText { text, author });
                         }
                     }
                 }
@@ -900,7 +922,7 @@ fn read_notes(xml: &str, kind: &[u8]) -> std::collections::HashMap<String, Strin
                 if !in_text {
                     continue;
                 }
-                let Some((_, paragraphs)) = note.as_mut() else {
+                let Some((_, _, paragraphs)) = note.as_mut() else {
                     continue;
                 };
                 let Some(current) = paragraphs.last_mut() else {
@@ -2410,7 +2432,7 @@ fn parse_document(
     let mut inside: Vec<Block> = Vec::new();
     // The notes a paragraph cited, waiting for that paragraph to close: the pane has no page foot or
     // margin, so a note is drawn after the block that cites it.
-    let mut pending_notes: Vec<(NoteSource, String)> = Vec::new();
+    let mut pending_notes: Vec<(NoteSource, NoteText)> = Vec::new();
     loop {
         match reader.read_event() {
             Ok(Event::Start(element)) => {
@@ -3287,8 +3309,11 @@ mod tests {
         // The part holds the rule above the notes as footnotes of their own, marked by `w:type`. They
         // are not notes, and a note of two paragraphs is one note, not two.
         let notes = read_notes(&footnotes_part(), b"footnote");
-        assert_eq!(notes.get("1").map(String::as_str), Some("a note"));
-        assert_eq!(notes.get("2").map(String::as_str), Some("line one line two"));
+        assert_eq!(notes.get("1").map(|note| note.text.as_str()), Some("a note"));
+        assert_eq!(
+            notes.get("2").map(|note| note.text.as_str()),
+            Some("line one line two")
+        );
         assert!(!notes.contains_key("-1"), "the separator is not a note");
         assert!(!notes.contains_key("0"), "the continuation separator is not a note");
     }
@@ -3312,11 +3337,13 @@ mod tests {
         assert_eq!(blocks.len(), 3, "{blocks:?}");
         assert_eq!(block_texts(&blocks), vec!["cited", "after"]);
         assert!(matches!(&blocks[0], Block::Paragraph { index: 0, .. }));
-        let Block::Note { text, source } = &blocks[1] else {
+        let Block::Note { text, source, author } = &blocks[1] else {
             panic!("expected a note between the two paragraphs: {blocks:?}");
         };
         assert_eq!(text, "a note");
         assert_eq!(source, &NoteSource::Footnote);
+        // A footnote is the document's own voice: the part names no author.
+        assert_eq!(author, &None);
         assert!(matches!(&blocks[2], Block::Paragraph { index: 1, .. }));
     }
 
@@ -3347,8 +3374,14 @@ mod tests {
         // A comment is the whole of word/comments.xml; the body only holds a reference to it. 15 of
         // the documents measured here have comments, 371 of them, and none of that text was drawn.
         let comments = read_notes(&comments_part(), b"comment");
-        assert_eq!(comments.get("1").map(String::as_str), Some("check this number"));
-        assert_eq!(comments.get("2").map(String::as_str), Some("and this one too"));
+        assert_eq!(
+            comments.get("1").map(|note| note.text.as_str()),
+            Some("check this number")
+        );
+        assert_eq!(
+            comments.get("2").map(|note| note.text.as_str()),
+            Some("and this one too")
+        );
     }
 
     #[test]
@@ -3364,11 +3397,28 @@ mod tests {
             parse_document(&xml, None, &Styles::default(), &Default::default(), &notes).unwrap();
         assert_eq!(blocks.len(), 3, "{blocks:?}");
         assert_eq!(block_texts(&blocks), vec!["cited", "after"]);
-        let Block::Note { text, source } = &blocks[1] else {
+        let Block::Note { text, source, author } = &blocks[1] else {
             panic!("expected a comment between the two paragraphs: {blocks:?}");
         };
         assert_eq!(text, "check this number");
         assert_eq!(source, &NoteSource::Comment);
+        assert_eq!(author.as_deref(), Some("A. Reviewer"));
+    }
+
+    #[test]
+    fn a_comment_carries_the_author_that_wrote_it() {
+        // A comment is someone talking about the text, so which someone matters. The part states it
+        // in `w:author`, and reading past it left every comment unattributed.
+        let comments = read_notes(&comments_part(), b"comment");
+        assert_eq!(comments.get("1").and_then(|note| note.author.as_deref()), Some("A. Reviewer"));
+        // A blank author is no author: some writers state the attribute empty.
+        let blank = r#"<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:comment w:id="1" w:author=""><w:p><w:r><w:t>nameless</w:t></w:r></w:p></w:comment><w:comment w:id="2" w:author="  "><w:p><w:r><w:t>spaces</w:t></w:r></w:p></w:comment></w:comments>"#;
+        let comments = read_notes(blank, b"comment");
+        assert_eq!(comments.get("1").and_then(|note| note.author.as_deref()), None);
+        assert_eq!(comments.get("2").and_then(|note| note.author.as_deref()), None);
+        // A footnote has none of its own.
+        let footnotes = read_notes(&footnotes_part(), b"footnote");
+        assert_eq!(footnotes.get("1").and_then(|note| note.author.as_deref()), None);
     }
 
     #[test]
@@ -3401,7 +3451,10 @@ mod tests {
         let xml = r#"<?xml version="1.0"?>
 <w:endnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:endnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:endnote><w:endnote w:id="1"><w:p><w:r><w:t>an endnote</w:t></w:r></w:p></w:endnote></w:endnotes>"#;
         let endnotes = read_notes(xml, b"endnote");
-        assert_eq!(endnotes.get("1").map(String::as_str), Some("an endnote"));
+        assert_eq!(
+            endnotes.get("1").map(|note| note.text.as_str()),
+            Some("an endnote")
+        );
         assert!(!endnotes.contains_key("-1"));
     }
 
