@@ -809,6 +809,40 @@ fn flush_notes(
     }
 }
 
+/// The width and height a `v:shape` style asks for, in px.
+///
+/// The style is CSS-like: `style="width:14.2pt;height:17.45pt"`. Points are the usual unit for a VML
+/// object, and a browser draws a point as 4/3 of a pixel; the others are accepted because the writer
+/// of the file decides which to use.
+fn vml_size(style: &str) -> (Option<f32>, Option<f32>) {
+    let mut width = None;
+    let mut height = None;
+    for part in style.split(';') {
+        let Some((name, value)) = part.split_once(':') else { continue };
+        let value = value.trim();
+        let (number, unit) = value.split_at(
+            value
+                .find(|character: char| !character.is_ascii_digit() && character != '.')
+                .unwrap_or(value.len()),
+        );
+        let Ok(number) = number.parse::<f32>() else { continue };
+        let px = match unit.trim() {
+            "pt" => number * 4.0 / 3.0,
+            "in" => number * 96.0,
+            "cm" => number * 96.0 / 2.54,
+            "mm" => number * 96.0 / 25.4,
+            "px" | "" => number,
+            _ => continue,
+        };
+        match name.trim() {
+            "width" => width = Some(px),
+            "height" => height = Some(px),
+            _ => {}
+        }
+    }
+    (width, height)
+}
+
 /// The text of each note of a part, by the id a reference in the body names.
 ///
 /// Word keeps the notes in a part of their own and leaves a reference in the run that cites one, so
@@ -2282,6 +2316,19 @@ fn read_property(
         if current.image_rid.is_some() {
             current.image_at = Some(at);
         }
+    } else if name.local_name().as_ref() == b"imagedata" {
+        // A picture written as VML instead of DrawingML: an OLE object's preview - an equation, a
+        // chart, a spreadsheet - which is the only form of it any reader can draw. `r:id` names the
+        // media file the same way `r:embed` does. No drawing ordinal is recorded: there is no
+        // `<w:drawing>` here for a deletion or a move to address.
+        current.image_rid = attribute_any(element, b"id").or_else(|| current.image_rid.clone());
+    } else if name.local_name().as_ref() == b"shape" {
+        // `v:shape` says how big the object is drawn, in points - the size its preview is.
+        if let Some(style) = attribute_any(element, b"style") {
+            let (width, height) = vml_size(&style);
+            current.image_width = width.or(current.image_width);
+            current.image_height = height.or(current.image_height);
+        }
     } else if name.local_name().as_ref() == b"extent" {
         // `wp:extent` carries the size the document draws the picture at, in EMU.
         current.image_width = attribute(element, b"cx")
@@ -3008,6 +3055,58 @@ mod tests {
         // A document that names no section is drawn on the pane's own paper, not a wrong one.
         let (_, _, none) = parse_document(&document("<w:p/>"), None, &Styles::default(), &Default::default(), &Default::default()).unwrap();
         assert!(none.is_none());
+    }
+
+    #[test]
+    fn an_ole_object_s_preview_is_read_as_a_picture() {
+        // An equation or a chart is embedded as an OLE object, and what a document shows for it is a
+        // picture written as VML. `w:drawing` was the only shape read, so those pictures were not
+        // drawn at all - one thesis holds 536 of them.
+        // The `#` in the shape's type ends a one-hash raw string, so this one has two.
+        let picture = r##"<w:p><w:r><w:object w:dxaOrig="3900" w:dyaOrig="9973"><v:shape id="_x0000_i1025" type="#_x0000_t75" style="width:120pt;height:60pt" o:ole=""><v:imagedata r:id="rId5" o:title=""/></v:shape><o:OLEObject Type="Embed"/></w:object></w:r></w:p>"##;
+        let bytes = archive(&[
+            ("[Content_Types].xml", "<Types/>"),
+            ("word/document.xml", &document(picture)),
+            (
+                "word/_rels/document.xml.rels",
+                r#"<Relationships><Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image2.png"/></Relationships>"#,
+            ),
+            ("word/media/image2.png", "the preview bytes"),
+        ]);
+        let package = parts(&bytes).unwrap();
+        let image = package.images.get("rId5").expect("the preview is a picture");
+        let (blocks, _, _) = parse_document(
+            &package.document,
+            None,
+            &Styles::default(),
+            &package.images,
+            &package_notes(&package),
+        )
+        .unwrap();
+        let Block::Paragraph { runs, .. } = paragraph_of(&blocks) else {
+            unreachable!()
+        };
+        assert_eq!(runs[0].image.as_deref(), Some(image.as_str()));
+        // 120pt is 160px; 60pt is 80px.
+        assert_eq!(runs[0].image_width, Some(160.0));
+        assert_eq!(runs[0].image_height, Some(80.0));
+        // And it has no drawing ordinal: there is no `<w:drawing>` here to delete or move, so the
+        // pane offers neither.
+        assert_eq!(runs[0].image_index, None);
+    }
+
+    #[test]
+    fn a_vml_size_is_read_in_the_unit_it_states() {
+        let (width, height) = vml_size("width:14.2pt;height:17.45pt");
+        assert!((width.unwrap() - 18.9333).abs() < 0.001, "{width:?}");
+        assert!((height.unwrap() - 23.2667).abs() < 0.001, "{height:?}");
+        assert_eq!(vml_size("width:96px;height:1in"), (Some(96.0), Some(96.0)));
+        let (width, height) = vml_size("position:absolute;width:2.54cm;height:25.4mm");
+        assert_eq!(width, Some(96.0));
+        assert_eq!(height, Some(96.0));
+        // Anything it cannot read is left absent rather than guessed.
+        assert_eq!(vml_size("width:auto;height:120"), (None, Some(120.0)));
+        assert_eq!(vml_size(""), (None, None));
     }
 
     #[test]
