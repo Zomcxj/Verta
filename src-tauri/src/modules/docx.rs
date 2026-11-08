@@ -53,6 +53,13 @@ pub struct Run {
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    /// Struck through: `w:strike` (and `w:dstrike`, whose second line this pane does not draw).
+    pub strike: bool,
+    /// The marker colour Word names (`yellow`, `cyan`, …), when the run is highlighted. It is the
+    /// name rather than a colour: the palette is Word's, and what it looks like is the pane's to say.
+    pub highlight: Option<String>,
+    /// Above or below the baseline, when the run is raised or lowered.
+    pub vertical: Option<Vertical>,
     /// Point size, when the file names one (`w:sz` is in half-points).
     pub size: Option<f32>,
     /// `#rrggbb`; Word's `auto` is not a colour and reads as none.
@@ -113,6 +120,17 @@ pub struct ListItem {
     /// The numbering definition the paragraph asks for. Two adjacent lists with different ids are
     /// two lists, and the pane can only reset its counter between them if it knows which is which.
     pub num_id: u32,
+}
+
+/// Where a run sits relative to the baseline: a superscript or a subscript.
+#[derive(Serialize, Debug, PartialEq, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub enum Vertical {
+    Superscript,
+    Subscript,
+    /// `w:vertAlign w:val="baseline"`: explicitly on the line. It is not drawn differently, and it
+    /// exists in the property set only so a run can say "not raised" over what it inherits.
+    Baseline,
 }
 
 /// Where a note's text is written in the file, which is also what the pane calls it.
@@ -824,6 +842,16 @@ fn flush_notes(
             source,
             author: note.author,
         });
+    }
+}
+
+/// Where `w:vertAlign` puts a run, when it says anything this pane draws.
+fn vertical_of(element: &BytesStart<'_>) -> Option<Vertical> {
+    match val(element)?.as_str() {
+        "superscript" => Some(Vertical::Superscript),
+        "subscript" => Some(Vertical::Subscript),
+        "baseline" => Some(Vertical::Baseline),
+        _ => None,
     }
 }
 
@@ -1921,6 +1949,14 @@ struct RunProps {
     bold: Option<bool>,
     italic: Option<bool>,
     underline: Option<bool>,
+    strike: Option<bool>,
+    /// A double strike. It is drawn as one line here, but it is a separate property: a run can say
+    /// `w:strike` on and `w:dstrike` off, and treating them as one made the off one win.
+    double_strike: Option<bool>,
+    /// Word's own name for the colour; `none` is a real value here so it can turn an inherited
+    /// highlight off, and is dropped when the run is built.
+    highlight: Option<String>,
+    vertical: Option<Vertical>,
 }
 
 impl RunProps {
@@ -1934,6 +1970,10 @@ impl RunProps {
             bold: over.bold.or(self.bold),
             italic: over.italic.or(self.italic),
             underline: over.underline.or(self.underline),
+            strike: over.strike.or(self.strike),
+            double_strike: over.double_strike.or(self.double_strike),
+            highlight: over.highlight.clone().or(self.highlight),
+            vertical: over.vertical.or(self.vertical),
         }
     }
 }
@@ -2083,6 +2123,14 @@ fn parse_styles(xml: &str) -> Styles {
                         props.italic = Some(toggled(&element));
                     } else if is_w(name, b"u") {
                         props.underline = Some(toggled(&element));
+                    } else if is_w(name, b"strike") {
+                        props.strike = Some(toggled(&element));
+                    } else if is_w(name, b"dstrike") {
+                        props.double_strike = Some(toggled(&element));
+                    } else if is_w(name, b"highlight") {
+                        props.highlight = val(&element);
+                    } else if is_w(name, b"vertAlign") {
+                        props.vertical = vertical_of(&element);
                     }
                 } else if matches!(scope, StyleScope::DefaultsPara | StyleScope::StylePara) {
                     let props = match scope {
@@ -2293,6 +2341,14 @@ fn read_property(
     } else if current.in_run && is_w(name, b"u") {
         // `w:u` carries the line style (`single`, `double`, …); `none` is the one that is off.
         current.run_props.underline = Some(toggled(element));
+    } else if current.in_run && is_w(name, b"strike") {
+        current.run_props.strike = Some(toggled(element));
+    } else if current.in_run && is_w(name, b"dstrike") {
+        current.run_props.double_strike = Some(toggled(element));
+    } else if current.in_run && is_w(name, b"highlight") {
+        current.run_props.highlight = val(element);
+    } else if current.in_run && is_w(name, b"vertAlign") {
+        current.run_props.vertical = vertical_of(element);
     } else if current.in_run && is_w(name, b"sz") {
         current.run_props.size = val(element)
             .and_then(|value| value.parse::<f32>().ok())
@@ -2624,6 +2680,14 @@ fn parse_document(
                                 bold: props.bold.unwrap_or(false),
                                 italic: props.italic.unwrap_or(false),
                                 underline: props.underline.unwrap_or(false),
+                                // Either kind of strike is a line through the text; this pane draws
+                                // one line for both.
+                                strike: props.strike.unwrap_or(false)
+                                    || props.double_strike.unwrap_or(false),
+                                highlight: props
+                                    .highlight
+                                    .filter(|name| name != "none" && name != "auto"),
+                                vertical: props.vertical.filter(|at| *at != Vertical::Baseline),
                                 size: props.size,
                                 color: props.color,
                                 font: props.font,
@@ -3280,6 +3344,105 @@ mod tests {
                 vec!["c second".to_string(), String::new()],
             ]
         );
+    }
+
+    #[test]
+    fn a_superscript_and_a_subscript_are_read() {
+        // 12056 runs in the documents to hand say where they sit, and every one of them was drawn on
+        // the line: a unit like m2 or a citation mark came out flat.
+        let xml = document(
+            r#"<w:p><w:r><w:t>m</w:t></w:r><w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:t>2</w:t></w:r><w:r><w:rPr><w:vertAlign w:val="subscript"/></w:rPr><w:t>i</w:t></w:r><w:r><w:rPr><w:vertAlign w:val="baseline"/></w:rPr><w:t>on</w:t></w:r></w:p>"#,
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        let Block::Paragraph { runs, .. } = &blocks[0] else {
+            panic!("expected a paragraph");
+        };
+        let vertical: Vec<Option<Vertical>> = runs.iter().map(|run| run.vertical).collect();
+        assert_eq!(
+            vertical,
+            vec![
+                None,
+                Some(Vertical::Superscript),
+                Some(Vertical::Subscript),
+                // `baseline` is on the line, and reads as nothing at all.
+                None,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_struck_through_run_is_read_and_a_switched_off_one_is_not() {
+        // `w:strike` with no value is on; `w:val="0"` is off, and reading the element alone would
+        // have struck out every run that says it is not struck out.
+        let xml = document(
+            r#"<w:p><w:r><w:rPr><w:strike/></w:rPr><w:t>gone</w:t></w:r><w:r><w:rPr><w:strike w:val="0"/></w:rPr><w:t>kept</w:t></w:r><w:r><w:rPr><w:dstrike/></w:rPr><w:t>double</w:t></w:r></w:p>"#,
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        let Block::Paragraph { runs, .. } = &blocks[0] else {
+            panic!("expected a paragraph");
+        };
+        let strikes: Vec<bool> = runs.iter().map(|run| run.strike).collect();
+        assert_eq!(strikes, vec![true, false, true]);
+    }
+
+    #[test]
+    fn a_single_strike_survives_the_double_one_being_switched_off() {
+        // Word writes both properties on the same run, one on and one off: this is the shape a real
+        // file gave, and folding the two into one field made the second switch the first off, so 106
+        // struck runs of it were drawn as ordinary text.
+        let xml = document(
+            r#"<w:p><w:r><w:rPr><w:strike/><w:dstrike w:val="0"/></w:rPr><w:t>struck</w:t></w:r><w:r><w:rPr><w:strike w:val="0"/><w:dstrike/></w:rPr><w:t>doubled</w:t></w:r></w:p>"#,
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        let Block::Paragraph { runs, .. } = &blocks[0] else {
+            panic!("expected a paragraph");
+        };
+        assert!(runs[0].strike, "a single strike is a strike");
+        assert!(runs[1].strike, "so is a double one");
+    }
+
+    #[test]
+    fn a_highlighted_run_keeps_the_colour_word_names() {
+        // Word names its marker colours rather than giving a value. The name is kept as it is: the
+        // palette is Word's, and what it looks like is the pane's to decide.
+        let xml = document(
+            r#"<w:p><w:r><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t>marked</w:t></w:r><w:r><w:rPr><w:highlight w:val="none"/></w:rPr><w:t>plain</w:t></w:r></w:p>"#,
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        let Block::Paragraph { runs, .. } = &blocks[0] else {
+            panic!("expected a paragraph");
+        };
+        assert_eq!(runs[0].highlight.as_deref(), Some("yellow"));
+        // `none` is how a run says it is not highlighted.
+        assert_eq!(runs[1].highlight, None);
+    }
+
+    #[test]
+    fn a_run_inherits_a_mark_until_it_says_otherwise() {
+        // Absent means inherited and stated means what it states, so a run inside a raised style is
+        // raised until it says `baseline`, and a run that mentions no highlight keeps the one its
+        // style gives it.
+        let style = RunProps {
+            vertical: Some(Vertical::Superscript),
+            strike: Some(true),
+            highlight: Some("yellow".into()),
+            ..Default::default()
+        };
+        let own = style.clone().over(&Default::default());
+        assert_eq!(own.vertical, Some(Vertical::Superscript));
+        assert_eq!(own.strike, Some(true));
+        assert_eq!(own.highlight.as_deref(), Some("yellow"));
+
+        let overruled = style.over(&RunProps {
+            vertical: Some(Vertical::Baseline),
+            highlight: Some("none".into()),
+            ..Default::default()
+        });
+        assert_eq!(overruled.vertical, Some(Vertical::Baseline));
+        assert_eq!(overruled.strike, Some(true));
+        // `none` travels as a value and is dropped when the run is built, which is how a run turns
+        // off a highlight it inherits.
+        assert_eq!(overruled.highlight.as_deref(), Some("none"));
     }
 
     #[test]

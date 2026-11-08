@@ -2,11 +2,13 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import type { DocxRun } from "@/lib/native";
 import {
   blockStyle,
   DEFAULT_PAGE,
   fallbackPx,
   fittedPageScale,
+  runStyle,
   tableGrid,
 } from "./DocxPreview";
 
@@ -116,6 +118,7 @@ describe("docx tables", () => {
       bold: false,
       italic: false,
       underline: false,
+              strike: false,
       size: null,
       color: null,
       font: null,
@@ -361,5 +364,58 @@ describe("fitting a page to the pane", () => {
     // The first frame has no measurement; scaling by a width of zero would draw nothing.
     expect(fittedPageScale(1700, 0)).toBe(1);
     expect(fittedPageScale(0, 1200)).toBe(1);
+  });
+});
+
+/** A run as the reader hands it to the pane, with nothing stated but what the test names. */
+const run = (over: Partial<DocxRun> = {}): DocxRun => ({
+  text: "x",
+  bold: false,
+  italic: false,
+  underline: false,
+  strike: false,
+  size: null,
+  color: null,
+  font: null,
+  image: null,
+  imageWidth: null,
+  imageHeight: null,
+  ...over,
+});
+
+describe("what a run is drawn as", () => {
+  it("puts a raised run above the line and a lowered one below it", () => {
+    // 12056 runs in the documents to hand say where they sit, and drawing them all on the line
+    // flattens every unit like m2 and every citation mark.
+    expect(runStyle(run({ vertical: "superscript" }))).toMatchObject({
+      verticalAlign: "super",
+    });
+    expect(runStyle(run({ vertical: "subscript" }))).toMatchObject({ verticalAlign: "sub" });
+    // Word draws them smaller, and a run with no size of its own inherits one, so the scale is
+    // expressed against whatever it inherits.
+    expect(runStyle(run({ vertical: "superscript" })).fontSize).toBe("0.65em");
+    // A run that states a size has that size scaled instead.
+    expect(runStyle(run({ vertical: "superscript", size: 10 }))).toMatchObject({
+      fontSize: expect.stringMatching(/^\d+px$/),
+    });
+    expect(runStyle(run())).not.toHaveProperty("verticalAlign");
+  });
+
+  it("draws an underline and a strike as one decoration with two lines", () => {
+    // Two declarations of `text-decoration-line` would replace each other, so a run that is both
+    // underlined and struck through has to say both at once.
+    expect(runStyle(run({ underline: true })).textDecorationLine).toBe("underline");
+    expect(runStyle(run({ strike: true })).textDecorationLine).toBe("line-through");
+    expect(runStyle(run({ underline: true, strike: true })).textDecorationLine).toBe(
+      "underline line-through",
+    );
+    expect(runStyle(run())).not.toHaveProperty("textDecorationLine");
+  });
+
+  it("paints the marker colour the file names, and nothing for a name it does not know", () => {
+    expect(runStyle(run({ highlight: "yellow" }))).toMatchObject({ backgroundColor: "#ffff00" });
+    expect(runStyle(run({ highlight: "CYAN" }))).toMatchObject({ backgroundColor: "#00ffff" });
+    // A highlight of `none` never reaches here, and a name from another writer is not painted.
+    expect(runStyle(run({ highlight: "chartreuse" }))).not.toHaveProperty("backgroundColor");
   });
 });

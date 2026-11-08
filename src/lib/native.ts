@@ -12,6 +12,12 @@ export type DocxRun = {
   bold: boolean;
   italic: boolean;
   underline: boolean;
+  /** Struck through, by a single line: `w:strike` or `w:dstrike`. */
+  strike: boolean;
+  /** The marker colour Word names (`yellow`, `cyan`, …); absent means not highlighted. */
+  highlight?: string | null;
+  /** Above or below the line, when the run is raised or lowered. */
+  vertical?: "superscript" | "subscript" | null;
   /** Point size, when the file names one. */
   size: number | null;
   /** `#rrggbb`, when the run is not the document's own text colour. */

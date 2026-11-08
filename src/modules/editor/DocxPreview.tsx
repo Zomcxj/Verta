@@ -109,6 +109,71 @@ const SAVE_DELAY_FALLBACK_MS = 600;
 /** The drag payload that carries a picture's number, so a drop knows what it is holding. */
 const PICTURE_DRAG = "application/x-verta-picture";
 
+/**
+ * The marker colours Word names, as the browser spells them.
+ *
+ * A highlight is a name in the file rather than a value, and the names are Word's own palette, so the
+ * translation belongs to the pane. A name not listed here is simply not painted: a document from
+ * another writer may say anything.
+ */
+const HIGHLIGHT_COLORS: Record<string, string> = {
+  yellow: "#ffff00",
+  green: "#00ff00",
+  cyan: "#00ffff",
+  magenta: "#ff00ff",
+  blue: "#0000ff",
+  red: "#ff0000",
+  darkblue: "#000080",
+  darkcyan: "#008080",
+  darkgreen: "#008000",
+  darkmagenta: "#800080",
+  darkred: "#800000",
+  darkyellow: "#808000",
+  gray: "#808080",
+  grey: "#808080",
+  lightgray: "#c0c0c0",
+  lightgrey: "#c0c0c0",
+  black: "#000000",
+};
+
+/** How much smaller raised and lowered text is drawn, the way Word does it. */
+const VERTICAL_SCALE = 0.65;
+
+/**
+ * What a run is drawn as, from what the file says about it.
+ *
+ * Only what the run states: a run that says nothing inherits from its block, where the paragraph's
+ * own size already is. Underline and a strike are one decoration with two lines in it, so the two of
+ * them become one `text-decoration-line` rather than two declarations, the second of which would
+ * replace the first.
+ */
+export function runStyle(run: DocxRun): React.CSSProperties {
+  const highlight = run.highlight ? HIGHLIGHT_COLORS[run.highlight.toLowerCase()] : undefined;
+  return {
+    ...(run.size ? { fontSize: `${Math.round(pointsToPx(run.size))}px` } : {}),
+    ...(run.color ? { color: run.color } : {}),
+    ...(run.font ? { fontFamily: `"${run.font}", sans-serif` } : {}),
+    ...(run.underline || run.strike
+      ? {
+          textDecorationLine: [run.underline ? "underline" : "", run.strike ? "line-through" : ""]
+            .filter(Boolean)
+            .join(" "),
+        }
+      : {}),
+    ...(highlight ? { backgroundColor: highlight } : {}),
+    // Raised and lowered text is smaller, which Word does by scaling the size it would otherwise
+    // have. With no size of its own the run inherits one, and `em` follows it.
+    ...(run.vertical
+      ? {
+          verticalAlign: run.vertical === "superscript" ? "super" : "sub",
+          fontSize: run.size
+            ? `${Math.round(pointsToPx(run.size) * VERTICAL_SCALE)}px`
+            : `${VERTICAL_SCALE}em`,
+        }
+      : {}),
+  };
+}
+
 /** A list where order is the only identity there is: each entry gets the position as its id. */
 function numbered<T>(items: T[]): { id: number; item: T }[] {
   return items.map((item, id) => ({ id, item }));
@@ -133,20 +198,10 @@ function Runs({
       {numbered(runs).map(({ id, item: run }) => (
         <span
           key={id}
-          className={[
-            run.bold ? "font-semibold" : "",
-            run.italic ? "italic" : "",
-            run.underline ? "underline" : "",
-          ]
+          className={[run.bold ? "font-semibold" : "", run.italic ? "italic" : ""]
             .filter(Boolean)
             .join(" ")}
-          style={{
-            // The file's own numbers only, and never a fallback: a run that says nothing inherits
-            // from its block, where the paragraph's size already is.
-            ...(run.size ? { fontSize: `${Math.round(pointsToPx(run.size))}px` } : {}),
-            ...(run.color ? { color: run.color } : {}),
-            ...(run.font ? { fontFamily: `"${run.font}", sans-serif` } : {}),
-          }}
+          style={runStyle(run)}
         >
           {run.image ? (
             // A picture is drawn from the archive's own bytes; it carries no text, so writing the
