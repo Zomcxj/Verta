@@ -60,6 +60,8 @@ pub struct Run {
     pub highlight: Option<String>,
     /// Above or below the baseline, when the run is raised or lowered.
     pub vertical: Option<Vertical>,
+    /// `#rrggbb` when the run paints its own background (`w:shd` in its run properties).
+    pub shade: Option<String>,
     /// Point size, when the file names one (`w:sz` is in half-points).
     pub size: Option<f32>,
     /// `#rrggbb`; Word's `auto` is not a colour and reads as none.
@@ -122,6 +124,16 @@ pub struct ListItem {
     pub num_id: u32,
 }
 
+/// One cell of a table: its text, and the fill the cell states.
+#[derive(Serialize, Debug, PartialEq, Clone, Default)]
+pub struct Cell {
+    pub runs: Vec<Run>,
+    /// `#rrggbb` when the cell paints its own background; absent means the paper shows through. A
+    /// shaded header row is drawn shaded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shade: Option<String>,
+}
+
 /// Where a run sits relative to the baseline: a superscript or a subscript.
 #[derive(Serialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
@@ -162,10 +174,12 @@ pub enum Block {
         size: Option<f32>,
         indent: Option<Indent>,
         spacing: Option<Spacing>,
+        /// `#rrggbb` when the paragraph paints the whole line (`w:shd` in its own properties).
+        shade: Option<String>,
     },
     /// Rows of cells; each cell's paragraphs are joined by a space, since a cell is one line here,
     /// but the styling of every piece is kept so a bold header is drawn bold.
-    Table { rows: Vec<Vec<Vec<Run>>> },
+    Table { rows: Vec<Vec<Cell>> },
     /// The text of a note the block above cites: a footnote, an endnote or a comment.
     ///
     /// It is a block of its own and not part of that paragraph: the pane states one text per
@@ -843,6 +857,26 @@ fn flush_notes(
             author: note.author,
         });
     }
+}
+
+/// The colour a `w:shd` paints, when it paints one.
+///
+/// The element states a pattern (`w:val`) and a fill. `clear` is the pattern almost every file uses,
+/// and it means "this colour, solid"; `auto` and white are the paper itself and are not a fill.
+fn shade_of(element: &BytesStart<'_>) -> Option<String> {
+    let fill = attribute(element, b"fill")?;
+    let fill = fill.trim();
+    if fill.is_empty() {
+        return None;
+    }
+    let upper = fill.to_ascii_uppercase();
+    if upper == "AUTO" || upper == "FFFFFF" {
+        return None;
+    }
+    // The file writes six hex digits; the pane wants a CSS colour.
+    let hex = upper.strip_prefix('#').unwrap_or(&upper);
+    (hex.len() == 6 && hex.chars().all(|character| character.is_ascii_hexdigit()))
+        .then(|| format!("#{}", hex.to_ascii_lowercase()))
 }
 
 /// Where `w:vertAlign` puts a run, when it says anything this pane draws.
@@ -1878,6 +1912,8 @@ struct Paragraph {
     image_at: Option<usize>,
     image_width: Option<f32>,
     image_height: Option<f32>,
+    /// The fill the paragraph's own properties state, if any.
+    para_shade: Option<String>,
     /// What the paragraph itself states about its box; the rest comes from its style.
     align: Option<String>,
     ind_left: Option<i32>,
@@ -1910,6 +1946,11 @@ impl Paragraph {
         self.run_props = RunProps::default();
         self.image_width = None;
         self.image_height = None;
+    }
+
+    /// The fill this paragraph states for its own line, if it states one.
+    fn own_shade(&self) -> Option<String> {
+        self.para_shade.clone()
     }
 
     /// This paragraph's own box, if it states one. Everything else comes from its style.
@@ -1957,6 +1998,7 @@ struct RunProps {
     /// highlight off, and is dropped when the run is built.
     highlight: Option<String>,
     vertical: Option<Vertical>,
+    shade: Option<String>,
 }
 
 impl RunProps {
@@ -1974,6 +2016,7 @@ impl RunProps {
             double_strike: over.double_strike.or(self.double_strike),
             highlight: over.highlight.clone().or(self.highlight),
             vertical: over.vertical.or(self.vertical),
+            shade: over.shade.clone().or(self.shade),
         }
     }
 }
@@ -2131,6 +2174,8 @@ fn parse_styles(xml: &str) -> Styles {
                         props.highlight = val(&element);
                     } else if is_w(name, b"vertAlign") {
                         props.vertical = vertical_of(&element);
+                    } else if is_w(name, b"shd") {
+                        props.shade = shade_of(&element);
                     }
                 } else if matches!(scope, StyleScope::DefaultsPara | StyleScope::StylePara) {
                     let props = match scope {
@@ -2349,6 +2394,13 @@ fn read_property(
         current.run_props.highlight = val(element);
     } else if current.in_run && is_w(name, b"vertAlign") {
         current.run_props.vertical = vertical_of(element);
+    } else if current.in_run && is_w(name, b"shd") {
+        // A run can paint its own background, which is what a marked-up passage often uses instead
+        // of a highlight.
+        current.run_props.shade = shade_of(element);
+    } else if !current.in_run && is_w(name, b"shd") {
+        // A paragraph's own fill paints the whole line.
+        current.para_shade = shade_of(element);
     } else if current.in_run && is_w(name, b"sz") {
         current.run_props.size = val(element)
             .and_then(|value| value.parse::<f32>().ok())
@@ -2459,9 +2511,15 @@ fn parse_document(
     let mut truncated = false;
 
     let mut paragraph: Option<Paragraph> = None;
-    let mut table: Option<Vec<Vec<Vec<Run>>>> = None;
-    let mut row: Option<Vec<Vec<Run>>> = None;
-    let mut cell: Option<Vec<Run>> = None;
+    let mut table: Option<Vec<Vec<Cell>>> = None;
+    let mut row: Option<Vec<Cell>> = None;
+    let mut cell: Option<Cell> = None;
+    // Whether the reader is inside a cell's own properties, where a shading belongs to the cell
+    // rather than to a paragraph inside it or to a run.
+    let mut in_cell_props = false;
+    // A table can paint its own background, which every cell without a fill of its own shows.
+    let mut table_shade: Option<String> = None;
+    let mut in_table_props = false;
     // A table nested in a cell is not shown: its rows would be read as rows of the outer table.
     let mut nested_table_depth = 0usize;
     // quick-xml verifies the tags that are closed; nothing tells it a document ended in the middle
@@ -2523,7 +2581,11 @@ fn parse_document(
                 if is_w(name, b"tr") {
                     row = Some(Vec::new());
                 } else if is_w(name, b"tc") {
-                    cell = Some(Vec::new());
+                    cell = Some(Cell::default());
+                } else if is_w(name, b"tblPr") {
+                    in_table_props = true;
+                } else if is_w(name, b"tcPr") {
+                    in_cell_props = true;
                 } else if let Some(index) = paragraph_index {
                     if let Some(open) = paragraph.take() {
                         outer.push(open);
@@ -2572,11 +2634,25 @@ fn parse_document(
                                 size: None,
                                 indent: None,
                                 spacing: None,
+                                shade: None,
                             });
                         }
                     }
                 }
                 if nested_table_depth > 0 {
+                    continue;
+                }
+                // A cell's own fill, which is what shades a header row. It sits in the cell's
+                // properties, before any paragraph of the cell, so it belongs to the cell and not
+                // to the first line inside it.
+                if in_table_props && is_w(name, b"shd") {
+                    table_shade = shade_of(&element);
+                    continue;
+                }
+                if in_cell_props && is_w(name, b"shd") {
+                    if let Some(cell) = cell.as_mut() {
+                        cell.shade = shade_of(&element);
+                    }
                     continue;
                 }
                 // Word writes the reference self-closing, which is the usual shape.
@@ -2633,6 +2709,7 @@ fn parse_document(
                     if nested_table_depth > 0 {
                         nested_table_depth -= 1;
                     } else if let Some(rows) = table.take() {
+                        table_shade = None;
                         blocks.push(Block::Table { rows });
                         flush_notes(&mut blocks, &mut pending_notes, &mut truncated);
                     }
@@ -2645,9 +2722,16 @@ fn parse_document(
                     if let (Some(rows), Some(cells)) = (table.as_mut(), row.take()) {
                         rows.push(cells);
                     }
+                } else if is_w(name, b"tblPr") {
+                    in_table_props = false;
+                } else if is_w(name, b"tcPr") {
+                    in_cell_props = false;
                 } else if is_w(name, b"tc") {
-                    if let (Some(cells), Some(runs)) = (row.as_mut(), cell.take()) {
-                        cells.push(trimmed(runs));
+                    if let (Some(cells), Some(cell)) = (row.as_mut(), cell.take()) {
+                        cells.push(Cell {
+                            runs: trimmed(cell.runs),
+                            shade: cell.shade.clone().or_else(|| table_shade.clone()),
+                        });
                     }
                 } else if is_w(name, b"t") {
                     if let Some(current) = paragraph.as_mut() {
@@ -2664,6 +2748,7 @@ fn parse_document(
                     };
                     let numbering = finished.numbering.clone();
                     let style = finished.style.clone();
+                    let shade = finished.own_shade();
                     let own = finished.own_box();
                     let heading = finished.heading();
                     let index = finished.index;
@@ -2688,6 +2773,7 @@ fn parse_document(
                                     .highlight
                                     .filter(|name| name != "none" && name != "auto"),
                                 vertical: props.vertical.filter(|at| *at != Vertical::Baseline),
+                                shade: props.shade,
                                 size: props.size,
                                 color: props.color,
                                 font: props.font,
@@ -2706,13 +2792,13 @@ fn parse_document(
                     if let Some(target) = cell.as_mut() {
                         // A cell's paragraph belongs to the cell, one line: its runs are appended,
                         // with a space between paragraphs.
-                        if !target.is_empty() && !runs.is_empty() {
-                            target.push(Run {
+                        if !target.runs.is_empty() && !runs.is_empty() {
+                            target.runs.push(Run {
                                 text: " ".into(),
                                 ..Default::default()
                             });
                         }
-                        target.extend(runs);
+                        target.runs.extend(runs);
                     } else if blocks.len() + inside.len() >= MAX_BLOCKS {
                         truncated = true;
                     } else {
@@ -2737,6 +2823,7 @@ fn parse_document(
                                     first_line: placed.first_line,
                                 },
                             ),
+                            shade,
                             spacing: (placed.before.is_some()
                                 || placed.after.is_some()
                                 || placed.line.is_some())
@@ -3026,6 +3113,7 @@ mod tests {
                 size: None,
                 indent: None,
                 spacing: None,
+                shade: None,
             }]
         );
     }
@@ -3056,7 +3144,8 @@ mod tests {
                         .map(|row| {
                             row.iter()
                                 .map(|cell| {
-                                    cell.iter()
+                                    cell.runs
+                                        .iter()
                                         .map(|run| run.text.as_str())
                                         .collect::<String>()
                                 })
@@ -3293,6 +3382,7 @@ mod tests {
                 size: None,
                 indent: None,
                 spacing: None,
+                shade: None,
             }]
         );
 
@@ -3344,6 +3434,99 @@ mod tests {
                 vec!["c second".to_string(), String::new()],
             ]
         );
+    }
+
+    #[test]
+    fn a_shaded_cell_paints_its_own_background() {
+        // A table's header row is often shaded, and the fill is the cell's own: it sits in `w:tcPr`,
+        // before any paragraph of the cell, so it must not be read as the first line's shading.
+        let xml = document(
+            r#"<w:tbl><w:tr><w:tc><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="B5CC82"/></w:tcPr><w:p><w:pPr><w:shd w:val="clear" w:fill="F9FCFE"/></w:pPr><w:r><w:t>head</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>bare</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"#,
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        let Block::Table { rows } = &blocks[0] else {
+            panic!("expected a table");
+        };
+        assert_eq!(rows[0][0].shade.as_deref(), Some("#b5cc82"));
+        assert_eq!(rows[0][0].runs[0].text, "head");
+        // A cell that states nothing is not filled.
+        assert_eq!(rows[0][1].shade, None);
+    }
+
+    #[test]
+    fn a_table_s_fill_paints_the_cells_that_state_none() {
+        // A table can paint its own background, and a cell that states no fill of its own shows it.
+        let xml = document(
+            r#"<w:tbl><w:tblPr><w:shd w:val="clear" w:fill="ADD3A5"/></w:tblPr><w:tr><w:tc><w:p><w:r><w:t>one</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:shd w:val="clear" w:fill="95B3D7"/></w:tcPr><w:p><w:r><w:t>two</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:t>after</w:t></w:r></w:p>"#,
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        let Block::Table { rows } = &blocks[0] else {
+            panic!("expected a table");
+        };
+        // The cell states nothing, so the table's fill is what it sits on.
+        assert_eq!(rows[0][0].shade.as_deref(), Some("#add3a5"));
+        // A cell that states its own wins.
+        assert_eq!(rows[0][1].shade.as_deref(), Some("#95b3d7"));
+        // And the fill does not outlive the table.
+        let Block::Paragraph { shade, .. } = &blocks[1] else {
+            panic!("expected a paragraph");
+        };
+        assert_eq!(shade, &None);
+    }
+
+    #[test]
+    fn a_shaded_paragraph_paints_the_line() {
+        // The paragraph-level fill: 218 of them in two real files, all a pale blue.
+        let xml = document(
+            r#"<w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="F9FCFE"/></w:pPr><w:r><w:t>pale</w:t></w:r></w:p><w:p><w:r><w:t>plain</w:t></w:r></w:p>"#,
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        let Block::Paragraph { shade, .. } = &blocks[0] else {
+            panic!("expected a paragraph");
+        };
+        assert_eq!(shade.as_deref(), Some("#f9fcfe"));
+        let Block::Paragraph { shade, .. } = &blocks[1] else {
+            panic!("expected a paragraph");
+        };
+        assert_eq!(shade, &None);
+    }
+
+    #[test]
+    fn a_shaded_run_paints_its_own_text() {
+        // A run's own fill, which is how a marked-up passage is often written instead of a highlight.
+        let xml = document(
+            r#"<w:p><w:r><w:rPr><w:shd w:val="clear" w:fill="000000"/></w:rPr><w:t>ink</w:t></w:r><w:r><w:t>plain</w:t></w:r></w:p>"#,
+        );
+        let blocks = parse_blocks(&xml, None).unwrap().0;
+        let Block::Paragraph { runs, .. } = &blocks[0] else {
+            panic!("expected a paragraph");
+        };
+        assert_eq!(runs[0].shade.as_deref(), Some("#000000"));
+        assert_eq!(runs[1].shade, None);
+    }
+
+    #[test]
+    fn a_shading_that_paints_nothing_is_no_shading() {
+        // `auto` and white are the paper itself, and anything that is not a colour is not a fill.
+        let auto = r#"<w:shd w:val="clear" w:fill="auto"/>"#;
+        let white = r#"<w:shd w:val="clear" w:fill="FFFFFF"/>"#;
+        let none = r#"<w:shd w:val="clear"/>"#;
+        let nonsense = r#"<w:shd w:val="clear" w:fill="not a colour"/>"#;
+        for (xml, expected) in [
+            (auto, None),
+            (white, None),
+            (none, None),
+            (nonsense, None),
+            (r#"<w:shd w:val="clear" w:fill="b5cc82"/>"#, Some("#b5cc82")),
+            (r##"<w:shd w:val="clear" w:fill="#ADD3A5"/>"##, Some("#add3a5")),
+        ] {
+            let document = document(&format!("<w:p><w:pPr>{xml}</w:pPr><w:r><w:t>x</w:t></w:r></w:p>"));
+            let blocks = parse_blocks(&document, None).unwrap().0;
+            let Block::Paragraph { shade, .. } = &blocks[0] else {
+                panic!("expected a paragraph");
+            };
+            assert_eq!(shade.as_deref(), expected, "{xml}");
+        }
     }
 
     #[test]
@@ -3456,9 +3639,9 @@ mod tests {
         let Block::Table { rows } = &blocks[0] else {
             panic!("expected a table");
         };
-        assert_eq!(rows[0][0][0].text, "head");
-        assert!(rows[0][0][0].bold);
-        assert_eq!(rows[0][0][0].size, Some(13.0));
+        assert_eq!(rows[0][0].runs[0].text, "head");
+        assert!(rows[0][0].runs[0].bold);
+        assert_eq!(rows[0][0].runs[0].size, Some(13.0));
     }
 
     /// A footnotes part, as Word writes one: a separator, a continuation separator, and a note.
@@ -4137,6 +4320,7 @@ mod tests {
             panic!("expected a table");
         };
         let numbered: Vec<Option<u32>> = rows[0][0]
+            .runs
             .iter()
             .filter(|run| run.image_index.is_some())
             .map(|run| run.image_index)
@@ -4185,6 +4369,7 @@ mod tests {
             panic!("expected a table");
         };
         let numbered: Vec<Option<u32>> = rows[0][0]
+            .runs
             .iter()
             .filter(|run| run.image_index.is_some())
             .map(|run| run.image_index)

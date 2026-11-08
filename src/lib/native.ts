@@ -18,6 +18,8 @@ export type DocxRun = {
   highlight?: string | null;
   /** Above or below the line, when the run is raised or lowered. */
   vertical?: "superscript" | "subscript" | null;
+  /** `#rrggbb` when the run paints its own background (`w:shd` in its run properties). */
+  shade?: string | null;
   /** Point size, when the file names one. */
   size: number | null;
   /** `#rrggbb`, when the run is not the document's own text colour. */
@@ -59,6 +61,13 @@ export type DocxPage = {
   marginLeft: number | null;
 };
 
+/** One cell of a table: its text, and the fill the cell states. */
+export type DocxCell = {
+  runs: DocxRun[];
+  /** `#rrggbb` when the cell paints its own background; absent means the paper shows through. */
+  shade?: string | null;
+};
+
 export type DocxBlock =
   | {
       kind: "paragraph";
@@ -79,8 +88,10 @@ export type DocxBlock =
       size: number | null;
       indent: DocxIndent | null;
       spacing: DocxSpacing | null;
+      /** `#rrggbb` when the paragraph paints its own line. */
+      shade?: string | null;
     }
-  | { kind: "table"; rows: DocxRun[][][] }
+  | { kind: "table"; rows: DocxCell[][] }
   /**
    * The text of a note the block above cites: a footnote, an endnote or a comment.
    *

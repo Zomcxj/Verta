@@ -1,6 +1,7 @@
 import {
   native,
   type DocxBlock,
+  type DocxCell,
   type DocxDocument,
   type DocxGuard,
   type DocxRun,
@@ -81,11 +82,15 @@ type SaveState =
 
 /** The table's rows and cells, numbered so each has a key of its own. */
 export function tableGrid(
-  rows: DocxRun[][][],
-): { id: number; cells: { id: number; runs: DocxRun[] }[] }[] {
+  rows: DocxCell[][],
+): { id: number; cells: { id: number; runs: DocxRun[]; shade?: string | null }[] }[] {
   return rows.map((row, rowIndex) => ({
     id: rowIndex,
-    cells: row.map((runs, cellIndex) => ({ id: cellIndex, runs })),
+    cells: row.map((cell, cellIndex) => ({
+      id: cellIndex,
+      runs: cell.runs,
+      shade: cell.shade,
+    })),
   }));
 }
 
@@ -160,7 +165,13 @@ export function runStyle(run: DocxRun): React.CSSProperties {
             .join(" "),
         }
       : {}),
-    ...(highlight ? { backgroundColor: highlight } : {}),
+    // A highlight is the marker over the text; the shading underneath is what the file says the
+    // passage sits on, and the marker is what is seen first.
+    ...(highlight
+      ? { backgroundColor: highlight }
+      : run.shade
+        ? { backgroundColor: run.shade }
+        : {}),
     // Raised and lowered text is smaller, which Word does by scaling the size it would otherwise
     // have. With no size of its own the run inherits one, and `em` follows it.
     ...(run.vertical
@@ -721,6 +732,7 @@ const DocxBody = memo(function DocxBody({
                         <td
                           key={cell.id}
                           className="border border-border/70 px-2 py-1 align-top"
+                          style={cell.shade ? { backgroundColor: cell.shade } : undefined}
                         >
                           <Runs
                             runs={cell.runs}
@@ -783,6 +795,7 @@ const DocxBody = memo(function DocxBody({
         const level =
           block.kind === "li" && read?.kind === "paragraph" ? (read.list?.level ?? 0) : 0;
         const blockBox = blockStyle(block.kind, read?.kind === "paragraph" ? read : null);
+        if (read?.kind === "paragraph" && read.shade) blockBox.backgroundColor = read.shade;
         if (block.kind === "li") {
           // A list item is drawn one step in per its level, on top of whatever indent the file gives
           // it (a nested item at its parent's margin reads as one flat list). The marker sits at the

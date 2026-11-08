@@ -126,15 +126,21 @@ describe("docx tables", () => {
       imageWidth: null,
       imageHeight: null,
     });
-    expect(tableGrid([[[run("a")], [run("b")]], [[run("c")]]])).toEqual([
+    // A cell is its runs and the fill it states, because a shaded header row is drawn shaded.
+    expect(
+      tableGrid([
+        [{ runs: [run("a")], shade: "#b5cc82" }, { runs: [run("b")] }],
+        [{ runs: [run("c")] }],
+      ]),
+    ).toEqual([
       {
         id: 0,
         cells: [
-          { id: 0, runs: [run("a")] },
-          { id: 1, runs: [run("b")] },
+          { id: 0, runs: [run("a")], shade: "#b5cc82" },
+          { id: 1, runs: [run("b")], shade: undefined },
         ],
       },
-      { id: 1, cells: [{ id: 0, runs: [run("c")] }] },
+      { id: 1, cells: [{ id: 0, runs: [run("c")], shade: undefined }] },
     ]);
   });
 
@@ -410,6 +416,16 @@ describe("what a run is drawn as", () => {
       "underline line-through",
     );
     expect(runStyle(run())).not.toHaveProperty("textDecorationLine");
+  });
+
+  it("paints the shading a run sits on, under the marker when there is one", () => {
+    // A run's own fill is what a marked-up passage often uses instead of a highlight; a highlight is
+    // the marker over that, so it is the one that shows when both are stated.
+    expect(runStyle(run({ shade: "#f7f8fa" }))).toMatchObject({ backgroundColor: "#f7f8fa" });
+    expect(runStyle(run({ shade: "#f7f8fa", highlight: "yellow" }))).toMatchObject({
+      backgroundColor: "#ffff00",
+    });
+    expect(runStyle(run())).not.toHaveProperty("backgroundColor");
   });
 
   it("paints the marker colour the file names, and nothing for a name it does not know", () => {
