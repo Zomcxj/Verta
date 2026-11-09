@@ -28,16 +28,18 @@ import {
   needsReread,
 } from "./docxBlocks";
 import {
+  blocksOf,
   caretInBody,
   normalizeBody,
   placeCaretAtBlock,
+  placeSelection,
   readDraftBlocks,
+  selectionInBody,
 } from "./docxBodyDom";
 import {
   anchorIndex,
   type BlockExtent,
-  pagePadding,
-  pagePaddingToward,
+  pageRanges,
   pageStarts,
   scrollAdjustment,
   visualScale,
@@ -51,12 +53,18 @@ import {
  * passthrough, so nothing in the document can inject anything into the window, and no parser in this
  * bundle.
  *
- * The whole body is one editable surface, not one per paragraph. A caret cannot move between two
- * editable elements, so a paragraph each made cross-paragraph selection, Backspace at the start of a
- * line, and deleting several lines at once impossible by construction. Here Enter, Backspace, the
- * selection and the input method all belong to the browser; only paste is intercepted, and after every
- * edit the DOM is flattened back into the one shape the writer understands - a direct child per
- * paragraph (see `docxBodyDom.ts`).
+ * The document is drawn as the sheets Word would print: one element per page, each holding the blocks
+ * that fit it, with the section's size and its margins as the padding of the sheet. Pagination decides
+ * which block belongs to which page by measuring them once in a single column, and it moves the blocks
+ * into their pages - so the sheets are real boxes rather than a background painted to look like them.
+ *
+ * All of it is one editable surface: a caret cannot move between two editable elements, so a surface
+ * per page would put cross-page selection, Backspace at the start of a page and deleting a run of
+ * lines that spans a break out of reach by construction. Here Enter, Backspace, the selection and the
+ * input method all belong to the browser; only paste is intercepted, and after every edit the DOM is
+ * flattened back into the one shape the writer understands - one block per paragraph (see
+ * `docxBodyDom.ts`). Because the caret must survive a block being moved onto another page, pagination
+ * carries it by block and offset.
  *
  * Saving happens on its own shortly after typing stops, back into the same file. What is sent is the
  * difference against what the file already has, so an untouched paragraph keeps every byte Word wrote
@@ -103,9 +111,7 @@ const HEADING_CLASS = [
   "text-[12.5px] font-semibold",
 ] as const;
 
-/** How long typing has to stop before the file is written. */
-/**
- * How long typing has to stop before the file is written.
+/** How long typing has to stop before the file is written.
  *
  * The editor's own setting, so the two panes agree about what "stopped typing" means.
  */
@@ -375,27 +381,31 @@ function classOf(block: BaselineBlock): string {
 }
 
 /**
- * Every top-level block of a body, with the padding pagination put on it taken off again.
+ * The blocks' boxes as they flow in one column, in the paper's pixels.
  *
- * Measured from the body's own top, in the paper's pixels, and with the page padding removed first:
- * the pages are computed from the document's natural flow, so a second pass has to start from the
- * same place the first one did.
+ * Measured from the first block's own top, so the answer does not depend on where the column sits or
+ * on what else the surface holds: what pagination needs is the distance from one block to the next.
  */
-function blockExtents(body: HTMLElement, scale: number): BlockExtent[] {
-  if (scale <= 0) return [];
-  const top = body.getBoundingClientRect().top;
-  const out: BlockExtent[] = [];
-  for (const child of Array.from(body.children)) {
-    if (!(child instanceof HTMLElement)) continue;
-    const rect = child.getBoundingClientRect();
+function blockExtents(blocks: HTMLElement[], scale: number): BlockExtent[] {
+  if (scale <= 0 || blocks.length === 0) return [];
+  const top = blocks[0].getBoundingClientRect().top;
+  return blocks.map((block) => {
+    const rect = block.getBoundingClientRect();
     // A rect is in the window's pixels and the paper's own arithmetic is in layout pixels.
-    out.push([(rect.top - top) / scale, (rect.bottom - top) / scale]);
+    return [(rect.top - top) / scale, (rect.bottom - top) / scale] as const;
+  });
+}
+
+/** The pages a body holds, in order. Empty until pagination has cut the first one. */
+function pagesOf(body: HTMLElement): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  for (const child of body.children) {
+    if (child instanceof HTMLElement && child.hasAttribute("data-docx-page")) {
+      out.push(child);
+    }
   }
   return out;
 }
-
-/** The blocks pagination has padded, so the padding can be taken off before the next measurement. */
-const PADDED = new WeakSet<HTMLElement>();
 
 /**
  * Where the line the caret sits on is drawn, or nothing when the caret is not measured in this body.
@@ -412,18 +422,73 @@ function caretLineTop(body: HTMLElement): number | null {
   return rect && rect.height > 0 ? rect.top : null;
 }
 
-/** Takes every page gap out of the flow, leaving the document exactly as the read drew it. */
-function unpaginate(body: HTMLElement): void {
-  for (const child of Array.from(body.children)) {
-    if (!(child instanceof HTMLElement)) continue;
-    if (!PADDED.has(child)) continue;
-    child.style.paddingTop = "";
-    PADDED.delete(child);
-  }
-}
-
 /** The distance between two sheets, so a reader can see where one page ends. */
 export const SHEET_GAP = 28;
+
+/**
+ * Every block back under the body, in one column, with the sheets taken away.
+ *
+ * Pagination measures the document as the reader drew it - one column of blocks - so the boxes cut
+ * last time have to go before the next measurement, or the margins and the gaps of those boxes are
+ * measured as if they were the document. The blocks are moved rather than re-created: their text is
+ * the user's until it is written, and the order they come back in is what the caret is carried by.
+ */
+function toOneColumn(body: HTMLElement): HTMLElement[] {
+  const blocks = blocksOf(body);
+  for (const block of blocks) body.appendChild(block);
+  for (const page of pagesOf(body)) page.remove();
+  return blocks;
+}
+
+/** The section's own numbers, in the paper's pixels. */
+export type SheetSize = {
+  height: number;
+  marginTop: number;
+  marginRight: number;
+  marginBottom: number;
+  marginLeft: number;
+};
+
+/**
+ * The box one page is drawn in: a real sheet, holding the blocks that start on it.
+ *
+ * It is the section's height with its margins as padding, on white, with a hairline shadow - the
+ * page a reader recognises, and the place its text stops. `minHeight` rather than `height`, because
+ * a block taller than a page (a table, a picture) has no honest way to be cut in two here: the sheet
+ * grows by it rather than letting the document spill over the sheet below.
+ */
+export function sheetStyle(size: SheetSize, last: boolean): React.CSSProperties {
+  return {
+    position: "relative",
+    width: "100%",
+    minHeight: `${size.height}px`,
+    paddingTop: `${size.marginTop}px`,
+    paddingRight: `${size.marginRight}px`,
+    paddingBottom: `${size.marginBottom}px`,
+    paddingLeft: `${size.marginLeft}px`,
+    marginBottom: last ? "0px" : `${SHEET_GAP}px`,
+    background: "#ffffff",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.16)",
+  };
+}
+
+/**
+ * The number in the corner of a page.
+ *
+ * Marked as chrome, which is what tells the rest of the pane that it is not part of the document: the
+ * body is read back a block at a time, and a page number is not a paragraph - it would be counted as
+ * one, moved as one and written into the file as one.
+ */
+function pageNumber(number: number): HTMLElement {
+  const label = document.createElement("span");
+  label.setAttribute("data-docx-chrome", "");
+  label.setAttribute("contenteditable", "false");
+  label.setAttribute("aria-hidden", "true");
+  label.className =
+    "pointer-events-none absolute bottom-1 right-1 text-[9.5px] tabular-nums text-black/35";
+  label.textContent = String(number);
+  return label;
+}
 
 /**
  * The document body: one editable surface for the whole document.
@@ -457,9 +522,8 @@ const DocxBody = memo(function DocxBody({
 }) {
   const t = useT();
   const blocks = useMemo(() => blocksFromDocument(doc), [doc]);
-  /** The paper and the page numbers, written by pagination rather than rendered by React. */
+  /** The paper the sheets are written into, by pagination rather than rendered by React. */
   const paperRef = useRef<HTMLDivElement | null>(null);
-  const pagesRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     // Markers are pseudo-elements, so they have to be assigned before the first paint as well as
@@ -492,40 +556,40 @@ const DocxBody = memo(function DocxBody({
   const pageWidth = twipsToPx(page.width ?? DEFAULT_PAGE.width);
   // A page wider than the pane is shrunk to fit it; a page that fits is drawn at its own size.
   const scale = fittedPageScale(pageWidth, available);
-  const marginTop = twipsToPx(page.marginTop ?? DEFAULT_PAGE.marginTop);
-  const textArea =
-    twipsToPx(page.height ?? DEFAULT_PAGE.height) -
-    marginTop -
-    twipsToPx(page.marginBottom ?? DEFAULT_PAGE.marginBottom);
   const pageHeight = twipsToPx(page.height ?? DEFAULT_PAGE.height);
-  // The height of the stack and the sheets themselves are written by pagination: a state change
+  // The section's own margins, in the paper's pixels: where a page's text stops.
+  const marginTop = twipsToPx(page.marginTop ?? DEFAULT_PAGE.marginTop);
+  const marginRight = twipsToPx(page.marginRight ?? DEFAULT_PAGE.marginRight);
+  const marginBottom = twipsToPx(page.marginBottom ?? DEFAULT_PAGE.marginBottom);
+  const marginLeft = twipsToPx(page.marginLeft ?? DEFAULT_PAGE.marginLeft);
+  /** The room a page has for text: the sheet less the margins the section states. */
+  const textArea = pageHeight - marginTop - marginBottom;
+  // The paper is the column the sheets sit in, and they are written by pagination: a state change
   // here would re-render the editable body, and the text in it is the user's until it is saved.
+  // `minHeight` is one sheet, so the first frame is a page rather than nothing while the document is
+  // measured.
   const paper = {
     width: `${pageWidth}px`,
     minHeight: `${pageHeight}px`,
-    paddingTop: `${twipsToPx(page.marginTop ?? DEFAULT_PAGE.marginTop)}px`,
-    paddingRight: `${twipsToPx(page.marginRight ?? DEFAULT_PAGE.marginRight)}px`,
-    paddingBottom: `${twipsToPx(page.marginBottom ?? DEFAULT_PAGE.marginBottom)}px`,
-    paddingLeft: `${twipsToPx(page.marginLeft ?? DEFAULT_PAGE.marginLeft)}px`,
-    // `zoom` rather than a transform: it shrinks the page's own layout, so its width, its margins
-    // and its type all come down together and the row it sits in centres what is actually drawn.
+    // `zoom` rather than a transform: it shrinks the sheets' own layout, so their width, their
+    // margins and their type all come down together and the row they sit in centres what is drawn.
     zoom: scale,
   };
 
-  // Pagination: the document is one flowing column while it is being typed into, and one sheet per
-  // page a second after typing stops. The gap between pages is a padding on the block that begins
-  // the page, which is a style and not a node, so the caret is never moved by it.
+  // Pagination: the document is measured as one flowing column, and then every block is moved into
+  // the sheet it starts on. The sheets are real boxes - white, the section's size, its margins as
+  // padding - so a page break is a break in the document rather than a background painted behind it.
+  // All of it is written to the DOM outside React: the body is drawn once per read (`key`), and a
+  // state change here would put the read drawing back over the user's typing.
   useEffect(() => {
     const body = bodyRef.current;
-    if (!body) return;
-    const pitch = pageHeight + SHEET_GAP;
+    if (!body || !(pageHeight > 0) || !(textArea > 0)) return;
     let timer: number | null = null;
 
     const paginate = () => {
-      // What the reader's eye is following. The caret itself needs no restoring: pagination sets a
-      // padding and moves no node, so the selection is still on the same character. What changes is
-      // where that character is drawn, and that is what the scroll is corrected for.
-      const caret = caretInBody(body);
+      // The selection is read before anything moves: pagination carries nodes onto other pages, and
+      // a range does not survive the node it points into being moved.
+      const selection = selectionInBody(body);
       const scroller = body.closest<HTMLElement>("[data-docx-preview]");
       // Two scales sit on top of each other: the paper may be drawn shrunk to fit the pane, and the
       // window itself may be zoomed. A rect is in the window's pixels and a scroll offset is in
@@ -537,93 +601,65 @@ const DocxBody = memo(function DocxBody({
       const windowScale = scroller
         ? visualScale(scroller.getBoundingClientRect().height, scroller.offsetHeight)
         : 1;
-      // The line the caret is on is what must hold its place. A block is a page tall at worst and the
-      // caret may be at the end of one that is about to begin a page of its own: watching the block
-      // then pins its top, which is a page away from the text being typed. When the caret cannot be
-      // measured - it is in another pane, or in an empty block - the block holds instead, and with no
-      // caret at all the block at the top of the view does.
-      let watch = () => caretLineTop(body);
-      if (watch() === null) {
-        let anchor: HTMLElement | null =
-          caret === null
-            ? null
-            : ((body.children[caret.position] as HTMLElement | undefined) ?? null);
-        if (!anchor && scroller) {
-          const viewportTop =
-            (scroller.getBoundingClientRect().top - body.getBoundingClientRect().top) / paperScale +
-            (scroller.scrollTop * windowScale) / paperScale;
-          const at = anchorIndex(blockExtents(body, paperScale), viewportTop);
-          anchor = (body.children[at] as HTMLElement | undefined) ?? null;
-        }
-        watch = anchor ? () => anchor.getBoundingClientRect().top : () => null;
+      // What the reader's eye is following. The line the caret is on is what must hold its place
+      // while the pages are cut underneath it: a block is a page tall at worst and the caret may be
+      // at the end of one that is about to begin a page of its own, and watching the block then pins
+      // its top, which is a page away from the text being typed. When the caret cannot be measured -
+      // it is in another pane, or between two blocks - the block holds instead, and with no caret at
+      // all the block at the top of the view does.
+      const before = blocksOf(body);
+      let held: HTMLElement | null =
+        selection === null ? null : (before[selection.anchor.position] ?? null);
+      if (!held && scroller && before.length > 0) {
+        // The extents are measured from the first block's own top, so the view is asked about in the
+        // same coordinate system rather than from the body's corner.
+        const origin = before[0].getBoundingClientRect().top;
+        const viewportTop =
+          (scroller.getBoundingClientRect().top - origin) / paperScale +
+          (scroller.scrollTop * windowScale) / paperScale;
+        held = before[anchorIndex(blockExtents(before, paperScale), viewportTop)] ?? null;
       }
+      const watch = () => {
+        const line = caretLineTop(body);
+        if (line !== null) return line;
+        return held ? held.getBoundingClientRect().top : null;
+      };
       // Taken as it is drawn now and compared with itself after the pages are cut, so both numbers
-      // come from the same layout. Reading one before the pages are taken out and the other after
-      // they are put back mixes two coordinate systems and moves the view.
+      // come from the same layout: one read before the pages are taken out and the other after they
+      // are put back would mix two coordinate systems and move the view.
       const beforeTop = watch();
 
-      unpaginate(body);
-      const extents = blockExtents(body, paperScale);
-      const starts = pageStarts(extents, textArea);
-      const pads = new Map<number, number>(pagePadding(starts, extents, pitch));
-      const paint = (at: number, padding: number) => {
-        const block = body.children[at];
-        if (!(block instanceof HTMLElement)) return;
-        block.style.paddingTop = `${padding}px`;
-        PADDED.add(block);
-      };
-      for (const [at, padding] of pads) paint(at, padding);
+      // One measurement, in the column the document would be without any pages: the boxes cut last
+      // time are taken out and every block is put back under the body, in document order.
+      const flowed = toOneColumn(body);
+      const extents = blockExtents(flowed, paperScale);
+      const ranges = pageRanges(pageStarts(extents, textArea), flowed.length);
+      if (ranges.length === 0) return;
 
-      // A padding is not always additive: a block that was letting its own margins collapse through
-      // it stops doing so once it has one, so the flow below moves by less than the padding asks
-      // for, and a page begins a line short of its sheet. What each page gained is therefore
-      // measured rather than predicted - and measured one page at a time from the top, because
-      // putting a page right moves every page below it. Correcting them all from a single
-      // measurement instead does not settle: the corrections feed each other and grow without
-      // bound, which on a real thesis was three sheets of padding within two rounds.
-      const bodyTop = body.getBoundingClientRect().top;
-      for (let page = 1; page < starts.length; page += 1) {
-        const at = starts[page];
-        const block = body.children[at];
-        if (!(block instanceof HTMLElement)) continue;
-        const current = pads.get(at) ?? 0;
-        const inkTop = (block.getBoundingClientRect().top - bodyTop) / paperScale + current;
-        const next = pagePaddingToward(current, inkTop, page * pitch);
-        if (next === current) continue;
-        pads.set(at, next);
-        paint(at, next);
-      }
+      // ... and then the blocks are moved into the sheet they start on, one sheet per page. The
+      // blocks are the same nodes the caret points into, which is why the selection is put back
+      // below by block and offset rather than left where the browser dropped it.
+      body.replaceChildren(
+        ...ranges.map(([from, to], index) => {
+          const sheet = document.createElement("div");
+          sheet.setAttribute("data-docx-page", String(index + 1));
+          Object.assign(
+            sheet.style,
+            sheetStyle(
+              { height: pageHeight, marginTop, marginRight, marginBottom, marginLeft },
+              index === ranges.length - 1,
+            ),
+          );
+          sheet.append(...flowed.slice(from, to), pageNumber(index + 1));
+          return sheet;
+        }),
+      );
 
-      drawSheets(pageHeight, pitch, starts.length);
+      if (selection) placeSelection(body, selection.anchor, selection.focus);
+
       const afterTop = watch();
       if (!scroller || beforeTop === null || afterTop === null) return;
       scroller.scrollTop += scrollAdjustment(beforeTop, afterTop, windowScale);
-    };
-
-    /** The stack of sheets and the number in each gap, written where React does not look. */
-    const drawSheets = (height: number, gap: number, count: number) => {
-      const paper = paperRef.current;
-      if (paper) {
-        paper.style.minHeight = `${height * count + SHEET_GAP * (count - 1)}px`;
-        // White where a page is, the pane behind where the gap is. The document's own flow is padded
-        // to line up with the sheets.
-        paper.style.backgroundImage = `repeating-linear-gradient(to bottom, #ffffff 0 ${height}px, transparent ${height}px ${height + SHEET_GAP}px)`;
-      }
-      const pages = pagesRef.current;
-      if (!pages) return;
-      pages.replaceChildren(
-        ...Array.from({ length: Math.max(count - 1, 0) }, (_, at) => {
-          const label = document.createElement("span");
-          label.setAttribute("data-docx-page-break", String(at + 2));
-          label.setAttribute("contenteditable", "false");
-          label.setAttribute("aria-hidden", "true");
-          label.className =
-            "pointer-events-none absolute right-1 text-[9.5px] tabular-nums text-black/35";
-          label.style.top = `${(at + 1) * gap - SHEET_GAP / 2 - 6}px`;
-          label.textContent = String(at + 2);
-          return label;
-        }),
-      );
     };
 
     paginate();
@@ -636,25 +672,22 @@ const DocxBody = memo(function DocxBody({
       if (timer !== null) window.clearTimeout(timer);
       body.removeEventListener("input", onInput);
     };
-  }, [bodyRef, textArea, pageHeight]);
+  }, [bodyRef, textArea, pageHeight, marginTop, marginRight, marginBottom, marginLeft]);
 
   return (
-    // The paper is the frame; the editable surface inside it is the document. Word's page is what a
-    // reader recognises, and the margins are where the text stops.
+    // The paper is the column the sheets sit in, and the editable surface is the document. Word's
+    // page is what a reader recognises, and the margins are where the text stops - both of which are
+    // the sheet's own box now, cut by pagination.
     <div className="flex justify-center py-5">
       <div
         ref={paperRef}
         data-docx-paper=""
         style={paper}
-        // The paper is white and the document's ink is its own: Word's text is black unless the
-        // document says otherwise, and the app's foreground is a light colour in the dark theme -
-        // inherited here it drew the whole page in near-white on white.
-        className="relative shrink-0 bg-white text-[13px] leading-relaxed text-black shadow-[0_1px_3px_rgba(0,0,0,0.16)]"
+        // The document's ink is its own: Word's text is black unless the document says otherwise, and
+        // the app's foreground is a light colour in the dark theme - inherited onto white paper it
+        // drew the whole page nearly invisible. The white itself is on each sheet.
+        className="relative shrink-0 text-[13px] leading-relaxed text-black"
       >
-        {/* Where the page numbers go. A sibling of the editable body rather than a child of it: a
-            node inside that surface would be something the browser could put a caret next to, and
-            would be read back as part of the document. Filled by pagination. */}
-        <div ref={pagesRef} data-docx-pages="" contentEditable={false} aria-hidden />
         {/* biome-ignore lint/a11y/noStaticElementInteractions: this is the document itself, not a control: the editable surface is what the browser gives a caret and an input method to, and its handlers exist to keep the DOM readable back */}
         <div
           ref={bodyRef}
@@ -1132,8 +1165,8 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, DocxPreviewProps>(
       const position = baseline.current
         .filter((block) => block.kind !== "table")
         .findIndex((block) => block.ordinal === ordinal);
-      const block = body?.children[position];
-      if (!body || !(block instanceof HTMLElement)) return;
+      const block = body ? blocksOf(body)[position] : undefined;
+      if (!body || !block) return;
       block.remove();
       normalizeBody(body);
       void write();

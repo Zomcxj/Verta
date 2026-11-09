@@ -214,6 +214,25 @@ const readDocument = () =>
           paddingLeft: Math.round(Number.parseFloat(style.paddingLeft) || 0),
         };
       })(),
+      // The pages themselves. A page is a sheet of its own now: the section's size, its margins as
+      // the page's padding, and the blocks that start on it - rather than a band of white painted
+      // behind one flowing column.
+      pages: [...pane.querySelectorAll("[data-docx-page]")].map((node) => {
+        const style = getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        return {
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          paddingLeft: Math.round(Number.parseFloat(style.paddingLeft) || 0),
+          paddingTop: Math.round(Number.parseFloat(style.paddingTop) || 0),
+          blocks: node.querySelectorAll("[data-docx-editable]").length,
+          chrome: node.querySelectorAll("[data-docx-chrome]").length,
+          background: style.backgroundColor,
+        };
+      }),
+      // Blocks the body holds itself rather than a page: a document that has been paginated has
+      // none, because every block lives in the page it starts on.
+      strayBlocks: pane.querySelectorAll("[data-docx-body] > [data-docx-editable]").length,
       blocks: [...pane.querySelectorAll("[data-docx-editable]")].map((node) => {
         const style = getComputedStyle(node);
         return {
@@ -304,14 +323,45 @@ try {
   if (!(drawn.headings ?? []).includes("终端智能体兵器谱")) {
     fail(`the heading did not come through as a heading: ${JSON.stringify(drawn.headings)}`);
   }
-  // A4 is 11906 twips wide, and 15 twips make a pixel: 794px of paper, with a 2.54cm margin
-  // (1440 twips) as 96px of padding inside it.
+  // A4 is 11906 twips wide, and 15 twips make a pixel: 794px of paper. The margins - 2.54cm, 1440
+  // twips, 96px - are the page's own padding now: the page is the sheet, and the paper is only the
+  // column the sheets sit in.
   const paper = drawn.paper ?? {};
   if (Math.abs((paper.width ?? 0) - 794) > 3) {
     fail(`the paper is ${paper.width}px wide, not an A4 sheet`);
   }
-  if (Math.abs((paper.paddingLeft ?? 0) - 96) > 3) {
-    fail(`the left margin is ${paper.paddingLeft}px, not the 1440 twips the page declares`);
+  if ((paper.paddingLeft ?? 0) !== 0) {
+    fail(`the paper carries ${paper.paddingLeft}px of padding: the margins belong to the page`);
+  }
+  const sheets = drawn.pages ?? [];
+  if (sheets.length !== 1) {
+    fail(`a document that fits on one page was cut into ${sheets.length} pages`);
+  }
+  const [sheet] = sheets;
+  if (Math.abs(sheet.width - 794) > 3) {
+    fail(`the page is ${sheet.width}px wide, not an A4 sheet`);
+  }
+  if (Math.abs(sheet.height - 1123) > 3) {
+    fail(`the page is ${sheet.height}px tall, not an A4 sheet`);
+  }
+  if (Math.abs(sheet.paddingTop - 96) > 3 || Math.abs(sheet.paddingLeft - 96) > 3) {
+    fail(
+      `the page's margins are ${sheet.paddingTop}/${sheet.paddingLeft}px, not the 1440 twips the section declares`,
+    );
+  }
+  if (sheet.background !== "rgb(255, 255, 255)") {
+    fail(`the page is drawn ${sheet.background}, not white`);
+  }
+  if (sheet.chrome !== 1) {
+    fail(`the page carries ${sheet.chrome} page numbers, not one`);
+  }
+  if (drawn.strayBlocks !== 0) {
+    fail(`${drawn.strayBlocks} blocks were left outside every page`);
+  }
+  if (sheet.blocks !== (drawn.blocks ?? []).length) {
+    fail(
+      `the page holds ${sheet.blocks} blocks and the document has ${(drawn.blocks ?? []).length}`,
+    );
   }
   // The heading is 16pt in its style (and not the pane's own fallback): 32 half-points -> 21px.
   const headingBox = (drawn.blocks ?? [])[0];

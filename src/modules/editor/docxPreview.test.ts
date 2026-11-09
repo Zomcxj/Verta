@@ -9,6 +9,8 @@ import {
   fallbackPx,
   fittedPageScale,
   runStyle,
+  SHEET_GAP,
+  sheetStyle,
   tableGrid,
 } from "./DocxPreview";
 
@@ -93,11 +95,66 @@ describe("a block's box", () => {
   });
 });
 
-describe("the document on its paper", () => {
-  it("draws a sheet the size of the section, with the margins as padding", () => {
-    expect(preview).toMatch(/data-docx-paper/);
-    expect(preview).toMatch(/twipsToPx\(page\.width/);
-    expect(preview).toMatch(/paddingTop: `\$\{twipsToPx\(page\.marginTop/);
+describe("the document on its sheets", () => {
+  /** A4, in the pixels the pane draws it in: 794 x 1122.5, with a 96px margin on each side. */
+  const a4 = {
+    height: 1122.5,
+    marginTop: 96,
+    marginRight: 96,
+    marginBottom: 96,
+    marginLeft: 96,
+  };
+
+  it("states a page's height and its margins as the page's own box", () => {
+    // The margins used to be the padding of the paper, and the sheets were a background painted
+    // behind one flowing column. A page is a box of its own now: it holds the blocks that start on
+    // it, and its margins are where its text stops.
+    expect(sheetStyle(a4, false)).toMatchObject({
+      position: "relative",
+      width: "100%",
+      minHeight: "1122.5px",
+      paddingTop: "96px",
+      paddingRight: "96px",
+      paddingBottom: "96px",
+      paddingLeft: "96px",
+      background: "#ffffff",
+    });
+    // The gap that says one page ends here, on every page but the last.
+    expect(sheetStyle(a4, false).marginBottom).toBe(`${SHEET_GAP}px`);
+    expect(sheetStyle(a4, true).marginBottom).toBe("0px");
+  });
+
+  it("grows a page rather than cutting a block that is taller than it", () => {
+    // A table or a picture taller than a sheet has no honest way to be cut in two here. Stated as a
+    // height, the content would simply be drawn over the sheet below it.
+    expect(sheetStyle(a4, true).height).toBeUndefined();
+    expect(sheetStyle(a4, true).minHeight).toBe("1122.5px");
+  });
+
+  it("is cut by pagination rather than painted behind the document", () => {
+    // What made the old pages fake: one column of blocks with a repeating gradient behind it, and a
+    // padding on the block that began each page to line the text up with a band of white.
+    expect(preview).toMatch(/data-docx-page/);
+    expect(preview).toMatch(/sheetStyle\(/);
+    expect(preview).not.toMatch(/backgroundImage/);
+    expect(preview).not.toMatch(/data-docx-pages/);
+    expect(preview).not.toMatch(/pagePadding/);
+  });
+
+  it("moves the blocks into their pages and carries the selection across", () => {
+    // A page holds its own blocks, so pagination moves nodes - and a selection does not survive the
+    // node it points into being moved. Both ends are carried by block and offset, which is the only
+    // description of a place that outlives the move.
+    expect(preview).toMatch(/pageRanges\(/);
+    expect(preview).toMatch(/toOneColumn\(/);
+    expect(preview).toMatch(/selectionInBody\(body\)/);
+    expect(preview).toMatch(/placeSelection\(body, selection\.anchor, selection\.focus\)/);
+    expect(body).toMatch(/export function selectionInBody/);
+    expect(body).toMatch(/export function placeSelection/);
+    // The page number is not part of the document: it is marked as chrome, and a block is what the
+    // body is read back as.
+    expect(preview).toMatch(/data-docx-chrome/);
+    expect(body).toMatch(/node\.hasAttribute\("data-docx-chrome"\)/);
   });
 
   it("keeps a blank line instead of trimming it away", () => {

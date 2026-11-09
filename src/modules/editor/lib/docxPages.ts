@@ -1,13 +1,14 @@
 /**
- * Where a document's pages end, and how much room to leave between the sheets.
+ * Where a document's pages end, and which blocks each of them holds.
  *
  * A `.docx` is flowed as one column of blocks. A page holds as many whole blocks as fit its text
  * area, and the next page starts at the block that did not fit: a block is never cut in half, which
  * is what keeps a line from being drawn across a page boundary.
  *
- * The gap between pages is made by padding the first block of each page. That is a style and not a
- * node, so paginating never moves the caret: the selection is on text inside those blocks and stays
- * exactly where it was.
+ * The pages are real sheets and they hold their own blocks, so what this module answers is which
+ * block belongs to which page. The gap between two sheets is a gap between two elements rather than
+ * a padding on the first block of a page, and pagination therefore moves a node - which is why the
+ * caret is carried across it by block and offset (see `docxBodyDom`).
  */
 
 /** One block's box, as top and bottom in the paper's own pixels. */
@@ -40,39 +41,16 @@ export function pageStarts(
 }
 
 /**
- * The padding to put above each page's first block, so that page `k` begins one whole sheet below
- * page `k - 1`.
+ * The blocks each page holds, as a range of positions in the document.
  *
- * A page begins at `k` sheet pitches from the top of the paper, and the block that begins it sits
- * at its own flowed position plus whatever padding has already been inserted. The padding is
- * therefore the difference between the two, taken one page at a time. It is never negative: nothing
- * can pull a block back up, and a page that overran its sheet (a block taller than a page) leaves
- * the following sheets to be measured from where the content actually is.
- *
- * Each padding is a whole number of pixels and the count of what has been inserted is kept in those
- * same whole pixels, not in the exact ones. A style states pixels, so a page whose padding came out
- * at 100.49 is given 100; carrying the 0.49 forward anyway would leave every page a fraction below
- * its sheet, and a twenty page document a good ten pixels out by the end.
+ * The last page holds everything from its first block on: the blocks that were measured are all
+ * there is, and a page that begins at the end of them holds nothing.
  */
-export function pagePadding(
+export function pageRanges(
   starts: readonly number[],
-  extents: readonly BlockExtent[],
-  pitch: number,
-): (readonly [index: number, padding: number])[] {
-  if (pitch <= 0) return [];
-  const out: [number, number][] = [];
-  let inserted = 0;
-  for (let page = 1; page < starts.length; page += 1) {
-    const at = starts[page];
-    const extent = extents[at];
-    if (!extent) continue;
-    const target = page * pitch - extent[0];
-    const padding = Math.round(target - inserted);
-    if (padding <= 0) continue;
-    out.push([at, padding]);
-    inserted += padding;
-  }
-  return out;
+  count: number,
+): (readonly [from: number, to: number])[] {
+  return starts.map((from, page) => [from, starts[page + 1] ?? count] as const);
 }
 
 /**
@@ -105,18 +83,6 @@ export function visualScale(rectHeight: number, offsetHeight: number): number {
 }
 
 /**
- * The padding a page should have, given where its first line is drawn now and where it has to be.
- *
- * A padding is not always additive, so a page can begin a line short of its sheet: the padding is
- * asked for, the flow below it moves by less, and every page under it inherits the shortfall. The
- * answer is therefore measured rather than predicted, and never negative: a page cannot be pulled
- * back up by a style on a block.
- */
-export function pagePaddingToward(current: number, inkTop: number, target: number): number {
-  return Math.max(0, current + Math.round(target - inkTop));
-}
-
-/**
  * How far to scroll to keep a block where it was, after everything above it moved.
  *
  * Both numbers are rect tops, which are in the window's pixels, and a scroll offset is in layout
@@ -130,3 +96,4 @@ export function scrollAdjustment(
   if (scale <= 0) return 0;
   return (afterTop - beforeTop) / scale;
 }
+

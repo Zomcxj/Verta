@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   anchorIndex,
   type BlockExtent,
-  pagePadding,
-  pagePaddingToward,
+  pageRanges,
   pageStarts,
   scrollAdjustment,
   visualScale,
@@ -44,73 +43,42 @@ describe("which blocks begin a page", () => {
   });
 });
 
-describe("how much room to leave between sheets", () => {
-  it("pads the page so it begins one whole sheet below the one before", () => {
-    // Two pages of 100 with a 20 gap between them: page two begins at 120.
-    const extents = stack(0, 50, 2);
-    const starts = [0, 1];
-    const padding = pagePadding(starts, extents, 120);
-    // The second block sits at 50 and must sit at 120, so it takes 70 of padding.
-    expect(padding).toEqual([[1, 70]]);
-  });
-
-  it("accounts for the padding it has already inserted", () => {
-    // Three pages: each target is measured from the paper's top, so the third block's padding is
-    // its target less what the second one already took.
-    const extents: BlockExtent[] = [
-      [0, 50],
-      [50, 100],
-      [100, 150],
-    ];
-    const starts = [0, 1, 2];
-    const padding = pagePadding(starts, extents, 120);
-    // Page two: 120 - 50 = 70 inserted. Page three: 240 - 100 = 140 wanted, 70 already in, so 70.
-    expect(padding).toEqual([
-      [1, 70],
-      [2, 70],
+describe("which blocks each page holds", () => {
+  it("gives every page the blocks between it and the next", () => {
+    expect(pageRanges([0, 4, 8], 9)).toEqual([
+      [0, 4],
+      [4, 8],
+      [8, 9],
     ]);
   });
 
-  it("pads nothing when the document is one page", () => {
-    expect(pagePadding([0], stack(0, 20, 4), 120)).toEqual([]);
+  it("gives the last page everything that is left", () => {
+    // A page begins at a block, so the tail of the document belongs to the page that begins last -
+    // however many blocks that is.
+    expect(pageRanges([0, 2], 5)).toEqual([
+      [0, 2],
+      [2, 5],
+    ]);
+    expect(pageRanges([0], 3)).toEqual([[0, 3]]);
   });
 
-  it("never asks to pull a block back up", () => {
-    // A page that overran its sheet leaves the next page already too far down; inserting a negative
-    // padding would move content, which a style on a block cannot honestly do.
-    const extents: BlockExtent[] = [
-      [0, 400],
-      [400, 420],
-    ];
-    expect(pagePadding([0, 1], extents, 120)).toEqual([]);
+  it("holds nothing at all for a document with no blocks", () => {
+    expect(pageRanges([], 0)).toEqual([]);
   });
 
-  it("counts the padding it gave, not the padding it wanted", () => {
-    // A style states whole pixels, so a page that wanted 100.49 gets 100. Adding the exact 100.49 to
-    // the running total anyway leaves every page below its sheet: over twenty pages of this shape
-    // the last one is nine pixels out, which is a visible white band under the text.
-    const height = 100;
-    const extents: BlockExtent[] = Array.from({ length: 160 }, (_, at) => {
-      const top = at * height;
-      return [top, top + height] as const;
-    });
-    const starts = pageStarts(extents, 700);
-    const pitch = 700 + 100.49;
-    const padding = new Map(pagePadding(starts, extents, pitch));
-    let inserted = 0;
-    let worst = 0;
-    for (let page = 1; page < starts.length; page += 1) {
-      const at = starts[page];
-      // What the pane writes into the style, which is what settles the layout.
-      inserted += Math.round(padding.get(at) ?? 0);
-      worst = Math.max(worst, Math.abs(extents[at][0] + inserted - page * pitch));
-    }
-    expect(starts.length).toBeGreaterThan(15);
-    expect(worst).toBeLessThanOrEqual(1);
-  });
-
-  it("says nothing for a paper with no height", () => {
-    expect(pagePadding([0, 1], stack(0, 50, 2), 0)).toEqual([]);
+  it("never leaves a page empty", () => {
+    // The range of a page starts at a block that exists, so every page has something on it: a page
+    // with nothing in it is a blank sheet the reader has to scroll past.
+    const extents = stack(0, 25, 9);
+    const ranges = pageRanges(pageStarts(extents, 100), extents.length);
+    expect(ranges).toEqual([
+      [0, 4],
+      [4, 8],
+      [8, 9],
+    ]);
+    expect(ranges.every(([from, to]) => to > from)).toBe(true);
+    expect(ranges[0][0]).toBe(0);
+    expect(ranges[ranges.length - 1][1]).toBe(extents.length);
   });
 });
 
@@ -161,23 +129,3 @@ describe("the scale a rect is drawn at", () => {
   });
 });
 
-describe("putting a page back on its sheet", () => {
-  it("does not touch a page that is already where it should be", () => {
-    expect(pagePaddingToward(300, 1150.5, 1150.5)).toBe(300);
-  });
-
-  it("gives a page back what it fell short by", () => {
-    // The shape of it, from a real thesis: a page whose first block was collapsing its own margins
-    // came out 21 high, because giving it a padding stopped the collapse and the move was not
-    // additive. Asked for one sheet at 1150.5 it sat at 1129.9, so its padding grows by 21.
-    expect(pagePaddingToward(277, 1129.9, 1150.5)).toBe(298);
-    // And the other way: a page that landed low has its padding taken back.
-    expect(pagePaddingToward(300, 1170, 1150.5)).toBe(281);
-  });
-
-  it("never asks for a padding below nothing", () => {
-    // A page cannot be pulled up by a style on a block, so a page that is too low keeps no padding.
-    expect(pagePaddingToward(20, 1300, 1150.5)).toBe(0);
-    expect(pagePaddingToward(0, 1300, 1150.5)).toBe(0);
-  });
-});
