@@ -13,6 +13,20 @@ fine as plain text. **The newest day is `open` by default**; when a new day star
 swap in the new date, and drop the `open` from the day before.
 
 <details open>
+<summary><strong>2026-11-09</strong></summary>
+
+**A picture the pane cannot draw is counted, not silently dropped**
+
+- `src-tauri/src/modules/docx.rs`, `src/lib/native.ts`, `src/modules/editor/DocxPreview.tsx`, `src/modules/editor/docxBlocks.test.ts`, `src/modules/i18n/messages.ts`: a document that names a picture the webview has no decoder for (WMF, EMF, TIFF - which is what Word stores a pasted chart, an equation or a scanned figure as) used to leave an empty line and no word about it, so a document missing its figures read as a document that never had them. The reader now counts the pictures it could not turn into an image, the count travels with the read, and the pane says how many under the sheet. A picture past the per-image size cap is also skipped and counted rather than refusing the whole read, which is what one oversized photograph used to do and what the `.pptx` and `.xlsx` readers already did - a document whose pictures are too big still has its text.
+- `src-tauri/src/modules/pptx.rs`, `src/modules/editor/PptxPreview.tsx`: the same count for a deck, taken from the picture shapes that ended up with no image, said in the slide tool bar.
+- `src-tauri/src/modules/xlsx.rs`: one range check written as a range, which is what the current clippy asks for.
+- `scripts/dev/probes/docx-preview.mjs`, `scripts/dev/probes/pptx-preview.mjs`: each fixture carries a metafile now, and each probe asserts both halves - that no `<img>` is drawn for it, and that the count is said out loud.
+
+</details>
+
+---
+
+<details>
 <summary><strong>2026-11-07</strong></summary>
 
 **A Word document is drawn as the page Word drew, and a .csv is a table that can be corrected**

@@ -140,6 +140,10 @@ pub struct PptxDocument {
     pub slides: Vec<PptxSlide>,
     /// Whether the deck was longer than the pane draws.
     pub truncated: bool,
+    /// Pictures the deck named that the pane cannot draw - a format the webview does not decode
+    /// (WMF, EMF, TIFF), a part past the size cap, or a relationship with no media behind it. They
+    /// are not drawn, and the pane says how many so a picture that is missing is not silent.
+    pub undrawn_pictures: usize,
 }
 
 /// A presentation, read as its slides.
@@ -401,11 +405,20 @@ fn read_pptx_sync(path: &Path) -> Result<PptxDocument, String> {
             background_gradient: paper.gradient,
         });
     }
+    // A `p:pic` whose picture never became a `data:` URL: an undecodable format, a part past the cap,
+    // or a relationship pointing at media the archive does not have. The shape is in the model and
+    // has nothing to draw, which is exactly what the pane needs to say out loud.
+    let undrawn_pictures = slides
+        .iter()
+        .flat_map(|slide| &slide.shapes)
+        .filter(|shape| shape.kind == ShapeKind::Picture && shape.image.is_none())
+        .count();
     Ok(PptxDocument {
         width,
         height,
         slides,
         truncated,
+        undrawn_pictures,
     })
 }
 
@@ -2011,9 +2024,20 @@ mod tests {
 
     /// The archive with a picture in it, read back.
     fn read_deck_with_png(slide: &str, tag: &str) -> PptxDocument {
+        read_deck_with_media(slide, "../media/image1.png", PNG, tag)
+    }
+
+    /// The same, with the media named as given, so a format the pane cannot draw can be put in the
+    /// archive's place for one.
+    fn read_deck_with_media(slide: &str, target: &str, media: &[u8], tag: &str) -> PptxDocument {
         let dir = std::env::temp_dir().join(format!("verta-pptx-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("deck.pptx");
+        // The part the relationship points at, so a `.wmf` target is stored as a `.wmf`.
+        let media_part = match target.strip_prefix("../") {
+            Some(rest) => format!("ppt/{rest}"),
+            None => target.to_string(),
+        };
         let parts: Vec<(&str, Vec<u8>)> = vec![
             ("ppt/presentation.xml", size().into_bytes()),
             (
@@ -2023,9 +2047,9 @@ mod tests {
             ("ppt/slides/slide1.xml", slide.as_bytes().to_vec()),
             (
                 "ppt/slides/_rels/slide1.xml.rels",
-                rels_xml(&[("rId3", "../media/image1.png")]).into_bytes(),
+                rels_xml(&[("rId3", target)]).into_bytes(),
             ),
-            ("ppt/media/image1.png", PNG.to_vec()),
+            (&media_part, media.to_vec()),
         ];
         std::fs::write(&file, write_zip_bytes(&parts)).unwrap();
         let document = read_pptx_sync(&file).unwrap();
@@ -2062,6 +2086,33 @@ mod tests {
         assert!(document.slides[0].shapes[0].image.is_some());
         // A file whose type is not a picture is skipped rather than sent as a broken data URL.
         assert_eq!(super::super::office::image_mime("clip.mov"), None);
+        // And a picture that was drawn is not one the pane could not draw.
+        assert_eq!(document.undrawn_pictures, 0);
+    }
+
+    #[test]
+    fn a_picture_in_a_format_the_pane_cannot_draw_is_reported() {
+        // A metafile is what Word shows a chart or an equation as, and the webview has no decoder for
+        // it. The shape keeps its place and has nothing to draw; the count is what says so.
+        let document = read_deck_with_media(
+            &slide_xml(&picture_shape("rId3")),
+            "../media/image1.wmf",
+            b"a metafile this pane has no decoder for",
+            "picwmf",
+        );
+        let shape = &document.slides[0].shapes[0];
+        assert_eq!(shape.kind, ShapeKind::Picture);
+        assert_eq!(shape.image, None);
+        assert_eq!(document.undrawn_pictures, 1);
+    }
+
+    #[test]
+    fn a_picture_shape_with_no_media_to_look_up_is_reported_too() {
+        // A relationship the slide does not have leaves the picture with nowhere to look: the pane
+        // names it rather than leaving the box silently empty.
+        let document = read_deck_with_png(&slide_xml(&picture_shape("rId99")), "picmissing");
+        assert_eq!(document.slides[0].shapes[0].image, None);
+        assert_eq!(document.undrawn_pictures, 1);
     }
 }
 

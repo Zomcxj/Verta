@@ -1297,7 +1297,7 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, DocxPreviewProps>(
       );
     }
 
-    const { truncated, editable } = state.document;
+    const { truncated, editable, undrawnPictures } = state.document;
 
     return (
       // The same scroll class the rendered Markdown wears: a document read top to bottom gets the thin
@@ -1349,6 +1349,16 @@ export const DocxPreview = forwardRef<DocxPreviewHandle, DocxPreviewProps>(
         {truncated ? (
           <p className="mx-auto max-w-[46rem] border-t border-border/60 px-8 pt-2 text-[11.5px] text-muted-foreground">
             {t("editor.docx.truncated")}
+          </p>
+        ) : null}
+        {undrawnPictures > 0 ? (
+          // A figure the pane cannot draw leaves a hole where Word showed one. Saying how many is
+          // what keeps the hole from reading as a document that lost its content.
+          <p
+            data-docx-undrawn={undrawnPictures}
+            className="mx-auto max-w-[46rem] px-8 pt-2 text-[11.5px] text-muted-foreground"
+          >
+            {t("editor.docx.undrawnPictures", { count: undrawnPictures })}
           </p>
         ) : null}
         {!editable ? (

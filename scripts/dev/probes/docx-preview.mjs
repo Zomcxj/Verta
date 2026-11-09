@@ -40,6 +40,8 @@ const PICTURE = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64",
 );
+/** A metafile: what Word shows an equation or a pasted chart as, and what no webview decodes. */
+const METAFILE = Buffer.from("0100090000032a02000000002a0200000000", "hex");
 
 const RELS_WITH_IMAGE = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>`;
@@ -67,6 +69,7 @@ const DOCUMENT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <w:tr><w:tc><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>名字</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>价格</w:t></w:r></w:p></w:tc></w:tr>
     <w:tr><w:tc><w:p><w:r><w:t>Ponytail</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>免费</w:t></w:r></w:p></w:tc></w:tr>
   </w:tbl>
+  <w:p><w:r><w:t>图形：</w:t></w:r><w:r><w:drawing><wp:inline><wp:extent cx="952500" cy="476250"/><a:graphic><a:graphicData><a:blip r:embed="rId10"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>
 </w:body></w:document>`;
 
 const report = {};
@@ -222,6 +225,11 @@ const readDocument = () =>
       boldCells: [...pane.querySelectorAll("td .font-semibold")].map((node) =>
         (node.textContent || "").trim(),
       ),
+      // Pictures the pane could not draw: a format the webview has no decoder for, or one past the
+      // size cap. The count is what says so; without it the page just has a hole in it.
+      undrawn: [...pane.querySelectorAll("[data-docx-undrawn]")].map((node) =>
+        Number(node.getAttribute("data-docx-undrawn")),
+      ),
       runs: [...pane.querySelectorAll("[data-docx-editable] span")].map((node) => ({
         text: (node.textContent || "").trim(),
         color: getComputedStyle(node).color,
@@ -247,10 +255,11 @@ try {
   mkdirSync(join(parts, "word", "_rels"), { recursive: true });
   writeFileSync(
     join(parts, "word", "_rels", "document.xml.rels"),
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>`,
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/><Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image2.wmf"/></Relationships>`,
   );
   mkdirSync(join(parts, "word", "media"), { recursive: true });
   writeFileSync(join(parts, "word", "media", "image1.png"), PICTURE);
+  writeFileSync(join(parts, "word", "media", "image2.wmf"), METAFILE);
   writeFileSync(join(parts, "word", "document.xml"), DOCUMENT);
   writeFileSync(join(parts, "word", "numbering.xml"), NUMBERING);
   writeFileSync(join(parts, "word", "styles.xml"), STYLES);
@@ -334,6 +343,18 @@ try {
   if (!picture || picture.kind !== "data:image/png;base64," || picture.width !== 100 || picture.height !== 50) {
     fail(`the picture is not drawn from the document: ${JSON.stringify(drawn.images)}`);
   }
+  // A picture Word shows and the webview cannot decode: the pane draws no `<img>` for it and says how
+  // many of them the document has, so a figure that is missing is not silently missing.
+  if (JSON.stringify(drawn.undrawn) !== JSON.stringify([1])) {
+    fail(`the pictures the pane could not draw are counted as ${JSON.stringify(drawn.undrawn)}, not one`);
+  }
+  if (!(drawn.text ?? "").includes("未能显示")) {
+    fail(`the pane did not say a picture could not be shown: ${JSON.stringify((drawn.text ?? "").slice(-120))}`);
+  }
+  // The metafile is in the document and not in the drawn images: only the PNG is.
+  if ((drawn.images ?? []).length !== 1) {
+    fail(`the pane drew ${(drawn.images ?? []).length} pictures, not the one it can decode`);
+  }
   // A cell is drawn from its runs, so a bold header stays bold.
   if (JSON.stringify(drawn.boldCells ?? []) !== JSON.stringify(["名字", "价格"])) {
     fail(`the header row is not bold: ${JSON.stringify(drawn.boldCells)}`);
@@ -385,7 +406,7 @@ try {
 
   report.ok = true;
   console.log(
-    "PASS: .docx 由 Rust 读成块并由前端绘制——标题成标题、加粗成粗体、编号列表成 ol、表格成 2×2 表格、&amp; 还原成 &；不是 ZIP 的文件给出「读不出这个 .docx」而不是空白或崩溃。",
+    "PASS: .docx 由 Rust 读成块并由前端绘制——标题成标题、加粗成粗体、编号列表成 ol、表格成 2×2 表格、&amp; 还原成 &；画不出的图（WMF/EMF 等）不画但要报出张数；不是 ZIP 的文件给出「读不出这个 .docx」而不是空白或崩溃。",
   );
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {

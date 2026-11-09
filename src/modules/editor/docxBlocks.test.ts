@@ -199,6 +199,7 @@ describe("a no-break space in the file", () => {
       page: null,
       truncated: false,
       editable: true,
+      undrawnPictures: 0,
       guard: { size: 1, modifiedMs: 1 },
     });
     expect(alignBlocks(read, [draft("a b")])).toEqual({ edits: [], deleted: [], inserts: [] });
@@ -263,6 +264,7 @@ describe("blocks from a read", () => {
       page: null,
       truncated: false,
       editable: true,
+      undrawnPictures: 0,
       guard: { size: 1, modifiedMs: 1 },
     } as DocxDocument);
     expect(blocks[0]).toMatchObject({ kind: "h2", text: "a", ordinal: 0 });
@@ -294,6 +296,7 @@ describe("blocks from a read", () => {
       page: null,
       truncated: false,
       editable: true,
+      undrawnPictures: 0,
       guard: { size: 1, modifiedMs: 1 },
     } as DocxDocument);
     expect(blocks).toEqual([p("", 0)]);
@@ -430,6 +433,7 @@ describe("a footnote", () => {
     page: null,
     truncated: false,
     editable: true,
+    undrawnPictures: 0,
     guard: { size: 0, modifiedMs: 0 },
   });
 

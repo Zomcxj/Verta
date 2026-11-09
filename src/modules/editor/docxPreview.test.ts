@@ -111,6 +111,17 @@ describe("the document on its paper", () => {
   });
 });
 
+describe("pictures the pane cannot draw", () => {
+  it("says how many rather than leaving the page with a hole in it", () => {
+    // A metafile (WMF/EMF) is what Word shows an equation or a pasted chart as, and no webview
+    // decodes one. The reader cannot turn it into an image, so the pane draws nothing there - and a
+    // document that is missing a figure it should have reads as a document that lost it.
+    expect(preview).toMatch(/undrawnPictures/);
+    expect(preview).toMatch(/editor\.docx\.undrawnPictures/);
+    expect(preview).toMatch(/data-docx-undrawn/);
+  });
+});
+
 describe("docx tables", () => {
   it("numbers the rows and cells so each has a key of its own", () => {
     const run = (text: string) => ({

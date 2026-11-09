@@ -123,6 +123,12 @@ export type DocxDocument = {
   truncated: boolean;
   /** Whether the pane may edit this document in place; a truncated read may not be written back. */
   editable: boolean;
+  /**
+   * Pictures the document named that the pane cannot draw - a format the webview does not decode
+   * (WMF, EMF, TIFF) or one past the size cap. They are not drawn; the pane says how many so a
+   * figure that is missing does not read as a document that lost it.
+   */
+  undrawnPictures: number;
   /** The file's identity when it was read; the writer refuses if it no longer matches. */
   guard: DocxGuard;
 };
@@ -269,6 +275,8 @@ export type PptxDocument = {
   height: number;
   slides: PptxSlide[];
   truncated: boolean;
+  /** Pictures the deck named that the pane cannot draw; see `DocxDocument.undrawnPictures`. */
+  undrawnPictures: number;
 };
 
 /** One paragraph's new text, addressed by its ordinal. */

@@ -207,6 +207,10 @@ pub struct DocxDocument {
     pub truncated: bool,
     /// Whether the pane may edit this document in place.
     pub editable: bool,
+    /// Pictures the document named that the pane cannot draw - a format the webview does not decode
+    /// (WMF, EMF, TIFF) or one past the size cap. They are not drawn, and the pane says how many so a
+    /// figure that is missing does not read as a document that lost it.
+    pub undrawn_pictures: usize,
     /// The file's identity at the moment it was read, which the writer checks before replacing it.
     pub guard: DocxGuard,
 }
@@ -255,7 +259,7 @@ fn read_docx_sync(path: &Path) -> Result<DocxDocument, String> {
         styles.default_run.font = theme_latin.or(theme_east_asian);
     }
     let notes = package_notes(&package);
-    let (blocks, truncated, page) = parse_document(
+    let (blocks, truncated, page, undrawn) = parse_document(
         &package.document,
         package.numbering.as_deref(),
         &styles,
@@ -267,6 +271,7 @@ fn read_docx_sync(path: &Path) -> Result<DocxDocument, String> {
         page,
         truncated,
         editable: document_editable(truncated),
+        undrawn_pictures: undrawn,
         guard: guard_of(&meta),
     })
 }
@@ -337,6 +342,14 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
         };
         let Some(limit) = wanted else { continue };
         if entry.size() > limit {
+            if in_media {
+                // A picture past the cap is left out rather than failing the read. The text of the
+                // document is still what the pane is for, and the count of pictures it could not
+                // draw says one was here; the readers of `.pptx` and `.xlsx` skip an oversized part
+                // the same way. Every other part is a lookup this reader needs, so refusing one
+                // keeps a mislabeled file from being read as half a document.
+                continue;
+            }
             return Err(format!(
                 "{name} 解压后约 {} MB，超出预览上限",
                 entry.size() / 1024 / 1024
@@ -2485,7 +2498,7 @@ fn parse_blocks(
     document_xml: &str,
     numbering_xml: Option<&str>,
 ) -> Result<(Vec<Block>, bool), String> {
-    let (blocks, truncated, _) = parse_document(
+    let (blocks, truncated, _, _) = parse_document(
         document_xml,
         numbering_xml,
         &Styles::default(),
@@ -2496,19 +2509,27 @@ fn parse_blocks(
 }
 
 /// The document, read with the styles and the paper it declares.
+///
+/// The last element is how many pictures the body named that this reader could not turn into
+/// something to draw - a format the webview does not decode (WMF, EMF, TIFF) or one whose bytes were
+/// past the size cap. Those pictures leave a hole where Word showed a figure, and a hole with nothing
+/// said about it reads as a document that lost its content, so the count travels with the document
+/// and the pane says it.
 fn parse_document(
     document_xml: &str,
     numbering_xml: Option<&str>,
     styles: &Styles,
     images: &std::collections::HashMap<String, String>,
     notes: &Notes,
-) -> Result<(Vec<Block>, bool, Option<Page>), String> {
+) -> Result<(Vec<Block>, bool, Option<Page>, usize), String> {
     let ordered_numbers = numbering_xml.map(ordered_number_ids).unwrap_or_default();
     // Where each drawing starts, in the order the file writes them. The writer cuts by this same
     // count, so the two cannot disagree about which picture a number names.
     let drawings = drawing_offsets(document_xml);
     let mut blocks: Vec<Block> = Vec::new();
     let mut truncated = false;
+    // Pictures the body named that have nothing to draw: see the note on this function's return.
+    let mut undrawn = 0usize;
 
     let mut paragraph: Option<Paragraph> = None;
     let mut table: Option<Vec<Vec<Cell>>> = None;
@@ -2760,6 +2781,15 @@ fn parse_document(
                         .map(|pending| {
                             let props = inherited_run.clone().over(&pending.props);
                             let picture = pending.image.as_ref();
+                            let drawn = picture.and_then(|(rid, _, _)| images.get(rid));
+                            if picture.is_some() && drawn.is_none() {
+                                // The body asked for a picture and there is nothing to put there:
+                                // an undecodable format, a part past the cap, or a relationship
+                                // whose media is not in the archive. Counted rather than ignored,
+                                // because the pane would otherwise draw an empty line and say
+                                // nothing about it.
+                                undrawn += 1;
+                            }
                             Run {
                                 text: pending.text,
                                 bold: props.bold.unwrap_or(false),
@@ -2777,7 +2807,7 @@ fn parse_document(
                                 size: props.size,
                                 color: props.color,
                                 font: props.font,
-                                image: picture.and_then(|(rid, _, _)| images.get(rid)).cloned(),
+                                image: drawn.cloned(),
                                 image_width: picture.and_then(|(_, width, _)| *width),
                                 image_height: picture.and_then(|(_, _, height)| *height),
                                 // The picture is named inside its own drawing, so the count of
@@ -2863,7 +2893,7 @@ fn parse_document(
         }
     }
 
-    Ok((blocks, truncated, read_page(document_xml)))
+    Ok((blocks, truncated, read_page(document_xml), undrawn))
 }
 
 /// The section's paper: `w:pgSz` and `w:pgMar`, usually in the `w:sectPr` that ends the body.
@@ -3188,7 +3218,7 @@ mod tests {
         let xml = document(
             r#"<w:p><w:pPr><w:pStyle w:val="Tight"/><w:jc w:val="center"/></w:pPr><w:r><w:t>centred</w:t></w:r></w:p>"#,
         );
-        let (blocks, _, _) = parse_document(&xml, None, &styles_part(), &Default::default(), &Default::default()).unwrap();
+        let (blocks, _, _, _) = parse_document(&xml, None, &styles_part(), &Default::default(), &Default::default()).unwrap();
         let Block::Paragraph { align, indent, spacing, runs, .. } = paragraph_of(&blocks) else {
             unreachable!()
         };
@@ -3208,7 +3238,7 @@ mod tests {
         let xml = document(
             r#"<w:p><w:pPr><w:pStyle w:val="Tight"/></w:pPr><w:r><w:rPr><w:sz w:val="18"/><w:b w:val="0"/></w:rPr><w:t>small</w:t></w:r></w:p>"#,
         );
-        let (blocks, _, _) = parse_document(&xml, None, &styles_part(), &Default::default(), &Default::default()).unwrap();
+        let (blocks, _, _, _) = parse_document(&xml, None, &styles_part(), &Default::default(), &Default::default()).unwrap();
         let Block::Paragraph { runs, .. } = paragraph_of(&blocks) else {
             unreachable!()
         };
@@ -3222,13 +3252,13 @@ mod tests {
         let xml = document(
             r#"<w:p><w:r><w:t>a</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1701" w:bottom="1134" w:left="1701"/></w:sectPr>"#,
         );
-        let (_, _, page) = parse_document(&xml, None, &Styles::default(), &Default::default(), &Default::default()).unwrap();
+        let (_, _, page, _) = parse_document(&xml, None, &Styles::default(), &Default::default(), &Default::default()).unwrap();
         let page = page.expect("A4 in twips");
         assert_eq!(page.width, Some(11906));
         assert_eq!(page.height, Some(16838));
         assert_eq!(page.margin_left, Some(1701));
         // A document that names no section is drawn on the pane's own paper, not a wrong one.
-        let (_, _, none) = parse_document(&document("<w:p/>"), None, &Styles::default(), &Default::default(), &Default::default()).unwrap();
+        let (_, _, none, _) = parse_document(&document("<w:p/>"), None, &Styles::default(), &Default::default(), &Default::default()).unwrap();
         assert!(none.is_none());
     }
 
@@ -3250,7 +3280,7 @@ mod tests {
         ]);
         let package = parts(&bytes).unwrap();
         let image = package.images.get("rId5").expect("the preview is a picture");
-        let (blocks, _, _) = parse_document(
+        let (blocks, _, _, _) = parse_document(
             &package.document,
             None,
             &Styles::default(),
@@ -3303,7 +3333,7 @@ mod tests {
             .expect("the relationship names the picture");
         assert!(image.starts_with("data:image/png;base64,"), "{image}");
         let notes = package_notes(&package);
-        let (blocks, _, _) = parse_document(
+        let (blocks, _, _, _) = parse_document(
             &package.document,
             None,
             &Styles::default(),
@@ -3676,7 +3706,7 @@ mod tests {
             footnotes: read_notes(&footnotes_part(), b"footnote"),
             ..Default::default()
         };
-        let (blocks, truncated, _) =
+        let (blocks, truncated, _, _) =
             parse_document(&xml, None, &Styles::default(), &Default::default(), &notes).unwrap();
         assert!(!truncated);
         // Three blocks: the paragraph that cites, the note, and the paragraph after it.
@@ -3704,7 +3734,7 @@ mod tests {
             footnotes: read_notes(&footnotes_part(), b"footnote"),
             ..Default::default()
         };
-        let (blocks, _, _) =
+        let (blocks, _, _, _) =
             parse_document(&xml, None, &Styles::default(), &Default::default(), &notes).unwrap();
         assert_eq!(block_texts(&blocks), vec!["cited"]);
     }
@@ -3739,7 +3769,7 @@ mod tests {
             comments: read_notes(&comments_part(), b"comment"),
             ..Default::default()
         };
-        let (blocks, _, _) =
+        let (blocks, _, _, _) =
             parse_document(&xml, None, &Styles::default(), &Default::default(), &notes).unwrap();
         assert_eq!(blocks.len(), 3, "{blocks:?}");
         assert_eq!(block_texts(&blocks), vec!["cited", "after"]);
@@ -3779,7 +3809,7 @@ mod tests {
             comments: read_notes(&comments_part(), b"comment"),
             ..Default::default()
         };
-        let (blocks, _, _) =
+        let (blocks, _, _, _) =
             parse_document(&xml, None, &Styles::default(), &Default::default(), &notes).unwrap();
         let drawn: Vec<String> = blocks
             .iter()
@@ -4260,7 +4290,7 @@ mod tests {
             drawing("rId5"),
             drawing("rId6")
         );
-        let (blocks, _, _) =
+        let (blocks, _, _, _) =
             parse_document(&document(&body), None, &Styles::default(), &Default::default(), &Default::default()).unwrap();
         let Block::Paragraph { runs, .. } = paragraph_of(&blocks) else {
             unreachable!()
@@ -4314,7 +4344,7 @@ mod tests {
             "<w:p><w:r><w:t>body</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r>{}</w:p></w:tc></w:tr></w:tbl>",
             drawing("rId5")
         );
-        let (blocks, _, _) =
+        let (blocks, _, _, _) =
             parse_document(&document(&body), None, &Styles::default(), &picture_map(), &Default::default()).unwrap();
         let Block::Table { rows } = &blocks[1] else {
             panic!("expected a table");
@@ -4363,7 +4393,7 @@ mod tests {
             drawing("rId5"),
             drawing("rId6")
         );
-        let (blocks, _, _) =
+        let (blocks, _, _, _) =
             parse_document(&document(&body), None, &Styles::default(), &picture_map(), &Default::default()).unwrap();
         let Block::Table { rows } = &blocks[0] else {
             panic!("expected a table");
@@ -4941,12 +4971,22 @@ mod tests {
     /// A minimal archive, built here rather than committed as a binary: the container path is the
     /// one part of this reader that cannot be exercised from a string.
     fn archive(entries: &[(&str, &str)]) -> Vec<u8> {
+        let borrowed: Vec<(&str, &[u8])> = entries
+            .iter()
+            .map(|(name, contents)| (*name, contents.as_bytes()))
+            .collect();
+        archive_bytes(&borrowed)
+    }
+
+    /// The same, holding parts that are not text - a picture - and deflated, so a fixture meant to be
+    /// past a size cap does not have to be that large on disk or in the test's memory.
+    fn archive_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored);
+            .compression_method(zip::CompressionMethod::Deflated);
         for (name, contents) in entries {
             writer.start_file(*name, options).unwrap();
-            std::io::Write::write_all(&mut writer, contents.as_bytes()).unwrap();
+            std::io::Write::write_all(&mut writer, contents).unwrap();
         }
         writer.finish().unwrap().into_inner()
     }
@@ -4982,5 +5022,138 @@ mod tests {
         let bytes = archive(&[("word/styles.xml", "<w:styles/>")]);
         let error = parts(&bytes).unwrap_err();
         assert!(error.contains("document.xml"), "{error}");
+    }
+
+    /// The relationship that names a picture, which is where the media format is decided.
+    fn picture_relationship(target: &str) -> String {
+        format!(
+            r#"<Relationships><Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="{target}"/></Relationships>"#
+        )
+    }
+
+    #[test]
+    fn a_picture_the_webview_cannot_decode_is_counted_and_draws_nothing() {
+        // A metafile is a picture Word shows and a webview has no decoder for. It used to leave an
+        // empty line and no word about it, which reads as a document that lost its figures.
+        let bytes = archive_bytes(&[
+            (
+                "word/document.xml",
+                document(&format!("<w:p>{}</w:p>", drawing("rId5"))).as_bytes(),
+            ),
+            (
+                "word/_rels/document.xml.rels",
+                picture_relationship("media/image1.wmf").as_bytes(),
+            ),
+            ("word/media/image1.wmf", b"a metafile this pane has no decoder for"),
+        ]);
+        let package = parts(&bytes).unwrap();
+        // Nothing was turned into a `data:` URL, so there is nothing to put on the page...
+        assert!(package.images.is_empty());
+        let (blocks, _, _, undrawn) = parse_document(
+            &package.document,
+            None,
+            &Styles::default(),
+            &package.images,
+            &Default::default(),
+        )
+        .unwrap();
+        // ...and the document carries the count of pictures that could not be drawn.
+        assert_eq!(undrawn, 1, "{blocks:?}");
+    }
+
+    #[test]
+    fn a_picture_the_webview_decodes_is_not_counted() {
+        let bytes = archive(&[
+            (
+                "word/document.xml",
+                &document(&format!("<w:p>{}</w:p>", drawing("rId5"))),
+            ),
+            (
+                "word/_rels/document.xml.rels",
+                &picture_relationship("media/image1.png"),
+            ),
+            (
+                "word/media/image1.png",
+                "the bytes are not a picture, and the name is what the reader goes by",
+            ),
+        ]);
+        let package = parts(&bytes).unwrap();
+        assert_eq!(package.images.len(), 1);
+        let (_, _, _, undrawn) = parse_document(
+            &package.document,
+            None,
+            &Styles::default(),
+            &package.images,
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(undrawn, 0);
+    }
+
+    #[test]
+    fn a_picture_past_the_size_cap_is_left_out_rather_than_failing_the_read() {
+        // One picture over the per-image cap used to refuse the whole document, so a text file with a
+        // single large photograph could not be opened at all. It is skipped and counted instead.
+        let oversized = vec![0u8; MAX_IMAGE_BYTES as usize + 1];
+        let bytes = archive_bytes(&[
+            (
+                "word/document.xml",
+                document(&format!(
+                    "<w:p><w:r><w:t>text</w:t></w:r>{}</w:p>",
+                    drawing("rId5")
+                ))
+                .as_bytes(),
+            ),
+            (
+                "word/_rels/document.xml.rels",
+                picture_relationship("media/image1.png").as_bytes(),
+            ),
+            ("word/media/image1.png", &oversized),
+        ]);
+        let package = parts(&bytes).expect("an oversized picture is not a failed read");
+        assert!(package.images.is_empty());
+        let (blocks, _, _, undrawn) = parse_document(
+            &package.document,
+            None,
+            &Styles::default(),
+            &package.images,
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(undrawn, 1);
+        // The text beside it is still the document's.
+        assert_eq!(block_texts(&blocks), vec!["text"]);
+    }
+
+    #[test]
+    fn a_picture_in_a_paragraph_that_also_has_text_is_counted_once() {
+        // A picture sits in a run of its own, so a paragraph can have text and a picture the pane
+        // cannot draw; the text is kept and the picture is counted exactly once.
+        let bytes = archive_bytes(&[
+            (
+                "word/document.xml",
+                document(&format!(
+                    "<w:p><w:r><w:t>before</w:t></w:r>{}<w:r><w:t>after</w:t></w:r></w:p>",
+                    drawing("rId5")
+                ))
+                .as_bytes(),
+            ),
+            (
+                "word/_rels/document.xml.rels",
+                picture_relationship("media/image1.emf").as_bytes(),
+            ),
+            ("word/media/image1.emf", b"another metafile"),
+        ]);
+        let package = parts(&bytes).unwrap();
+        let (blocks, _, _, undrawn) = parse_document(
+            &package.document,
+            None,
+            &Styles::default(),
+            &package.images,
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(undrawn, 1);
+        assert_eq!(block_texts(&blocks), vec!["beforeafter"]);
     }
 }

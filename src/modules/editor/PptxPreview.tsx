@@ -156,6 +156,12 @@ export function PptxPreview({ path }: { path: string }) {
           {t("editor.pptx.page", { page: page + 1, total: deck.slides.length })}
         </span>
         <span className="flex-1" />
+        {deck.undrawnPictures > 0 ? (
+          // See the docx pane: a picture the pane cannot draw is named rather than left as a hole.
+          <span data-pptx-undrawn={deck.undrawnPictures}>
+            {t("editor.pptx.undrawnPictures", { count: deck.undrawnPictures })}
+          </span>
+        ) : null}
         {deck.truncated ? <span>{t("editor.pptx.truncated")}</span> : null}
         <button
           type="button"

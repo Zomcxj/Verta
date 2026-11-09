@@ -1293,7 +1293,7 @@ fn general(value: f64) -> String {
     let magnitude = value.abs();
     // Excel leaves the decimal form outside this range; so does this, because a serial number of
     // 4.5e15 written out is not a number anyone reads.
-    if magnitude >= 1e11 || magnitude < 1e-4 {
+    if !(1e-4..1e11).contains(&magnitude) {
         return tidy_exponential(&format!("{value:.5e}"));
     }
     // Eleven significant digits is what Excel shows in a column that has not been widened.
