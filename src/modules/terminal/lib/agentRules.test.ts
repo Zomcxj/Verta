@@ -5,7 +5,6 @@ import {
   FAMILIES,
   familyFor,
   identifyAgent,
-  SPINNER_FRAMES,
 } from "./agentRules";
 
 /** A real capture from this machine: the shell's own prompt (pty-1.bin). */
@@ -366,11 +365,33 @@ describe("opencode", () => {
     expect(judge("opencode", restFooter)).toBe("idle");
   });
 
-  it("keeps a moving frame out of idle", () => {
-    for (const frame of SPINNER_FRAMES) {
-      const tail = `${frame} Thinking\nctrl+p commands   · Tokens 1k`;
-      expect(judge("opencode", tail)).toBe("working");
-    }
+  it("reads a turn at work from the footer's words, not from a frame", () => {
+    // opencode paints the same circles it spins with beside the state of its own goal, so on this
+    // footer a circle says which state is named rather than whether anything is running. Read as a
+    // frame, a session whose turn had ended with its goal met was a session at work - and because no
+    // "at work to at rest" edge was ever reported, neither the green dot nor the "a turn finished"
+    // notification came. Measured on one footer, two readings: with the circle it was `working`;
+    // with `⊘` in the circle's place it was idle.
+    expect(
+      judge("opencode", "◐ goal met · 297.5K (60%) · $0.16 · ctrl+p commands"),
+    ).toBe("idle");
+    expect(
+      judge("opencode", "⏸ goal met · 297.5K (60%) · $0.16 · ctrl+p commands"),
+    ).toBe("idle");
+    // What does say a turn is running: the status word, and the hint that offers to interrupt it.
+    expect(judge("opencode", "⠹ Thinking\nctrl+p commands   · Tokens 12.4k")).toBe(
+      "working",
+    );
+    expect(
+      judge(
+        "opencode",
+        "⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt · ◎ goal met · 297.5K (60%) ctrl+p commands",
+      ),
+    ).toBe("working");
+    // And what says the turn left work running, which is background work whatever the goal says.
+    expect(
+      judge("opencode", "◐ goal met · ↓ 1 shell · 297.5K (60%) ctrl+p commands"),
+    ).toBe("trailing");
   });
 
   it("reads a permission card as blocked", () => {
@@ -447,36 +468,6 @@ describe("opencode", () => {
       "   ⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt      命中率 0.0% · Tokens 2328.7M · 余额 - ·   ↓ 1 shell · ◎ goal paused · 278.2K (56%)  ctrl+p commands",
     ].join("\n");
     expect(judge("opencode", tail)).toBe("working");
-  });
-
-  it("reads its own goal as the answer to whether anything is in flight", () => {
-    // The screen this was reported from: the turn ended with its goal met, and the goal field is
-    // drawn with one of the circles the spinner list also carries. Read from the glyph alone, a
-    // session that had stopped was a session at work - orange, and with no "at work to at rest" edge
-    // there was no green dot and no "a turn finished" notification either. The footer's own words
-    // say which it is, and they are on the same line.
-    expect(
-      judge("opencode", "⊘ goal met · 297.5K (60%) · $0.16 · ctrl+p commands"),
-    ).toBe("idle");
-    expect(
-      judge("opencode", "◐ goal met · 297.5K (60%) · $0.16 · ctrl+p commands"),
-    ).toBe("idle");
-    // Two things still outrank it, and both are about the turn rather than about the goal: a footer
-    // offering to interrupt (the turn is running) ...
-    expect(
-      judge(
-        "opencode",
-        "⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt ↓ 1 shell · ◎ goal met · 319.7K (64%) ctrl+p commands",
-      ),
-    ).toBe("working");
-    // ... and a footer counting work the turn left running, which is background work (purple) rather
-    // than rest, exactly as it is for a goal that is not met.
-    expect(
-      judge(
-        "opencode",
-        "…Verta:ma… ↓ 1 shell · ◎ goal met · 319.7K (64%) ctrl+p commands",
-      ),
-    ).toBe("trailing");
   });
 });
 

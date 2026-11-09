@@ -42,6 +42,9 @@ import {
 /**
  * Spinner frames the agent TUIs draw while they work: the braille set, the
  * half-circle set, and the pause/play pair some of them swap in.
+ *
+ * opencode's own rules do not read this list - see `opencode` below for why. It is the frames the
+ * other interfaces draw, and the ones a screen with no agent chrome is gated out by.
  */
 export const SPINNER_FRAMES: readonly string[] = [
   "⠋",
@@ -126,14 +129,18 @@ const OPENCODE_IDENTIFY: readonly Pattern[] = [
 /**
  * What a screen showing background work must *not* have on it.
  *
- * The interrupt hint in any spelling (`rupt` covers `esc interrupt` and the elided `esc...rupt`),
- * the status word a running turn paints, and a spinner glyph. Any of them means the screen is being
- * worked on right now, which is work in flight rather than work left behind.
+ * The interrupt hint in any spelling (`rupt` covers `esc interrupt` and the elided `esc...rupt`) and
+ * the status word a running turn paints. Either means the screen is being worked on right now, which
+ * is work in flight rather than work left behind.
+ *
+ * A frame is deliberately not in here. opencode paints the same circles it spins with beside its own
+ * goal state (`◎ goal`, `◐ goal met`, `⏸ goal paused`), so on this interface a circle says which
+ * state is being named rather than whether anything is running - a footer whose goal is met has one
+ * on it. What is running is said by the hint and by the counts.
  */
 const OPENCODE_NOT_TRAILING: readonly Pattern[] = [
   contains("rupt"),
   contains("thinking"),
-  anyChar(SPINNER_FRAMES),
 ];
 
 const OPENCODE_RULES: readonly AgentRule[] = [
@@ -225,28 +232,6 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     region: bottom(1),
     allOf: [contains("esc interrupt")],
   }),
-  // At rest because the turn is over, whatever the footer's glyphs look like. opencode's footer
-  // paints the state of its own *goal* - `◎ goal` while a turn is working towards it, `goal met` once
-  // it is done - and those words say more about whether anything is in flight than a glyph does: the
-  // goal field is drawn with a circle the app also lists as a spinner frame (`◐ ◓` and the
-  // pause/play pair), so a session that had stopped was read as one at work - orange, and with no
-  // "at work to at rest" edge there was no green dot and no "a turn finished" notification either.
-  // Measured as the two readings of one footer:
-  //
-  //   ⊘ goal met · 297.5K (60%) · $0.16 · ctrl+p commands      → idle
-  //   ◐ goal met · 297.5K (60%) · $0.16 · ctrl+p commands      → working, before this rule
-  //
-  // It sits above the spinner and below the two rules for work the turn left *running*: a footer
-  // that also counts a shell or a subagent is background work (purple) whatever the goal says, and a
-  // footer that offers to interrupt the turn is a turn in flight (`opencode_interruptible`, above).
-  rule({
-    id: "opencode_goal_met",
-    state: "idle",
-    priority: 812,
-    region: bottom(2),
-    allOf: [contains("goal met"), contains("ctrl+p")],
-    noneOf: [contains("esc interrupt")],
-  }),
   // Background work outlives the turn: opencode keeps counting its own shells and the subagents a
   // turn started on that same footer line, and a job still running is not a session at rest.
   // Measured on this machine (2026-10-31, `idle-screen.log`, 121 screens sampled while nothing was
@@ -303,15 +288,16 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     allOf: [containsCountedWord("subagent"), contains("ctrl+p")],
     noneOf: OPENCODE_NOT_TRAILING,
   }),
-  // Working: the spinner frames. Seen in the captures (`⠋`, `⠙`, `⠏`).
-  rule({
-    id: "opencode_spinner",
-    state: "working",
-    priority: 800,
-    region: BOTTOM,
-    allOf: [anyChar(SPINNER_FRAMES)],
-  }),
   // Working, second signal: the status word the TUI paints while a turn runs.
+  //
+  // This is where opencode's "a turn is running" is read, together with the interrupt hint above and
+  // the counts below - not from a frame. opencode draws the same circles it spins with beside the
+  // state of its own goal (`◎ goal`, `◐ goal met`, `⏸ goal paused`), so a circle on this footer says
+  // which state is being named rather than whether anything is running. Read as a frame it made a
+  // session that had stopped look like one at work: the tab stayed orange, and because no "at work to
+  // at rest" edge was ever reported, neither the green dot nor the "a turn finished" notification
+  // came. Measured on one footer, two readings: `◐ goal met · 297.5K (60%) · $0.16 · ctrl+p commands`
+  // was working, and the same line with `⊘` in place of the circle was idle.
   rule({
     id: "opencode_status_word",
     state: "working",
@@ -319,10 +305,9 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     region: BOTTOM,
     allOf: [contains("thinking")],
   }),
-  // Idle: the footer is there and nothing on it is moving - no spinner, no status word, and no
-  // interrupt hint anywhere in the region (the hint sits on the footer's own line, which the
-  // rule above reads alone, but a screen that says the turn can be interrupted is not idle
-  // wherever it says it).
+  // Idle: the footer is there and nothing about a turn is on it - no status word and no interrupt
+  // hint anywhere in the region (the hint sits on the footer's own line, which the rule above reads
+  // alone, but a screen that says the turn can be interrupted is not idle wherever it says it).
   rule({
     id: "opencode_idle",
     state: "idle",
@@ -331,11 +316,7 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     // The usual footer, not the family's whole identify list: that one also names the question
     // panel, and a panel waiting on an answer is the one screen that is certainly not idle.
     allOf: OPENCODE_FOOTER,
-    noneOf: [
-      anyChar(SPINNER_FRAMES),
-      contains("thinking"),
-      contains("esc interrupt"),
-    ],
+    noneOf: [contains("thinking"), contains("esc interrupt")],
   }),
 ];
 
