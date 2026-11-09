@@ -29,9 +29,11 @@ swap in the new date, and drop the `open` from the day before.
 - `src-tauri/src/modules/docx.rs`: the media table holds the `data:` URL itself, so a picture the reader converted keeps its own type instead of being re-encoded under the mime its name claims.
 - `scripts/dev/probes/docx-metafile.mjs` (new): two metafiles Windows recorded - a rectangle, a filled rectangle, an ellipse, a polygon, a polyline, a line, text and a stretched bitmap - are put in a document, and the probe asserts both reach the pane as `data:image/svg+xml` pictures and that nothing is reported as undrawable. It screenshots the pane, to be put beside the PNGs GDI+ rendered from the same two files.
 
-</details>
+**A turn that ended with its goal met is drawn as rest, not as work**
 
----
+- `src/modules/terminal/lib/agentRules.ts`: opencode's footer states the state of its own goal (`◎ goal`, `goal met`, `goal paused`), and the goal field is drawn with a circle the spinner list also carries (`◐`, `◓`, and the pause and play pair) - so a session whose turn had ended with `goal met` on its footer was read as a session at work: the tab stayed orange, and because no "at work to at rest" edge was ever reported, neither the green dot nor the "a turn finished" notification came. The goal's own word now decides, and it sits below the two rules about the turn rather than the goal: a footer that offers to interrupt the turn is a turn in flight, and one that also counts a shell or a subagent is background work (purple) whatever the goal says.
+
+</details>
 
 <details>
 <summary><strong>2026-11-07</strong></summary>
@@ -47,8 +49,6 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/editor/EditorPane.tsx`: `.csv` / `.tsv` opens as the table, with the source one click away and the table falling back to it while the buffer is dirty; a `.csv` that is not UTF-8 reaches the table instead of the "binary file" screen, which is where every Chinese export had been going.
 
 </details>
-
----
 
 <details>
 <summary><strong>2026-11-06</strong></summary>

@@ -225,6 +225,28 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     region: bottom(1),
     allOf: [contains("esc interrupt")],
   }),
+  // At rest because the turn is over, whatever the footer's glyphs look like. opencode's footer
+  // paints the state of its own *goal* - `◎ goal` while a turn is working towards it, `goal met` once
+  // it is done - and those words say more about whether anything is in flight than a glyph does: the
+  // goal field is drawn with a circle the app also lists as a spinner frame (`◐ ◓` and the
+  // pause/play pair), so a session that had stopped was read as one at work - orange, and with no
+  // "at work to at rest" edge there was no green dot and no "a turn finished" notification either.
+  // Measured as the two readings of one footer:
+  //
+  //   ⊘ goal met · 297.5K (60%) · $0.16 · ctrl+p commands      → idle
+  //   ◐ goal met · 297.5K (60%) · $0.16 · ctrl+p commands      → working, before this rule
+  //
+  // It sits above the spinner and below the two rules for work the turn left *running*: a footer
+  // that also counts a shell or a subagent is background work (purple) whatever the goal says, and a
+  // footer that offers to interrupt the turn is a turn in flight (`opencode_interruptible`, above).
+  rule({
+    id: "opencode_goal_met",
+    state: "idle",
+    priority: 812,
+    region: bottom(2),
+    allOf: [contains("goal met"), contains("ctrl+p")],
+    noneOf: [contains("esc interrupt")],
+  }),
   // Background work outlives the turn: opencode keeps counting its own shells and the subagents a
   // turn started on that same footer line, and a job still running is not a session at rest.
   // Measured on this machine (2026-10-31, `idle-screen.log`, 121 screens sampled while nothing was
