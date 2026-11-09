@@ -266,7 +266,7 @@ export function patternHit(text: string, pattern: Pattern): boolean {
         const lineStart = haystack.lastIndexOf("\n", at - 1) + 1;
         const before = haystack.slice(lineStart, at).trimEnd();
         const digits = /\p{N}+$/u.exec(before);
-        if (!digits) return false;
+        if (!digits || !(Number(digits[0]) > 0)) return false;
         const head = before.slice(0, digits.index).trimEnd();
         return head === "" || /[↓·]$/u.test(head);
       });

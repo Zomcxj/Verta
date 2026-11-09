@@ -121,7 +121,7 @@ const SCREEN_IDLE = [
 ].join(" ; ");
 const SCREEN_WORKING = [
   'echo "⠹ Thinking"',
-  'echo "ctrl+p commands   · Tokens 12.4k"',
+  'echo "esc interrupt · ctrl+p commands   · Tokens 12.4k"',
 ].join(" ; ");
 const SCREEN_BLOCKED = [
   'echo "△ Permission required"',
@@ -239,7 +239,7 @@ try {
 
   // Idle: the agent's own footer, with nothing moving on it.
   await step("idle", SCREEN_IDLE);
-  // Working: a spinner frame and the status word.
+  // Working: the footer explicitly offers to interrupt the turn.
   await step("working", SCREEN_WORKING);
   // Blocked: the permission card.
   await step("blocked", SCREEN_BLOCKED);

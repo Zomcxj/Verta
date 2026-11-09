@@ -220,7 +220,7 @@ try {
   );
   await step(
     "working",
-    'echo "⠹ Thinking" ; echo "ctrl+p commands   · Tokens 12.4k"',
+    'echo "⠹ Thinking" ; echo "esc interrupt · ctrl+p commands   · Tokens 12.4k"',
   );
   await step(
     "asking",

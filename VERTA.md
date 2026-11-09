@@ -391,6 +391,8 @@ Each module is self-contained, exports a thin barrel via `index.ts`, and owns it
 - **i18n/** - the zh and en tables (`messages.ts`), `LanguagePref` resolution and `useT`. Only interface text is translated; comments are written in English, while logs, agent names and commands are left as they come.
 - **command-palette/** - modal command palette (`CommandPalette.tsx`, `commands.ts`) for actions and navigation.
 
+The agent state dots and the notifications are driven by a screen judge, and OpenCode's phase is read from its footer's words alone: `esc interrupt` (including the measured `esc...rupt` abbreviation) means a running turn, a positive shell or subagent tally without that hint means background work, and a footer with neither means rest. Goal labels, spinner icons and transcript words such as `Thinking` are not phase signals. Question panels keep their own detection, and the other agent families are unchanged.
+
 ### No built-in agent
 
 This fork removed the upstream assistant: `src/modules/ai/**`, `src/modules/agents/**`, `src/components/ai-elements/**`, `src-tauri/src/modules/ai_sessions.rs` and `src-tauri/src/modules/agent.rs` are gone, together with the AI diff tab, inline completion, the notification bell and the model / API-key settings. Do not describe an AI feature in this file and do not rebuild one from a leftover reference.

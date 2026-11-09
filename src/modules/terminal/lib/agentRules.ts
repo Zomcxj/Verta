@@ -126,21 +126,10 @@ const OPENCODE_IDENTIFY: readonly Pattern[] = [
   contains("enter confirm"),
 ];
 
-/**
- * What a screen showing background work must *not* have on it.
- *
- * The interrupt hint in any spelling (`rupt` covers `esc interrupt` and the elided `esc...rupt`) and
- * the status word a running turn paints. Either means the screen is being worked on right now, which
- * is work in flight rather than work left behind.
- *
- * A frame is deliberately not in here. opencode paints the same circles it spins with beside its own
- * goal state (`◎ goal`, `◐ goal met`, `⏸ goal paused`), so on this interface a circle says which
- * state is being named rather than whether anything is running - a footer whose goal is met has one
- * on it. What is running is said by the hint and by the counts.
- */
-const OPENCODE_NOT_TRAILING: readonly Pattern[] = [
-  contains("rupt"),
-  contains("thinking"),
+// The footer may shorten its interrupt hint; neither transcript text nor a goal icon is live state.
+const OPENCODE_INTERRUPT_HINTS: readonly Pattern[] = [
+  contains("esc interrupt"),
+  contains("esc...rupt"),
 ];
 
 const OPENCODE_RULES: readonly AgentRule[] = [
@@ -166,7 +155,7 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     priority: 1000,
     region: bottom(6),
     allOf: [contains("permission"), contains("allow")],
-    noneOf: [contains("allow me to explain"), contains("esc interrupt")],
+    noneOf: [contains("allow me to explain"), ...OPENCODE_INTERRUPT_HINTS],
   }),
   // A question with options, older shape: the selected row is marked with the same caret the
   // other TUIs use. Same region and the same exclusion as the card above, for the same reason.
@@ -176,7 +165,7 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     priority: 990,
     region: bottom(6),
     allOf: [lineStartsWith("❯ 1.")],
-    noneOf: [contains("esc interrupt")],
+    noneOf: OPENCODE_INTERRUPT_HINTS,
   }),
   // A question panel, the shape this machine's opencode actually draws. Measured with
   // `state-dot-watch.mjs --once`: the options carry **no** caret - `1. 火锅`, not `❯ 1. 火锅` - so the
@@ -223,14 +212,20 @@ const OPENCODE_RULES: readonly AgentRule[] = [
   // `⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt`, and every such false ending also put a "a turn finished"
   // notification into Windows' own store - six of them in three minutes.
   //
-  // The footer is one line, so this rule reads only that line: the phrase itself is short enough
-  // to turn up in a conversation, and the conversation is exactly what sits above the footer.
+  // Two lines allow a wrapped footer without treating the transcript as live state.
   rule({
     id: "opencode_interruptible",
     state: "working",
     priority: 820,
-    region: bottom(1),
-    allOf: [contains("esc interrupt")],
+    region: bottom(2),
+    allOf: [...OPENCODE_FOOTER, contains("esc interrupt")],
+  }),
+  rule({
+    id: "opencode_interruptible_elided",
+    state: "working",
+    priority: 820,
+    region: bottom(2),
+    allOf: [...OPENCODE_FOOTER, contains("esc...rupt")],
   }),
   // Background work outlives the turn: opencode keeps counting its own shells and the subagents a
   // turn started on that same footer line, and a job still running is not a session at rest.
@@ -261,8 +256,6 @@ const OPENCODE_RULES: readonly AgentRule[] = [
   //   the literal words, and the same hint is drawn elided (`esc...rupt`) on some frames, which would
   //   let these read a working screen as background work.
   //
-  // The spinner is excluded for the same reason: a glyph anywhere in the region means something is
-  // being painted right now, and that is work rather than background work.
   // The footer's own word, not the letters: measured on this machine, a session reading
   // `PowerShell` in a reply's prose satisfied `contains("shell")` and was drawn as trailing work
   // (purple, breathing) when its turn had ended and nothing was running. The footer writes the
@@ -278,7 +271,7 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     // depended on how many lines the TUI painted below that result, which is why the report was
     // "sometimes". The footer's own tally always carries the number (`↓ 1 shell`).
     allOf: [containsCountedWord("shell"), contains("ctrl+p")],
-    noneOf: OPENCODE_NOT_TRAILING,
+    noneOf: OPENCODE_INTERRUPT_HINTS,
   }),
   rule({
     id: "opencode_trailing_subagent",
@@ -286,37 +279,18 @@ const OPENCODE_RULES: readonly AgentRule[] = [
     priority: 815,
     region: bottom(2),
     allOf: [containsCountedWord("subagent"), contains("ctrl+p")],
-    noneOf: OPENCODE_NOT_TRAILING,
+    noneOf: OPENCODE_INTERRUPT_HINTS,
   }),
-  // Working, second signal: the status word the TUI paints while a turn runs.
-  //
-  // This is where opencode's "a turn is running" is read, together with the interrupt hint above and
-  // the counts below - not from a frame. opencode draws the same circles it spins with beside the
-  // state of its own goal (`◎ goal`, `◐ goal met`, `⏸ goal paused`), so a circle on this footer says
-  // which state is being named rather than whether anything is running. Read as a frame it made a
-  // session that had stopped look like one at work: the tab stayed orange, and because no "at work to
-  // at rest" edge was ever reported, neither the green dot nor the "a turn finished" notification
-  // came. Measured on one footer, two readings: `◐ goal met · 297.5K (60%) · $0.16 · ctrl+p commands`
-  // was working, and the same line with `⊘` in place of the circle was idle.
-  rule({
-    id: "opencode_status_word",
-    state: "working",
-    priority: 780,
-    region: BOTTOM,
-    allOf: [contains("thinking")],
-  }),
-  // Idle: the footer is there and nothing about a turn is on it - no status word and no interrupt
-  // hint anywhere in the region (the hint sits on the footer's own line, which the rule above reads
-  // alone, but a screen that says the turn can be interrupted is not idle wherever it says it).
+  // No interrupt hint or positive job tally means rest, regardless of goal text or spinner glyphs.
   rule({
     id: "opencode_idle",
     state: "idle",
     priority: 500,
-    region: BOTTOM,
+    region: bottom(2),
     // The usual footer, not the family's whole identify list: that one also names the question
     // panel, and a panel waiting on an answer is the one screen that is certainly not idle.
     allOf: OPENCODE_FOOTER,
-    noneOf: [contains("thinking"), contains("esc interrupt")],
+    noneOf: OPENCODE_INTERRUPT_HINTS,
   }),
 ];
 

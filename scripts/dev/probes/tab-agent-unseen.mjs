@@ -94,7 +94,7 @@ const activate = (tabId) =>
 
 const report = {};
 const SCREEN_WORKING =
-  'clear ; echo "⠹ Thinking" ; echo "ctrl+p commands   · Tokens 12.4k"';
+  'clear ; echo "⠹ Thinking" ; echo "esc interrupt · ctrl+p commands   · Tokens 12.4k"';
 const SCREEN_BLOCKED =
   'clear ; echo "△ Permission required" ; echo "  Allow once" ; echo "ctrl+p commands"';
 

@@ -5,9 +5,11 @@ import {
   bottom,
   bottomNonEmptyLines,
   contains,
+  containsCountedWord,
   detectionApplies,
   evaluate,
   lineStartsWith,
+  patternHit,
   rule,
   UNKNOWN_DETECTION,
 } from "./agentState";
@@ -148,6 +150,24 @@ describe("bottomNonEmptyLines", () => {
   it("keeps everything when the tail is shorter than the region", () => {
     const text = "one\n\n two \n\nthree\nfour\n";
     expect(bottomNonEmptyLines(text, 10)).toBe("one\n two \nthree\nfour");
+  });
+});
+
+describe("a counted job pattern", () => {
+  it.each([
+    ["↓ 1 shell", "shell", true],
+    ["↓ 2 shells", "shell", true],
+    ["↓ 1 subagent · 2 shells", "shell", true],
+    ["1 subagent", "subagent", true],
+    ["↓ 0 shells", "shell", false],
+    ["· 00 subagents", "subagent", false],
+    ["↓ -1 shell", "shell", false],
+    ["↓ 1.5 shells", "shell", false],
+    ["opened 2 shells", "shell", false],
+    ["! Shell cancelled", "shell", false],
+    ["PowerShell", "shell", false],
+  ])("reads only a positive integer tally: %s", (text, word, expected) => {
+    expect(patternHit(text, containsCountedWord(word))).toBe(expected);
   });
 });
 

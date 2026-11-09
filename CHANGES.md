@@ -31,7 +31,10 @@ swap in the new date, and drop the `open` from the day before.
 
 **A turn at work is read from opencode's own words, not from the circle it paints**
 
-- `src/modules/terminal/lib/agentRules.ts`: opencode draws the same circles it spins with beside the state of its own goal (`◎ goal`, `◐ goal met`, `⏸ goal paused`), so a footer saying the goal was met carried a frame - and the rule that read a frame as work in flight made a session whose turn had ended look like one at work. Its tab stayed orange, and because no "at work to at rest" edge was ever reported, neither the green dot nor the "a turn finished" notification came; the same footer spelled `⊘ goal met` was idle, which is what made the difference visible. opencode's own rules no longer read a frame at all: a turn is running when the footer says so - `esc interrupt`, or the status word the TUI paints - background work is what the footer counts (`↓ 1 shell`, a subagent), and a footer with neither is at rest. The frame list stays, for the interfaces that spin with it beside nothing but the turn.
+- `src/modules/terminal/lib/agentRules.ts`, `src/modules/terminal/lib/agentRules.test.ts`, `src/modules/terminal/lib/agentJudge.test.ts`: OpenCode's live phase now depends only on its footer's interrupt hint and positive shell/subagent tallies, as requested. Goal labels, icons and leftover `Thinking` text cannot keep a stopped session orange. Wrapped footers and the measured `esc...rupt` abbreviation still indicate work; questions retain their blue state, and other agent families keep their existing detectors.
+- `src/modules/terminal/lib/agentState.ts`, `src/modules/terminal/lib/agentState.test.ts`: a job tally must be a positive integer, so `0 shells` or `0 subagents` cannot claim background work.
+- `scripts/dev/probes/agent-state-judge.mjs`, `scripts/dev/probes/tab-agent-dot.mjs`, `scripts/dev/probes/launcher-session-state.mjs`, `scripts/dev/probes/tab-agent-unseen.mjs`: working fixtures include the live interrupt hint instead of relying on transcript text that may remain after a turn ends.
+- `VERTA.md`: document the footer-only OpenCode phase contract so future changes do not reintroduce goal or transcript heuristics.
 
 </details>
 

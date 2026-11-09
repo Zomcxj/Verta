@@ -11,8 +11,8 @@ import {
 const SHELL_TAIL =
   "special@LAPTOP MINGW64 /f/VibeCoding_workspace/Verta (main)\n$ ";
 
-/** Real captures: opencode's footer and spinner (pty-2.bin / pty-4.bin). */
-const OPENCODE_WORKING =
+/** A historical capture whose transcript text alone no longer denotes live work. */
+const OPENCODE_THINKING_ONLY =
   "Writing the patch\n⠹ Thinking\nctrl+p commands   · Tokens 12.4k";
 const OPENCODE_IDLE = "Where to next?\nctrl+p commands   · Tokens 12.4k";
 
@@ -29,6 +29,8 @@ const OPENCODE_INTERRUPTIBLE = [
   "  ┃  Build auto · deepseek-v4.1-flash workbuddy · max",
   "   ⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt                       命中率 99.5% ↑0.2% · Tokens 1061.4M · 余额 - ·   ↓ 2 shells · 258.6K (52%)  ctrl+p commands",
 ].join("\n");
+
+const OPENCODE_WORKING = OPENCODE_INTERRUPTIBLE;
 
 /**
  * The same session with the turn over and one background shell still running (2026-10-31,
@@ -267,12 +269,36 @@ const OPENCODE_TRANSCRIPT_QUOTING_THE_PANEL = [
 ].join("\n");
 
 describe("opencode", () => {
+  it.each([
+    ["Thinking about the completed work\nctrl+p commands", "idle"],
+    ["Thinking\n↓ 1 shell · ctrl+p commands", "trailing"],
+    ["Thinking\n↓ 2 subagents · ctrl+p commands", "trailing"],
+    ["◐ goal met · ↓ 0 shells · 0 subagents · ctrl+p commands", "idle"],
+    ["◐ goal met · ↓ 0 shells · 1 subagent · ctrl+p commands", "trailing"],
+    ["◐ goal met · ↓ 1 shell · 0 subagents · ctrl+p commands", "trailing"],
+    ["esc interrupt · ↓ 0 shells · 0 subagents\nctrl+p commands", "working"],
+    ["esc...rupt · ↓ 1 shell · ctrl+p commands", "working"],
+    ["esc...rupt · ↓ 2 subagents\nctrl+p commands", "working"],
+  ])("uses only the interrupt hint and positive job counts: %s", (tail, expected) => {
+    expect(judge("opencode", tail)).toBe(expected);
+  });
+
+  it.each(["", "◎ goal", "⊘ goal met", "◐ goal met", "⏸ goal paused"])(
+    "does not let the goal field change the phase: %s",
+    (goal) => {
+      expect(judge("opencode", `${goal} · ctrl+p commands`)).toBe("idle");
+      expect(judge("opencode", `${goal} · ↓ 1 shell · ctrl+p commands`)).toBe("trailing");
+      expect(judge("opencode", `${goal} · ↓ 1 subagent · ctrl+p commands`)).toBe("trailing");
+      expect(judge("opencode", `esc interrupt · ${goal} · ctrl+p commands`)).toBe("working");
+    },
+  );
+
   it("tells working and idle apart", () => {
     expect(judge("opencode", OPENCODE_WORKING)).toBe("working");
     expect(judge("opencode", OPENCODE_IDLE)).toBe("idle");
   });
 
-  it("reads a turn in flight from the footer, not only from the spinner", () => {
+  it("reads a turn in flight from the footer", () => {
     // The false ending measured on this machine: the spinner glyph was between frames, the
     // footer still said the turn could be interrupted, and the judge settled on idle.
     expect(judge("opencode", OPENCODE_INTERRUPTIBLE)).toBe("working");
@@ -378,10 +404,8 @@ describe("opencode", () => {
     expect(
       judge("opencode", "⏸ goal met · 297.5K (60%) · $0.16 · ctrl+p commands"),
     ).toBe("idle");
-    // What does say a turn is running: the status word, and the hint that offers to interrupt it.
-    expect(judge("opencode", "⠹ Thinking\nctrl+p commands   · Tokens 12.4k")).toBe(
-      "working",
-    );
+    // Transcript text can remain after the turn; only its footer says it can still be interrupted.
+    expect(judge("opencode", OPENCODE_THINKING_ONLY)).toBe("idle");
     expect(
       judge(
         "opencode",

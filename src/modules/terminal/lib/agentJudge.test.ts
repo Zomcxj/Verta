@@ -8,9 +8,9 @@ import {
   judgeTail,
 } from "./agentJudge";
 
-/** Real captures from this machine (see `agentRules.test.ts` for the source). */
+/** Footer-based fixtures; the original captures are kept in `agentRules.test.ts`. */
 const OPENCODE_WORKING =
-  "Writing the patch\n⠹ Thinking\nctrl+p commands   · Tokens 12.4k";
+  "Writing the patch\n⠹ Thinking\nesc interrupt · ctrl+p commands   · Tokens 12.4k";
 const OPENCODE_IDLE = "Where to next?\nctrl+p commands   · Tokens 12.4k";
 const OPENCODE_BLOCKED =
   "△ Permission required\n  Allow once\n  Allow always\n  Deny\nctrl+p commands";
@@ -121,6 +121,19 @@ describe("judgeTail", () => {
     // Reported as `finished`, not as `idle`: the store turns that into a short "done" mark, which
     // is what the dots and the notification layer read.
     expect(kinds(idle.signals)).toEqual(["finished"]);
+  });
+
+  it("reports one ending when the interrupt hint disappears despite leftover Thinking text", () => {
+    const working = first("esc interrupt · ctrl+p commands");
+    const stopped = "Thinking about the completed work\n◐ goal met · ctrl+p commands";
+    const pending = judgeTail(working.entry, stopped, 2_000);
+    expect(pending.kind).toBe("quiet");
+    const ended = judgeTail(pending.entry, stopped, 2_000 + IDLE_SETTLE_MS);
+    expect(ended.kind).toBe("report");
+    if (ended.kind !== "report") throw new Error("missing ending");
+    expect(kinds(ended.signals)).toEqual(["finished"]);
+    expect(ended.entry.state).toBe("idle");
+    expect(judgeTail(ended.entry, stopped, 4_000).kind).toBe("quiet");
   });
 
   it("reports idle directly when the agent was never busy", () => {
@@ -271,7 +284,7 @@ describe("an agent that leaves the screen", () => {
 describe("the settle before an ending", () => {
   // The screens the false endings came from, as `agentRules.test.ts` keeps them: the same turn,
   // read once without the working line and once with it.
-  const WORKING = "Writing the patch\n⠹ Thinking\nctrl+p commands   · Tokens 12.4k";
+  const WORKING = OPENCODE_WORKING;
   const IDLE = "Where to next?\nctrl+p commands   · Tokens 12.4k";
 
   it("does not report an ending from a single read that missed the working line", () => {

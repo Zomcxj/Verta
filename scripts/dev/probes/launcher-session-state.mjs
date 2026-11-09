@@ -135,7 +135,7 @@ const tailLines = async (leaf) =>
 // The judge's own samples, as `agent-state-judge.mjs` prints them.
 const SCREEN_WORKING = [
   'echo "⠹ Thinking"',
-  'echo "ctrl+p commands   · Tokens 12.4k"',
+  'echo "esc interrupt · ctrl+p commands   · Tokens 12.4k"',
 ].join(" ; ");
 const SCREEN_BLOCKED = [
   'echo "△ Permission required"',
