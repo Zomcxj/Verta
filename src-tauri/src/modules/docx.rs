@@ -308,9 +308,8 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
     let mut footnotes = None;
     let mut endnotes = None;
     let mut comments = None;
-    // The picture bytes, by their file name inside the archive.
-    let mut media: std::collections::HashMap<String, (String, String)> =
-        std::collections::HashMap::new();
+    // The pictures, by their file name inside the archive, already as `data:` URLs.
+    let mut media: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut media_bytes: u64 = 0;
     for index in 0..archive.len() {
         let mut entry = archive
@@ -358,13 +357,12 @@ fn parts(bytes: &[u8]) -> Result<Package, String> {
         if in_media {
             let bytes = read_bytes(&mut entry, limit, ".docx")?;
             media_bytes += bytes.len() as u64;
-            // One table of picture types serves all three Office readers.
-            let (Some(mime), Some(data)) =
-                (super::office::image_mime(&name), encode_data_url(&bytes))
-            else {
+            // One reader for pictures serves all three Office documents: a format a webview draws is
+            // handed over as it is, and a Windows metafile is replayed into an SVG.
+            let Some(data) = super::office::data_url(&name, &bytes) else {
                 continue;
             };
-            media.insert(name, (mime.to_string(), data));
+            media.insert(name, data);
             continue;
         }
         let text = read_part(&mut entry, limit, ".docx")?;
@@ -741,16 +739,10 @@ fn rewrite_paragraph(paragraph: &str, text: &str) -> Result<String, String> {
 }
 
 /// The bytes as a `data:` URL - what an `<img src>` can use with nothing on disk to fetch.
-fn encode_data_url(bytes: &[u8]) -> Option<String> {
-    use base64::Engine;
-    // Only the payload is encoded here; the mime type is added by the relationship table's caller.
-    Some(base64::engine::general_purpose::STANDARD.encode(bytes))
-}
-
 /// Which relationship id names which picture, from `word/_rels/document.xml.rels`.
 fn image_relationships(
     rels: &str,
-    media: &std::collections::HashMap<String, (String, String)>,
+    media: &std::collections::HashMap<String, String>,
 ) -> std::collections::HashMap<String, String> {
     let mut images = std::collections::HashMap::new();
     let mut reader = Reader::from_str(rels);
@@ -768,10 +760,10 @@ fn image_relationships(
                     continue;
                 };
                 let name = target.rsplit(['/', '\\']).next().unwrap_or("").to_string();
-                let Some((mime, payload)) = media.get(&name) else {
+                let Some(data) = media.get(&name) else {
                     continue;
                 };
-                images.insert(id, format!("data:{mime};base64,{payload}"));
+                images.insert(id, data.clone());
             }
             Ok(Event::Eof) => break,
             Err(_) => break,
@@ -5029,6 +5021,64 @@ mod tests {
         format!(
             r#"<Relationships><Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="{target}"/></Relationships>"#
         )
+    }
+
+    /// The smallest WMF Windows would write: a standard header, one `RECTANGLE`, and the end.
+    fn tiny_wmf() -> Vec<u8> {
+        let mut rectangle = Vec::new();
+        rectangle.extend_from_slice(&7u32.to_le_bytes()); // seven words: the header and the box
+        rectangle.extend_from_slice(&0x041Bu16.to_le_bytes());
+        for value in [60i16, 100, 10, 10] {
+            // bottom, right, top, left
+            rectangle.extend_from_slice(&value.to_le_bytes());
+        }
+        let mut end = Vec::new();
+        end.extend_from_slice(&3u32.to_le_bytes());
+        end.extend_from_slice(&0u16.to_le_bytes());
+        let body: Vec<u8> = [rectangle, end].concat();
+        let mut out = Vec::new();
+        out.extend_from_slice(&1u16.to_le_bytes()); // a metafile in memory
+        out.extend_from_slice(&9u16.to_le_bytes());
+        out.extend_from_slice(&0x0300u16.to_le_bytes());
+        out.extend_from_slice(&(((body.len() + 18) / 2) as u32).to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&body);
+        out
+    }
+
+    #[test]
+    fn a_windows_metafile_is_handed_over_as_something_the_pane_can_draw() {
+        // Word keeps a pasted chart, an equation or a screenshot as a metafile, which no webview
+        // decodes: the reader replays it into an SVG instead of counting it among the pictures it
+        // could not draw.
+        let bytes = archive_bytes(&[
+            (
+                "word/document.xml",
+                document(&format!("<w:p>{}</w:p>", drawing("rId5"))).as_bytes(),
+            ),
+            (
+                "word/_rels/document.xml.rels",
+                picture_relationship("media/image1.wmf").as_bytes(),
+            ),
+            ("word/media/image1.wmf", &tiny_wmf()),
+        ]);
+        let package = parts(&bytes).unwrap();
+        let image = package
+            .images
+            .get("rId5")
+            .expect("the metafile is a picture now");
+        assert!(image.starts_with("data:image/svg+xml;base64,"), "{image}");
+        let (_, _, _, undrawn) = parse_document(
+            &package.document,
+            None,
+            &Styles::default(),
+            &package.images,
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(undrawn, 0);
     }
 
     #[test]

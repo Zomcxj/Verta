@@ -7,6 +7,7 @@ pub mod bench;
 pub mod control;
 pub mod csv;
 pub mod docx;
+pub mod metafile;
 pub mod drag;
 pub mod fs;
 pub mod fonts;

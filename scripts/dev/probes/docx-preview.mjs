@@ -2,9 +2,10 @@
 //
 // The fixture is a real archive - built here with `Compress-Archive`, so the entries are spelled the
 // way PowerShell spells them and the reader's tolerant entry matching is part of what is tested -
-// holding a heading, a bold run, a numbered list, a table and an escaped entity. What it asserts is
-// what a reader of the document would see: the heading as a heading, the bold run bold, the list as a
-// list, the table's cells in a table, and `&` where the file says `&amp;`.
+// holding a heading, a bold run, a numbered list, a table, an escaped entity, a picture the webview
+// draws and one nothing can draw. What it asserts is what a reader of the document would see: the
+// heading as a heading, the bold run bold, the list as a list, the table's cells in a table, `&` where
+// the file says `&amp;`, and a count instead of a hole where the picture nothing can draw was.
 //
 // A second, corrupt file is opened to check the other half: the pane has to say it could not read the
 // document rather than draw nothing or throw.
@@ -27,7 +28,7 @@ const BROKEN = "broken.docx";
 const TEXTY = "text-in-a-docx.docx";
 
 const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Default Extension="png" ContentType="image/png"/></Types>`;
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="tiff" ContentType="image/tiff"/></Types>`;
 const RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
 const NUMBERING = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -40,8 +41,15 @@ const PICTURE = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64",
 );
-/** A metafile: what Word shows an equation or a pasted chart as, and what no webview decodes. */
-const METAFILE = Buffer.from("0100090000032a02000000002a0200000000", "hex");
+/**
+ * A `.tiff`: what a scanner, a fax or an old Word leaves in a document, and the one picture format
+ * here that nothing can draw - not the webview, and not the reader, which has no decoder for it.
+ *
+ * It is a `.wmf` no longer: a Windows metafile *is* drawn now (replayed into an SVG, which the pane
+ * shows), so a fixture that expects it to be counted instead of drawn would fail. What is left that
+ * the reader genuinely cannot turn into a picture is this - `II*\0`, the little-endian header.
+ */
+const UNDRAWABLE_PICTURE = Buffer.from("49492a000800000000000000", "hex");
 
 const RELS_WITH_IMAGE = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>`;
@@ -255,11 +263,11 @@ try {
   mkdirSync(join(parts, "word", "_rels"), { recursive: true });
   writeFileSync(
     join(parts, "word", "_rels", "document.xml.rels"),
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/><Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image2.wmf"/></Relationships>`,
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/><Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image2.tiff"/></Relationships>`,
   );
   mkdirSync(join(parts, "word", "media"), { recursive: true });
   writeFileSync(join(parts, "word", "media", "image1.png"), PICTURE);
-  writeFileSync(join(parts, "word", "media", "image2.wmf"), METAFILE);
+  writeFileSync(join(parts, "word", "media", "image2.tiff"), UNDRAWABLE_PICTURE);
   writeFileSync(join(parts, "word", "document.xml"), DOCUMENT);
   writeFileSync(join(parts, "word", "numbering.xml"), NUMBERING);
   writeFileSync(join(parts, "word", "styles.xml"), STYLES);
@@ -343,7 +351,7 @@ try {
   if (!picture || picture.kind !== "data:image/png;base64," || picture.width !== 100 || picture.height !== 50) {
     fail(`the picture is not drawn from the document: ${JSON.stringify(drawn.images)}`);
   }
-  // A picture Word shows and the webview cannot decode: the pane draws no `<img>` for it and says how
+  // A picture Word shows and nothing here can draw: the pane draws no `<img>` for it and says how
   // many of them the document has, so a figure that is missing is not silently missing.
   if (JSON.stringify(drawn.undrawn) !== JSON.stringify([1])) {
     fail(`the pictures the pane could not draw are counted as ${JSON.stringify(drawn.undrawn)}, not one`);
@@ -351,7 +359,8 @@ try {
   if (!(drawn.text ?? "").includes("未能显示")) {
     fail(`the pane did not say a picture could not be shown: ${JSON.stringify((drawn.text ?? "").slice(-120))}`);
   }
-  // The metafile is in the document and not in the drawn images: only the PNG is.
+  // The picture nothing can draw is in the document and not among the drawn images: only the PNG is.
+  // A WMF would be drawn here - it is replayed into an SVG - which is the other probe's subject.
   if ((drawn.images ?? []).length !== 1) {
     fail(`the pane drew ${(drawn.images ?? []).length} pictures, not the one it can decode`);
   }
@@ -406,7 +415,7 @@ try {
 
   report.ok = true;
   console.log(
-    "PASS: .docx 由 Rust 读成块并由前端绘制——标题成标题、加粗成粗体、编号列表成 ol、表格成 2×2 表格、&amp; 还原成 &；画不出的图（WMF/EMF 等）不画但要报出张数；不是 ZIP 的文件给出「读不出这个 .docx」而不是空白或崩溃。",
+    "PASS: .docx 由 Rust 读成块并由前端绘制——标题成标题、加粗成粗体、编号列表成 ol、表格成 2×2 表格、&amp; 还原成 &；画不出的图（TIFF 等）不画但要报出张数；不是 ZIP 的文件给出「读不出这个 .docx」而不是空白或崩溃。",
   );
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {

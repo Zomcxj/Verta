@@ -83,7 +83,7 @@ ${shape({
     '<a:p><a:pPr lvl="1"/><a:buChar char="•"/><a:r><a:rPr sz="1800" i="1" u="sng"/><a:t>缩进的第二行</a:t></a:r><a:br/><a:r><a:t>a &amp; b</a:t></a:r></a:p>',
 })}
 <p:pic><p:nvPicPr><p:cNvPr id="3" name="Picture"/><p:cNvPicPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId20"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${px(100)}" y="${px(440)}"/><a:ext cx="${px(400)}" cy="${px(200)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>
-<p:pic><p:nvPicPr><p:cNvPr id="4" name="Metafile"/><p:cNvPicPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId21"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${px(700)}" y="${px(440)}"/><a:ext cx="${px(400)}" cy="${px(200)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>
+<p:pic><p:nvPicPr><p:cNvPr id="4" name="Undrawable picture"/><p:cNvPicPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId21"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${px(700)}" y="${px(440)}"/><a:ext cx="${px(400)}" cy="${px(200)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>
 </p:spTree></p:cSld></p:sld>`;
 
 /** The second slide: a filled shape turned forty five degrees. */
@@ -109,11 +109,17 @@ const SLIDE_THREE = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 const SLIDE_ONE_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId20" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>
-<Relationship Id="rId21" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image2.wmf"/>
+<Relationship Id="rId21" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image2.tiff"/>
 </Relationships>`;
 
-/** A metafile: what a chart or an equation is stored as, and what no webview decodes. */
-const METAFILE = Uint8Array.from([0x01, 0x00, 0x09, 0x00, 0x00, 0x03, 0x2a, 0x02]);
+/**
+ * A `.tiff`: what a scanner or an old chart export leaves on a slide, and the one picture format
+ * nothing here can draw - the webview has no decoder for it and neither has the reader.
+ *
+ * It is a `.wmf` no longer: a Windows metafile *is* drawn now, replayed into an SVG, so a fixture
+ * expecting it to be counted rather than drawn would fail.
+ */
+const UNDRAWABLE_PICTURE = Uint8Array.from([0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00]);
 
 const PPTX = zip([
   ...packageParts(
@@ -128,7 +134,7 @@ const PPTX = zip([
   ["ppt/slides/slide2.xml", SLIDE_TWO],
   ["ppt/slides/slide3.xml", SLIDE_THREE],
   ["ppt/media/image1.png", PNG],
-  ["ppt/media/image2.wmf", METAFILE],
+  ["ppt/media/image2.tiff", UNDRAWABLE_PICTURE],
 ]);
 
 // ---------------------------------------------------------------------------------------------
@@ -364,13 +370,13 @@ try {
   const undrawnSaid = await evaluate(
     `(${VISIBLE})?.innerText?.includes("未能显示") ?? false`,
   );
-  // The metafile is on the first slide's rels and the slide has no `<img>` for it.
+  // The picture nothing can draw is on the first slide's rels and the slide has no `<img>` for it.
   const drawnPictures = await evaluate(
     `(${VISIBLE})?.querySelectorAll('[data-pptx-slide="0"] img').length ?? -1`,
   );
   report.undrawn = undrawn;
   if (undrawn !== "1") fail(`the deck reports ${JSON.stringify(undrawn)} pictures it could not draw, not one`);
-  if (!undrawnSaid) fail("the pane drew a hole where the metafile is and said nothing about it");
+  if (!undrawnSaid) fail("the pane drew a hole where the picture it cannot decode is and said nothing about it");
   if (drawnPictures !== 1) fail(`the first slide drew ${drawnPictures} pictures, not the one it can decode`);
 
   // ---- A filled, rotated shape on the second slide ----
@@ -442,7 +448,7 @@ try {
 
   report.ok = true;
   console.log(
-    "PASS: .pptx 当幻灯片读——按 sldIdLst 顺序逐张画；EMU 按 9525 换成像素（800x240@100,180 落位准确）；幻灯片盒子保持文件声明的 16:9；run 的加粗/字号(44pt)/字色/居中与段落缩进(lvl=1 → 48px)/项目符号/换行/转义字符都读对；图片按 slide 自己的 rels 找到 media 并以 data: URL 画出；画不出的图（WMF/EMF 等）不画但要报出张数；旋转 45°、纯色填充、空幻灯片、缩放与适应宽度都正确。",
+    "PASS: .pptx 当幻灯片读——按 sldIdLst 顺序逐张画；EMU 按 9525 换成像素（800x240@100,180 落位准确）；幻灯片盒子保持文件声明的 16:9；run 的加粗/字号(44pt)/字色/居中与段落缩进(lvl=1 → 48px)/项目符号/换行/转义字符都读对；图片按 slide 自己的 rels 找到 media 并以 data: URL 画出；画不出的图（TIFF 等）不画但要报出张数；旋转 45°、纯色填充、空幻灯片、缩放与适应宽度都正确。",
   );
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {

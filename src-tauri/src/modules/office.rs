@@ -284,8 +284,16 @@ pub(crate) fn image_mime(name: &str) -> Option<&'static str> {
 }
 
 /// Picture bytes as a `data:` URL, which is what an `<img src>` can use with nothing on disk to
-/// fetch it from. `None` when the type is not one the pane draws.
+/// fetch it from. `None` when the type is not one this reader can put on a page.
+///
+/// A Windows metafile is recognized by its own bytes rather than by its name: Word keeps a pasted
+/// chart, an equation or a screenshot as one whatever it calls the file, and none of them is a
+/// picture a webview decodes. They are replayed into an SVG instead (see `metafile`), which is what
+/// keeps a document full of them from drawing as a page with holes in it.
 pub(crate) fn data_url(name: &str, bytes: &[u8]) -> Option<String> {
+    if super::metafile::is_metafile(bytes) {
+        return super::metafile::data_url(bytes);
+    }
     let mime = image_mime(name)?;
     use base64::Engine;
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
