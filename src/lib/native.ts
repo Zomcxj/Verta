@@ -935,6 +935,15 @@ export type GitStashEntry = {
 
 export const native = {
   workspaceCurrentDir: () => invoke<string>("workspace_current_dir"),
+  /**
+   * The Windows spelling of a path a POSIX shell reported, or `null` when there is nothing to say.
+   *
+   * `null` covers both "this spelling is already usable" and "the shell could not say", so the caller
+   * keeps the spelling it had; the shell is the leaf's own, because only the install that spelled a
+   * path can translate it.
+   */
+  translatePath: (path: string, shell?: string | null) =>
+    invoke<string | null>("translate_path", { path, shell: shell ?? null }),
   workspaceAuthorize: (path: string, env?: WorkspaceEnv) =>
     invoke<string>("workspace_authorize", {
       path,

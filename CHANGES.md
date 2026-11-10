@@ -13,6 +13,19 @@ fine as plain text. **The newest day is `open` by default**; when a new day star
 swap in the new date, and drop the `open` from the day before.
 
 <details open>
+<summary><strong>2026-11-10</strong></summary>
+
+**A working directory Git-Bash spelled is asked about, once per spelling**
+
+- `src-tauri/src/modules/fs/translate.rs` (new) and `src-tauri/src/modules/fs/mod.rs`, `src-tauri/src/lib.rs`: the `translate_path` command - what a path means on Windows when a POSIX shell spelled it. Git-Bash reports its cwd over OSC 7 in MSYS spelling, and only one shape of it can be repaired by reading (`/c/Users/x`, which the OSC 7 parser already turns into a drive). `/tmp`, `/usr/bin` and `/home/x` are real places under the Git for Windows install or under `%TEMP%`, and no amount of reading says which: `/tmp` is the user's temp directory only according to the install's own mount table. So the shell is asked, through the `cygpath -w` MSYS ships for exactly this, and the answer is what a Windows API can then open. The translator is found beside the shell (`<Git>/usr/bin/cygpath.exe`, which is where the tool actually is - measured: there is none in `Git\bin`), the leaf's own shell is used when it named one, and a refusal is an ordinary answer rather than a failure. Measured: `/tmp` is `C:\Users\<user>\AppData\Local\Temp`; a path under no mount comes back as a plausible path that does not exist, so nothing here pretends to validate and the caller still shows what the filesystem says.
+- `src-tauri/src/modules/pty/shell_init.rs`: the Git for Windows bash search is reachable from the translator, because only the install that spelled a path can translate it.
+- `src/modules/terminal/lib/spelledCwd.ts` (new) and its test: the answer is kept beside the spelling, keyed by what the shell said, because the shell reports the same cwd at every prompt - a translated path written into the terminal once would be overwritten by the next prompt. A refusal is remembered too, so a machine with no Git install is asked once rather than once per prompt.
+- `src/lib/native.ts`, `src/app/App.tsx`: a reported cwd that needs translating is asked about before the leaf keeps it, so the path the pane stores - and with it the breadcrumb, the folder menu, the explorer root and what a restored tab saves - is one Windows can open. While the first ask is in flight nothing is written: a spelling nothing can open is worse than the path the pane was showing a moment ago.
+- `src/modules/statusbar/lib/pathUtils.ts` and its test, `src/modules/statusbar/CwdBreadcrumb.tsx`, `src/modules/i18n/messages.ts`, `src/modules/statusbar/CwdBreadcrumb.test.ts` (new): the breadcrumb's folders-beside-this-one menu - every segment's own drop-down, and the list beside the current folder, with the folder the trail is standing in marked - which is what asked `list_subdirs` about a spelling it could not open in the first place. Pinned by unit tests; the machine check (a shell sitting in an MSYS-spelled folder) is still to come.
+
+</details>
+
+<details>
 <summary><strong>2026-11-09</strong></summary>
 
 **A page is a sheet the document is laid out in, not a band of white behind it**

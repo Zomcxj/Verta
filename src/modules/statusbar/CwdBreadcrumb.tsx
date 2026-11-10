@@ -12,6 +12,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -33,7 +37,7 @@ import {
   useState,
 } from "react";
 import { fitBreadcrumb } from "./lib/breadcrumbFit";
-import { segmentsFromCwd } from "./lib/pathUtils";
+import { childPath, parentPath, segmentsFromCwd } from "./lib/pathUtils";
 
 type Props = {
   cwd: string | null;
@@ -194,7 +198,9 @@ function BreadcrumbTrail({
             <BreadcrumbSegment
               label={leading.label}
               isHome={leading.isHome}
+              path={leading.fullPath}
               onClick={() => onCd(leading.fullPath)}
+              onCd={onCd}
             />
           </span>
         ) : null}
@@ -206,7 +212,9 @@ function BreadcrumbTrail({
             key={s.fullPath}
             label={s.label}
             isHome={s.isHome}
+            path={s.fullPath}
             onClick={() => onCd(s.fullPath)}
+            onCd={onCd}
           />
         ))}
         <span className="contents" data-part="trailing">
@@ -234,7 +242,9 @@ function BreadcrumbTrail({
               <BreadcrumbSegment
                 label={s.label}
                 isHome={s.isHome}
+                path={s.fullPath}
                 onClick={() => onCd(s.fullPath)}
+                onCd={onCd}
               />
             </span>
           ))}
@@ -291,18 +301,27 @@ function MorePathsButton() {
 function BreadcrumbSegment({
   label,
   isHome,
+  path,
   onClick,
+  onCd,
 }: {
   label: string;
   isHome: boolean;
+  path: string;
   onClick: () => void;
+  onCd: (path: string) => void;
 }) {
   const t = useT();
   return (
     <>
       <BreadcrumbItem>
         <BreadcrumbLink asChild>
-          <button type="button" onClick={onClick} className="cursor-pointer">
+          <button
+            type="button"
+            data-breadcrumb-segment={path}
+            onClick={onClick}
+            className="cursor-pointer"
+          >
             <Badge
               variant="outline"
               className="gap-1 text-muted-foreground hover:text-foreground"
@@ -318,8 +337,134 @@ function BreadcrumbSegment({
             </Badge>
           </button>
         </BreadcrumbLink>
+        <SiblingMenu path={path} onCd={onCd} />
       </BreadcrumbItem>
       <BreadcrumbSeparator className="[&>svg]:size-3" />
+    </>
+  );
+}
+
+/**
+ * The folders beside one segment: the subfolders of its parent, with the folder the segment names
+ * marked.
+ *
+ * The trail could only ever go one way - into the folder a segment names - so moving to the folder
+ * next to it meant going down into this one and back up. Each segment carries its own list instead.
+ * A root has no parent and gets no menu: there is nothing beside `D:\`.
+ */
+function SiblingMenu({
+  path,
+  onCd,
+}: {
+  path: string;
+  onCd: (path: string) => void;
+}) {
+  const t = useT();
+  const showHidden = usePreferencesStore((s) => s.showHidden);
+  const parent = parentPath(path);
+  const [open, setOpen] = useState(false);
+  const [siblings, setSiblings] = useState<string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (parent === null) return;
+    setError(null);
+    try {
+      const names = await invoke<string[]>("list_subdirs", {
+        path: parent,
+        showHidden,
+        workspace: currentWorkspaceEnv(),
+      });
+      setSiblings(names);
+    } catch (e) {
+      setError(String(e));
+      setSiblings([]);
+    }
+  }, [parent, showHidden]);
+
+  // The listing is read when the menu opens: the status bar re-renders on every tab change, and a
+  // request per segment per render would be one syscall storm for a path nobody is looking at.
+  useEffect(() => {
+    if (open) load();
+  }, [open, load]);
+
+  if (parent === null) return null;
+  const here = basename(path);
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          data-breadcrumb-sibling={path}
+          aria-label={t("statusbar.siblings")}
+          title={t("statusbar.siblings")}
+          className="flex shrink-0 items-center rounded-sm px-0.5 text-muted-foreground/60 hover:bg-accent hover:text-foreground"
+        >
+          <HugeiconsIcon
+            icon={ArrowDown01Icon}
+            className="size-3"
+            strokeWidth={2}
+          />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+        <SiblingList
+          siblings={siblings}
+          error={error}
+          here={here}
+          onPick={(name) => parent && onCd(childPath(parent, name))}
+        />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** The folders beside one, which is the same list for every segment that has a parent. */
+function SiblingList({
+  siblings,
+  error,
+  here,
+  onPick,
+}: {
+  siblings: string[] | null;
+  error: string | null;
+  here: string;
+  onPick: (name: string) => void;
+}) {
+  const t = useT();
+  if (siblings === null) {
+    return (
+      <div className="px-2 py-1.5 text-xs text-muted-foreground">
+        {t("explorer.loading")}
+      </div>
+    );
+  }
+  if (siblings.length === 0) {
+    return (
+      <div className="px-2 py-1.5 text-xs text-muted-foreground">
+        {error ?? t("statusbar.noSiblings")}
+      </div>
+    );
+  }
+  return (
+    <>
+      <DropdownMenuLabel className="text-[10.5px] font-normal text-muted-foreground">
+        {t("statusbar.siblings")}
+      </DropdownMenuLabel>
+      {/* Radio items: this is choosing which folder you are in, and the one you are in is the
+          selected one. */}
+      <DropdownMenuRadioGroup value={here} onValueChange={onPick}>
+        {siblings.map((name) => (
+          <DropdownMenuRadioItem key={name} value={name} className="gap-2">
+            <HugeiconsIcon
+              icon={Folder01Icon}
+              className="size-3.5 text-muted-foreground"
+              strokeWidth={1.75}
+            />
+            <span className="truncate">{name}</span>
+          </DropdownMenuRadioItem>
+        ))}
+      </DropdownMenuRadioGroup>
     </>
   );
 }
@@ -337,7 +482,10 @@ function CurrentSegmentDropdown({
   const showHidden = usePreferencesStore((s) => s.showHidden);
   const [open, setOpen] = useState(false);
   const [children, setChildren] = useState<string[] | null>(null);
+  const [siblings, setSiblings] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const parent = parentPath(path);
 
   const load = useCallback(async () => {
     setError(null);
@@ -352,7 +500,23 @@ function CurrentSegmentDropdown({
       setError(String(e));
       setChildren([]);
     }
-  }, [path, showHidden]);
+    // The folders beside this one, so the folder you are in is where you notice you meant the one
+    // next to it.
+    if (parent === null) {
+      setSiblings([]);
+      return;
+    }
+    try {
+      const beside = await invoke<string[]>("list_subdirs", {
+        path: parent,
+        showHidden,
+        workspace: currentWorkspaceEnv(),
+      });
+      setSiblings(beside);
+    } catch {
+      setSiblings([]);
+    }
+  }, [path, parent, showHidden]);
 
   useEffect(() => {
     if (open) load();
@@ -361,7 +525,10 @@ function CurrentSegmentDropdown({
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <BreadcrumbPage className="flex cursor-pointer items-center gap-1 rounded-sm px-1 py-0.5 text-foreground hover:bg-accent">
+        <BreadcrumbPage
+          data-breadcrumb-current={path}
+          className="flex cursor-pointer items-center gap-1 rounded-sm px-1 py-0.5 text-foreground hover:bg-accent"
+        >
           {label === "~" ? (
             <>
               <HugeiconsIcon
@@ -394,9 +561,7 @@ function CurrentSegmentDropdown({
           children.map((name) => (
             <DropdownMenuItem
               key={name}
-              onSelect={() =>
-                onCd(path.endsWith("/") ? `${path}${name}` : `${path}/${name}`)
-              }
+              onSelect={() => onCd(childPath(path, name))}
             >
               <HugeiconsIcon
                 icon={Folder01Icon}
@@ -407,6 +572,17 @@ function CurrentSegmentDropdown({
             </DropdownMenuItem>
           ))
         )}
+        {siblings && siblings.length > 0 && parent !== null ? (
+          <>
+            <DropdownMenuSeparator />
+            <SiblingList
+              siblings={siblings}
+              error={null}
+              here={basename(path)}
+              onPick={(name) => onCd(childPath(parent, name))}
+            />
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

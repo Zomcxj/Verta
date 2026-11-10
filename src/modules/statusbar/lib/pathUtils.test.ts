@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { segmentsFromCwd } from "./pathUtils";
+import { childPath, parentPath, segmentsFromCwd } from "./pathUtils";
 
 function shape(cwd: string, home: string | null) {
   return segmentsFromCwd(cwd, home).map((s) => ({
@@ -64,5 +64,34 @@ describe("segmentsFromCwd", () => {
     expect(shape("/", null)).toEqual([
       { label: "/", fullPath: "/", isHome: false },
     ]);
+  });
+});
+
+describe("parentPath", () => {
+  it("names the folder a path sits in", () => {
+    expect(parentPath("C:/Users/me/proj")).toBe("C:/Users/me");
+    expect(parentPath("C:/Users/me/proj/")).toBe("C:/Users/me");
+    expect(parentPath("C:\\Users\\me")).toBe("C:/Users");
+    expect(parentPath("/usr/local")).toBe("/usr");
+  });
+
+  it("has nothing above a root", () => {
+    // A root has no listing beside it, so the breadcrumb must not offer one.
+    expect(parentPath("C:/")).toBeNull();
+    expect(parentPath("C:")).toBeNull();
+    expect(parentPath("/")).toBeNull();
+    expect(parentPath("")).toBeNull();
+  });
+
+  it("keeps the folder under a drive named the way the drive is", () => {
+    expect(parentPath("C:/Users")).toBe("C:/");
+  });
+});
+
+describe("childPath", () => {
+  it("joins a folder and a name without doubling the separator", () => {
+    expect(childPath("C:/", "Users")).toBe("C:/Users");
+    expect(childPath("C:/Users", "me")).toBe("C:/Users/me");
+    expect(childPath("/usr", "local")).toBe("/usr/local");
   });
 });

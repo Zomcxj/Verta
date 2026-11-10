@@ -55,6 +55,7 @@ import {
 import { newSessionCommand } from "@/modules/launcher/lib/resumeCommand";
 import { folderSessionTarget } from "@/modules/explorer/lib/agentActions";
 import { screenShowsLaunchLine } from "@/modules/terminal/lib/launchLine";
+import { decideCwd, rememberCwd } from "@/modules/terminal/lib/spelledCwd";
 import type { AgentTool } from "@/modules/launcher";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setShowHidden } from "@/modules/settings/store";
@@ -1587,8 +1588,42 @@ export default function App() {
   );
 
   const authorizedCwds = useRef(new Set<string>());
+  /** The shell a leaf runs, when it named one: only the install that spelled a path can translate it. */
+  const shellForLeaf = useCallback((leafId: number): string | null => {
+    for (const tab of tabsRef.current) {
+      if (tab.kind !== "terminal") continue;
+      const leaf = findLeaf(tab.paneTree, leafId);
+      if (leaf?.shell) return leaf.shell;
+    }
+    return null;
+  }, []);
+  /**
+   * The Windows spelling of a cwd the shell reported, or nothing while it is still being asked about.
+   *
+   * A Git-Bash pane reports `/tmp/...`, which nothing on the Windows side can open: the sibling menu
+   * beside the breadcrumb asked `list_subdirs` about it and got 系统找不到指定的路径. The shell is asked
+   * once per spelling (`spelledCwd`) and the answer is what the leaf keeps.
+   */
+  const askedCwds = useRef(new Set<string>());
   const handleTerminalCwd = useCallback(
-    (leafId: number, cwd: string) => {
+    (leafId: number, reported: string) => {
+      const decision = decideCwd(reported);
+      if (decision.kind === "ask") {
+        if (askedCwds.current.has(reported)) return;
+        askedCwds.current.add(reported);
+        void native
+          .translatePath(reported, shellForLeaf(leafId))
+          .then((windows) => rememberCwd(reported, windows))
+          .catch(() => rememberCwd(reported, null))
+          .then((cwd) => {
+            askedCwds.current.delete(reported);
+            handleTerminalCwd(leafId, cwd);
+          });
+        // Nothing is written until the shell has answered: a spelling that cannot be opened is worse
+        // than the path the pane was showing a moment ago, and it would be what a restored tab saved.
+        return;
+      }
+      const cwd = decision.cwd;
       setLeafCwd(leafId, cwd);
       if (cwd && !authorizedCwds.current.has(cwd)) {
         authorizedCwds.current.add(cwd);
@@ -1597,7 +1632,7 @@ export default function App() {
         });
       }
     },
-    [setLeafCwd],
+    [setLeafCwd, shellForLeaf],
   );
 
   const handleFocusLeaf = useCallback(

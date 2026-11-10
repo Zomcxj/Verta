@@ -6,6 +6,7 @@ pub mod index;
 pub mod mutate;
 pub mod search;
 pub mod supersede;
+pub mod translate;
 pub mod tree;
 pub mod watch;
 

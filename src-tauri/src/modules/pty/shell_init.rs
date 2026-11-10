@@ -510,7 +510,7 @@ mod unix {
 }
 
 #[cfg(windows)]
-mod windows {
+pub(crate) mod windows {
     use std::ffi::OsString;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -880,7 +880,11 @@ mod windows {
         out
     }
 
-    fn git_bash_path() -> Option<PathBuf> {
+    /// The bash out of a Git for Windows install, if there is one.
+    ///
+    /// `pub(crate)` because the translator of MSYS paths has to ask the same shell the pane runs
+    /// through (`fs::translate`): the answer is only correct for the install that spelled the path.
+    pub(crate) fn git_bash_path() -> Option<PathBuf> {
         // Git for Windows install locations only. A bash.exe on PATH is usually
         // the WSL launcher in System32, which is the separate WSL switcher.
         for var in ["ProgramFiles", "ProgramFiles(x86)", "LocalAppData"] {

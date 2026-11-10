@@ -46,3 +46,26 @@ export function segmentsFromCwd(cwd: string, home: string | null): Segment[] {
   }
   return segments;
 }
+
+/**
+ * The folder a path sits in, or `null` when it is a root and has nothing above it.
+ *
+ * `null` is what keeps a breadcrumb from offering to look beside `/` or beside `D:\`: there is no
+ * listing above a root, and asking for one would be an error the user cannot act on.
+ */
+export function parentPath(path: string): string | null {
+  const normalized = normalize(path).replace(/\/+$/, "");
+  if (normalized === "") return null;
+  if (WINDOWS_DRIVE.test(normalized) && normalized.length <= 2) return null;
+  const at = normalized.lastIndexOf("/");
+  if (at < 0) return null;
+  const parent = normalized.slice(0, at);
+  if (parent === "") return "/";
+  // A drive's own path is spelled with a trailing separator: `C:` is not a folder, `C:/` is.
+  return WINDOWS_DRIVE.test(parent) && parent.length === 2 ? `${parent}/` : parent;
+}
+
+/** A folder and the name of a child of it, as one path. */
+export function childPath(folder: string, name: string): string {
+  return folder.endsWith("/") ? `${folder}${name}` : `${folder}/${name}`;
+}
