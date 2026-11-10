@@ -1,3 +1,5 @@
+import type { ShapeId } from "./shape";
+
 export type ThemeMode = "light" | "dark";
 
 export type ThemeColors = Partial<{
@@ -114,6 +116,30 @@ export type ThemeVariant = {
   terminal?: TerminalPalette;
   surface?: ThemeSurface;
   glass?: ThemeGlass;
+  /**
+   * What this variant wants of the things that used to be global switches: the desktop material,
+   * and how the user's own background image is drawn. A user value always wins; see
+   * `resolveAppearance`.
+   */
+  appearance?: ThemeAppearance;
+};
+
+/**
+ * The "appearance" layer: the parts of the window that are not colours.
+ *
+ * All three were global preferences before a theme could have an opinion about them, and a theme is
+ * the thing that knows what it is for - a glass theme wants the material, a paper theme does not.
+ * Nothing here names a background *image*: an image is an asset on this machine, while a theme file
+ * is JSON that can be exported and shared, so a theme says how the background is drawn, not what it
+ * is.
+ */
+export type ThemeAppearance = {
+  /** Desktop material. Absent means none, which is what a missing switch means today. */
+  backdrop?: "native" | "acrylic";
+  /** Default opacity of the user's background image, 0-1 (today's `backgroundOpacity`, 0.5). */
+  backgroundOpacity?: number;
+  /** Default blur of the user's background image, 0-64 (today's `backgroundBlur`, 0). */
+  backgroundBlur?: number;
 };
 
 export type Theme = {
@@ -125,6 +151,13 @@ export type Theme = {
     light?: ThemeVariant;
     dark?: ThemeVariant;
   };
+  /**
+   * The shape this theme suggests (corners, borders, shadows).
+   *
+   * A suggestion, not a command: a shape the user chose wins, the same way `editorTheme` and
+   * `EDITOR_THEME_AUTO` work. Absent means the default shape.
+   */
+  shape?: ShapeId;
   editorTheme?: {
     light?: string;
     dark?: string;

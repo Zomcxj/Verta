@@ -1,3 +1,4 @@
+import { resolveShape, type ShapeOptions } from "./shape";
 import type {
   Theme,
   ThemeColors,
@@ -86,6 +87,49 @@ const GLASS_VARS: readonly string[] = [
   "--theme-glass-edge",
   "--theme-glass-sheen",
 ];
+
+/**
+ * The variables a shape owns, so that leaving one shape removes what it brought.
+ *
+ * `--radius` is in this list but is also a theme's: the caller says whether the theme is speaking
+ * (`ShapeOptions.themeRadius`), and when it is, this one is left alone entirely - it is not the
+ * shape's to clear.
+ */
+const SHAPE_VARS: readonly string[] = [
+  "--radius",
+  "--pane-border-width",
+  "--pane-shadow",
+  "--card-shadow",
+  "--bevel-top",
+  "--bevel-bottom",
+  "--accent-bar",
+];
+
+/**
+ * Writes a shape onto the document element.
+ *
+ * The thin cell around `resolveShape`, which decides everything and touches nothing: this puts the
+ * answer where the stylesheet can read it. What a shape brought along is cleared first, so switching
+ * from `emboss` to `soft` does not leave a lit edge behind; a shape is not "the variables it adds"
+ * but "the whole set", and `soft` answers the values the stylesheet already had.
+ */
+export function applyShape(
+  shapeId: unknown,
+  options: ShapeOptions = {},
+): void {
+  const root = document.documentElement;
+  const { vars, attrs } = resolveShape(shapeId, options);
+  for (const name of SHAPE_VARS) {
+    if (name === "--radius" && options.themeRadius) continue;
+    root.style.removeProperty(name);
+  }
+  for (const [name, value] of Object.entries(vars)) {
+    root.style.setProperty(name, value);
+  }
+  // The material is an attribute, not a variable: the blur happens behind the window.
+  root.removeAttribute("data-shape-material");
+  for (const [name, value] of Object.entries(attrs)) root.setAttribute(name, value);
+}
 
 export function applyTheme(theme: Theme, mode: ThemeMode): void {
   const root = document.documentElement;

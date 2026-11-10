@@ -1,5 +1,6 @@
 import type { LanguagePref } from "@/modules/i18n/language";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
+import { DEFAULT_SHAPE_ID, type ShapeId, shapeOf } from "@/modules/theme/shape";
 import {
   type AgentStateDot,
   DEFAULT_STATE_COLOURS,
@@ -149,6 +150,14 @@ export type Preferences = {
   backgroundOpacity: number;
   backgroundBlur: number;
   windowVibrancy: boolean;
+  /**
+   * How the shell is drawn - corners, borders, shadows - independently of the colours.
+   *
+   * Not "auto": a theme may suggest a shape (`Theme.shape`), and the resolution is a separate
+   * question from what is stored here. Absent means the default shape, which is what the shell
+   * looked like before the axis existed.
+   */
+  shapeId: ShapeId;
   editorTheme: EditorThemePref;
   editorFontSize: number;
   vimMode: boolean;
@@ -261,6 +270,7 @@ const KEY_BG_IMAGE_ID = "backgroundImageId";
 const KEY_BG_OPACITY = "backgroundOpacity";
 const KEY_BG_BLUR = "backgroundBlur";
 const KEY_WINDOW_VIBRANCY = "windowVibrancy";
+const KEY_SHAPE_ID = "shapeId";
 const KEY_EDITOR_THEME = "editorTheme";
 const KEY_SESSION_TRANSITION = "sessionTransition";
 const KEY_EDITOR_FONT_SIZE = "editorFontSize";
@@ -345,6 +355,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   // whole frame every present. An explicitly stored choice (either value)
   // always wins; only an absent key falls back to this.
   windowVibrancy: false,
+  shapeId: DEFAULT_SHAPE_ID,
   vimMode: false,
   editorWordWrap: false,
   editorWordWrapColumn: EDITOR_WORD_WRAP_COLUMN_DEFAULT,
@@ -437,6 +448,9 @@ export async function loadPreferences(): Promise<Preferences> {
     ),
     windowVibrancy:
       get<boolean>(KEY_WINDOW_VIBRANCY) ?? DEFAULT_PREFERENCES.windowVibrancy,
+    // An unknown id answers the default shape instead of blanking the shell, the way the theme id
+    // falls back: a settings file can be edited by hand.
+    shapeId: shapeOf(get<string>(KEY_SHAPE_ID)),
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
     editorWordWrap:
       get<boolean>(KEY_EDITOR_WORD_WRAP) ?? DEFAULT_PREFERENCES.editorWordWrap,
@@ -624,6 +638,10 @@ export async function setEditorFontSize(value: number): Promise<void> {
 
 export async function setWindowVibrancy(value: boolean): Promise<void> {
   await writePref(KEY_WINDOW_VIBRANCY, value);
+}
+
+export async function setShapeId(value: ShapeId): Promise<void> {
+  await writePref(KEY_SHAPE_ID, shapeOf(value));
 }
 
 export async function setVimMode(value: boolean): Promise<void> {
@@ -908,6 +926,7 @@ export const PREF_KEY_TO_FIELD: Record<string, PrefKey> = {
   [KEY_BG_OPACITY]: "backgroundOpacity",
   [KEY_BG_BLUR]: "backgroundBlur",
   [KEY_WINDOW_VIBRANCY]: "windowVibrancy",
+  [KEY_SHAPE_ID]: "shapeId",
   [KEY_EDITOR_THEME]: "editorTheme",
   [KEY_SESSION_TRANSITION]: "sessionTransition",
   [KEY_EDITOR_FONT_SIZE]: "editorFontSize",
