@@ -146,10 +146,12 @@ const readPages = () =>
       pages,
       // Blocks the body holds itself rather than a page: none, once the document is paginated.
       stray: pane.querySelectorAll("[data-docx-body] > [data-docx-editable]").length,
-      // The document's own order, page after page, as the reader would read it.
-      texts: [...pane.querySelectorAll("[data-docx-page] [data-docx-editable]")].map((block) =>
-        (block.innerText || "").replace(/\\s+/g, " ").trim().slice(0, 12),
-      ),
+      // The document's own order, page after page, as the number each paragraph opens with: moving
+      // the blocks into pages must not lose or reorder a single one.
+      numbers: [...pane.querySelectorAll("[data-docx-page] [data-docx-editable]")].map((block) => {
+        const found = /第\\s*(\\d+)\\s*段/.exec(block.innerText || "");
+        return found ? Number(found[1]) : null;
+      }),
       paperPadding: Math.round(
         Number.parseFloat(getComputedStyle(pane.querySelector("[data-docx-paper]")).paddingLeft) || 0,
       ),
@@ -248,10 +250,10 @@ try {
   }
   // The document's paragraphs are all there, in order: moving them into pages must not lose or
   // reorder a single one.
-  const expected = Array.from({ length: PARAGRAPHS }, (_, at) => `第 ${at + 1} 段`);
-  if (JSON.stringify(cut.texts) !== JSON.stringify(expected)) {
+  const expected = Array.from({ length: PARAGRAPHS }, (_, at) => at + 1);
+  if (JSON.stringify(cut.numbers) !== JSON.stringify(expected)) {
     fail(
-      `the blocks came out as ${JSON.stringify(cut.texts.slice(0, 5))}... (${cut.texts.length} of ${PARAGRAPHS})`,
+      `the blocks came out as ${JSON.stringify(cut.numbers.slice(0, 6))}... (${cut.numbers.length} of ${PARAGRAPHS})`,
     );
   }
 
