@@ -445,6 +445,8 @@ export default function App() {
     sidebarWidthRef,
     sidebarView,
     sidebarCollapsed,
+    sidebarSliding,
+    endSidebarSlide,
     initialSidebarCollapsed,
     persistSidebarView,
     persistSidebarCollapsed,
@@ -458,6 +460,8 @@ export default function App() {
     rightRef: rightPanelRef,
     rightWidthRef,
     rightCollapsed,
+    rightSliding,
+    endRightSlide,
     initialRightCollapsed,
     persistRightCollapsed,
     persistRightWidth,
@@ -1922,6 +1926,19 @@ export default function App() {
             <ResizablePanelGroup
               orientation="horizontal"
               className="min-h-0 flex-1"
+              // One flag for the group: while either side is being toggled its width change is drawn
+              // as a slide, and every panel in the row moves with it - so the terminal growing as the
+              // sidebar closes is part of the same motion rather than a jump after it.
+              data-panel-slide={
+                sidebarSliding || rightSliding ? "" : undefined
+              }
+              onTransitionEnd={(event) => {
+                // `flex-grow` is the only thing this animates, and the event bubbles up from the
+                // panels themselves.
+                if (event.propertyName !== "flex-grow") return;
+                endSidebarSlide();
+                endRightSlide();
+              }}
               onLayoutChanged={(_, { isUserInteraction }) => {
                 const width = sidebarRef.current?.getSize().inPixels ?? 0;
                 persistSidebarWidth(width, isUserInteraction);

@@ -10,3 +10,4 @@ export {
   RIGHT_MIN_WIDTH,
   RIGHT_MAX_WIDTH,
 } from "./useRightPanel";
+export { usePanelSlide, type PanelSlide } from "./usePanelSlide";

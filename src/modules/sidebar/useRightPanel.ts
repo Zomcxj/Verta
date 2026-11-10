@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
+import { usePanelSlide } from "./usePanelSlide";
 
 /**
  * Width and collapsed state of the right panel (Git). Same approach as `useSidebarPanel`
@@ -60,6 +61,9 @@ export function useRightPanel() {
   const [initialRightCollapsed] = useState(readRightCollapsed);
   const collapsedRef = useRef(initialRightCollapsed);
   const [rightCollapsed, setRightCollapsed] = useState(initialRightCollapsed);
+  // Whether the width change in flight is being drawn as a slide (`usePanelSlide`).
+  const { sliding: rightSliding, slide, endSlide: endRightSlide } =
+    usePanelSlide();
 
   const persistRightCollapsed = useCallback((collapsed: boolean) => {
     if (collapsedRef.current === collapsed) return;
@@ -78,19 +82,21 @@ export function useRightPanel() {
   const openRightPanel = useCallback(() => {
     const panel = rightRef.current;
     if (panel && panel.getSize().asPercentage <= 0) {
-      panel.resize(`${rightWidthRef.current}px`);
+      slide(() => panel.resize(`${rightWidthRef.current}px`));
     }
-  }, []);
+  }, [slide]);
 
   const toggleRightPanel = useCallback(() => {
     const panel = rightRef.current;
     if (!panel) return;
-    if (panel.getSize().asPercentage <= 0) {
-      panel.resize(`${rightWidthRef.current}px`);
-    } else {
-      panel.collapse();
-    }
-  }, []);
+    slide(() => {
+      if (panel.getSize().asPercentage <= 0) {
+        panel.resize(`${rightWidthRef.current}px`);
+      } else {
+        panel.collapse();
+      }
+    });
+  }, [slide]);
 
   const persistRightWidth = useCallback(
     (next: number, isUserInteraction: boolean) => {
@@ -123,6 +129,8 @@ export function useRightPanel() {
     rightRef,
     rightWidthRef,
     rightCollapsed,
+    rightSliding,
+    endRightSlide,
     initialRightCollapsed,
     persistRightCollapsed,
     persistRightWidth,

@@ -7,6 +7,7 @@ import {
 } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import type { SidebarViewId } from "./types";
+import { usePanelSlide } from "./usePanelSlide";
 
 const SIDEBAR_DEFAULT_WIDTH = 260;
 export const SIDEBAR_MIN_WIDTH = 220;
@@ -85,6 +86,9 @@ export function useSidebarPanel(
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     initialSidebarCollapsed,
   );
+  // Whether the width change in flight is being drawn as a slide (`usePanelSlide`).
+  const { sliding: sidebarSliding, slide, endSlide: endSidebarSlide } =
+    usePanelSlide();
 
   const persistSidebarView = useCallback((view: SidebarViewId) => {
     setSidebarViewState(view);
@@ -112,37 +116,42 @@ export function useSidebarPanel(
   const toggleSidebar = useCallback(() => {
     const p = sidebarRef.current;
     if (!p) return;
-    if (p.getSize().asPercentage <= 0) p.resize(`${sidebarWidthRef.current}px`);
-    else p.collapse();
-  }, []);
+    // The four places this panel is opened or closed from - this toggle, a rail click, the command
+    // palette's open, and the explorer shortcut - all go through `slide`: they are a jump today, and
+    // the point of this is that the width is drawn rather than snapped.
+    slide(() => {
+      if (p.getSize().asPercentage <= 0) p.resize(`${sidebarWidthRef.current}px`);
+      else p.collapse();
+    });
+  }, [slide]);
 
   const cycleSidebarView = useCallback(
     (view: SidebarViewId) => {
       const panel = sidebarRef.current;
       const collapsed = panel ? panel.getSize().asPercentage <= 0 : false;
       if (collapsed) {
-        if (panel) panel.resize(`${sidebarWidthRef.current}px`);
+        if (panel) slide(() => panel.resize(`${sidebarWidthRef.current}px`));
         if (view !== sidebarView) persistSidebarView(view);
         return;
       }
       if (view === sidebarView) {
-        panel?.collapse();
+        if (panel) slide(() => panel.collapse());
         return;
       }
       persistSidebarView(view);
     },
-    [persistSidebarView, sidebarView],
+    [persistSidebarView, sidebarView, slide],
   );
 
   const openSidebarView = useCallback(
     (view: SidebarViewId) => {
       const panel = sidebarRef.current;
       if (panel && panel.getSize().asPercentage <= 0) {
-        panel.resize(`${sidebarWidthRef.current}px`);
+        slide(() => panel.resize(`${sidebarWidthRef.current}px`));
       }
       if (view !== sidebarView) persistSidebarView(view);
     },
-    [persistSidebarView, sidebarView],
+    [persistSidebarView, sidebarView, slide],
   );
 
   const persistSidebarWidth = useCallback(
@@ -177,7 +186,7 @@ export function useSidebarPanel(
     const panel = sidebarRef.current;
     const collapsed = panel ? panel.getSize().asPercentage <= 0 : false;
     if (sidebarView !== "explorer" || collapsed) {
-      if (panel && collapsed) panel.resize(`${sidebarWidthRef.current}px`);
+      if (panel && collapsed) slide(() => panel.resize(`${sidebarWidthRef.current}px`));
       if (sidebarView !== "explorer") persistSidebarView("explorer");
       const active = document.activeElement;
       explorerReturnFocusRef.current =
@@ -202,13 +211,15 @@ export function useSidebarPanel(
     explorerReturnFocusRef.current =
       active instanceof HTMLElement && active !== document.body ? active : null;
     explorer.focus();
-  }, [explorerRef, persistSidebarView, sidebarView]);
+  }, [explorerRef, persistSidebarView, sidebarView, slide]);
 
   return {
     sidebarRef,
     sidebarWidthRef,
     sidebarView,
     sidebarCollapsed,
+    sidebarSliding,
+    endSidebarSlide,
     initialSidebarCollapsed,
     persistSidebarView,
     persistSidebarCollapsed,

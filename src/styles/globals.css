@@ -627,6 +627,25 @@ html *::-webkit-scrollbar {
   --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* The two side panels slide instead of jumping.
+ *
+ * `react-resizable-panels` sizes a panel with the `flex` shorthand - measured on this build, a
+ * 220px sidebar is `flex: 16.07 1 0px`, so the width is carried by `flex-grow` as a proportion and
+ * `flex-basis` never leaves 0. An earlier version of this rule transitioned `flex-basis` and did
+ * nothing at all: the property resolved (0.24s) and the width still went 220 -> 0 in one frame.
+ * `flex-grow` is a number and interpolates, which is what actually moves the edge.
+ *
+ * Only while a toggle is in flight (`data-panel-slide` on the group): dragging a divider rewrites
+ * the same inline `flex` on every pointer move, and a transition there would leave the edge trailing
+ * behind the pointer instead of following it.
+ *
+ * Nothing here builds a compositing layer: no blur, no backdrop, no 3D transform (the budget in
+ * `compositingBudget.test.ts`). The duration is a token, so `prefers-reduced-motion` already snaps it
+ * shut without a second rule. */
+[data-panel-slide] [data-slot="resizable-panel"] {
+  transition: flex-grow var(--dur-base) var(--ease-soft);
+}
+
 @keyframes verta-collapsible-down {
   from {
     height: 0;
