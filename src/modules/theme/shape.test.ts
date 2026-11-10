@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SHAPE_ID,
   isShapeId,
+  isShapePref,
   listShapes,
   resolveShape,
+  resolveShapePref,
+  SHAPE_AUTO,
   shapeOf,
 } from "./shape";
 
@@ -82,6 +85,25 @@ describe("the shape axis", () => {
     }
     expect(isShapeId("emboss")).toBe(true);
     expect(shapeOf("emboss")).toBe("emboss");
+  });
+
+  it("lets a chosen shape outlive a change of theme, and follows the theme otherwise", () => {
+    // The preference stores `auto` until someone chooses, which is what keeps "picked soft on
+    // purpose" apart from "never picked anything".
+    expect(SHAPE_AUTO).toBe("auto");
+    expect(resolveShapePref(SHAPE_AUTO, "emboss")).toBe("emboss");
+    expect(resolveShapePref(undefined, "emboss")).toBe("emboss");
+    expect(resolveShapePref(SHAPE_AUTO, undefined)).toBe("soft");
+    // A suggestion nothing recognises is the same as none.
+    expect(resolveShapePref(SHAPE_AUTO, "squircle")).toBe("soft");
+    // A choice wins over the suggestion, and stays after the theme changes.
+    expect(resolveShapePref("tag", "emboss")).toBe("tag");
+    expect(resolveShapePref("tag", undefined)).toBe("tag");
+    // `soft` is a shape someone may have chosen, not a synonym for auto.
+    expect(resolveShapePref("soft", "emboss")).toBe("soft");
+    expect(isShapePref("auto")).toBe(true);
+    expect(isShapePref("emboss")).toBe(true);
+    expect(isShapePref("squircle")).toBe(false);
   });
 
   it("gives the presets that are more than geometry their own variables", () => {

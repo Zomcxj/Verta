@@ -14,12 +14,13 @@ import {
   setThemeId as persistThemeId,
   type ThemePref,
 } from "@/modules/settings/store";
-import { applyTheme, clearTheme } from "./applyTheme";
+import { applyShape, applyTheme, clearTheme } from "./applyTheme";
 import {
   listCustomThemes,
   onCustomThemesChange,
 } from "./customThemes";
 import { SurfaceLayer } from "./SurfaceLayer";
+import { resolveShapePref, type ShapePref } from "./shape";
 import { getBuiltinTheme, getDefaultTheme } from "./themes";
 import type { Theme } from "./types";
 
@@ -74,6 +75,7 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
   const [mode, setModeState] = useState<ThemePref>(() => readFastMode(defaultMode));
   const [themeId, setThemeIdState] = useState<string>(() => readFastThemeId());
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [shapeId, setShapeIdState] = useState<ShapePref>("auto");
   const [customThemes, setCustomThemes] = useState<Theme[]>([]);
   const [systemDark, setSystemDark] = useState<boolean>(() =>
     typeof window === "undefined"
@@ -87,6 +89,7 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
       if (!alive) return;
       setModeState(p.theme);
       setThemeIdState(p.themeId);
+      setShapeIdState(p.shapeId);
       writeFastMode(p.theme);
       writeFastThemeId(p.themeId);
     });
@@ -97,6 +100,8 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
       } else if (key === "themeId" && typeof value === "string") {
         setThemeIdState(value);
         writeFastThemeId(value);
+      } else if (key === "shapeId" && typeof value === "string") {
+        setShapeIdState(value as ShapePref);
       }
     });
     return () => {
@@ -145,6 +150,23 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
     }
     applyTheme(activeTheme, resolvedMode);
   }, [effectiveId, activeTheme, resolvedMode]);
+
+  /**
+   * The shape, applied on its own axis.
+   *
+   * Its own effect rather than a tail on the theme's: the default theme goes through `clearTheme`
+   * and returns, so a shape hung off that one would never be written for the theme most people use.
+   * It also has to answer a change of mode and a change of theme, because a theme may suggest a
+   * shape and a theme may spell its own `--radius`.
+   */
+  useEffect(() => {
+    const variant =
+      activeTheme.variants[resolvedMode] ??
+      activeTheme.variants.dark ??
+      activeTheme.variants.light;
+    const shape = resolveShapePref(shapeId, activeTheme.shape);
+    applyShape(shape, { themeRadius: variant?.colors?.radius });
+  }, [shapeId, activeTheme, resolvedMode]);
 
   const setMode = useCallback((next: ThemePref) => {
     setModeState(next);

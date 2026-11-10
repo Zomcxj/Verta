@@ -32,6 +32,18 @@ export type ShapeId =
 /** The default, and what an unknown id resolves to. */
 export const DEFAULT_SHAPE_ID: ShapeId = "soft";
 
+/**
+ * "Let the theme decide" - the value the preference holds until someone chooses.
+ *
+ * A shape the user picked is a decision and outlives a change of theme; with nothing picked, a theme
+ * is allowed to suggest one (`Theme.shape`). Storing the choice as `auto` rather than defaulting to
+ * `soft` is what keeps those two apart: `soft` is a shape someone may have chosen on purpose.
+ */
+export const SHAPE_AUTO = "auto";
+
+/** What the preference stores: a chosen shape, or `auto` to follow the theme. */
+export type ShapePref = ShapeId | typeof SHAPE_AUTO;
+
 type ShapeValues = {
   /** Corner radius for the shell and everything inside it, in CSS units. */
   radius: string;
@@ -102,6 +114,25 @@ export function isShapeId(value: unknown): value is ShapeId {
 /** The shape an id names, or `soft` when it names none. */
 export function shapeOf(id: unknown): ShapeId {
   return isShapeId(id) ? id : DEFAULT_SHAPE_ID;
+}
+
+/**
+ * Which shape is actually in force.
+ *
+ * `auto` (and anything that is not a stored value at all) leaves it to the theme, which may suggest
+ * one in `Theme.shape`; a chosen shape wins over the suggestion and survives a change of theme. An
+ * unknown suggestion is the same as none.
+ */
+export function resolveShapePref(pref: unknown, themeShape: unknown): ShapeId {
+  if (pref === undefined || pref === null || pref === SHAPE_AUTO) {
+    return shapeOf(themeShape);
+  }
+  return shapeOf(pref);
+}
+
+/** Whether a stored value is one this axis understands. */
+export function isShapePref(value: unknown): value is ShapePref {
+  return value === SHAPE_AUTO || isShapeId(value);
 }
 
 export type ShapeOptions = {

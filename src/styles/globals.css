@@ -224,7 +224,7 @@
   /* Containing block for the glass backing layer (see `data-theme-glass`). */
   position: relative;
   border-radius: var(--pane-radius);
-  border: 1px solid var(--border);
+  border: var(--pane-border-width, 1px) solid var(--border);
   background: var(--background);
   box-shadow: var(--pane-shadow);
   overflow: hidden;

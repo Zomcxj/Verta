@@ -1,6 +1,11 @@
 import type { LanguagePref } from "@/modules/i18n/language";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
-import { DEFAULT_SHAPE_ID, type ShapeId, shapeOf } from "@/modules/theme/shape";
+import {
+  isShapeId,
+  SHAPE_AUTO,
+  type ShapePref,
+  shapeOf,
+} from "@/modules/theme/shape";
 import {
   type AgentStateDot,
   DEFAULT_STATE_COLOURS,
@@ -153,11 +158,11 @@ export type Preferences = {
   /**
    * How the shell is drawn - corners, borders, shadows - independently of the colours.
    *
-   * Not "auto": a theme may suggest a shape (`Theme.shape`), and the resolution is a separate
-   * question from what is stored here. Absent means the default shape, which is what the shell
-   * looked like before the axis existed.
+   * `auto` until someone chooses: a theme may suggest a shape (`Theme.shape`), and a shape the user
+   * picked is a decision that outlives a change of theme. Storing the choice rather than defaulting
+   * to `soft` is what keeps "picked soft on purpose" apart from "never picked anything".
    */
-  shapeId: ShapeId;
+  shapeId: ShapePref;
   editorTheme: EditorThemePref;
   editorFontSize: number;
   vimMode: boolean;
@@ -355,7 +360,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   // whole frame every present. An explicitly stored choice (either value)
   // always wins; only an absent key falls back to this.
   windowVibrancy: false,
-  shapeId: DEFAULT_SHAPE_ID,
+  shapeId: SHAPE_AUTO,
   vimMode: false,
   editorWordWrap: false,
   editorWordWrapColumn: EDITOR_WORD_WRAP_COLUMN_DEFAULT,
@@ -449,8 +454,9 @@ export async function loadPreferences(): Promise<Preferences> {
     windowVibrancy:
       get<boolean>(KEY_WINDOW_VIBRANCY) ?? DEFAULT_PREFERENCES.windowVibrancy,
     // An unknown id answers the default shape instead of blanking the shell, the way the theme id
-    // falls back: a settings file can be edited by hand.
-    shapeId: shapeOf(get<string>(KEY_SHAPE_ID)),
+    // falls back: a settings file can be edited by hand. An absent key stays `auto`, which is not
+    // the same as the shape named `soft`.
+    shapeId: shapePrefOf(get<string>(KEY_SHAPE_ID)),
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
     editorWordWrap:
       get<boolean>(KEY_EDITOR_WORD_WRAP) ?? DEFAULT_PREFERENCES.editorWordWrap,
@@ -640,8 +646,8 @@ export async function setWindowVibrancy(value: boolean): Promise<void> {
   await writePref(KEY_WINDOW_VIBRANCY, value);
 }
 
-export async function setShapeId(value: ShapeId): Promise<void> {
-  await writePref(KEY_SHAPE_ID, shapeOf(value));
+export async function setShapeId(value: ShapePref): Promise<void> {
+  await writePref(KEY_SHAPE_ID, value === SHAPE_AUTO ? SHAPE_AUTO : shapeOf(value));
 }
 
 export async function setVimMode(value: boolean): Promise<void> {
@@ -717,6 +723,17 @@ export function coerceTerminalCursorStyle(value: unknown): TerminalCursorStyle {
   return value === "bar" || value === "block" || value === "underline"
     ? value
     : DEFAULT_PREFERENCES.terminalCursorStyle;
+}
+
+/**
+ * The shape preference a stored value means.
+ *
+ * Nothing stored is `auto`, not `soft`: the two are different answers, and the default shape is only
+ * what `auto` resolves to when the theme suggests nothing. Anything unrecognisable is treated as
+ * absent too - a hand-edited file should follow its theme rather than silently pin a shape.
+ */
+function shapePrefOf(stored: unknown): ShapePref {
+  return isShapeId(stored) ? stored : SHAPE_AUTO;
 }
 
 export async function setTerminalCursorStyle(value: unknown): Promise<void> {
