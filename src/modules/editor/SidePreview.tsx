@@ -1,3 +1,4 @@
+import { hasImagePreview } from "@/lib/imageFormats";
 import { cn } from "@/lib/utils";
 import { useT } from "@/modules/i18n";
 import { MarkdownRender } from "@/modules/markdown/MarkdownRender";
@@ -13,11 +14,10 @@ export type SidePreviewKind = "markdown" | "image" | "none";
 export function sidePreviewKind(path: string): SidePreviewKind {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   if (["md", "markdown", "mdx"].includes(ext)) return "markdown";
-  if (
-    ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif"].includes(ext)
-  ) {
-    return "image";
-  }
+  // The same table the main view uses, plus the one kind that is both a picture and a document: an
+  // SVG opens as source in the editor and is drawn here, which is the only place its drawing is
+  // visible at all.
+  if (hasImagePreview(path)) return "image";
   return "none";
 }
 

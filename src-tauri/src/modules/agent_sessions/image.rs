@@ -269,7 +269,13 @@ fn extract(raw: &str, name: &str) -> Vec<String> {
         let Some(data) = file.get("data").and_then(Value::as_str) else {
             continue;
         };
-        urls.push(format!("data:{};base64,{}", mime_of(data), data));
+        // A picture whose format nothing here can name is not drawn: the mosaic the terminal already
+        // reserved stays as it is, which is that terminal's own way of showing a picture, rather than
+        // a `data:` URL the browser will fail to decode.
+        let Some(mime) = mime_of(data) else {
+            continue;
+        };
+        urls.push(format!("data:{mime};base64,{data}"));
     }
     urls
 }
@@ -282,17 +288,34 @@ fn name_matches(candidate: &str, name: &str) -> bool {
 
 /// The head of the base64 is enough to name the format, so no separate mime
 /// field is needed.
-fn mime_of(base64: &str) -> &'static str {
+///
+/// A format this does not recognize answers `None` rather than `image/png`: a
+/// `data:` URL is not sniffed by the browser, so naming bytes a PNG that are not
+/// one drew a broken picture where there was simply no picture to draw - and a
+/// broken picture reads as a bug in the pane rather than as a format nothing here
+/// decodes. `.bmp` is the case this was found on: the terminal lists it, nothing
+/// named it, every BMP came out as a broken PNG.
+fn mime_of(base64: &str) -> Option<&'static str> {
     if base64.starts_with("iVBOR") {
-        "image/png"
+        Some("image/png")
     } else if base64.starts_with("/9j/") {
-        "image/jpeg"
+        Some("image/jpeg")
     } else if base64.starts_with("R0lGOD") {
-        "image/gif"
+        Some("image/gif")
     } else if base64.starts_with("UklGR") {
-        "image/webp"
+        Some("image/webp")
+    } else if base64.starts_with("Qk") {
+        // `BM`, the two bytes every bitmap starts with.
+        Some("image/bmp")
+    } else if base64.starts_with("AAAB") {
+        // `00 00 01 00`, an icon's header.
+        Some("image/x-icon")
+    } else if base64.starts_with("AAAAIGZ0eXBhdmlm") {
+        // `00 00 00 20 ftyp avif`: an AVIF's own box. A file whose box is another size is not
+        // matched, and is refused rather than guessed at.
+        Some("image/avif")
     } else {
-        "image/png"
+        None
     }
 }
 
@@ -302,6 +325,28 @@ mod tests {
 
     const PNG_HEAD: &str = "iVBORw0KGgoAAAANSUhEUg";
     const JPEG_HEAD: &str = "/9j/4AAQSkZJRgABAQ";
+
+    #[test]
+    fn the_format_is_read_off_the_bytes() {
+        // Measured heads: a PNG, a JPEG, a GIF, a WebP, a bitmap (`BM`), an icon (`00 00 01 00`) and
+        // an AVIF (`00 00 00 20 ftyp avif`).
+        assert_eq!(mime_of(PNG_HEAD), Some("image/png"));
+        assert_eq!(mime_of(JPEG_HEAD), Some("image/jpeg"));
+        assert_eq!(mime_of("R0lGODlhAQABAIAAAP"), Some("image/gif"));
+        assert_eq!(mime_of("UklGRiQAAABXRUJQ"), Some("image/webp"));
+        assert_eq!(mime_of("Qk1mAAAAAAAAADYAAAAo"), Some("image/bmp"));
+        assert_eq!(mime_of("AAABAAEAAQEAAAEAIAAw"), Some("image/x-icon"));
+        assert_eq!(mime_of("AAAAIGZ0eXBhdmlmAAAAAG1p"), Some("image/avif"));
+    }
+
+    #[test]
+    fn a_format_nothing_names_is_refused_rather_than_called_a_png() {
+        // The bytes of a TIFF, and a string that is not an image at all. Naming these `image/png` is
+        // what drew a broken picture: a `data:` URL is not sniffed by the browser.
+        assert_eq!(mime_of("SUkqAAgAAAAA"), None);
+        assert_eq!(mime_of("JVBERi0xLjQ"), None);
+        assert_eq!(mime_of(""), None);
+    }
     const DIRECTORY: &str = "F:/VibeCoding_workspace/Verta";
 
     fn temp_db() -> (tempfile::TempDir, std::path::PathBuf) {

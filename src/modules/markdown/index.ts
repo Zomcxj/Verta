@@ -1,2 +1,2 @@
 export { MarkdownStack } from "./MarkdownStackLazy";
-export { MarkdownViewToggle } from "./MarkdownViewToggle";
+export { MarkdownViewToggle, toggleStopClass, ViewToggleBar } from "./MarkdownViewToggle";

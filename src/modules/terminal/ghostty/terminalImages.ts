@@ -12,6 +12,8 @@
  * area there is nowhere the picture can go that would not cover text.
  */
 
+import { IMAGE_EXTENSIONS } from "@/lib/imageFormats";
+
 /** One visible row: the absolute line it shows, and its cells by column. */
 export interface ScreenRow {
   readonly line: number;
@@ -38,7 +40,7 @@ export interface ImageReference {
  */
 const BLOCK = /[\u2580-\u259f]/;
 
-const IMAGE_EXTENSION = /\.(?:png|jpe?g|webp|gif|bmp)/i;
+const IMAGE_EXTENSION = new RegExp(`\\.(?:${IMAGE_EXTENSIONS.join("|")})$`, "i");
 
 /** The badge opencode prints in front of a filename. */
 const FILE_BADGE = "file";

@@ -28,6 +28,31 @@ type Props = {
   children?: ReactNode;
 };
 
+/**
+ * The bar every view switch sits in, and the corner it sits in.
+ *
+ * One place, because a switch is a place on the screen, not a thing each pane invents: a picture and
+ * an SVG put their one stop here too, so the control is where it was for a Markdown file. It used to
+ * be a lone button in the bottom right for those (`right-2 bottom-2`), which put the same choice in
+ * two different corners depending on what kind of file was open.
+ */
+export function ViewToggleBar({ children }: { children: ReactNode }) {
+  return (
+    <div className="absolute right-3 top-3 z-10 inline-flex items-center gap-0.5 rounded-md border border-border/60 bg-card p-0.5 text-[11px] shadow-sm">
+      {children}
+    </div>
+  );
+}
+
+/** The class of one stop in a view switch. */
+export function toggleStopClass(active: boolean, disabled?: boolean): string {
+  return cn(
+    "rounded px-2 py-0.5 transition-colors",
+    active ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
+    disabled && "cursor-not-allowed opacity-40 hover:text-muted-foreground",
+  );
+}
+
 export function MarkdownViewToggle({
   mode,
   onChange,
@@ -37,21 +62,15 @@ export function MarkdownViewToggle({
   children,
 }: Props) {
   const t = useT();
-  const stopClass = (active: boolean, disabled?: boolean) =>
-    cn(
-      "rounded px-2 py-0.5 transition-colors",
-      active ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
-      disabled && "cursor-not-allowed opacity-40 hover:text-muted-foreground",
-    );
   return (
-    <div className="absolute right-3 top-3 z-10 inline-flex items-center gap-0.5 rounded-md border border-border/60 bg-card p-0.5 text-[11px] shadow-sm">
+    <ViewToggleBar>
       <button
         type="button"
         onClick={() => onChange("rendered")}
         disabled={renderedDisabled}
         title={renderedDisabled ? renderedHint : undefined}
         aria-pressed={mode === "rendered"}
-        className={stopClass(mode === "rendered", renderedDisabled)}
+        className={toggleStopClass(mode === "rendered", renderedDisabled)}
       >
         {t("markdown.rendered")}
       </button>
@@ -59,7 +78,7 @@ export function MarkdownViewToggle({
         type="button"
         onClick={() => onChange("raw")}
         aria-pressed={mode === "raw"}
-        className={stopClass(mode === "raw")}
+        className={toggleStopClass(mode === "raw")}
       >
         {t("markdown.raw")}
       </button>
@@ -68,12 +87,12 @@ export function MarkdownViewToggle({
           type="button"
           onClick={preview.onSelect}
           aria-pressed={mode === "preview"}
-          className={stopClass(mode === "preview")}
+          className={toggleStopClass(mode === "preview")}
         >
           {t("editor.preview.title")}
         </button>
       ) : null}
       {children}
-    </div>
+    </ViewToggleBar>
   );
 }

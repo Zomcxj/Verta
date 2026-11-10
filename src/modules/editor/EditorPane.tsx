@@ -1,3 +1,4 @@
+import { isImageExtension } from "@/lib/imageFormats";
 import { lspFormatDocument, useLspExtension } from "@/modules/lsp";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { acceptCompletion, startCompletion } from "@codemirror/autocomplete";
@@ -26,9 +27,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { cn } from "@/lib/utils";
 import { useT } from "@/modules/i18n";
-import { MarkdownViewToggle } from "@/modules/markdown";
+import { MarkdownViewToggle, toggleStopClass, ViewToggleBar } from "@/modules/markdown";
 import { toast } from "sonner";
 import { SidePreview, type ViewportMark, sidePreviewKind } from "./SidePreview";
 import { CsvPreview } from "./CsvPreview";
@@ -647,15 +647,10 @@ export const EditorPane = memo(
     }
     if (doc.status === "binary" || doc.status === "toolarge") {
       const ext = fileExt;
-      const isImage = [
-        "png",
-        "jpg",
-        "jpeg",
-        "gif",
-        "webp",
-        "svg",
-        "ico",
-      ].includes(ext);
+      // One table for every pane (`lib/imageFormats.ts`): the sidebar and the main view used to keep
+      // their own, and disagreed about `bmp` and `avif` - a thumbnail on one side, "cannot be
+      // displayed" on the other. An SVG is not in it: it is text, and the editor is what opens it.
+      const isImage = isImageExtension(ext);
       const isVideo = ["mp4", "webm", "ogg", "mov"].includes(ext);
       const isAudio = ["mp3", "wav", "flac", "aac", "m4a"].includes(ext);
       const isPdf = ext === "pdf";
@@ -786,27 +781,29 @@ export const EditorPane = memo(
           ) : null}
           {/* Markdown moved this into the view switch at the top right (three
               stops: rendered / raw / preview). What is left here is the files
-              that have a side preview but no view switch: images. No backdrop
-              blur: it would add a compositing layer, which the startup budget
-              forbids. */}
+              that have a side preview but no view switch: images and SVGs - and
+              they sit in that same bar, in that same corner, with the one stop
+              they have. It used to be a lone button in the bottom right, so the
+              same choice was in a different place depending on the file. No
+              backdrop blur: it would add a compositing layer, which the startup
+              budget forbids. */}
           {previewKind !== "none" && !renderToggle && (
-            <button
-              type="button"
-              onClick={toggleSide}
-              title={
-                sideOpen ? tr("editor.preview.hide") : tr("editor.preview.show")
-              }
-              aria-label={
-                sideOpen ? tr("editor.preview.hide") : tr("editor.preview.show")
-              }
-              aria-pressed={sideOpen}
-              className={cn(
-                "absolute right-2 bottom-2 z-10 rounded border border-border/60 bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground",
-                sideOpen && "text-foreground",
-              )}
-            >
-              {tr("editor.preview.title")}
-            </button>
+            <ViewToggleBar>
+              <button
+                type="button"
+                onClick={toggleSide}
+                title={
+                  sideOpen ? tr("editor.preview.hide") : tr("editor.preview.show")
+                }
+                aria-label={
+                  sideOpen ? tr("editor.preview.hide") : tr("editor.preview.show")
+                }
+                aria-pressed={sideOpen}
+                className={toggleStopClass(sideOpen)}
+              >
+                {tr("editor.preview.title")}
+              </button>
+            </ViewToggleBar>
           )}
           {htmlRendering ? (
             // The same browser-level preview the PDF stop uses, pointed at the file over the asset
