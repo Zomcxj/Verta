@@ -1963,7 +1963,7 @@ export default function App() {
                   persistSidebarCollapsed(size.inPixels <= 0);
                 }}
               >
-                <div className="h-full min-h-0 pl-2 pr-0.5">
+                <div data-shell="sidebar" className="h-full min-h-0 pl-2 pr-0.5">
                   <div className="verta-pane flex h-full min-h-0 flex-col">
                     <div
                       key={sidebarView}
@@ -2011,7 +2011,7 @@ export default function App() {
                 {/* Both seams share the same padding (0.5 each) so sidebar↔terminal
                     and terminal↔Git look equally wide; the outer window margins
                     still come from the sidebar's pl-2 and the right panel's pr-2. */}
-                <div className="h-full min-h-0 pl-0.5 pr-0.5">
+                <div data-shell="workspace" className="h-full min-h-0 pl-0.5 pr-0.5">
                   <div className="verta-pane flex h-full min-h-0 flex-col">
                     <div className="relative min-h-0 flex-1">
                       <WorkspaceSurface
@@ -2066,7 +2066,7 @@ export default function App() {
                   persistRightCollapsed(size.inPixels <= 0);
                 }}
               >
-                <div className="h-full min-h-0 pl-0.5 pr-2">
+                <div data-shell="right" className="h-full min-h-0 pl-0.5 pr-2">
                   <div className="verta-pane flex h-full min-h-0 flex-col">
                     {/* The panel and the stash list below it are siblings, so this wrapper has to
                         be the column that divides the height between them: with a block wrapper

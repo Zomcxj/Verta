@@ -23,10 +23,17 @@ describe("resolveEditorThemeId", () => {
   });
 
   it("auto falls back to the other mode when a pairing is missing", () => {
-    // Dragon only declares a dark pairing.
-    expect(resolveEditorThemeId("auto", "kanagawa-dragon", [], "light")).toBe(
-      "kanagawa-dragon",
-    );
+    // A theme file may declare one pairing and not the other - every built-in theme now declares
+    // both, so this covers the shape of a custom one rather than borrowing the gap from a builtin.
+    const darkOnly: Theme = {
+      id: "dark-only",
+      name: "Dark only",
+      editorTheme: { dark: "dracula" },
+      variants: { dark: {} },
+    };
+    expect(
+      resolveEditorThemeId("auto", "dark-only", [darkOnly], "light"),
+    ).toBe("dracula");
   });
 
   it("auto prefers a matching custom theme over builtins", () => {

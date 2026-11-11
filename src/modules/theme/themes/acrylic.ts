@@ -29,6 +29,10 @@ export const acrylic: Theme = {
   id: "acrylic",
   name: "Acrylic",
   description: "Frosted glass with the desktop showing through.",
+  // The material is the `glass` shape now, and this theme is its own colours plus a suggestion of
+  // it: a stored `themeId: "acrylic"` keeps working and keeps looking like acrylic, without acrylic
+  // being a thing a theme has to be.
+  shape: "glass",
   editorTheme: { dark: "github-dark", light: "github-light" },
   variants: {
     dark: {

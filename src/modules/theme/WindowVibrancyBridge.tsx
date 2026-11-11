@@ -11,17 +11,12 @@ import { applyVibrancy } from "./vibrancy";
 export function WindowVibrancyBridge() {
   const enabled = usePreferencesStore((s) => s.windowVibrancy);
   const hydrated = usePreferencesStore((s) => s.hydrated);
-  const { resolvedMode, activeTheme } = useTheme();
+  const { resolvedMode, activeTheme, shapeMaterial } = useTheme();
 
-  // A glass theme asks for the real desktop blur (Windows: acrylic). That is a
-  // property of the theme, not of the settings switch, so it turns on by itself.
-  const glass = Boolean(
-    (
-      activeTheme.variants[resolvedMode] ??
-      activeTheme.variants.dark ??
-      activeTheme.variants.light
-    )?.glass?.desktop,
-  );
+  // The material is the shape's, not the theme's: `glass` is the preset that asks for the real
+  // desktop blur (Windows: acrylic), and a theme is colours. It turns on by itself, without the
+  // settings switch, because choosing that shape *is* the request.
+  const glass = shapeMaterial;
 
   useEffect(() => {
     if (!hydrated) return;

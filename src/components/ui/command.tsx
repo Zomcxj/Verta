@@ -39,12 +39,20 @@ function CommandDialog({
   children,
   className,
   showCloseButton = false,
+  onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof Dialog> & {
   title?: string
   description?: string
   className?: string
   showCloseButton?: boolean
+  /**
+   * Asked before the dialog dismisses itself. Radix reads this on the *content*, which is where
+   * Escape belongs - the dialog's own listener runs in the capture phase, so a page inside the
+   * dialog cannot keep the key by stopping propagation from a bubbling handler, and it does not
+   * have to: `preventDefault()` here is the supported way to say "not yet".
+   */
+  onEscapeKeyDown?: React.ComponentProps<typeof DialogContent>["onEscapeKeyDown"]
 }) {
   const t = useT()
   return (
@@ -61,6 +69,7 @@ function CommandDialog({
           className
         )}
         showCloseButton={showCloseButton}
+        onEscapeKeyDown={onEscapeKeyDown}
       >
         {children}
       </DialogContent>

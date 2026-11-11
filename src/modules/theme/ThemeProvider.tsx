@@ -10,17 +10,23 @@ import {
   DEFAULT_THEME_ID,
   loadPreferences,
   onPreferencesChange,
+  setShapeId as persistShapeId,
   setTheme as persistTheme,
   setThemeId as persistThemeId,
   type ThemePref,
 } from "@/modules/settings/store";
-import { applyShape, applyTheme, clearTheme } from "./applyTheme";
+import { applyRadius, applyShape, applyTheme, clearTheme } from "./applyTheme";
+import {
+  DEFAULT_RADIUS,
+  radiusOf,
+  type RadiusStop,
+} from "./radius";
 import {
   listCustomThemes,
   onCustomThemesChange,
 } from "./customThemes";
 import { SurfaceLayer } from "./SurfaceLayer";
-import { resolveShapePref, type ShapePref } from "./shape";
+import { resolveShape, resolveShapePref, type ShapeId, type ShapePref } from "./shape";
 import { getBuiltinTheme, getDefaultTheme } from "./themes";
 import type { Theme } from "./types";
 
@@ -37,10 +43,23 @@ type ThemeProviderState = {
   themeId: string;
   activeTheme: Theme;
   customThemes: Theme[];
+  /** The shape in force: a chosen one, the theme's suggestion, or the default. */
+  shape: ShapeId;
+  /** What the preference holds - `auto` until someone chooses - so a picker can mark the choice
+   * rather than whatever the theme is suggesting. */
+  shapePref: ShapePref;
+  /** How round every corner is, the value the slider is on. */
+  radius: RadiusStop;
+  /** Whether that shape asks for the native material (the `glass` preset). */
+  shapeMaterial: boolean;
   setMode: (mode: ThemePref) => void;
+  /** Store a shape, the way the picker does. */
+  setShapeId: (id: ShapeId) => void;
   setThemeId: (id: string) => void;
   /** Apply a theme transiently without persisting; null reverts to committed. */
   previewThemeId: (id: string | null) => void;
+  /** The same for a shape, so a picker can show one before the choice is made. */
+  previewShape: (id: ShapeId | null) => void;
 };
 
 const ThemeProviderContext = createContext<ThemeProviderState | null>(null);
@@ -75,7 +94,9 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
   const [mode, setModeState] = useState<ThemePref>(() => readFastMode(defaultMode));
   const [themeId, setThemeIdState] = useState<string>(() => readFastThemeId());
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewShapeId, setPreviewShapeId] = useState<ShapeId | null>(null);
   const [shapeId, setShapeIdState] = useState<ShapePref>("auto");
+  const [radius, setRadiusState] = useState<RadiusStop>(DEFAULT_RADIUS);
   const [customThemes, setCustomThemes] = useState<Theme[]>([]);
   const [systemDark, setSystemDark] = useState<boolean>(() =>
     typeof window === "undefined"
@@ -90,6 +111,7 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
       setModeState(p.theme);
       setThemeIdState(p.themeId);
       setShapeIdState(p.shapeId);
+      setRadiusState(p.cornerRadius);
       writeFastMode(p.theme);
       writeFastThemeId(p.themeId);
     });
@@ -102,6 +124,8 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
         writeFastThemeId(value);
       } else if (key === "shapeId" && typeof value === "string") {
         setShapeIdState(value as ShapePref);
+      } else if (key === "cornerRadius" && typeof value === "string") {
+        setRadiusState(radiusOf(value));
       }
     });
     return () => {
@@ -143,6 +167,14 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
     () => resolveTheme(effectiveId, customThemes),
     [effectiveId, customThemes],
   );
+  const effectiveShape = useMemo(
+    () => previewShapeId ?? resolveShapePref(shapeId, activeTheme.shape),
+    [previewShapeId, shapeId, activeTheme],
+  );
+  const shapeMaterial = useMemo(
+    () => resolveShape(effectiveShape).material,
+    [effectiveShape],
+  );
   useEffect(() => {
     if (effectiveId === DEFAULT_THEME_ID) {
       clearTheme();
@@ -156,17 +188,30 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
    *
    * Its own effect rather than a tail on the theme's: the default theme goes through `clearTheme`
    * and returns, so a shape hung off that one would never be written for the theme most people use.
-   * It also has to answer a change of mode and a change of theme, because a theme may suggest a
-   * shape and a theme may spell its own `--radius`.
+   * It also has to answer a change of mode and a change of theme, because a theme may suggest a shape
+   * and the variant it suggests may have a glass recipe the shape has to leave alone.
    */
   useEffect(() => {
     const variant =
       activeTheme.variants[resolvedMode] ??
       activeTheme.variants.dark ??
       activeTheme.variants.light;
-    const shape = resolveShapePref(shapeId, activeTheme.shape);
-    applyShape(shape, { themeRadius: variant?.colors?.radius });
-  }, [shapeId, activeTheme, resolvedMode]);
+    applyShape(effectiveShape, {
+      themeGlass: Boolean(variant?.glass),
+      themeTerminal: variant?.terminal?.background,
+    });
+  }, [effectiveShape, activeTheme, resolvedMode]);
+
+  /**
+   * The radius, applied after the theme and after the shape.
+   *
+   * Order is the whole contract here: a theme may spell `colors.radius` and `applyTheme` writes it, so
+   * the axis that the user chose by hand has to be the last thing to speak. It is also why the shape's
+   * own effect no longer mentions the radius at all.
+   */
+  useEffect(() => {
+    applyRadius(radius);
+  }, [radius]);
 
   const setMode = useCallback((next: ThemePref) => {
     setModeState(next);
@@ -185,6 +230,18 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
     setPreviewId(id);
   }, []);
 
+  // Choosing a shape ends any preview of one, the way `setThemeId` does: the stored value is what the
+  // next render should draw from, not the one the pointer happened to be over.
+  const setShapeId = useCallback((id: ShapeId) => {
+    setPreviewShapeId(null);
+    setShapeIdState(id);
+    void persistShapeId(id);
+  }, []);
+
+  const previewShape = useCallback((id: ShapeId | null) => {
+    setPreviewShapeId(id);
+  }, []);
+
   const value = useMemo<ThemeProviderState>(
     () => ({
       mode,
@@ -192,8 +249,14 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
       themeId,
       activeTheme,
       customThemes,
+      shape: effectiveShape,
+      shapePref: shapeId,
+      shapeMaterial,
+      radius,
       setMode,
+      setShapeId,
       setThemeId,
+      previewShape,
       previewThemeId,
     }),
     [
@@ -202,8 +265,14 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
       themeId,
       activeTheme,
       customThemes,
+      effectiveShape,
+      shapeId,
+      shapeMaterial,
+      radius,
       setMode,
+      setShapeId,
       setThemeId,
+      previewShape,
       previewThemeId,
     ],
   );

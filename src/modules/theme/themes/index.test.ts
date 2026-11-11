@@ -22,6 +22,23 @@ describe("builtin theme registry", () => {
     }
   });
 
+  it("gives every built-in theme both palettes", () => {
+    // A theme with only a dark variant is a theme that cannot follow the system into daylight, and
+    // the settings list cannot be one list without them all having the same two answers.
+    const missing = listBuiltinThemes()
+      .filter((t) => !t.variants.light || !t.variants.dark)
+      .map((t) => t.id);
+    expect(missing).toEqual([]);
+  });
+
+  it("no longer offers acrylic as a theme, but still resolves it", () => {
+    // The material became the `glass` shape, so acrylic is no longer a thing a theme has to be - it
+    // is colours that suggest that shape. A settings file that still says `themeId: "acrylic"` has to
+    // open as those colours in glass, not silently fall back to the default theme.
+    expect(listBuiltinThemes().map((t) => t.id)).not.toContain("acrylic");
+    expect(getBuiltinTheme("acrylic")?.shape).toBe("glass");
+  });
+
   it("returns undefined for an unknown id", () => {
     expect(getBuiltinTheme("no-such-theme")).toBeUndefined();
   });

@@ -10,7 +10,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { useLanguage, useT } from "@/modules/i18n";
+import { type MessageKey, useLanguage, useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   EDITOR_THEME_AUTO,
@@ -25,10 +25,20 @@ import {
   setBackgroundKind,
   setBackgroundOpacity,
   setEditorTheme,
+  setCornerRadius,
   setSessionTransition,
+  setShapeId,
   setWindowVibrancy,
+  type ThemePref,
 } from "@/modules/settings/store";
-import { useTheme } from "@/modules/theme";
+import {
+  listShapes,
+  RADIUS_STOPS,
+  radiusStopIndex,
+  SHAPE_LABELS,
+  ShapeIcon,
+  useTheme,
+} from "@/modules/theme";
 import {
   deleteBgImage,
   importBgImageFromFile,
@@ -49,13 +59,37 @@ import {
   type Backdrop,
   getBackdropKind,
 } from "@/modules/theme/vibrancy";
-import { Edit02Icon } from "@hugeicons/core-free-icons";
+import {
+  ComputerIcon,
+  Edit02Icon,
+  Moon02Icon,
+  Sun03Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 import { StateColoursGroup } from "../components/StateColoursGroup";
+
+/** The label for each shape. A map rather than `t(\`settings.shape.${id}\`)` so a new preset cannot
+ * ship without one. */
+/**
+ * The three answers to "which mode" - the generic one, at the top of this section.
+ *
+ * It lives here rather than in General because everything it decides is below it: the palette list,
+ * the shape, the background. General keeps the things that are only about the app's own chrome.
+ */
+const APPEARANCE: {
+  id: ThemePref;
+  /** Message key, resolved where it is drawn. */
+  label: MessageKey;
+  icon: typeof ComputerIcon;
+}[] = [
+  { id: "system", label: "settings.mode.system", icon: ComputerIcon },
+  { id: "light", label: "settings.mode.light", icon: Sun03Icon },
+  { id: "dark", label: "settings.mode.dark", icon: Moon02Icon },
+];
 
 /** Names of the transition animations. One more line here per animation, plus
  * the copy on both sides of the string table. */
@@ -70,7 +104,15 @@ const SESSION_TRANSITION_LABELS = {
 export function ThemesSection() {
   const t = useT();
   const language = useLanguage();
-  const { themeId, setThemeId, resolvedMode, customThemes } = useTheme();
+  const {
+    themeId,
+    setThemeId,
+    resolvedMode,
+    customThemes,
+    mode,
+    setMode,
+    radius,
+  } = useTheme();
   const builtinThemes = listBuiltinThemes();
   const themes = useMemo(
     () => [...builtinThemes, ...customThemes],
@@ -97,6 +139,7 @@ export function ThemesSection() {
   const backgroundOpacity = usePreferencesStore((s) => s.backgroundOpacity);
   const backgroundBlur = usePreferencesStore((s) => s.backgroundBlur);
   const windowVibrancy = usePreferencesStore((s) => s.windowVibrancy);
+  const shapePref = usePreferencesStore((s) => s.shapeId);
 
   const [backdrop, setBackdrop] = useState<Backdrop>("none");
   useEffect(() => {
@@ -152,6 +195,31 @@ export function ThemesSection() {
         title={t("settings.themes.title")}
         description={t("settings.themes.description")}
       />
+
+      <div className="flex flex-col gap-2">
+        <Label>{t("settings.appearance")}</Label>
+        <div className="grid grid-cols-3 gap-2">
+          {APPEARANCE.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => setMode(o.id)}
+              className={cn(
+                "group flex h-20 flex-col items-center justify-center gap-1.5 rounded-lg border bg-card transition-all",
+                mode === o.id
+                  ? "border-foreground/60 ring-1 ring-foreground/20"
+                  : "border-border/60 hover:border-border",
+              )}
+            >
+              <HugeiconsIcon icon={o.icon} size={18} strokeWidth={1.5} />
+              <span className="text-[11.5px]">{t(o.label)}</span>
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          {t("settings.appearanceHint")} {t("settings.appearanceHintTail")}
+        </p>
+      </div>
 
       {backdrop === "none" ? null : (
         <SettingRow
@@ -274,6 +342,93 @@ export function ThemesSection() {
               </button>
             );
           })}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex min-w-0 flex-col">
+          <Label>{t("settings.shape.title")}</Label>
+          <span className="text-[11px] text-muted-foreground">
+            {t("settings.shape.description")}
+          </span>
+        </div>
+        {/* Each choice draws itself - the three regions, their borders, their shadow and the
+            material - so they can be told apart before being applied. The radius is not part of a
+            shape any more: it is the slider below, which the drawings follow. */}
+        <div className="grid grid-cols-3 gap-1.5">
+          {listShapes().map((id) => {
+            const selected = shapePref === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => void setShapeId(id)}
+                aria-pressed={selected}
+                className={cn(
+                  "flex flex-col items-center gap-1 rounded-md border px-1 py-1.5 text-[10.5px] transition-colors",
+                  selected
+                    ? "border-foreground/60 bg-foreground/[0.04] text-foreground"
+                    : "border-border/60 text-muted-foreground hover:border-border hover:text-foreground",
+                )}
+              >
+                <ShapeIcon shape={id} radius={radius} />
+                {t(SHAPE_LABELS[id])}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* One slider for every corner in the app, in stops rather than a continuous range: a gear
+            lever, not a dial. The dots are the stops, so the control says where it can land. */}
+        <div className="flex flex-col gap-1.5 pt-1">
+          <div className="flex items-center justify-between gap-3">
+            <Label>{t("settings.shape.radius")}</Label>
+            <span
+              data-radius-value=""
+              className="tabular-nums text-[11px] text-muted-foreground"
+            >
+              {/* The stops are rem; pixels are what the eye judges. */}
+              {Math.round(Number.parseFloat(radius) * 16)}px
+            </span>
+          </div>
+          {/* The padding is the point: the thumb is 16px tall, which is a small thing to hit, so the
+              control keeps a taller band that a click anywhere in counts as. */}
+          <Slider
+            className="py-2"
+            value={[radiusStopIndex(radius)]}
+            min={0}
+            max={RADIUS_STOPS.length - 1}
+            step={1}
+            onValueChange={(v) =>
+              void setCornerRadius(RADIUS_STOPS[v[0] ?? radiusStopIndex(radius)])
+            }
+          />
+          {/* The dots are the stops and they are also targets: the slider snaps per stop, so a click on
+              one is the same move made directly. */}
+          <div className="flex justify-between">
+            {RADIUS_STOPS.map((stop) => (
+              <button
+                key={stop}
+                type="button"
+                data-stop={stop}
+                aria-label={`${Math.round(Number.parseFloat(stop) * 16)}px`}
+                onClick={() => void setCornerRadius(stop)}
+                className="flex h-4 w-4 items-center justify-center"
+              >
+                <span
+                  className={cn(
+                    "h-1 w-1 rounded-full",
+                    stop === radius
+                      ? "bg-foreground/70"
+                      : "bg-muted-foreground/40",
+                  )}
+                />
+              </button>
+            ))}
+          </div>
+          <span className="text-[11px] text-muted-foreground">
+            {t("settings.shape.radiusHint")}
+          </span>
         </div>
       </div>
 

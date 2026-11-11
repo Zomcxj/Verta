@@ -1,3 +1,4 @@
+import { resolveRadius } from "./radius";
 import { resolveShape, type ShapeOptions } from "./shape";
 import type {
   Theme,
@@ -91,18 +92,25 @@ const GLASS_VARS: readonly string[] = [
 /**
  * The variables a shape owns, so that leaving one shape removes what it brought.
  *
- * `--radius` is in this list but is also a theme's: the caller says whether the theme is speaking
- * (`ShapeOptions.themeRadius`), and when it is, this one is left alone entirely - it is not the
- * shape's to clear.
+ * The radius is deliberately absent: it is its own axis (`radius.ts`, `applyRadius`), and a shape that
+ * cleared it would take the user's corner choice away every time they changed preset.
  */
 const SHAPE_VARS: readonly string[] = [
-  "--radius",
   "--pane-border-width",
+  "--pane-border-color",
+  // The terminal's base colour, which the material clears so it does not sit as a solid rectangle in
+  // a translucent window.
+  "--terminal-background",
+  // The glass layer, which the one shape that asks for the material brings along. Only removed when
+  // the theme has no glass of its own - the caller says so through `ShapeOptions.themeGlass`.
+  "--theme-frame-opacity",
+  "--theme-pane-opacity",
+  "--theme-glass-edge",
+  "--theme-glass-sheen",
   "--pane-shadow",
   "--card-shadow",
   "--bevel-top",
   "--bevel-bottom",
-  "--accent-bar",
 ];
 
 /**
@@ -110,9 +118,22 @@ const SHAPE_VARS: readonly string[] = [
  *
  * The thin cell around `resolveShape`, which decides everything and touches nothing: this puts the
  * answer where the stylesheet can read it. What a shape brought along is cleared first, so switching
- * from `emboss` to `soft` does not leave a lit edge behind; a shape is not "the variables it adds"
- * but "the whole set", and `soft` answers the values the stylesheet already had.
+ * from `emboss` to `minimal` does not leave a lit edge behind; a shape is not "the variables it adds"
+ * but "the whole set", and `minimal` answers the values the stylesheet already had.
  */
+/**
+ * Writes the corner-radius axis.
+ *
+ * Its own cell, next to the shape's, because it is its own axis - and the caller has to run it last: a
+ * theme may spell `colors.radius`, so this is the answer that wins.
+ */
+export function applyRadius(stop: unknown): void {
+  const { vars } = resolveRadius(stop);
+  for (const [name, value] of Object.entries(vars)) {
+    document.documentElement.style.setProperty(name, value);
+  }
+}
+
 export function applyShape(
   shapeId: unknown,
   options: ShapeOptions = {},
@@ -120,7 +141,9 @@ export function applyShape(
   const root = document.documentElement;
   const { vars, attrs } = resolveShape(shapeId, options);
   for (const name of SHAPE_VARS) {
-    if (name === "--radius" && options.themeRadius) continue;
+    // The theme's glass is the theme's: leaving it alone is what lets a glass theme keep its own
+    // recipe while still being able to change shape.
+    if (name.startsWith("--theme-") && options.themeGlass) continue;
     root.style.removeProperty(name);
   }
   for (const [name, value] of Object.entries(vars)) {
@@ -128,6 +151,7 @@ export function applyShape(
   }
   // The material is an attribute, not a variable: the blur happens behind the window.
   root.removeAttribute("data-shape-material");
+  if (!options.themeGlass) root.removeAttribute("data-theme-glass");
   for (const [name, value] of Object.entries(attrs)) root.setAttribute(name, value);
 }
 

@@ -174,7 +174,18 @@ export class WebGlCellRenderer {
       premultipliedAlpha: true,
       antialias: false,
       depth: false,
-      desynchronized: true,
+      // No `desynchronized`, on purpose, and it is not a latency decision. The hint takes the canvas
+      // out of the browser's ordinary compositing path, and such a canvas stops honouring its own
+      // alpha: with the window's material behind it, a fully transparent canvas is presented as
+      // opaque black. That is what put a black rectangle in the middle of the acrylic shape - and only
+      // at the square radius stop, because a rounded clip on the pane happened to send the canvas down
+      // a path where the hint was ignored.
+      //
+      // Measured with screen pixels, not with a debugger capture: `Page.captureScreenshot` samples
+      // the page and cannot see this at all (it showed a perfectly translucent terminal the whole
+      // time). With the hint, the terminal area read rgb(0, 0, 0) on screen; without it, the desktop
+      // showed through. The low-latency path is worth less than a terminal that reads as part of the
+      // window it sits in.
       failIfMajorPerformanceCaveat: false,
       powerPreference: "low-power",
       preserveDrawingBuffer: false,

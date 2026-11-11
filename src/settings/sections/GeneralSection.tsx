@@ -9,9 +9,8 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { IS_WINDOWS } from "@/lib/platform";
-import { type MessageKey, useLanguage, useT } from "@/modules/i18n";
+import { useLanguage, useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import type { ThemePref } from "@/modules/settings/store";
 import {
   setLanguage,
   setConfirmCloseRunningTerminal,
@@ -38,29 +37,11 @@ import {
   TERMINAL_FONT_SIZES,
   TERMINAL_SCROLLBACK_PRESETS,
 } from "@/modules/settings/store";
-import { useTheme } from "@/modules/theme";
-import {
-  ComputerIcon,
-  Moon02Icon,
-  Sun03Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { FontPicker } from "../components/FontPicker";
 import { SettingRow } from "../components/SettingRow";
-
-const APPEARANCE: {
-  id: ThemePref;
-  /** Message key, resolved where it is drawn. */
-  label: MessageKey;
-  icon: typeof ComputerIcon;
-}[] = [
-  { id: "system", label: "settings.mode.system", icon: ComputerIcon },
-  { id: "light", label: "settings.mode.light", icon: Sun03Icon },
-  { id: "dark", label: "settings.mode.dark", icon: Moon02Icon },
-];
 
 const TERMINAL_FONT_WEIGHTS = [
   { value: "normal", label: "settings.fontWeight.normal" },
@@ -82,7 +63,6 @@ const ZOOM_MAX = 2.0;
 const ZOOM_STEP = 0.05;
 export function GeneralSection() {
   const t = useT();
-  const { mode, setMode } = useTheme();
 
   const wslEnabled = usePreferencesStore((s) => s.wslEnabled);
   const wslShutdownOnDisable = usePreferencesStore(
@@ -165,35 +145,6 @@ export function GeneralSection() {
       />
 
       <LanguageSetting />
-
-      <div className="flex flex-col gap-2">
-        <Label>{t("settings.appearance")}</Label>
-        <div className="grid grid-cols-3 gap-2">
-          {APPEARANCE.map((o) => (
-            <button
-              key={o.id}
-              type="button"
-              onClick={() => setMode(o.id)}
-              className={cn(
-                "group flex h-20 flex-col items-center justify-center gap-1.5 rounded-lg border bg-card transition-all",
-                mode === o.id
-                  ? "border-foreground/60 ring-1 ring-foreground/20"
-                  : "border-border/60 hover:border-border",
-              )}
-            >
-              <HugeiconsIcon icon={o.icon} size={18} strokeWidth={1.5} />
-              <span className="text-[11.5px]">{t(o.label)}</span>
-            </button>
-          ))}
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          {t("settings.appearanceHint")}{" "}
-          <strong className="font-medium text-foreground">
-            {t("settings.themes")}
-          </strong>{" "}
-          {t("settings.appearanceHintTail")}
-        </p>
-      </div>
 
       <div className="flex flex-col gap-2">
         <Label>{t("settings.zoom")}</Label>

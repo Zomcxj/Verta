@@ -45,8 +45,18 @@ const BUILTIN: Theme[] = [
 
 const BY_ID = new Map<string, Theme>(BUILTIN.map((t) => [t.id, t]));
 
+/**
+ * Themes that still resolve but are no longer offered.
+ *
+ * `acrylic` is here because it stopped being a theme. What made it what it is - the material the
+ * window is drawn with - is the `glass` shape, and a shape is not a palette: any theme can be drawn
+ * in it. Keeping the id resolvable means a settings file that still says `themeId: "acrylic"` opens
+ * as its own colours with the glass shape suggested, instead of silently falling back.
+ */
+const RETIRED = new Set(["acrylic"]);
+
 export function listBuiltinThemes(): Theme[] {
-  return BUILTIN;
+  return BUILTIN.filter((t) => !RETIRED.has(t.id));
 }
 
 export function getBuiltinTheme(id: string): Theme | undefined {

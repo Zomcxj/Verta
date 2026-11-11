@@ -4,7 +4,7 @@ export const kanagawaDragon: Theme = {
   id: "kanagawa-dragon",
   name: "Kanagawa Dragon",
   description: "The muted, near-black Dragon variant of Kanagawa.",
-  editorTheme: { dark: "kanagawa-dragon" },
+  editorTheme: { light: "kanagawa-lotus", dark: "kanagawa-dragon" },
   variants: {
     dark: {
       colors: {
@@ -44,6 +44,50 @@ export const kanagawaDragon: Theme = {
           "#8ba4b0", "#a292a3", "#8ea4a2", "#c8c093",
           "#a6a69c", "#e46876", "#87a987", "#e6c384",
           "#7fb4ca", "#938aa9", "#7aa89f", "#c5c9c5",
+        ],
+      },
+    },
+    light: {
+      // The palette the Kanagawa project itself ships for daylight: Lotus. Same inks, warm paper
+      // instead of near-black sumi.
+      colors: {
+        background: "#f2ecbc",
+        foreground: "#43436c",
+        card: "#e5ddb0",
+        cardForeground: "#43436c",
+        popover: "#e5ddb0",
+        popoverForeground: "#43436c",
+        primary: "#4d699b",
+        primaryForeground: "#f2ecbc",
+        secondary: "#e5ddb0",
+        secondaryForeground: "#43436c",
+        muted: "#e5ddb0",
+        mutedForeground: "#625d72",
+        accent: "#ded5a7",
+        accentForeground: "#43436c",
+        destructive: "#c84053",
+        border: "rgba(67,67,108,0.14)",
+        input: "rgba(67,67,108,0.18)",
+        ring: "#4d699b",
+        sidebar: "#e5ddb0",
+        sidebarForeground: "#43436c",
+        sidebarPrimary: "#4d699b",
+        sidebarPrimaryForeground: "#f2ecbc",
+        sidebarAccent: "#ded5a7",
+        sidebarAccentForeground: "#43436c",
+        sidebarBorder: "rgba(67,67,108,0.14)",
+        sidebarRing: "#4d699b",
+      },
+      terminal: {
+        cursor: "#43436c",
+        cursorAccent: "#f2ecbc",
+        selection: "rgba(77,105,155,0.22)",
+        // Dark inks on cream: the low-numbered slots have to be text colours here, not tints.
+        ansi: [
+          "#545464", "#c84053", "#6f894e", "#77713f",
+          "#4d699b", "#624c83", "#4e8ca2", "#77716a",
+          "#a09cac", "#b35b79", "#6f894e", "#8a7a4a",
+          "#4d699b", "#624c83", "#4e8ca2", "#43436c",
         ],
       },
     },

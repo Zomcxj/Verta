@@ -83,7 +83,7 @@ const GhosttyTerminalPane = memo(
     );
     const containerRef = useRef<HTMLDivElement>(null);
     const down = useRef<{ x: number; y: number } | null>(null);
-    const { resolvedMode, activeTheme } = useTheme();
+    const { resolvedMode, activeTheme, shape } = useTheme();
     const session = useGhosttyTerminalSession({
       leafId,
       backend,
@@ -102,9 +102,16 @@ const GhosttyTerminalPane = memo(
     useEffect(() => {
       void resolvedMode;
       void activeTheme;
+      // The shape writes `--terminal-background` too: `glass` clears it so the terminal stops painting
+      // a solid rectangle over the material the window draws. The terminal reads its colours from
+      // those CSS variables, so a shape change has to make it read them again - otherwise the pane
+      // keeps whatever it resolved when the theme last changed, which is a black terminal in a
+      // translucent window. The read is deferred to the next frame because the shape is applied by
+      // the provider's own effect, and a child's effect runs before the parent's in the same commit.
+      void shape;
       const id = requestAnimationFrame(() => session.applyTheme());
       return () => cancelAnimationFrame(id);
-    }, [resolvedMode, activeTheme, session]);
+    }, [resolvedMode, activeTheme, shape, session]);
 
     useImperativeHandle(
       ref,

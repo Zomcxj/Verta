@@ -4,7 +4,7 @@ export const dracula: Theme = {
   id: "dracula",
   name: "Dracula",
   description: "The classic high-contrast purple dark theme.",
-  editorTheme: { dark: "dracula" },
+  editorTheme: { light: "github-light", dark: "dracula" },
   variants: {
     dark: {
       colors: {
@@ -44,6 +44,50 @@ export const dracula: Theme = {
           "#bd93f9", "#ff79c6", "#8be9fd", "#f8f8f2",
           "#6272a4", "#ff6e6e", "#69ff94", "#ffffa5",
           "#d6acff", "#ff92df", "#a4ffff", "#ffffff",
+        ],
+      },
+    },
+    light: {
+      // Dracula publishes no daylight palette, so this is derived from its own hues - the same
+      // purple, pink and cyan, darkened until they carry on paper, and its classic foreground as the
+      // paper itself. The editor follows `github-light`, since there is no light Dracula editor theme.
+      colors: {
+        background: "#f8f8f2",
+        foreground: "#282a36",
+        card: "#ffffff",
+        cardForeground: "#282a36",
+        popover: "#ffffff",
+        popoverForeground: "#282a36",
+        primary: "#7b52c9",
+        primaryForeground: "#ffffff",
+        secondary: "#ececf1",
+        secondaryForeground: "#282a36",
+        muted: "#ececf1",
+        mutedForeground: "#6a6c7f",
+        accent: "#e4e4ec",
+        accentForeground: "#282a36",
+        destructive: "#d64545",
+        border: "rgba(40,42,54,0.12)",
+        input: "rgba(40,42,54,0.16)",
+        ring: "#7b52c9",
+        sidebar: "#f0f0ea",
+        sidebarForeground: "#282a36",
+        sidebarPrimary: "#7b52c9",
+        sidebarPrimaryForeground: "#ffffff",
+        sidebarAccent: "#e4e4ec",
+        sidebarAccentForeground: "#282a36",
+        sidebarBorder: "rgba(40,42,54,0.12)",
+        sidebarRing: "#7b52c9",
+      },
+      terminal: {
+        cursor: "#282a36",
+        cursorAccent: "#f8f8f2",
+        selection: "rgba(123,82,201,0.20)",
+        ansi: [
+          "#44475a", "#c33c3c", "#1f8f4a", "#8a6d00",
+          "#5b3fa8", "#b0327f", "#0f7f8c", "#5a5d6e",
+          "#6272a4", "#d64545", "#2ea44f", "#a88200",
+          "#7b52c9", "#d0408f", "#1a91a1", "#282a36",
         ],
       },
     },

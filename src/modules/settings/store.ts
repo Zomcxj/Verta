@@ -1,4 +1,9 @@
 import type { LanguagePref } from "@/modules/i18n/language";
+import {
+  DEFAULT_RADIUS,
+  radiusOf,
+  type RadiusStop,
+} from "@/modules/theme/radius";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
 import {
   isShapeId,
@@ -163,6 +168,8 @@ export type Preferences = {
    * to `soft` is what keeps "picked soft on purpose" apart from "never picked anything".
    */
   shapeId: ShapePref;
+  /** How round every corner is. Its own axis, so it is not part of the shape. */
+  cornerRadius: RadiusStop;
   editorTheme: EditorThemePref;
   editorFontSize: number;
   vimMode: boolean;
@@ -276,6 +283,7 @@ const KEY_BG_OPACITY = "backgroundOpacity";
 const KEY_BG_BLUR = "backgroundBlur";
 const KEY_WINDOW_VIBRANCY = "windowVibrancy";
 const KEY_SHAPE_ID = "shapeId";
+const KEY_CORNER_RADIUS = "cornerRadius";
 const KEY_EDITOR_THEME = "editorTheme";
 const KEY_SESSION_TRANSITION = "sessionTransition";
 const KEY_EDITOR_FONT_SIZE = "editorFontSize";
@@ -361,6 +369,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   // always wins; only an absent key falls back to this.
   windowVibrancy: false,
   shapeId: SHAPE_AUTO,
+  cornerRadius: DEFAULT_RADIUS,
   vimMode: false,
   editorWordWrap: false,
   editorWordWrapColumn: EDITOR_WORD_WRAP_COLUMN_DEFAULT,
@@ -457,6 +466,9 @@ export async function loadPreferences(): Promise<Preferences> {
     // falls back: a settings file can be edited by hand. An absent key stays `auto`, which is not
     // the same as the shape named `soft`.
     shapeId: shapePrefOf(get<string>(KEY_SHAPE_ID)),
+    // A stop this build does not know (an older or newer settings file) answers the default rather
+    // than leaving the app without corners.
+    cornerRadius: radiusOf(get<string>(KEY_CORNER_RADIUS)),
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
     editorWordWrap:
       get<boolean>(KEY_EDITOR_WORD_WRAP) ?? DEFAULT_PREFERENCES.editorWordWrap,
@@ -648,6 +660,10 @@ export async function setWindowVibrancy(value: boolean): Promise<void> {
 
 export async function setShapeId(value: ShapePref): Promise<void> {
   await writePref(KEY_SHAPE_ID, value === SHAPE_AUTO ? SHAPE_AUTO : shapeOf(value));
+}
+
+export async function setCornerRadius(value: RadiusStop): Promise<void> {
+  await writePref(KEY_CORNER_RADIUS, radiusOf(value));
 }
 
 export async function setVimMode(value: boolean): Promise<void> {
@@ -944,6 +960,7 @@ export const PREF_KEY_TO_FIELD: Record<string, PrefKey> = {
   [KEY_BG_BLUR]: "backgroundBlur",
   [KEY_WINDOW_VIBRANCY]: "windowVibrancy",
   [KEY_SHAPE_ID]: "shapeId",
+  [KEY_CORNER_RADIUS]: "cornerRadius",
   [KEY_EDITOR_THEME]: "editorTheme",
   [KEY_SESSION_TRANSITION]: "sessionTransition",
   [KEY_EDITOR_FONT_SIZE]: "editorFontSize",

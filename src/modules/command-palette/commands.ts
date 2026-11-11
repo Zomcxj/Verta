@@ -16,6 +16,7 @@ import {
   PaintBoardIcon,
   Search01Icon,
   Settings01Icon,
+  ShapeCollectionIcon,
   SidebarLeftIcon,
   SourceCodeIcon,
   TerminalIcon,
@@ -93,6 +94,16 @@ export function createCommandItems(
       group: "cmdGroup.General",
       keywords: ["theme", "appearance", "color", "dark", "light"],
       icon: PaintBoardIcon,
+      run: noop,
+    },
+    {
+      id: "shape.pick",
+      title: "cmd.changeShape",
+      group: "cmdGroup.General",
+      // The theme row's sibling, right below it: both answer "how does the shell look", and someone
+      // looking for one is often looking for the other.
+      keywords: ["shape", "layout", "appearance", "style", "material", "radius", "形态"],
+      icon: ShapeCollectionIcon,
       run: noop,
     },
     {

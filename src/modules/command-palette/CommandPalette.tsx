@@ -18,7 +18,14 @@ import {
   SHORTCUTS,
   type ShortcutId,
 } from "@/modules/shortcuts";
-import { listBuiltinThemes, useTheme } from "@/modules/theme";
+import {
+  listBuiltinThemes,
+  listShapes,
+  SHAPE_LABELS,
+  ShapeIcon,
+  type ShapeId,
+  useTheme,
+} from "@/modules/theme";
 import {
   AlertCircleIcon,
   ArrowTurnBackwardIcon,
@@ -50,7 +57,14 @@ type Props = {
 };
 
 const SHORTCUTS_BY_ID = new Map(SHORTCUTS.map((s) => [s.id, s]));
-const THEME_PREVIEW_DELAY_MS = 140;
+/**
+ * How long the pointer may rest on a row before the shell adopts it.
+ *
+ * Both lists preview on hover - a theme repaints, a shape redraws the panes - and both wait, because
+ * walking the pointer down a list of six or thirty would otherwise rewrite the window on every row it
+ * crosses.
+ */
+const PREVIEW_DELAY_MS = 140;
 
 export const CommandPalette = memo(function CommandPalette({
   open,
@@ -64,30 +78,43 @@ export const CommandPalette = memo(function CommandPalette({
   const t = useT();
   const [query, setQuery] = useState("");
   const [value, setValue] = useState("");
-  const [page, setPage] = useState<"root" | "themes">("root");
+  const [page, setPage] = useState<"root" | "themes" | "shapes">("root");
   const userShortcuts = usePreferencesStore((s) => s.shortcuts);
-  const { themeId, customThemes, setThemeId, previewThemeId } = useTheme();
+  const {
+    themeId,
+    customThemes,
+    setThemeId,
+    previewThemeId,
+    shapePref,
+    radius,
+    setShapeId,
+    previewShape,
+  } = useTheme();
 
   const parsed = parseQuery(query);
+  // The two pickers are pages of their own: while one is open the palette offers its choices and
+  // nothing else, so the query filters that list rather than the commands.
   const inThemes = page === "themes";
+  const inShapes = page === "shapes";
+  const inPicker = inThemes || inShapes;
   const themeFilter = inThemes ? query.trim() : "";
 
   const content = useContentSearch(
     workspaceRoot,
     parsed.term,
-    open && !inThemes && parsed.mode === "content",
+    open && page === "root" && parsed.mode === "content",
   );
   const history = useCommandHistory(
     parsed.term,
-    open && !inThemes && parsed.mode === "history",
+    open && page === "root" && parsed.mode === "history",
   );
 
   const mru = useMemo(() => (open ? mruSnapshot() : {}), [open]);
 
   const rankedCommands = useMemo(() => {
-    if (inThemes || parsed.mode !== "commands") return [];
+    if (inPicker || parsed.mode !== "commands") return [];
     return rankCommands(commandItems, parsed.term, mru, t);
-  }, [commandItems, parsed.term, parsed.mode, inThemes, mru, t]);
+  }, [commandItems, parsed.term, parsed.mode, inPicker, mru, t]);
 
   const themes = useMemo(() => {
     if (!inThemes) return [];
@@ -101,12 +128,25 @@ export const CommandPalette = memo(function CommandPalette({
       .map((x) => x.t);
   }, [inThemes, themeFilter, customThemes]);
 
+  const shapes = useMemo(() => {
+    if (!inShapes) return [];
+    const all = listShapes();
+    const q = query.trim().toLowerCase();
+    if (!q) return all;
+    return all
+      .map((id) => ({ id, s: fuzzyBest(q, [t(SHAPE_LABELS[id]), id]) }))
+      .filter((x) => x.s !== null)
+      .sort((a, b) => (b.s ?? 0) - (a.s ?? 0))
+      .map((x) => x.id);
+  }, [inShapes, query, t]);
+
   const resetPalette = useCallback(() => {
     setQuery("");
     setValue("");
     setPage("root");
     previewThemeId(null);
-  }, [previewThemeId]);
+    previewShape(null);
+  }, [previewThemeId, previewShape]);
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
@@ -132,10 +172,21 @@ export const CommandPalette = memo(function CommandPalette({
     if (id === "back") return;
     const handle = window.setTimeout(
       () => previewThemeId(id),
-      THEME_PREVIEW_DELAY_MS,
+      PREVIEW_DELAY_MS,
     );
     return () => window.clearTimeout(handle);
   }, [value, inThemes, previewThemeId]);
+
+  useEffect(() => {
+    if (!inShapes || !value.startsWith("shape:")) return;
+    const id = value.slice("shape:".length);
+    if (id === "back") return;
+    const handle = window.setTimeout(
+      () => previewShape(id as ShapeId),
+      PREVIEW_DELAY_MS,
+    );
+    return () => window.clearTimeout(handle);
+  }, [value, inShapes, previewShape]);
 
   const runAfterClose = useCallback(
     (fn: () => void) => {
@@ -151,23 +202,31 @@ export const CommandPalette = memo(function CommandPalette({
     setValue("");
   }, []);
 
-  const exitThemes = useCallback(() => {
+  const enterShapes = useCallback(() => {
+    setPage("shapes");
+    setQuery("");
+    setValue("");
+  }, []);
+
+  const leavePicker = useCallback(() => {
     previewThemeId(null);
+    previewShape(null);
     setPage("root");
     setQuery("");
     setValue("");
-  }, [previewThemeId]);
+  }, [previewThemeId, previewShape]);
 
   const runCommand = useCallback(
     (item: PaletteItem) => {
       if (item.disabledReason) return;
       if (item.id === "theme.pick") return enterThemes();
+      if (item.id === "shape.pick") return enterShapes();
       if (item.id === "search.content") return setQuery("#");
       if (item.id === "history.open") return setQuery(">");
       recordUse(item.id);
       runAfterClose(item.run);
     },
-    [enterThemes, runAfterClose],
+    [enterThemes, enterShapes, runAfterClose],
   );
 
   const openContent = useCallback(
@@ -193,25 +252,35 @@ export const CommandPalette = memo(function CommandPalette({
     [setThemeId, handleOpenChange],
   );
 
+  const commitShape = useCallback(
+    (id: ShapeId) => {
+      setShapeId(id);
+      handleOpenChange(false);
+    },
+    [setShapeId, handleOpenChange],
+  );
+
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (!inThemes) return;
+      if (!inPicker) return;
       if (e.key === "Escape" || (e.key === "Backspace" && query.length === 0)) {
         e.preventDefault();
         e.stopPropagation();
-        exitThemes();
+        leavePicker();
       }
     },
-    [inThemes, query, exitThemes],
+    [inPicker, query, leavePicker],
   );
 
   const placeholder = inThemes
     ? t("palette.placeholder.themes")
-    : parsed.mode === "content"
-      ? t("palette.placeholder.content")
-      : parsed.mode === "history"
-        ? t("palette.placeholder.history")
-        : t("palette.placeholder.command");
+    : inShapes
+      ? t("palette.placeholder.shapes")
+      : parsed.mode === "content"
+        ? t("palette.placeholder.content")
+        : parsed.mode === "history"
+          ? t("palette.placeholder.history")
+          : t("palette.placeholder.command");
 
   return (
     <CommandDialog
@@ -220,6 +289,14 @@ export const CommandPalette = memo(function CommandPalette({
       title={t("palette.title")}
       description={t("palette.description")}
       className="top-1/2 w-[min(680px,calc(100vw-32px))] -translate-y-1/2"
+      // Escape leaves a picker page and closes the palette only from the commands. Without this the
+      // dialog's own capture-phase listener wins and the whole palette goes away, which is what used
+      // to happen on the theme page too - the key looked broken rather than one level up.
+      onEscapeKeyDown={(event) => {
+        if (page === "root") return;
+        event.preventDefault();
+        leavePicker();
+      }}
     >
       <Command
         shouldFilter={false}
@@ -241,7 +318,7 @@ export const CommandPalette = memo(function CommandPalette({
               <CommandGroup heading={t("palette.group.themes")}>
                 <CommandItem
                   value="theme:back"
-                  onSelect={exitThemes}
+                  onSelect={leavePicker}
                   className="text-[12.5px]"
                 >
                   <HugeiconsIcon
@@ -271,6 +348,46 @@ export const CommandPalette = memo(function CommandPalette({
                 ))}
                 {themes.length === 0 ? (
                   <StatusItem label={t("palette.noThemes")} />
+                ) : null}
+              </CommandGroup>
+            ) : inShapes ? (
+              <CommandGroup heading={t("palette.group.shapes")}>
+                <CommandItem
+                  value="shape:back"
+                  onSelect={leavePicker}
+                  className="text-[12.5px]"
+                >
+                  <HugeiconsIcon
+                    icon={ArrowTurnBackwardIcon}
+                    size={14}
+                    strokeWidth={1.75}
+                  />
+                  <span>{t("palette.back")}</span>
+                </CommandItem>
+                {/* Each row draws itself, with the corners the current radius stop gives it: the
+                    same reason the settings picker does - the words 无界 and 极简 are the only thing
+                    telling two borderless choices apart otherwise, and a picture says it faster. */}
+                {shapes.map((id) => (
+                  <CommandItem
+                    key={id}
+                    value={`shape:${id}`}
+                    onSelect={() => commitShape(id)}
+                    className="text-[12.5px]"
+                  >
+                    <ShapeIcon shape={id} radius={radius} className="shrink-0" />
+                    <span className="truncate">{t(SHAPE_LABELS[id])}</span>
+                    {id === shapePref ? (
+                      <HugeiconsIcon
+                        icon={Tick02Icon}
+                        size={14}
+                        strokeWidth={2}
+                        className="ml-auto text-muted-foreground"
+                      />
+                    ) : null}
+                  </CommandItem>
+                ))}
+                {shapes.length === 0 ? (
+                  <StatusItem label={t("palette.noMatches")} />
                 ) : null}
               </CommandGroup>
             ) : parsed.mode === "commands" ? (

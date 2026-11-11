@@ -135,6 +135,39 @@ describe("theme application", () => {
     expect(written.has("--background")).toBe(false);
     expect(written.get("--foreground")).toBe("#ffffff");
   });
+
+
+  it("does not touch the radius when a shape changes", async () => {
+    // The radius is a separate preference: a shape that cleared it would reset the user's corners on
+    // every preset change, and one that wrote it would fight the slider.
+    const { applyShape } = await loadModule();
+    applyShape("cloud");
+    expect(removed).not.toContain("--radius");
+    expect(written.has("--radius")).toBe(false);
+  });
+
+  it("lets the radius axis beat the theme, and leaves the glass terminal alone", async () => {
+    // Three axes write the same document in order: theme, then shape, then radius. The radius has to
+    // be last (a theme may spell `colors.radius`), and the shape must not take the terminal's
+    // transparency back while it works.
+    const { applyRadius, applyShape, applyTheme } = await loadModule();
+    applyTheme(
+      theme({
+        dark: variant({
+          colors: { background: "#111111", radius: "2rem" },
+        }),
+      }),
+      "dark",
+    );
+    expect(written.get("--radius")).toBe("2rem");
+    applyShape("glass");
+    applyRadius("0.25rem");
+    expect(written.get("--radius")).toBe("0.25rem");
+    expect(written.get("--terminal-background")).toBe("transparent");
+    applyShape("minimal");
+    expect(written.get("--radius")).toBe("0.25rem");
+    expect(written.get("--terminal-background")).not.toBe("transparent");
+  });
 });
 
 describe("theme surface", () => {
