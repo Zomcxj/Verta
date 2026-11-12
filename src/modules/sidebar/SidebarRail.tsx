@@ -32,6 +32,7 @@ export function SidebarRail({ activeView, onSelectView }: Props) {
 
   return (
     <div
+      data-slot="sidebar-rail"
       style={{ height: SIDEBAR_RAIL_HEIGHT }}
       className="flex shrink-0 items-stretch gap-1 border-t border-border/60 bg-foreground/[0.025] px-1.5 py-1"
     >

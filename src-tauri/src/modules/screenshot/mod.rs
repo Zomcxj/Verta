@@ -80,18 +80,25 @@ pub struct ScreenshotSaved {
     clipboard_error: Option<String>,
 }
 
-/// "Screenshot" clicked: show the overlay window so the veil comes up immediately.
+/// Show the overlay window so the veil comes up immediately.
 ///
 /// This step neither grabs the screen nor writes anything, so nothing pops.
-#[tauri::command]
-pub async fn screenshot_begin(
-    app: AppHandle,
-    state: tauri::State<'_, ScreenshotState>,
-) -> Result<(), String> {
+///
+/// One function rather than a command body, because there are two ways in and they must not drift:
+/// the page's own button and its shortcut, and the tray menu. The tray is the one that matters
+/// when the window is hidden or minimised - the grab was never what needed a focused window (it
+/// reads the screen, not the window), only a way to ask for it, and a shortcut cannot be typed
+/// into an app that is not in front. The overlay takes the focus it needs by itself.
+pub(crate) fn begin(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<ScreenshotState>();
+    begin_at(app, &state)
+}
+
+fn begin_at(app: &AppHandle, state: &ScreenshotState) -> Result<(), String> {
     // The window is created once and kept (see `ensure_overlay`): a fresh webview has
     // to load its page and boot React, which in practice means a two-to-three second
     // wait per click; kept alive, each screenshot just shows it.
-    let window = match ensure_overlay(&app) {
+    let window = match ensure_overlay(app) {
         Ok(window) => window,
         Err(e) => {
             state.0.store(false, Ordering::SeqCst);
@@ -109,6 +116,14 @@ pub async fn screenshot_begin(
         .set_focus()
         .map_err(|e| format!("无法聚焦截图窗口：{e}"))?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn screenshot_begin(
+    app: AppHandle,
+    state: tauri::State<'_, ScreenshotState>,
+) -> Result<(), String> {
+    begin_at(&app, &state)
 }
 
 /// Save clicked: hide the overlay → wait for it to leave the screen → grab → crop,

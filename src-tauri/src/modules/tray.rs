@@ -23,6 +23,38 @@ const TRAY_ID: &str = "main";
 /// there is unsaved work or a running command to warn about first.
 const QUIT_EVENT: &str = "verta:quit-requested";
 
+/// The menu's item ids.
+///
+/// Ids rather than positions: the menu is rebuilt on every language change, and a handler keyed on
+/// where an item sat would answer the wrong question the first time one was reordered.
+const MENU_SHOW: &str = "show";
+const MENU_SCREENSHOT: &str = "screenshot";
+const MENU_QUIT: &str = "quit";
+
+/// What a menu id asks the app to do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrayAction {
+    Show,
+    /// Start a region capture. Reachable while the window is hidden or minimised, which is the
+    /// point: the grab reads the screen, so it never needed the app to be in front - only a way to
+    /// ask, and a shortcut cannot be typed into a window that does not have the focus.
+    Screenshot,
+    Quit,
+}
+
+/// The action a menu id stands for, or nothing for an id this build does not know.
+///
+/// Split out so the mapping can be tested: a menu item that ships without a handler is otherwise
+/// a click that silently does nothing, which is exactly the kind of thing nobody reports.
+fn action_for(id: &str) -> Option<TrayAction> {
+    match id {
+        MENU_SHOW => Some(TrayAction::Show),
+        MENU_SCREENSHOT => Some(TrayAction::Screenshot),
+        MENU_QUIT => Some(TrayAction::Quit),
+        _ => None,
+    }
+}
+
 /// The close handler runs in Rust, while the preference lives in the webview.
 /// An atomic keeps the latest value available there without blocking the window
 /// event on IPC. It starts enabled, matching the persisted preference default.
@@ -125,10 +157,16 @@ pub fn tray_focus_main(app: AppHandle) {
     focus_main(&app);
 }
 
-fn build_menu(app: &AppHandle, show: &str, quit: &str) -> tauri::Result<Menu<tauri::Wry>> {
-    let show_item = MenuItem::with_id(app, "show", show, true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, "quit", quit, true, None::<&str>)?;
-    Menu::with_items(app, &[&show_item, &quit_item])
+fn build_menu(
+    app: &AppHandle,
+    show: &str,
+    screenshot: &str,
+    quit: &str,
+) -> tauri::Result<Menu<tauri::Wry>> {
+    let show_item = MenuItem::with_id(app, MENU_SHOW, show, true, None::<&str>)?;
+    let screenshot_item = MenuItem::with_id(app, MENU_SCREENSHOT, screenshot, true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, MENU_QUIT, quit, true, None::<&str>)?;
+    Menu::with_items(app, &[&show_item, &screenshot_item, &quit_item])
 }
 
 /// Create the tray on the first call, and relabel it on every later one.
@@ -136,8 +174,13 @@ fn build_menu(app: &AppHandle, show: &str, quit: &str) -> tauri::Result<Menu<tau
 /// Building it from the frontend's labels rather than at startup keeps a single
 /// language in the menu: there is no first paint in the wrong one.
 #[tauri::command]
-pub fn tray_set_labels(app: AppHandle, show: String, quit: String) -> Result<(), String> {
-    let menu = build_menu(&app, &show, &quit).map_err(|e| e.to_string())?;
+pub fn tray_set_labels(
+    app: AppHandle,
+    show: String,
+    screenshot: String,
+    quit: String,
+) -> Result<(), String> {
+    let menu = build_menu(&app, &show, &screenshot, &quit).map_err(|e| e.to_string())?;
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         return tray.set_menu(Some(menu)).map_err(|e| e.to_string());
     }
@@ -146,14 +189,22 @@ pub fn tray_set_labels(app: AppHandle, show: String, quit: String) -> Result<(),
         .menu(&menu)
         // A left click brings the window back; the menu belongs to the right button.
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => focus_main(app),
-            "quit" => {
+        .on_menu_event(|app, event| match action_for(event.id.as_ref()) {
+            Some(TrayAction::Show) => focus_main(app),
+            // Deliberately without showing the main window first: the picture wanted is the screen
+            // behind the app, and bringing the window forward would be a change to what is about to
+            // be photographed. The overlay takes the focus on its own.
+            Some(TrayAction::Screenshot) => {
+                if let Err(error) = crate::modules::screenshot::begin(app) {
+                    log::warn!("tray screenshot failed: {error}");
+                }
+            }
+            Some(TrayAction::Quit) => {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.emit(QUIT_EVENT, ());
                 }
             }
-            _ => {}
+            None => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
@@ -180,6 +231,24 @@ pub fn app_quit(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_menu_item_has_an_action_and_nothing_else_does() {
+        // The failure this guards against is silent: an item added to the menu without an entry
+        // here is a click that does nothing, which is reported as "the menu is broken" much later.
+        assert_eq!(action_for(MENU_SHOW), Some(TrayAction::Show));
+        assert_eq!(action_for(MENU_SCREENSHOT), Some(TrayAction::Screenshot));
+        assert_eq!(action_for(MENU_QUIT), Some(TrayAction::Quit));
+        assert_eq!(action_for(""), None);
+        assert_eq!(action_for("screenshots"), None);
+        // Three ids, three answers: a duplicate would make one of the items unreachable.
+        let ids = [MENU_SHOW, MENU_SCREENSHOT, MENU_QUIT];
+        let distinct = ids
+            .iter()
+            .filter(|id| ids.iter().filter(|other| other == id).count() == 1)
+            .count();
+        assert_eq!(distinct, ids.len());
+    }
 
     #[test]
     fn the_dot_lands_in_the_top_right_and_leaves_the_rest_alone() {

@@ -134,6 +134,14 @@ const readShell = async () =>
         paneBorderColor: paneStyle ? paneStyle.borderTopColor : null,
         paneShadow: paneStyle ? paneStyle.boxShadow : null,
         paneMargin: paneStyle ? paneStyle.marginTop : null,
+        // The sidebar's 会话/文件 rail draws a band of its own, which 无界 drops: inside a shape
+        // that has no interior edges, a strip with an edge reads as pasted on.
+        rail: (() => {
+          const node = document.querySelector('[data-slot="sidebar-rail"]');
+          if (!node) return null;
+          const s = getComputedStyle(node);
+          return { background: s.backgroundColor, borderTop: s.borderTopColor };
+        })(),
         glassLayer: root.getAttribute("data-theme-glass"),
         paneOpacity: style.getPropertyValue("--theme-pane-opacity").trim(),
         // data-vibrancy is set by the shell when the native material is actually on, so it is the
@@ -197,6 +205,9 @@ try {
 
   const baseline = await readShell();
   report.baseline = baseline;
+  // The sidebar can be collapsed, and then there is no rail to measure: say so rather than pass on
+  // an absent element.
+  report.railSeen = baseline.rail !== null;
   if (baseline.paneCount === 0) fail("no pane is on screen, so there is nothing to measure");
   // Whatever shape is in force is the user's business - this probe measures the presets, so it starts
   // by putting the default one on and using that as the reference.
@@ -211,6 +222,20 @@ try {
       fail(`choosing ${id} left the document at ${JSON.stringify(shell.shape)}`);
     }
     const expected = SHAPES[id];
+    // 无界 has no interior edges, so the sidebar's rail loses its band and its hairline; every other
+    // shape keeps both, because there the sidebar is a card that the rail has to sit inside.
+    const rail = shell.rail;
+    if (rail) {
+      const transparent = (colour) =>
+        colour === "transparent" || colour === "rgba(0, 0, 0, 0)";
+      if (id === "boundless") {
+        if (!transparent(rail.background) || !transparent(rail.borderTop)) {
+          fail(`boundless left the sidebar rail's band on: ${JSON.stringify(rail)}`);
+        }
+      } else if (transparent(rail.background)) {
+        fail(`${id} drew no band under the sidebar rail: ${JSON.stringify(rail)}`);
+      }
+    }
     if (id === "boundless") {
       // One sheet: no gutter anywhere between the regions, and the handles give up their width -
       // their `::after` hit area is what keeps them draggable, so a zero-width handle still works.
@@ -360,7 +385,7 @@ try {
     .map((id) => `${id} ${report.shapes[id].borderWidth}`)
     .join("  ");
   console.log(
-    `PASS: 形态轴真的作用在外壳上（描边宽度）——${summary}；默认（极简）不画边框；无界把三块合成一块（三处内缝 0、两个手柄 0px 但保留 ${report.shapes.boundless.handles[0]?.hitArea} 命中区）；--window-radius 全程 ${baseline.windowRadius}；glass 带 data-shape-material=native 且终端透明；跑完已还原。`,
+    `PASS: 形态轴真的作用在外壳上（描边宽度）——${summary}；默认（极简）不画边框；无界把左侧「会话/文件」那条的底色与上边线一并去掉（其余形态保留）；无界把三块合成一块（三处内缝 0、两个手柄 0px 但保留 ${report.shapes.boundless.handles[0]?.hitArea} 命中区）；--window-radius 全程 ${baseline.windowRadius}；glass 带 data-shape-material=native 且终端透明；跑完已还原。`,
   );
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {

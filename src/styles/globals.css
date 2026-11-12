@@ -316,6 +316,16 @@ html[data-shape="boundless"] [data-shell="right"] .verta-pane {
   border-end-start-radius: 0;
 }
 
+/* The rail that switches the sidebar between 会话 and 文件 draws a band of its own, and a hairline
+ * above it, to sit apart from the list - which is right when the sidebar is a card with edges of its
+ * own. 无界 is the shape that removes those edges: the three regions are one surface, so the band is
+ * the last line drawn inside it, and the rail reads as a strip pasted onto the panel. It keeps only
+ * what is a state: the chosen view's background, and the hover. */
+html[data-shape="boundless"] [data-slot="sidebar-rail"] {
+  background: transparent;
+  border-top-color: transparent;
+}
+
 /* Window vibrancy (macOS NSVisualEffectView / Windows Mica). Only the frame
  * goes translucent: panes keep `--background` so terminal and editor text
  * stays on a solid, readable surface and the terminal canvas still matches its

@@ -19,6 +19,9 @@ export function useTray(onQuitRequested: () => void): void {
   useEffect(() => {
     void invoke("tray_set_labels", {
       show: t("tray.show"),
+      // The item that exists for the window being out of the way: a shortcut needs the focus, a
+      // tray click does not.
+      screenshot: t("tray.screenshot"),
       quit: t("tray.quit"),
     }).catch((error) => {
       console.error("[verta] tray setup failed:", error);

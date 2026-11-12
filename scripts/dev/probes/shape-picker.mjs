@@ -458,17 +458,36 @@ try {
   }
 
   // Escape goes back to the command list rather than closing the palette, and drops the preview.
+  //
+  // Radix reads Escape in the capture phase and dismisses the dialog unless the content's
+  // `onEscapeKeyDown` says not yet, so what is checked here is both halves: the key arrived at the
+  // window at all (`defaultPrevented`, reported) and the page went back instead of the dialog
+  // going away.
+  await main.evaluate(`(() => {
+    window.__probeEscape = [];
+    document.addEventListener("keydown", (event) => {
+      const seen = event;
+      setTimeout(() => window.__probeEscape.push({ key: seen.key, prevented: seen.defaultPrevented }), 0);
+    }, true);
+    return true;
+  })()`);
   await sendKey("Escape", "Escape", 27);
   await sleep(400);
   const afterEscape = JSON.parse(
     await main.evaluate(`(() => JSON.stringify({
-      open: Boolean(document.getElementById("verta-command-palette-input")),
+      open: Boolean(document.querySelector("[cmdk-input]")),
       icons: document.querySelectorAll('[data-shape-icon]').length,
       shape: document.documentElement.getAttribute("data-shape"),
+      keys: window.__probeEscape ?? [],
+      focus: document.activeElement
+        ? document.activeElement.tagName + "/" + (document.activeElement.getAttribute("role") || "")
+        : null,
     }))()`),
   );
   report.palette.afterEscape = afterEscape;
-  if (!afterEscape.open) fail("Escape closed the palette instead of going back a page");
+  if (!afterEscape.open) {
+    fail(`Escape closed the palette instead of going back a page (${JSON.stringify(afterEscape)})`);
+  }
   if (afterEscape.icons !== 0) fail(`Escape left the shape page up: ${JSON.stringify(afterEscape)}`);
   if (afterEscape.shape !== report.afterMinimal.shape) {
     fail(

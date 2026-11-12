@@ -13,6 +13,18 @@ fine as plain text. **The newest day is `open` by default**; when a new day star
 swap in the new date, and drop the `open` from the day before.
 
 <details open>
+<summary><strong>2026-11-12</strong></summary>
+
+**A screenshot from the tray, and 无界 stops drawing inside itself**
+
+- `src-tauri/src/modules/tray.rs`, `src-tauri/src/modules/screenshot/mod.rs`, `src/app/hooks/useTray.ts`, `src/modules/i18n/messages.ts`: the tray menu has a 截图 item. It exists for the case the shortcut cannot cover - minimised, in the tray, or simply not in front - because only the *trigger* was ever missing: the grab reads the screen, so it never needed a focused window. The menu item and the page's own button both end in `screenshot::begin`, one function with two callers rather than two copies, and the menu ids are constants behind a small `action_for` mapping so an item that ships without a handler is a failing test instead of a click that does nothing. The item deliberately does not bring the main window forward first: the picture wanted is the screen behind the app.
+- `scripts/dev/probes/tray-screenshot.mjs`: hides the main window, starts the capture through the function the tray item calls, drags a selection on the overlay with real mouse input and saves it, then checks the `screenshot:saved` payload, the file on disk, the pixels (a flat picture is what the grey veil or a failed grab looks like) and deletes what it caused. The tray click itself cannot be synthesised - an icon nobody pinned lives in the overflow flyout, the same reason `tray-return.mjs` drives the commands - so the menu-to-action mapping is covered by a Rust test and the label round-trip is checked here. Two things it had to learn on the way: the main window is `http://tauri.localhost/` exactly, because the capture overlay is served from the same origin and has none of the window permissions; and the overlay is one window kept alive between captures, so a leftover selection has to be cleared with Escape and the capture re-armed, or the drag moves the old box instead of drawing a new one.
+- `src/modules/sidebar/SidebarRail.tsx`, `src/styles/globals.css`: in 无界 the sidebar's 会话/文件 rail no longer paints its own band or the hairline above it. The band is there so the switcher sits apart from the list, which is right while the sidebar is a card with edges of its own; 无界 is the shape that removes those edges, so the band was the last line drawn inside one surface and the rail read as a strip pasted onto the panel. What is state stays: the chosen view's background and the hover. The other shapes keep the band.
+- `scripts/dev/probes/theme-shape.mjs`: reads the rail's background and top border with the rest of the shell and refuses a 无界 that still draws them - and a shape that removed the band where it belongs. A collapsed sidebar has no rail, which is reported rather than passed over.
+
+</details>
+
+<details>
 <summary><strong>2026-11-11</strong></summary>
 
 **Switching shape from the palette, and a drawing you can read**
