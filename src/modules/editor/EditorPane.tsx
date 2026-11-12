@@ -30,7 +30,7 @@ import {
 import { useT } from "@/modules/i18n";
 import { MarkdownViewToggle, toggleStopClass, ViewToggleBar } from "@/modules/markdown";
 import { toast } from "sonner";
-import { DiagramZoomControls } from "@/components/mermaid-diagram";
+import { ZoomControls } from "@/components/mermaid-diagram";
 import { SidePreview, type ViewportMark, sidePreviewKind } from "./SidePreview";
 import { CsvPreview } from "./CsvPreview";
 import { DocxPreview, type DocxPreviewHandle } from "./DocxPreview";
@@ -792,10 +792,7 @@ export const EditorPane = memo(
               onChange={(mode) => setDiagramRendered(mode === "rendered")}
             >
               {diagramRendering ? (
-                <DiagramZoomControls
-                  zoom={diagramZoom}
-                  onChange={setDiagramZoom}
-                />
+                <ZoomControls zoom={diagramZoom} onChange={setDiagramZoom} />
               ) : null}
             </MarkdownViewToggle>
           ) : null}

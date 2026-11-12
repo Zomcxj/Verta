@@ -116,10 +116,20 @@ describe("the diagram's zoom", () => {
     // The bar is where a control of the view goes - the same corner the table and the HTML page put
     // theirs in - and it is only offered while the diagram is the stop being shown.
     const toggleAt = pane.indexOf("mode={diagramRendering ?");
-    const controlsAt = pane.indexOf("<DiagramZoomControls");
+    const controlsAt = pane.indexOf("<ZoomControls");
     expect(toggleAt).toBeGreaterThan(-1);
     expect(controlsAt).toBeGreaterThan(toggleAt);
     expect(controlsAt).toBeLessThan(pane.indexOf("<CodeMirror"));
+  });
+
+  it("drags with the shared surface, and only once the drawing outgrows its room", () => {
+    expect(diagram).toMatch(/<PanZoomSurface/);
+    expect(diagram).toMatch(/draggable=\{overflows\}/);
+    // Offering a drag on a drawing that already fits would promise movement that cannot happen.
+    expect(diagram).toMatch(/drawing\.width > room\.width \+ 1 \|\| drawing\.height > room\.height \+ 1/);
+    // The svg is still sized from its viewBox; the surface must not transform it.
+    expect(diagram).toMatch(/applyDiagramZoom\(svg, zoom\)/);
+    expect(diagram).not.toMatch(/style\.transform/);
   });
 
   it("sizes the svg the library handed back, and says so on the host", () => {
@@ -130,24 +140,26 @@ describe("the diagram's zoom", () => {
     expect(diagram).toMatch(/\[zoom, drawn\]/);
   });
 
-  it("takes ctrl+wheel itself, because React's wheel listener is passive", () => {
-    // With a passive listener `preventDefault` does nothing and the webview zooms the whole window.
-    expect(diagram).toMatch(
-      /addEventListener\("wheel", onWheel, \{ passive: false \}\)/,
-    );
-    expect(diagram).toMatch(/steppedZoom\(zoom, event\.deltaY < 0 \? 1 : -1\)/);
+  it("hands the wheel to the surface, which takes it non-passively", () => {
+    // The gesture lives in `pan-zoom` now (see its own test): one implementation for a diagram and a
+    // picture, and one place that knows React's wheel listener is passive.
+    expect(diagram).toMatch(/<PanZoomSurface/);
+    expect(diagram).toMatch(/onZoomChange=\{onZoomChange\}/);
+    expect(diagram).not.toMatch(/addEventListener\("wheel"/);
   });
 
   it("gives a fence its own magnification, in the block's header", () => {
     expect(chatCode).toMatch(
-      /actions=\{<DiagramZoomControls zoom=\{zoom\} onChange=\{setZoom\} \/>\}/,
+      /actions=\{<ZoomControls zoom=\{zoom\} onChange=\{setZoom\} \/>\}/,
     );
   });
 });
 
 describe("the diagram reader", () => {
-  it("scrolls rather than shrinking a tall diagram", () => {
-    expect(preview).toMatch(/overflow-auto/);
+  it("scrolls and drags rather than shrinking a tall diagram", () => {
+    // The scrolling moved into the shared surface (it is the scrollport); what the reader still owns
+    // is that the drawing is given the whole pane and padded, rather than being scaled to fit.
     expect(preview).toMatch(/<MermaidDiagram\s+code=\{content\}/);
+    expect(preview).toMatch(/className="h-full p-6"/);
   });
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { PanZoomSurface } from "@/components/pan-zoom";
 import {
   mermaidThemeVariables,
   readDiagramPalette,
@@ -56,6 +57,15 @@ export function MermaidDiagram({
    * starts at the size mermaid wrote. This counter is how the sizing effect hears about the second.
    */
   const [drawn, setDrawn] = useState(0);
+  /**
+   * Whether the drawing is currently bigger than the room it is in, in either axis.
+   *
+   * A drag only makes sense then, and so does the grab cursor - offering either on a drawing that
+   * already fits would promise movement that cannot happen. Watched rather than computed: the room
+   * changes when a divider is dragged or the window resized, and neither of those passes through
+   * this component.
+   */
+  const [overflows, setOverflows] = useState(false);
   // Mermaid builds element ids, `url(#...)` references and style rules out of this one, so it has to
   // be unique per diagram on the page and stable across re-renders.
   const id = `verta-diagram-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
@@ -130,29 +140,43 @@ export function MermaidDiagram({
     if (svg) applyDiagramZoom(svg, zoom);
   }, [zoom, drawn]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `drawn` and `zoom` both change the size being measured
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !onZoomChange) return;
-    // Ctrl/⌘ + wheel, the gesture a diagram viewer is expected to have. Attached by hand and marked
-    // non-passive: React's own wheel listener is passive, so `preventDefault` there would do nothing
-    // and the webview would zoom the whole window instead of the drawing.
-    const onWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
-      event.preventDefault();
-      onZoomChange(steppedZoom(zoom, event.deltaY < 0 ? 1 : -1));
+    if (!host) return;
+    const measure = () => {
+      const svg = host.querySelector("svg");
+      if (!svg) {
+        setOverflows(false);
+        return;
+      }
+      const drawing = svg.getBoundingClientRect();
+      const room = host.getBoundingClientRect();
+      setOverflows(drawing.width > room.width + 1 || drawing.height > room.height + 1);
     };
-    host.addEventListener("wheel", onWheel, { passive: false });
-    return () => host.removeEventListener("wheel", onWheel);
-  }, [zoom, onZoomChange]);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(host);
+    const svg = host.querySelector("svg");
+    if (svg) observer.observe(svg);
+    return () => observer.disconnect();
+  }, [drawn, zoom]);
 
   return (
     <>
-      <div
-        ref={hostRef}
-        data-slot="mermaid-diagram"
-        data-zoom={zoom}
-        className={cn("min-w-0 [&_svg]:max-w-full", className)}
-      />
+      <PanZoomSurface
+        zoom={zoom}
+        onZoomChange={onZoomChange}
+        draggable={overflows}
+        className={cn("min-w-0", className)}
+      >
+        <div
+          ref={hostRef}
+          data-slot="mermaid-diagram"
+          data-zoom={zoom}
+          className="min-w-0 [&_svg]:max-w-full"
+        />
+      </PanZoomSurface>
       {error ? (
         <div data-slot="mermaid-error" className="min-w-0 px-3 py-2">
           <p className="text-[11.5px] text-destructive">
@@ -171,13 +195,14 @@ export function MermaidDiagram({
 }
 
 /**
- * The zoom control that goes with a diagram.
+ * The zoom control that goes with a diagram or a picture.
  *
- * A component of its own rather than part of the drawing, because the control belongs beside the
- * other controls of whatever is showing the diagram: the file's view switch, or the fence's header.
- * The percentage is the reset - one place that says where the drawing is and takes it back to fit.
+ * A component of its own rather than part of either, because the control belongs beside the other
+ * controls of whatever is showing the thing: the file's view switch, a fence's header, a picture's
+ * own toolbar. The percentage is the reset - one place that says where the content is and takes it
+ * back to fit.
  */
-export function DiagramZoomControls({
+export function ZoomControls({
   zoom,
   onChange,
   className,

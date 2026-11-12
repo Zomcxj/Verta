@@ -24,7 +24,7 @@ import {
   isHighlightable,
 } from "./chat-code-lezer";
 import { Shimmer } from "./shimmer";
-import { DiagramZoomControls, MermaidDiagram } from "./mermaid-diagram";
+import { MermaidDiagram, ZoomControls } from "./mermaid-diagram";
 
 // True while the parent message is still streaming from the model. We hide
 // fenced-code contents during this phase: parsing partial code is wasted
@@ -115,13 +115,13 @@ function MermaidBlock({ code }: { code: string }) {
     <BlockChrome
       label="mermaid"
       code={code}
-      actions={<DiagramZoomControls zoom={zoom} onChange={setZoom} />}
+      actions={<ZoomControls zoom={zoom} onChange={setZoom} />}
     >
       <MermaidDiagram
         code={code}
         zoom={zoom}
         onZoomChange={setZoom}
-        className="grid items-center p-3 [justify-items:safe_center]"
+        className="p-3"
       />
     </BlockChrome>
   );
