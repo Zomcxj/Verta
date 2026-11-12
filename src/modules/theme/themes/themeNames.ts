@@ -31,7 +31,7 @@ const ZH: Record<string, Entry> = {
   },
   "carbon-weave": {
     name: "Carbon Fiber",
-    description: "石墨底上的碳纤维网格。",
+    description: "石墨配银青色，碳纤维的配色。",
   },
   "verta-default": {
     name: "Terax",
