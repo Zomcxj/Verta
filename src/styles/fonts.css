@@ -48,3 +48,42 @@
   font-weight: 700;
   src: url('@fontsource/jetbrains-mono/files/jetbrains-mono-cyrillic-700-normal.woff2') format('woff2');
 }
+/* The two italic faces, for the two weights the app asks for.
+ *
+ * Not a nicety: the terminal keys each glyph on bold and italic separately
+ * (`WebGlGlyphAtlas`) and composes the string it rasterises as
+ * `${italic ? "italic " : ""}${bold ? "700" : weight}`, so 400 and 700 in both
+ * styles are four states it really draws - `\e[1;3m` is the fourth. Without the
+ * faces the browser shears the upright one, which is a different picture (and a
+ * different typeface: the real italic has a single-storey a and an f that
+ * descends). The editor asks for italics too, wherever a theme styles emphasis.
+ *
+ * Same package, same subsets as the upright rules above. */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/jetbrains-mono/files/jetbrains-mono-cyrillic-400-italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/jetbrains-mono/files/jetbrains-mono-cyrillic-700-italic.woff2') format('woff2');
+}

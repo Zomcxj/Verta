@@ -63,9 +63,14 @@ export function ensureMonoFontsLoaded(): Promise<void> {
     monoReady = Promise.resolve();
     return monoReady;
   }
+  // Both weights in both styles: the terminal rasterises its glyph atlas as soon as a session
+  // starts, and a face that has not arrived by then bakes the browser's sheared stand-in into the
+  // atlas - which stays there, because the atlas is keyed per cell and only rebuilt on demand.
   monoReady = Promise.allSettled([
     document.fonts.load('400 14px "JetBrains Mono"'),
     document.fonts.load('700 14px "JetBrains Mono"'),
+    document.fonts.load('italic 400 14px "JetBrains Mono"'),
+    document.fonts.load('italic 700 14px "JetBrains Mono"'),
   ]).then(() => undefined);
   return monoReady;
 }

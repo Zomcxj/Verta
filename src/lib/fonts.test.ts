@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FALLBACK_CHAIN, resolveFontFamily } from "./fonts";
 
@@ -51,15 +52,20 @@ describe("terminal font availability", () => {
   });
 
   it("loads text fonts before canvas rasterization, only once per window", async () => {
-    const load = vi.fn(async () => []);
+    const load = vi.fn(async (_spec: string) => []);
     vi.stubGlobal("document", { fonts: { load } });
     const { ensureMonoFontsLoaded } = await import("./fonts");
     const first = ensureMonoFontsLoaded();
     expect(ensureMonoFontsLoaded()).toBe(first);
     await first;
+    // Both weights in both styles: the terminal bakes a rasterised glyph into its atlas, so a face
+    // that arrives late leaves the browser's sheared stand-in in the picture.
     expect(load).toHaveBeenCalledWith('400 14px "JetBrains Mono"');
     expect(load).toHaveBeenCalledWith('700 14px "JetBrains Mono"');
-    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenCalledWith('italic 400 14px "JetBrains Mono"');
+    expect(load).toHaveBeenCalledWith('italic 700 14px "JetBrains Mono"');
+    expect(load).toHaveBeenCalledTimes(4);
+    expect(load.mock.calls.filter(([spec]) => spec.includes("italic")).length).toBe(2);
   });
 });
 
@@ -184,5 +190,44 @@ describe("resolveFontStack", () => {
     const { resolveFontStack } = await import("./fonts");
     expect(resolveFontStack("Consolas")).toBe(`"Consolas", ${FALLBACK}`);
     expect(resolveFontStack("")).toBe(FALLBACK);
+  });
+});
+
+describe("the JetBrains Mono faces the app asks for", () => {
+  /**
+   * The renderer composes `${italic ? "italic " : ""}${bold ? "700" : weight}`, and the glyph atlas
+   * keys a cell on bold and italic independently, so these four are four states the terminal really
+   * draws. A stylesheet that ships only the upright pair leaves the browser to shear the upright
+   * outline for the other two, which is a different typeface rather than a missing nicety.
+   */
+  it("declares both weights in both styles, for both subsets", () => {
+    const css = readFileSync(new URL("../styles/fonts.css", import.meta.url), "utf8");
+    const faces = [...css.matchAll(/@font-face\s*\{([^}]*)\}/g)].map((match) => match[1]);
+    const jetbrains = faces.filter((face) => face.includes("'JetBrains Mono'"));
+    const declared = jetbrains.map((face) => {
+      const style = /font-style:\s*([a-z]+)/.exec(face)?.[1];
+      const weight = /font-weight:\s*(\d+)/.exec(face)?.[1];
+      const subset = /jetbrains-mono-([a-z]+)-\d+-\w+\.woff2/.exec(face)?.[1];
+      return { style, weight, subset };
+    });
+    for (const style of ["normal", "italic"]) {
+      for (const weight of ["400", "700"]) {
+        for (const subset of ["latin", "cyrillic"]) {
+          expect(
+            declared.some(
+              (face) => face.style === style && face.weight === weight && face.subset === subset,
+            ),
+            `${style} ${weight} ${subset} is missing`,
+          ).toBe(true);
+        }
+      }
+    }
+    // And the faces load: the file each rule points at is in the package the app depends on.
+    for (const face of jetbrains) {
+      const file = /url\('([^']+)'\)/.exec(face)?.[1];
+      if (!file) throw new Error("a face with no file");
+      const path = file.replace("@fontsource/", "node_modules/@fontsource/");
+      expect(existsSync(new URL(`../../${path}`, import.meta.url)), `${path} is missing`).toBe(true);
+    }
   });
 });
