@@ -31,6 +31,7 @@ import { useT } from "@/modules/i18n";
 import { MarkdownViewToggle, toggleStopClass, ViewToggleBar } from "@/modules/markdown";
 import { toast } from "sonner";
 import { ZoomControls } from "@/components/mermaid-diagram";
+import { PanZoomSurface } from "@/components/pan-zoom";
 import { SidePreview, type ViewportMark, sidePreviewKind } from "./SidePreview";
 import { CsvPreview } from "./CsvPreview";
 import { DocxPreview, type DocxPreviewHandle } from "./DocxPreview";
@@ -57,6 +58,7 @@ import {
   resolveFormatter,
   runExternalFormatter,
 } from "./lib/externalFormat";
+import { imageScale } from "./lib/imageScale";
 import { detectIndentUnit } from "./lib/indent";
 import { type LanguageResult, resolveLanguage } from "./lib/languageResolver";
 import { FORCE_READ_LIMIT, useDocument } from "./lib/useDocument";
@@ -918,9 +920,12 @@ export const EditorPane = memo(
 );
 
 /**
- * A picture opened as a file. Fits the window by default so a huge screenshot
- * is readable at a glance, and 1:1 on request for checking detail; the original
- * pixel size is shown either way so it is obvious what is being looked at.
+ * A picture opened as a file.
+ *
+ * Fits the window by default so a huge screenshot is readable at a glance, 1:1 on request for
+ * checking detail, and any magnification in between or beyond - the same steps and the same control
+ * a diagram uses. The original pixel size is shown either way, so it is obvious what is being looked
+ * at, and a picture bigger than the pane drags with the left button.
  */
 function ImagePreview({
   src,
@@ -933,6 +938,8 @@ function ImagePreview({
 }) {
   const t = useT();
   const [fit, setFit] = useState(true);
+  /** A magnification over whichever stop is on; 1 is "that stop as it is". */
+  const [zoom, setZoom] = useState(1);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
   const [failed, setFailed] = useState(false);
@@ -958,15 +965,9 @@ function ImagePreview({
     return () => observer.disconnect();
   }, []);
 
-  /**
-   * Fit scales the picture to the pane, up as well as down. It used to be capped at the
-   * picture's own size, which made the two modes draw the same pixels whenever the pane was
-   * bigger than the picture, so the line above it was the only way to tell which one was on.
-   */
-  const scale =
-    fit && size && box && size.w > 0 && size.h > 0
-      ? Math.min(box.w / size.w, box.h / size.h)
-      : null;
+  // `imageScale` holds the rule and its reasons (fit scales up as well as down, 1:1 means the
+  // picture's own pixels, and an unknown size answers `null` rather than drawing at 1).
+  const scale = imageScale({ fit, natural: size, box, zoom });
   // Floored, so a rounding error cannot push the picture past the pane and raise a scrollbar.
   const drawn =
     scale !== null && size !== null && box !== null
@@ -996,23 +997,31 @@ function ImagePreview({
             {size.w} x {size.h}
           </span>
         )}
-        <button
-          type="button"
-          onClick={() => setFit((was) => !was)}
-          className="ml-auto shrink-0 cursor-pointer rounded px-1.5 py-0.5 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-        >
-          {fit ? t("editor.image.originalSize") : t("editor.image.fitToWindow")}
-        </button>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          <ZoomControls zoom={zoom} onChange={setZoom} />
+          <button
+            type="button"
+            onClick={() => {
+              // Either stop is a fresh look: carrying a magnification across would make "fit" not
+              // fit and "1:1" not 1:1.
+              setFit((was) => !was);
+              setZoom(1);
+            }}
+            className="shrink-0 cursor-pointer rounded px-1.5 py-0.5 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+          >
+            {fit ? t("editor.image.originalSize") : t("editor.image.fitToWindow")}
+          </button>
+        </span>
       </div>
-      {/* This is the scrollport. Centring is `safe`: plain centring aligns an overflowing
-          picture in the middle of its own box, which pushes its leading edge outside the
-          scrollable range so the left of a picture wider than the pane can never be
-          reached. `safe` centres while the picture fits and starts it at the edge when it
-          does not, so every part of it is scrollable to. */}
-      <div
-        ref={viewport}
-        className="flex min-h-0 w-full flex-1 overflow-auto"
-        style={{ alignItems: "safe center", justifyContent: "safe center" }}
+      {/* The scrollport, and the drag: both come from the shared surface, which centres with
+          `safe` in both axes (plain centring puts the leading edge of an overflowing picture
+          outside the scrollable range, so its left could never be reached) and drags by moving the
+          scroll offsets rather than by transforming the picture. */}
+      <PanZoomSurface
+        zoom={zoom}
+        onZoomChange={setZoom}
+        draggable={drawn !== null && box !== null && (drawn.w > box.w + 1 || drawn.h > box.h + 1)}
+        className="items-center justify-center"
       >
         <img
           src={src}
@@ -1041,7 +1050,7 @@ function ImagePreview({
             backgroundSize: "20px 20px",
           }}
         />
-      </div>
+      </PanZoomSurface>
     </div>
   );
 }
