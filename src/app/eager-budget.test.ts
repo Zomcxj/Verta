@@ -19,6 +19,9 @@ const HEAVY = [
   // The Catppuccin icon set (~300 kB). Only `explorer/lib/iconEngine.ts` may
   // import it, and only behind the dynamic import in `iconResolver.ts`.
   "@iconify-json",
+  // The diagram renderer. Only `components/mermaid-diagram.tsx` may reach it,
+  // and only behind its dynamic import.
+  "mermaid",
 ];
 
 function heavyEagerHits(entry: string): string[] {

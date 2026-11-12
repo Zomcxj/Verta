@@ -201,7 +201,7 @@ describe("built startup graph", () => {
     // The in-app agent is gone, so the chunks it needed (the AI SDK and
     // Streamdown) are not built at all: asserting they exist would pin code this
     // fork deleted. What remains heavy still has to stay off the startup path.
-    for (const stem of ["codemirror", "iconEngine"]) {
+    for (const stem of ["codemirror", "iconEngine", "mermaid"]) {
       const file = chunks.find((f) => chunkName(f) === stem);
       expect(file, `${stem} chunk should be emitted`).toBeDefined();
       expect(startup.has(`assets/${file}`), `${stem} must not be startup`).toBe(

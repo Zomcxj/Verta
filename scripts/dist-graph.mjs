@@ -28,6 +28,7 @@ export const FORBIDDEN_CHUNK_PATTERNS = [
   /^streamdown$/,
   /^codemirror$/,
   /^cm-(?:lang|legacy)-/,
+  /^mermaid$/,
 ];
 
 /**
@@ -60,6 +61,9 @@ export const FORBIDDEN_PACKAGES = [
   /^@iconify-json\//,
   /^(?:motion|framer-motion|motion-dom|motion-utils)$/,
   /^(?:@xterm\/|xterm)/,
+  // The diagram renderer: reached only from `MermaidDiagram`'s dynamic import, and large enough
+  // that a preloaded copy would be visible in every launch.
+  /^mermaid$/,
 ];
 
 // `import {a as b} from "./x.js"`, `import "./x.js"`, `export * from "./x.js"`,

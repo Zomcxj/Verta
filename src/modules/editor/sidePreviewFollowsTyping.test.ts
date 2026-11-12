@@ -46,10 +46,14 @@ describe("the side preview follows typing", () => {
     expect(effect).toContain("[sideVisible, subscribeBuffer]");
   });
 
-  it("has no other consumer of the subscription", () => {
-    // One consumer is the whole design: the channel exists for the preview, and a second caller
-    // would mean the cost of re-rendering per keystroke is being paid somewhere unexpected. The
-    // three mentions here are the destructuring, the call and the effect's dependency list.
-    expect(pane.split("subscribeBuffer").length - 1).toBe(3);
+  it("has one consumer per live surface, and no more", () => {
+    // Each consumer pays a re-render per keystroke while it is mounted, so a new caller has to be a
+    // surface that is on screen and is meant to follow typing - a third one would mean that cost is
+    // being paid somewhere nobody asked for. The two are the side column and the diagram stop; both
+    // are guarded by their own visibility flag (asserted above and below).
+    const calls = [...pane.matchAll(/return subscribeBuffer\((\w+)\)/g)].map((m) => m[1]);
+    expect(calls.sort()).toEqual(["setDiagramText", "setPreviewText"]);
+    expect(pane).toContain("if (!sideVisible) return;");
+    expect(pane).toContain("if (!diagramRendering) return;");
   });
 });

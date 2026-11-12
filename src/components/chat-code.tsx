@@ -24,6 +24,7 @@ import {
   isHighlightable,
 } from "./chat-code-lezer";
 import { Shimmer } from "./shimmer";
+import { DiagramZoomControls, MermaidDiagram } from "./mermaid-diagram";
 
 // True while the parent message is still streaming from the model. We hide
 // fenced-code contents during this phase: parsing partial code is wasted
@@ -87,11 +88,43 @@ export function ChatCodeBlock({ code, lang }: ChatCodeBlockProps) {
     return <GeneratingPlaceholder label={label} />;
   }
 
+  // A ```mermaid fence is a diagram, drawn in the space the code block would have taken. Its source
+  // stays reachable through the block's own copy button, and a fence that does not parse falls back
+  // to the source inside the same frame (see `MermaidDiagram`) rather than to nothing at all.
+  if (label === "mermaid") {
+    return <MermaidBlock code={code} />;
+  }
+
   if (SHELL_LANGS.has(label)) {
     return <CommandCard code={code} lang={label} />;
   }
 
   return <FinalizedCodeBlock code={code} lang={label} />;
+}
+
+/**
+ * A ```mermaid fence: the diagram, with its own magnification.
+ *
+ * The zoom lives here rather than in `ChatCodeBlock` because it belongs to this drawing: a message
+ * with two diagrams can be zoomed in one of them, and a re-render of the message must not take the
+ * magnification away.
+ */
+function MermaidBlock({ code }: { code: string }) {
+  const [zoom, setZoom] = useState(1);
+  return (
+    <BlockChrome
+      label="mermaid"
+      code={code}
+      actions={<DiagramZoomControls zoom={zoom} onChange={setZoom} />}
+    >
+      <MermaidDiagram
+        code={code}
+        zoom={zoom}
+        onZoomChange={setZoom}
+        className="grid items-center p-3 [justify-items:safe_center]"
+      />
+    </BlockChrome>
+  );
 }
 
 function GeneratingPlaceholder({ label }: { label: string }) {
@@ -112,10 +145,13 @@ function BlockChrome({
   label,
   code,
   children,
+  actions,
 }: {
   label: string;
   code: string;
   children: React.ReactNode;
+  /** Controls that belong to what the block drew - the diagram's zoom, for one. */
+  actions?: React.ReactNode;
 }) {
   return (
     <div className="not-prose my-2 overflow-hidden rounded-lg border border-border/50 bg-muted/30">
@@ -123,7 +159,10 @@ function BlockChrome({
         <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
           {label}
         </span>
-        <CopyButton text={code} />
+        <span className="flex items-center gap-1.5">
+          {actions}
+          <CopyButton text={code} />
+        </span>
       </div>
       <div className="overflow-x-auto">{children}</div>
     </div>

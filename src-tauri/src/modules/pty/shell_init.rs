@@ -197,6 +197,23 @@ fn apply_common(
             }
         }
     }
+    #[cfg(windows)]
+    {
+        // A shell is not handed this process's directory as `PWD`.
+        //
+        // Both are the *launcher's* directories, not the pane's: every pane gets the directory we
+        // choose for it below, and a POSIX shell works `PWD` out from there itself. Leaving them in
+        // is not neutral, because the spelling survives into the prompt - Git-Bash draws it from
+        // `$PWD`, and bash prefers an inherited value whenever it names the directory it was started
+        // in. MSYS rewrites path-shaped variables on the way into a native process, so launching the
+        // app from Git-Bash turns `PWD=/c/Users/x` into `C:/Users/x`, and a pane whose directory
+        // happens to be that one then draws `C:/Users/x` where it drew `~`. Measured: the same
+        // launch, two panes - the one at the launch directory came out Windows-spelled, the one at
+        // another directory came out `/d/project`, i.e. the spelling was the inherited value and not
+        // a decision of the shell.
+        cmd.env_remove("PWD");
+        cmd.env_remove("OLDPWD");
+    }
     ensure_utf8_locale(cmd);
 
     let resolved_cwd = cwd
@@ -1195,5 +1212,36 @@ mod tests {
                 .and_then(|path| std::env::split_paths(path).next()),
             Some(std::path::PathBuf::from("/app/bin"))
         );
+    }
+
+    /// The spelling in a Git-Bash prompt is whatever `PWD` says, so what a shell is handed here is
+    /// what the user reads.
+    ///
+    /// An inherited `PWD` describes the directory *this* process was launched from rather than the
+    /// pane's, and Windows hands it over rewritten: MSYS converts path-shaped variables on the way
+    /// into a native process, so `pnpm tauri dev` from Git-Bash puts `C:/Users/x` where the shell had
+    /// `/c/Users/x` and a pane at that same directory drew the Windows spelling instead of `~`.
+    #[test]
+    fn a_shell_is_not_handed_this_process_directory_as_pwd() {
+        let mut command = CommandBuilder::new("shell");
+        command.env("PWD", "C:/somewhere/else");
+        command.env("OLDPWD", "D:/before");
+        apply_common(&mut command, None, false, None);
+
+        #[cfg(windows)]
+        {
+            assert_eq!(command.get_env("PWD"), None);
+            assert_eq!(command.get_env("OLDPWD"), None);
+        }
+        // Off Windows nothing rewrites the spelling and `PWD` really is the shell's own answer about
+        // itself, so it is left alone.
+        #[cfg(not(windows))]
+        {
+            assert_eq!(
+                command.get_env("PWD"),
+                Some(OsStr::new("C:/somewhere/else"))
+            );
+            assert_eq!(command.get_env("OLDPWD"), Some(OsStr::new("D:/before")));
+        }
     }
 }

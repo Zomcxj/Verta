@@ -66,6 +66,18 @@ function resolve(el: HTMLDivElement, varName: string): string {
   return getComputedStyle(el).color;
 }
 
+/**
+ * A theme variable's value as the webview computed it (`rgb()`, `rgba()`, `oklab()`, `oklch()`).
+ *
+ * The probe rather than `getComputedStyle(document.documentElement).getPropertyValue`: a custom
+ * property comes back as the token list that was declared which is only *sometimes* a colour the
+ * canvas or a diagram renderer can read, while `color` is always resolved to one the browser chose
+ * to serialize.
+ */
+export function readCssColorVar(varName: string): string {
+  return resolve(getProbe(), varName);
+}
+
 export function readTerminalTokens(): TerminalTokens {
   const el = getProbe();
   const out = {} as TerminalTokens;

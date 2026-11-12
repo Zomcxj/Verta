@@ -125,6 +125,10 @@ function lazyChunk(id: string): string | null {
   if (pkg === "streamdown" || pkg.startsWith("@streamdown/"))
     return "streamdown";
 
+  // Mermaid is a diagram renderer with its own layout engines; nothing on the startup path can use
+  // it. Pinned to one named chunk so no eager chunk can absorb it and `dist-budget` can name it.
+  if (pkg === "mermaid") return "mermaid";
+
   return null;
 }
 

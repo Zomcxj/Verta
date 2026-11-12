@@ -30,9 +30,11 @@ import {
 import { useT } from "@/modules/i18n";
 import { MarkdownViewToggle, toggleStopClass, ViewToggleBar } from "@/modules/markdown";
 import { toast } from "sonner";
+import { DiagramZoomControls } from "@/components/mermaid-diagram";
 import { SidePreview, type ViewportMark, sidePreviewKind } from "./SidePreview";
 import { CsvPreview } from "./CsvPreview";
 import { DocxPreview, type DocxPreviewHandle } from "./DocxPreview";
+import { MermaidPreview } from "./MermaidPreview";
 import { PptxPreview } from "./PptxPreview";
 import { XlsxPreview } from "./XlsxPreview";
 import { htmlPreviewUrl } from "./htmlPreviewUrl";
@@ -210,15 +212,45 @@ export const EditorPane = memo(
      * something anyone reads as text - which is what "unreadable" looked like from the outside.
      */
     const [csvRendered, setCsvRendered] = useState(true);
+    /**
+     * A `.mmd` / `.mermaid` opens as the diagram it is.
+     *
+     * The source is one stop away and still editable. Unlike the table and the HTML page this one
+     * draws from the buffer rather than from the file on disk, so it is offered while the file is
+     * dirty too: a diagram of what was last saved is not what someone editing a diagram wants to
+     * look at.
+     */
+    const [diagramRendered, setDiagramRendered] = useState(true);
+    /** 1 is "fit the pane, up to the drawing's own width"; the control sits beside the view switch. */
+    const [diagramZoom, setDiagramZoom] = useState(1);
     const fileExt = path.split(".").pop()?.toLowerCase() ?? "";
     const isCsv = fileExt === "csv" || fileExt === "tsv";
     const isHtml = fileExt === "html" || fileExt === "htm";
+    const isDiagram = fileExt === "mmd" || fileExt === "mermaid";
     // Unsaveable edits come first: what the frame shows is the file on disk, so a dirty buffer has
     // to fall back to the source rather than preview the text that was last written.
     const htmlRendering = isHtml && htmlRendered && !dirty;
     // Same rule as the HTML stop: the table shows the file on disk, so a dirty buffer falls back to
     // the source rather than to a table of what was last written.
     const csvRendering = isCsv && csvRendered && !dirty;
+    const diagramRendering = isDiagram && diagramRendered;
+    /**
+     * The diagram's source, live.
+     *
+     * A `.mmd` draws from the buffer, not from `doc.content`: the document state only moves when a
+     * file is loaded or reloaded, and a diagram that kept drawing the file as it was on disk while
+     * the editor next to it showed something else is the exact bug the side preview already fixed by
+     * subscribing. Subscribed only while the render stop is selected.
+     */
+    const [diagramText, setDiagramText] = useState(
+      doc.status === "ready" ? doc.content : "",
+    );
+    const readyText = doc.status === "ready" ? doc.content : "";
+    useEffect(() => {
+      if (!diagramRendering) return;
+      setDiagramText(readyText);
+      return subscribeBuffer(setDiagramText);
+    }, [diagramRendering, subscribeBuffer, readyText]);
     const toggleSide = useCallback(() => setSideOpen((open) => !open), []);
     // A different file starts collapsed again: the setting is per view, and
     // carrying it over would silently reflow a file the user did not ask for.
@@ -751,6 +783,22 @@ export const EditorPane = memo(
               renderedHint={tr("markdown.saveToPreview")}
             />
           ) : null}
+          {isDiagram && !renderToggle ? (
+            // No `renderedDisabled`: this stop draws from the buffer, so a dirty file is the case it
+            // exists for rather than one it has to refuse. The zoom belongs in this bar rather than
+            // floating over the drawing: it is a control of the view, like the switch beside it.
+            <MarkdownViewToggle
+              mode={diagramRendering ? "rendered" : "raw"}
+              onChange={(mode) => setDiagramRendered(mode === "rendered")}
+            >
+              {diagramRendering ? (
+                <DiagramZoomControls
+                  zoom={diagramZoom}
+                  onChange={setDiagramZoom}
+                />
+              ) : null}
+            </MarkdownViewToggle>
+          ) : null}
           {pendingDraft ? (
             // A draft from an interrupted session: a narrow bar that neither blocks
             // editing nor changes the file on its own.
@@ -827,6 +875,12 @@ export const EditorPane = memo(
             />
           ) : csvRendering ? (
             <CsvPreview path={path} />
+          ) : diagramRendering ? (
+            <MermaidPreview
+              content={diagramText}
+              zoom={diagramZoom}
+              onZoomChange={setDiagramZoom}
+            />
           ) : (
             <CodeMirror
               ref={cmRef}
