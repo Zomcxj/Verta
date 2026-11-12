@@ -57,6 +57,7 @@ import { folderSessionTarget } from "@/modules/explorer/lib/agentActions";
 import { screenShowsLaunchLine } from "@/modules/terminal/lib/launchLine";
 import { decideCwd, rememberCwd } from "@/modules/terminal/lib/spelledCwd";
 import type { AgentTool } from "@/modules/launcher";
+import { useGlobalScreenshotHotkey } from "@/modules/screenshot/useGlobalScreenshotHotkey";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setShowHidden } from "@/modules/settings/store";
 import {
@@ -1551,6 +1552,10 @@ export default function App() {
   );
 
   useGlobalShortcuts(shortcutHandlers, { isDisabled: shortcutsDisabled });
+  // The same chord, held by the operating system as well: a window listener only hears keys while
+  // the window has the focus, and a capture of the screen behind a minimised or unfocused window is
+  // what the global half is for.
+  useGlobalScreenshotHotkey();
 
   const registerTerminalHandle = useCallback(
     (leafId: number, h: TerminalPaneHandle | null) => {

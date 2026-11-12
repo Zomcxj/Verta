@@ -762,6 +762,7 @@ const zh = {
   "screenshot.notCopied": "已保存至 {path}；复制到剪贴板失败：{error}",
   "screenshot.insertPath": "插入路径",
   "screenshot.failed": "截图失败：{error}",
+  "screenshot.hotkeyFailed": "全局截图快捷键没能注册：{error}",
   "header.commandPalette": "命令面板",
   "header.clearSearch": "清除搜索",
 
@@ -2315,6 +2316,7 @@ const en: Record<MessageKey, string> = {
   "screenshot.insertPath": "Insert path",
   "screenshot.windowTitle": "Screenshot",
   "screenshot.failed": "Screenshot failed: {error}",
+  "screenshot.hotkeyFailed": "The global screenshot shortcut could not be registered: {error}",
   "header.commandPalette": "Command palette",
   "header.clearSearch": "Clear search",
 

@@ -536,6 +536,7 @@ pub fn run() {
             modules::window_presentation::window_presentation_state,
             modules::window_presentation::window_set_hidden,
             screenshot::screenshot_begin,
+            screenshot::screenshot_set_global_hotkey,
             screenshot::screenshot_finish,
             screenshot::screenshot_cancel,
             screenshot::screenshot_failed,

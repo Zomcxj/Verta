@@ -19,6 +19,7 @@
 mod capture;
 mod encode;
 mod geom;
+mod hotkey;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -116,6 +117,21 @@ fn begin_at(app: &AppHandle, state: &ScreenshotState) -> Result<(), String> {
         .set_focus()
         .map_err(|e| format!("无法聚焦截图窗口：{e}"))?;
     Ok(())
+}
+
+/// Hold the screenshot's chord globally, or let it go.
+///
+/// The page calls this with the binding for `screenshot.capture` - on startup and on every change -
+/// because the window listener it also has only hears keys while the window has the focus, and a
+/// screenshot of the screen behind a minimised or unfocused window is exactly the case the chord is
+/// for. `Ok` means the system took the chord; the page reports a refusal, since a hotkey another
+/// application owns is a real failure and not something to paper over.
+#[tauri::command]
+pub fn screenshot_set_global_hotkey(
+    app: AppHandle,
+    chord: Option<hotkey::HotkeyChord>,
+) -> Result<(), String> {
+    hotkey::set(&app, chord)
 }
 
 #[tauri::command]
