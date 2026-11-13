@@ -59,6 +59,8 @@ type Props = {
   /** The session-start transition, drawn over the terminal layer only (see
    * `SessionOpeningOverlay`). */
   sessionOpening: boolean;
+  /** Which agent the transition is covering for; `null` when nothing named it. */
+  sessionOpeningTool: string | null;
 };
 
 /** The two lists behind the projects panel. */
@@ -109,6 +111,7 @@ export function WorkspaceSurface({
   onProjectsSubChange,
   onNotesUpdate,
   sessionOpening,
+  sessionOpeningTool,
 }: Props) {
   const t = useT();
   const kind = activeTab?.kind;
@@ -204,7 +207,7 @@ export function WorkspaceSurface({
           onExit={onExit}
           onFocusLeaf={onFocusLeaf}
         />
-        <SessionOpeningOverlay open={sessionOpening} />
+        <SessionOpeningOverlay open={sessionOpening} tool={sessionOpeningTool} />
       </div>
       <div
         className={cn(LAYER, !isEditorTab && "invisible pointer-events-none")}

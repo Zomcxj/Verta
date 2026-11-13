@@ -55,6 +55,7 @@ import {
 import { newSessionCommand } from "@/modules/launcher/lib/resumeCommand";
 import { folderSessionTarget } from "@/modules/explorer/lib/agentActions";
 import { screenShowsLaunchLine } from "@/modules/terminal/lib/launchLine";
+import { tabAgentIcon } from "@/modules/tabs/lib/tabAgentIcon";
 import { decideCwd, rememberCwd } from "@/modules/terminal/lib/spelledCwd";
 import type { AgentTool } from "@/modules/launcher";
 import { useGlobalScreenshotHotkey } from "@/modules/screenshot/useGlobalScreenshotHotkey";
@@ -834,9 +835,11 @@ export default function App() {
    * spinning over an unrelated terminal until the fallback timer ran out. Each start
    * also takes a token, so a slower earlier start cannot lift a newer one's layer.
    */
-  const [sessionOpeningLeaf, setSessionOpeningLeaf] = useState<number | null>(
-    null,
-  );
+  const [sessionOpening, setSessionOpening] = useState<{
+    leafId: number;
+    /** Which agent is being started, so the transition can show its own mark. */
+    tool: string | null;
+  } | null>(null);
   /** Set by every start, so a slower earlier start cannot lift a newer one's layer. */
   const sessionOpeningToken = useRef(0);
   const sessionOpeningTimer = useRef<number | null>(null);
@@ -847,16 +850,16 @@ export default function App() {
     }
   }, []);
   const showSessionOpening = useCallback(
-    (leafId: number): number => {
+    (leafId: number, tool: string | null): number => {
       const token = ++sessionOpeningToken.current;
-      setSessionOpeningLeaf(leafId);
+      setSessionOpening({ leafId, tool });
       // The timer is the last resort: a session that never reports its UI up must not
       // cover a terminal indefinitely.
       clearSessionOpeningTimer();
       sessionOpeningTimer.current = window.setTimeout(() => {
         sessionOpeningTimer.current = null;
         if (token !== sessionOpeningToken.current) return;
-        setSessionOpeningLeaf(null);
+        setSessionOpening(null);
       }, SESSION_OPENING_FALLBACK_MS);
       return token;
     },
@@ -867,7 +870,7 @@ export default function App() {
     (token: number) => {
       if (token !== sessionOpeningToken.current) return;
       clearSessionOpeningTimer();
-      setSessionOpeningLeaf(null);
+      setSessionOpening(null);
     },
     [clearSessionOpeningTimer],
   );
@@ -877,10 +880,10 @@ export default function App() {
    * a leaf lives in exactly one tab, and a session start is not tied to what the user is
    * looking at afterwards.
    */
-  const sessionOpening = sessionOpeningVisible(
+  const sessionOpeningShown = sessionOpeningVisible(
     tabs,
     activeId,
-    sessionOpeningLeaf,
+    sessionOpening?.leafId ?? null,
   );
   /**
    * The layer ends with the session it was opened for. Leaving that tab (closing it, or
@@ -888,9 +891,9 @@ export default function App() {
    * instead of hanging over whatever terminal is on screen by then.
    */
   useEffect(() => {
-    if (sessionOpeningLeaf === null || sessionOpening) return;
+    if (sessionOpening === null || sessionOpeningShown) return;
     hideSessionOpening(sessionOpeningToken.current);
-  }, [sessionOpening, sessionOpeningLeaf, hideSessionOpening]);
+  }, [sessionOpening, sessionOpeningShown, hideSessionOpening]);
 
   /**
    * The folder scan, reached through a ref because the hook that provides it is created further
@@ -939,7 +942,7 @@ export default function App() {
       discoverRepositoriesRef.current(plan.cwd, plan.workspace);
       // Cover the moment the command lands in the terminal (see
       // SessionOpeningOverlay).
-      const opening = showSessionOpening(leafId);
+      const opening = showSessionOpening(leafId, session.tool);
       void (async () => {
         await whenSessionReady(leafId);
         // Snapshot the output counter before writing: later growth is what got
@@ -999,7 +1002,7 @@ export default function App() {
       // panel stayed wherever it was - the folder's own repositories were never asked about.
       discoverRepositoriesRef.current(plan.cwd, plan.workspace);
 
-      const opening = showSessionOpening(tab.activeLeafId);
+      const opening = showSessionOpening(tab.activeLeafId, tabAgentIcon(tab));
       setActiveSessionId(tab.sessionId);
       void (async () => {
         await whenSessionReady(tab.activeLeafId);
@@ -1033,7 +1036,7 @@ export default function App() {
         entry.workspace,
         tool,
       );
-      const opening = showSessionOpening(leafId);
+      const opening = showSessionOpening(leafId, tool);
       void (async () => {
         await whenSessionReady(leafId);
         const baseBytes = leafOutputBytes(leafId);
@@ -1065,7 +1068,7 @@ export default function App() {
       const distro = workspace.kind === "wsl" ? workspace.distro : null;
       const command = newSessionCommand(tool, distro);
       const { leafId } = newAgentTab(cwd, title, workspace, tool);
-      const opening = showSessionOpening(leafId);
+      const opening = showSessionOpening(leafId, tool);
       void (async () => {
         await whenSessionReady(leafId);
         const baseBytes = leafOutputBytes(leafId);
@@ -2042,7 +2045,8 @@ export default function App() {
                         onNewProjectSession={handleNewProjectSession}
                         onProjectsSubChange={renameProjectsPanel}
                         onNotesUpdate={updateTab}
-                        sessionOpening={sessionOpening}
+                        sessionOpening={sessionOpeningShown}
+                        sessionOpeningTool={sessionOpening?.tool ?? null}
                       />
                     </div>
 

@@ -1,3 +1,4 @@
+import { AgentIcon } from "@/modules/launcher/lib/agentIcon";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 
 /**
@@ -9,8 +10,9 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
  * Resuming a session writes a command into the terminal, and the instant it lands the
  * line is painted there: what you see is "someone is typing on your behalf".
  * Covering that moment before the tab opens replaces it with a centered transition:
- * the app icon in the middle, punched once on appearance, surrounded by the animation
- * chosen in settings (Settings → Themes).
+ * the icon of the agent being started in the middle (`AgentIcon`; the app's own mark
+ * when the caller has nothing to name), punched once on appearance, surrounded by the
+ * animation chosen in settings (Settings → Themes).
  *
  * Deliberately animating only transform / opacity: those add no extra compositing
  * layer (exactly what the layer-budget test watches), and soft edges use radial
@@ -26,7 +28,21 @@ export function sessionTransitionEnabled(variant: string): boolean {
   return variant !== "none";
 }
 
-export function SessionOpeningOverlay({ open }: { open: boolean }) {
+export function SessionOpeningOverlay({
+  open,
+  tool,
+}: {
+  open: boolean;
+  /**
+   * Which agent is being started, when the caller knows.
+   *
+   * The layer exists to cover the moment a resume command lands in the terminal, so what it shows
+   * while it waits is the agent that is about to appear - the same mark the session row and the tab
+   * chip carry. Nothing to name (an unknown tool, or a start that is not a session) falls back to the
+   * app's own mark rather than to an empty box.
+   */
+  tool?: string | null;
+}) {
   const variant = usePreferencesStore((s) => s.sessionTransition);
   if (!open || !sessionTransitionEnabled(variant)) return null;
   return (
@@ -68,13 +84,21 @@ export function SessionOpeningOverlay({ open }: { open: boolean }) {
         </span>
       ) : null}
       <span className="verta-session-opening-core">
-        <img
-          src="/logo.png"
-          alt=""
-          width={44}
-          height={44}
-          className="size-11 rounded-xl"
-        />
+        {tool ? (
+          // The agent's own mark, at 34px rather than the logo's 44: a vector glyph fills the box it
+          // is given, while the app's mark is a bitmap with its own padding around it, so the same
+          // number draws the icon visibly larger. `text-foreground` because this is the one mark on
+          // screen - the muted colour the session rows use would read as a disabled control.
+          <AgentIcon agent={tool} size={34} className="text-foreground" />
+        ) : (
+          <img
+            src="/logo.png"
+            alt=""
+            width={44}
+            height={44}
+            className="size-11 rounded-xl"
+          />
+        )}
       </span>
     </div>
   );
