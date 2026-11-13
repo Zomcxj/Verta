@@ -32,10 +32,10 @@ pub(crate) fn list() -> Result<AgentSessionsPayload, String> {
 
 pub(crate) fn list_at(path: &Path) -> Result<AgentSessionsPayload, String> {
     if !path.is_file() {
-        return Err(format!(
-            "找不到 opencode 数据库：{}。请确认 opencode 已安装并至少运行过一次。",
-            path.display()
-        ));
+        // A store that is not there is a tool with nothing to show; see the same decision in
+        // `claude::list_at`. Reading is the only thing this asks of the file, and there is nothing to
+        // report about not having read it.
+        return Ok(AgentSessionsPayload::default());
     }
     let table = session_table(path)?;
     let conn = open_read_only(path)?;
@@ -622,10 +622,13 @@ mod tests {
     }
 
     #[test]
-    fn missing_database_is_a_clear_error_not_an_empty_list() {
+    fn a_missing_database_lists_nothing_instead_of_failing() {
+        // See the same reversal in `claude`: a store that is not there is a tool with nothing to
+        // show, not a failure of the panel.
         let dir = tempfile::tempdir().expect("temp dir");
-        let error = list_at(&dir.path().join("nope.db")).expect_err("should fail");
-        assert!(error.contains("opencode"), "unexpected error: {error}");
+        let payload = list_at(&dir.path().join("nope.db")).expect("a missing file is not an error");
+        assert!(payload.sessions.is_empty());
+        assert!(payload.warnings.is_empty());
     }
 
     #[test]

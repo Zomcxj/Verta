@@ -36,10 +36,9 @@ pub(crate) fn list() -> Result<AgentSessionsPayload, String> {
 
 pub(crate) fn list_at(root: &Path) -> Result<AgentSessionsPayload, String> {
     if !root.is_dir() {
-        return Err(format!(
-            "找不到 pi 会话目录：{}。请确认 pi 已安装并至少运行过一次。",
-            root.display()
-        ));
+        // A store that is not there is a tool with nothing to show; see the same decision in
+        // `claude::list_at`.
+        return Ok(AgentSessionsPayload::default());
     }
     let mut sessions = Vec::new();
     let mut warnings = Vec::new();
@@ -539,7 +538,7 @@ struct Located {
 pub(crate) fn delete_at(root: &Path, id: &str) -> Result<(), String> {
     if !root.is_dir() {
         return Err(format!(
-            "找不到 pi 会话目录：{}。请确认 pi 已安装并至少运行过一次。",
+            "这台机器上没有 pi 的会话目录：{}。",
             root.display()
         ));
     }
@@ -1274,10 +1273,13 @@ mod tests {
     }
 
     #[test]
-    fn missing_root_is_a_clear_error_not_an_empty_list() {
+    fn a_missing_root_lists_nothing_instead_of_failing() {
+        // See the same reversal in `claude`: a store that is not there is a tool with nothing to
+        // show, not a failure of the panel.
         let root = tempfile::tempdir().expect("temp dir");
-        let error = list_at(&root.path().join("nope")).expect_err("should fail");
-        assert!(error.contains("pi"), "unexpected error: {error}");
+        let payload = list_at(&root.path().join("nope")).expect("a missing directory is not an error");
+        assert!(payload.sessions.is_empty());
+        assert!(payload.warnings.is_empty());
     }
 
     #[test]

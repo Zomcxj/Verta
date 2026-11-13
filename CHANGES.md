@@ -15,6 +15,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-13</strong></summary>
 
+**A tool with no session store is not a failure**
+
+- `src-tauri/src/modules/agent_sessions/claude.rs`, `opencode.rs`, `pi.rs`: the session panel showed `claude: 找不到 Claude Code 会话目录: C:\Users\...\.claude/projects。请确认 Claude Code 已安装并至少运行过一次。` ("没找到不要说"). A missing directory is a fact about one path on one machine, and the panel turned it into a claim about the user's: this reader cannot know whether a tool is installed, and Claude Code honours a configuration directory of its own, so a store can sit somewhere this app never looks. A store that is not there now lists nothing, which the list already draws as its own empty state; the three tests that pinned "a missing store is a clear error, not an empty list" now say the reverse, each with the reason.
+- `image.rs`, and the delete paths left alone: what still fails states the path it checked and nothing about installation, because the caller there asked for one named session or one named image and there is something to report.
+- `wsl.rs`, `mod.rs`: two comments said Claude Code "has none" in a distro and that its sessions are "in this machine's home directory and nowhere else". It writes `~/.claude/projects` on whichever side it runs, so what is true is that reading a distro's copy is not implemented - and with the change above, a distro whose distribution has been using Claude Code all along now reads as an empty list rather than as a failure. That gap is written down rather than papered over.
+
 **The session-opening cover says how long it was up, and why**
 
 - `src/app/sessionOpeningLog.ts`, `App.tsx`: every so often the transition layer stays up a moment longer than it should before the terminal appears ("会话加载过渡层末尾偶尔多停一会儿才进入"). The cover lifts when the agent's screen has been painted, its last resort is a 45 s timer, and nothing recorded which of those happened - so "a moment longer" could have been one missed frame or a wait that ran to its cap. Each opening now records how long the cover was up, what ended it (`ui-painted`, `fallback-timer`, `tab-left`, `write-failed`), which rule lifted it, how many times the wait read the screen, how many of those a rule fired on while the frame that arrived still showed the launch line, and the leaf's screen as it lifted.

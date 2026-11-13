@@ -44,10 +44,13 @@ pub(crate) fn list() -> Result<AgentSessionsPayload, String> {
 
 pub(crate) fn list_at(root: &Path) -> Result<AgentSessionsPayload, String> {
     if !root.is_dir() {
-        return Err(format!(
-            "找不到 Claude Code 会话目录：{}。请确认 Claude Code 已安装并至少运行过一次。",
-            root.display()
-        ));
+        // Not a failure. A tool that has never run on this machine has nothing to list, and this
+        // reader cannot tell that apart from a tool whose store lives somewhere it does not know
+        // about - Claude Code honours a configuration directory of its own, and this app reads one
+        // fixed path. Saying "not found, check that it is installed" was a claim about the user's
+        // machine that this function is in no position to make ("没找到不要说", 2026-11-13). The list
+        // answers with its own empty state instead.
+        return Ok(AgentSessionsPayload::default());
     }
     let mut sessions = Vec::new();
     let mut warnings = Vec::new();
@@ -472,7 +475,7 @@ fn locate_all(root: &Path, id: &str) -> Result<Vec<Located>, String> {
 pub(crate) fn delete_at(root: &Path, id: &str) -> Result<(), String> {
     if !root.is_dir() {
         return Err(format!(
-            "找不到 Claude Code 会话目录：{}。请确认 Claude Code 已安装并至少运行过一次。",
+            "这台机器上没有 Claude Code 的会话目录：{}。",
             root.display()
         ));
     }
@@ -801,10 +804,14 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_root_says_so_instead_of_listing_nothing() {
+    fn a_missing_root_lists_nothing_instead_of_failing() {
+        // The reverse of what this test used to pin, and the reason is the panel: a machine with no
+        // Claude Code store showed a red failure that told the user to check the installation, which
+        // is a claim about their machine that a missing directory cannot support ("没找到不要说").
+        // A tool with nothing to show answers with its own empty state.
         let dir = tempfile::tempdir().expect("temp dir");
-        let missing = dir.path().join("nope");
-        let error = list_at(&missing).expect_err("目录不在要报错");
-        assert!(error.contains("Claude Code"), "错误要说清是哪个工具：{error}");
+        let payload = list_at(&dir.path().join("nope")).expect("缺少目录不是错误");
+        assert!(payload.sessions.is_empty());
+        assert!(payload.warnings.is_empty());
     }
 }

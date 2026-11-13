@@ -69,7 +69,7 @@ fn lookup(
 ) -> Result<Option<String>, String> {
     if !path.is_file() {
         return Err(format!(
-            "找不到 opencode 数据库：{}。请确认 opencode 已安装并至少运行过一次。",
+            "这台机器上没有 opencode 数据库：{}。",
             path.display()
         ));
     }
@@ -566,6 +566,9 @@ mod tests {
     fn a_missing_database_is_reported() {
         let dir = tempfile::tempdir().expect("temp dir");
         let error = lookup(&dir.path().join("absent.db"), "a.png", None, 0).expect_err("error");
-        assert!(error.contains("找不到 opencode 数据库"), "{error}");
+        // A lookup still fails: the caller asked for one image, and this says where it looked. What
+        // it must not do is conclude anything about the installation; see `claude::list_at`.
+        assert!(error.contains("这台机器上没有 opencode 数据库"), "{error}");
+        assert!(error.contains("absent.db"), "{error}");
     }
 }
