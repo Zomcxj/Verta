@@ -66,6 +66,11 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 flate2 = "1"
 zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
 quick-xml = { version = "0.39", default-features = false }
+# dsh writes its session logs as `session.v4.jsonl.zstd` (one zstd frame per append, thousands per
+# file), so reading its usage means decompressing them. The zstd crate is the reference binding;
+# `ruzstd` is the pure-Rust alternative and would avoid the C build, but the streaming decoder is
+# the one path here that has to be right, and this is the one that is exercised everywhere else.
+zstd = "0.13"
 # Pictures are handed to the pane as `data:` URLs, which is base64 in a string.
 base64 = { version = "0.22", default-features = false }
 # A `.csv` from Excel on a Chinese Windows is GB18030, not UTF-8.

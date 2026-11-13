@@ -13,6 +13,36 @@ fine as plain text. **The newest day is `open` by default**; when a new day star
 swap in the new date, and drop the `open` from the day before.
 
 <details open>
+<summary><strong>2026-11-14</strong></summary>
+
+**dsh's usage, out of logs compressed a frame at a time**
+
+- `src-tauri/Cargo.toml`: adds `zstd`. dsh writes each session log as `session[.vN].jsonl.zstd`, and a log is not one zstd frame but one frame per append - 8,599 of them in this machine's largest file, 9.8 MB for 636 records. Only the streaming decoder walks all of them; the pure-Rust alternative was passed over because the frame walk is the one path here that has to be right.
+- `src-tauri/src/modules/agent_sessions/dsh.rs` (new): dsh is an IDE agent here - usage only, no sessions, no delete, no rename. Its logs live at `~/.dsh/sessions/<project>/<session>/session[.vN].jsonl[.zstd]` (`$DSH_HOME/sessions` when that is set). One log is read per session: the numbered `session.v4.jsonl.zstd` is the newer record of the same session and the unnumbered copy beside it is stale, so the highest number wins and a session is not read twice. A range start is applied while reading, and a log that cannot be opened or decoded is reported rather than skimmed over.
+- Two of dsh's record kinds are model calls and are counted: `assistant/message` (an answer, with the routing in `data.message.source`) and `compaction/summary` (the summarisation run when a conversation is compacted, which carries no routing and takes the session's `model/selection`). The first version of this reader only knew the first kind and came out 2,783,515 tokens - twelve records - short of an independent frame-by-frame count of the same files. Every other kind is bookkeeping and is stepped over, including any future one that reports a running total instead of one call: the two kinds are listed rather than "anything with a `usage` object".
+- `src-tauri/src/modules/agent_sessions/usage.rs`: `dsh_usage_of_line`. Its classes are exclusive - measured on a real record, 306 input + 265 output + 9,088 cache read = 9,659 = `totalTokens` - so `inputTokens` is the uncached prompt and nothing is moved between classes, unlike zcode's and workbuddy's OpenAI-shaped counts.
+- Read back: 35 logs, 8,853 model calls, 1,542,015,436 tokens, which is exactly the figure an independent read of the same 35 files gives.
+
+**Days whose transcripts are gone, taken from cc-switch's ledger**
+
+- `src-tauri/src/modules/agent_sessions/ccswitch.rs` (new): cc-switch keeps `~/.cc-switch/cc-switch.db`, whose `usage_daily_rollups` table is one row per day, agent, provider and model - the same four dimensions the report already uses, and the reason it can be read at all. Its 68 Claude Code days for `_session` are the case that matters: this machine's `~/.claude/projects` holds three recent sessions, while the rollup still has 2026-04-06 to 2026-08-30 from transcripts that no longer exist.
+- The ledger only fills **days the direct readers have no events for**, and a day is filled whole or not at all. It is built from the same transcripts (`provider_id` is `_session` for all of the local rows), so importing a covered day would count those tokens twice, and two daily totals cannot be told apart afterwards. What that adds here: 1,036,265,651 tokens of Claude Code over its missing months, plus 24 opencode days and 8 pi days whose session files are gone from the local databases.
+- Rows are attributed only to the six agents this app reads; the rollup's `codex` rows are left out, and a row with no tokens is dropped. Its `input_token_semantics` (0 or 2) turns out to make no difference to the arithmetic: both shapes keep the cache separate (a real row: 122,342 input beside 7,638,348 cache reads), so nothing is reclassified. A provider id that is a UUID or cc-switch's `_session` marker is dropped rather than printed under every model.
+- `src-tauri/src/modules/agent_sessions/mod.rs`: the ledger is merged last, because "which days are covered" is a question only the other readers can answer; `usage_events` and `usage_events_at` take the window's `offset_minutes`, since a dated row becomes an instant only through a time zone (each day lands at its own local midnight).
+
+**Every agent icon in its own colour**
+
+- `src/modules/launcher/lib/agentIcon.tsx`: the marks no longer inherit the text colour. A table maps each agent to a colour - Claude Code's clay, Gemini's blue and one distinct hue each for pi, opencode, zcode, workbuddy and dsh, with a fallback for a name the table has not heard of - and `agentColor` resolves it for the whole app at once. Six agents sit side by side in the launcher, in the usage window's chips and in its agent table, and a column of identical grey marks says nothing about which is which.
+- `src/modules/launcher/lib/agentIcon.test.ts` (new): pins that the six agents' colours are all different, that matching ignores case, and that `pi` is matched by name rather than as a substring (otherwise `copilot` and `api` would be pi).
+- `src/usage/UsageApp.tsx`: the tool filter lists the six agents it can read.
+
+**Six agents, read back together**
+
+- 87,637 events and 18,150,564,187 tokens over 139 days (2026-04-06 to 2026-11-14): opencode 12.23B, zcode 2.22B, dsh 1.54B, Claude Code 1.04B, pi 871.4M, workbuddy 245.2M.
+
+</details>
+
+<details>
 <summary><strong>2026-11-13</strong></summary>
 
 **opencode's usage was four fifths missing, and the window showed it**
@@ -29,7 +59,7 @@ swap in the new date, and drop the `open` from the day before.
 - `src-tauri/src/modules/agent_sessions/claude.rs`: Claude Code's transcripts are now read from `CLAUDE_CONFIG_DIR` when it is set (otherwise `~/.claude`), from `projects/` and `transcripts/` both, and recursively - so a session's own `subagents/agent-*.jsonl` is counted instead of skipped. Lines are deduplicated by `message.id`, because a streamed answer is written to the transcript several times: without that, this machine's Claude Code total read 69,234 tokens instead of 46,100.
 - `src-tauri/src/modules/agent_sessions/mod.rs`: `usage_events_at` takes a `UsageStores` struct now (five stores, two of them lists) rather than a run of positional options.
 - Read back with all five: 78,569 events and 15,147,822,549 tokens over 90 days - opencode 11.81B, zcode 2.22B, pi 866.5M, workbuddy 245.2M, Claude Code 46.1K (this machine runs Claude Code mostly elsewhere, so its history here is three sessions).
-- Not read: dsh. Its sessions are `session.v4.jsonl.zstd` and this build has no zstd decoder; its `storages/session_projcache.json` only describes the session that is currently open (one entry, 243K tokens against 35 transcripts on disk), so reading that would be worse than reading nothing.
+- Not read: dsh. Its sessions are `session.v4.jsonl.zstd` and this build has no zstd decoder; its `storages/session_projcache.json` only describes the session that is currently open (one entry, 243K tokens against 35 transcripts on disk), so reading that would be worse than reading nothing. (Read from the next day on: see 2026-11-14.)
 
 **The usage window: one read, and every view is a sum over it**
 

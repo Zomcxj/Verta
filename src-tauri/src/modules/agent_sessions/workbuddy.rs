@@ -115,8 +115,7 @@ mod tests {
                 r#"{"type":"session-meta","timestamp":1792588000000}"#,
                 r#"{"type":"function_call","timestamp":1792588393537,"providerData":{"requestModelId":"hy3","usage":{"inputTokens":43847,"outputTokens":926,"totalTokens":44773,"inputTokensDetails":[{"cached_tokens":6528}]}}}"#,
             ]
-            .join("
-"),
+            .join("\n"),
         );
         write(
             &root.join("proj-a").join("nested").join("s2.jsonl"),

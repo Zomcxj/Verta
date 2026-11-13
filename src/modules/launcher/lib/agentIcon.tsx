@@ -6,15 +6,25 @@ import {
   Grok02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import type { CSSProperties } from "react";
 
 // Pi mark, from github.com/earendil-works pi-website logo.svg (MIT).
-function PiIcon({ size, className }: { size: number; className?: string }) {
+function PiIcon({
+  size,
+  className,
+  style,
+}: {
+  size: number;
+  className?: string;
+  style?: CSSProperties;
+}) {
   return (
     <svg
       viewBox="0 0 800 800"
       width={size}
       height={size}
       className={className}
+      style={style}
       aria-hidden="true"
     >
       <path
@@ -36,9 +46,11 @@ function PiIcon({ size, className }: { size: number; className?: string }) {
 function OpenCodeIcon({
   size,
   className,
+  style,
 }: {
   size: number;
   className?: string;
+  style?: CSSProperties;
 }) {
   return (
     <svg
@@ -46,6 +58,7 @@ function OpenCodeIcon({
       width={size}
       height={size}
       className={className}
+      style={style}
       aria-hidden="true"
     >
       <path fill="currentColor" fillOpacity="0.45" d="M18 30H6V18H18V30Z" />
@@ -64,6 +77,45 @@ function iconFor(agent: string): IconSvgElement {
   return AiBrowserIcon;
 }
 
+/**
+ * The colour each agent's mark is drawn in.
+ *
+ * Every agent icon is coloured rather than inheriting the text colour: several of them sit side by
+ * side in one list (the launcher, the usage window's chips and its agent table), and a column of
+ * identical grey marks says nothing about which agent a row belongs to. The two marks with a
+ * published colour keep it - Claude Code's clay, Gemini's blue - and the rest take a hue that no
+ * neighbour already has, because a set of six colours is only useful if they can be told apart.
+ *
+ * One table rather than a colour per call site: the session list, the usage window and the
+ * notifications all show the same agent, and three answers to "what colour is pi" would be three
+ * wrong ones.
+ */
+const AGENT_COLORS: { match: string[]; color: string }[] = [
+  { match: ["claude"], color: "#D97757" },
+  { match: ["opencode"], color: "#22C55E" },
+  { match: ["zcode"], color: "#2563EB" },
+  { match: ["workbuddy", "codebuddy"], color: "#F59E0B" },
+  { match: ["dsh", "deepseek"], color: "#06B6D4" },
+  { match: ["gemini"], color: "#4285F4" },
+  { match: ["grok"], color: "#64748B" },
+  { match: ["codex", "gpt", "openai"], color: "#10A37F" },
+];
+
+/** `pi` is its own name rather than a substring: "copilot" and "api" are not pi. */
+const PI_COLOR = "#A855F7";
+/** An agent this table has never heard of still gets a colour, so it is not the odd grey one out. */
+const FALLBACK_COLOR = "#0EA5E9";
+
+/** The colour this agent's mark is drawn in. */
+export function agentColor(agent: string): string {
+  const a = agent.trim().toLowerCase();
+  if (a === "pi") return PI_COLOR;
+  for (const { match, color } of AGENT_COLORS) {
+    if (match.some((name) => a.includes(name))) return color;
+  }
+  return FALLBACK_COLOR;
+}
+
 export function AgentIcon({
   agent,
   size = 15,
@@ -73,11 +125,12 @@ export function AgentIcon({
   size?: number;
   className?: string;
 }) {
+  const style: CSSProperties = { color: agentColor(agent) };
   if (agent.toLowerCase() === "pi") {
-    return <PiIcon size={size} className={className} />;
+    return <PiIcon size={size} className={className} style={style} />;
   }
   if (agent.toLowerCase().includes("opencode")) {
-    return <OpenCodeIcon size={size} className={className} />;
+    return <OpenCodeIcon size={size} className={className} style={style} />;
   }
   if (agent.toLowerCase().includes("verta")) {
     return (
@@ -97,6 +150,7 @@ export function AgentIcon({
       size={size}
       strokeWidth={1.75}
       className={className}
+      color={style.color}
     />
   );
 }

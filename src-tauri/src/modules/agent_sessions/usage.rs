@@ -589,6 +589,60 @@ pub fn zcode_usage_of_message(data: &serde_json::Value) -> Option<LineUsage> {
     })
 }
 
+/// A dsh answer's cost.
+///
+/// dsh's log is `{type, seq, time, data}`, one record per line, and the record of a call carries that
+/// call's `data.usage = {inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens}`.
+/// Two kinds are model calls and are counted: `assistant/message` (the answer, whose routing is in
+/// `data.message.source.{provider, model}`) and `compaction/summary` (the summarisation dsh runs when
+/// a conversation is compacted, which has no source of its own - the reader attributes it to the
+/// session's selected model). More kinds are listed as they are found rather than accepting any
+/// record with a `usage` object: a record that ever reports a turn's running total would otherwise be
+/// counted once per turn.
+///
+/// The classes are exclusive - measured on a real record: 306 input + 265 output + 9,088 cache read =
+/// 9,659 = `totalTokens` - so `inputTokens` is the uncached prompt, unlike zcode's and workbuddy's
+/// OpenAI-shaped counts, and nothing is moved here. `reasoningTokens`, when present, is inside
+/// `outputTokens` and is not added on top.
+pub fn dsh_usage_of_line(value: &serde_json::Value) -> Option<LineUsage> {
+    if !matches!(
+        value.get("type").and_then(serde_json::Value::as_str),
+        Some("assistant/message" | "compaction/summary")
+    ) {
+        return None;
+    }
+    let data = value.get("data")?;
+    let usage = data.get("usage")?;
+    let mut parts = UsageTokens::ZERO;
+    let mut found = false;
+    for (key, slot) in [
+        ("inputTokens", &mut parts.input),
+        ("outputTokens", &mut parts.output),
+        ("cacheReadTokens", &mut parts.cache_read),
+        ("cacheWriteTokens", &mut parts.cache_write),
+    ] {
+        if let Some(part) = as_u64(usage.get(key)) {
+            *slot = part;
+            found = true;
+        }
+    }
+    let tokens = match (found, as_u64(usage.get("totalTokens"))) {
+        (true, Some(total)) if parts.total() == total => parts,
+        (true, None) => parts,
+        (_, Some(total)) => UsageTokens {
+            unsplit: total,
+            ..UsageTokens::ZERO
+        },
+        (false, None) => return None,
+    };
+    let source = data.get("message").and_then(|message| message.get("source"));
+    Some(LineUsage {
+        tokens,
+        provider: text_of(source.and_then(|source| source.get("provider"))),
+        model: text_of(source.and_then(|source| source.get("model"))),
+    })
+}
+
 /// A workbuddy answer's cost.
 ///
 /// One JSONL line per event under `~/.workbuddy/projects/<project>/<session>.jsonl`; the assistant's
@@ -1118,6 +1172,44 @@ mod tests {
         assert_eq!(by_model, 30);
         assert_eq!(by_tool, 30);
         assert_eq!(report.totals.tokens.total(), 30);
+    }
+
+    #[test]
+    fn dsh_answers_and_compactions_are_counted_and_its_bookkeeping_is_not() {
+        let answer = json!({
+            "type": "assistant/message",
+            "seq": 4,
+            "time": 1_791_083_553_999i64,
+            "data": {
+                "usage": { "inputTokens": 306, "outputTokens": 265, "cacheReadTokens": 9088,
+                           "cacheWriteTokens": 0, "totalTokens": 9659 },
+                "message": { "source": { "kind": "model", "provider": "deepseek-account",
+                                         "model": "deepseek-flash" } }
+            }
+        });
+        let usage = dsh_usage_of_line(&answer).expect("usage");
+        assert_eq!(usage.tokens.total(), 9_659);
+        assert_eq!(usage.tokens.input, 306);
+        assert_eq!(usage.tokens.cache_read, 9_088);
+        assert_eq!(usage.model.as_deref(), Some("deepseek-flash"));
+
+        // A compaction is a model call too, and its record names no model.
+        let compaction = json!({
+            "type": "compaction/summary",
+            "time": 1_791_083_600_000i64,
+            "data": { "usage": { "inputTokens": 575, "outputTokens": 4003,
+                                 "cacheReadTokens": 216576, "totalTokens": 221154 } }
+        });
+        let usage = dsh_usage_of_line(&compaction).expect("usage");
+        assert_eq!(usage.tokens.total(), 221_154);
+        assert_eq!(usage.model, None);
+
+        // Everything else in the log is bookkeeping, even when it is shaped like a message.
+        assert_eq!(
+            dsh_usage_of_line(&json!({ "type": "turn/end", "data": { "usage": { "totalTokens": 5 } } })),
+            None
+        );
+        assert_eq!(dsh_usage_of_line(&json!({ "type": "assistant/message" })), None);
     }
 
     #[test]

@@ -54,11 +54,18 @@ const HEATMAP_WEEKS = 53;
 /**
  * The agents this window reads. A store that is absent simply has no rows.
  *
- * The three terminal agents keep sessions as well (opencode, pi, Claude Code); the two IDE agents
- * are usage only, which is all they record. dsh is not here yet: its sessions are zstd-compressed
- * and there is no decoder in this build.
+ * The three terminal agents keep sessions as well (opencode, pi, Claude Code); the three IDE agents
+ * (zcode, workbuddy, dsh) are usage only, which is all they record. Claude Code's history here also
+ * carries the days its transcripts no longer exist for, through the cc-switch ledger.
  */
-const TOOLS = ["claude", "pi", "opencode", "zcode", "workbuddy"] as const;
+const TOOLS = [
+  "claude",
+  "pi",
+  "opencode",
+  "zcode",
+  "workbuddy",
+  "dsh",
+] as const;
 
 export function UsageApp(): JSX.Element {
   const t = useT();

@@ -1,7 +1,9 @@
 pub mod types;
 
+mod ccswitch;
 mod claude;
 mod delete;
+mod dsh;
 mod image;
 mod opencode;
 mod pi;
@@ -124,7 +126,10 @@ pub async fn agent_sessions_delete(targets: Vec<SessionTarget>) -> DeleteReport 
 /// WSL distributions are not read here: their opencode store needs the in-distro query (`wsl`), and
 /// the two JSONL stores have no distro reader at all. A window that means to include them cannot
 /// pretend they are covered, so this says so in one place instead of silently leaving them out.
-pub fn usage_events(since_ms: Option<i64>) -> usage::UsageReadReport {
+///
+/// `offset_minutes` is the window's time zone. Only the cc-switch ledger needs it: its rows are dated,
+/// and a date has to be turned into an instant before it can join the stream.
+pub fn usage_events(since_ms: Option<i64>, offset_minutes: i32) -> usage::UsageReadReport {
     usage_events_at(
         UsageStores {
             claude: &claude::usage_roots(),
@@ -132,8 +137,11 @@ pub fn usage_events(since_ms: Option<i64>) -> usage::UsageReadReport {
             opencode: opencode::default_db_path().as_deref(),
             zcode: zcode::default_db_path().as_deref(),
             workbuddy: &workbuddy::usage_roots(),
+            dsh: &dsh::usage_roots(),
+            ccswitch: ccswitch::default_db_path().as_deref(),
         },
         since_ms,
+        offset_minutes,
     )
 }
 
@@ -156,12 +164,17 @@ pub struct UsageStores<'a> {
     /// workbuddy, an IDE agent: usage only, from its project transcripts (two roots exist in the
     /// wild, `.workbuddy` and `.workbuddy-ai`).
     pub workbuddy: &'a [std::path::PathBuf],
+    /// dsh's session logs: usage only, one zstd-compressed log per session.
+    pub dsh: &'a [std::path::PathBuf],
+    /// cc-switch's daily rollup, used only for days none of the readers above can see.
+    pub ccswitch: Option<&'a std::path::Path>,
 }
 
 /// The same, with the stores handed in.
 pub fn usage_events_at(
     stores: UsageStores<'_>,
     since_ms: Option<i64>,
+    offset_minutes: i32,
 ) -> usage::UsageReadReport {
     let mut report = usage::UsageReadReport::default();
     if !stores.claude.is_empty() {
@@ -180,6 +193,23 @@ pub fn usage_events_at(
         merge_usage(
             &mut report,
             workbuddy::usage_events_at(stores.workbuddy, since_ms),
+        );
+    }
+    if !stores.dsh.is_empty() {
+        merge_usage(&mut report, dsh::usage_events_at(stores.dsh, since_ms));
+    }
+    if let Some(path) = stores.ccswitch {
+        // cc-switch's rollup is the same tokens seen through another tool, so it only fills days the
+        // reads above answered nothing for. Deciding that needs their answer first, which is why this
+        // is the last store merged rather than one more entry beside them.
+        let covered: std::collections::HashSet<(&'static str, i64)> = report
+            .events
+            .iter()
+            .map(|event| (event.tool, usage::day_of(event.at_ms, offset_minutes)))
+            .collect();
+        merge_usage(
+            &mut report,
+            ccswitch::usage_events_at(path, since_ms, offset_minutes, &covered),
         );
     }
     // One order for the whole machine: the window's day buckets are built from this, and two readers
@@ -272,7 +302,7 @@ pub async fn agent_usage_events(
         cache_write: cache_write.unwrap_or(true),
     };
     crate::modules::fs::blocking(move || {
-        let report = usage_events(since_ms);
+        let report = usage_events(since_ms, offset);
         let folded = report.aggregate(offset);
         let tokens = folded.totals.counted(scope);
         let excluded_cache_read = if scope.cache_read {
@@ -481,6 +511,7 @@ mod usage_tests {
                 ..UsageStores::default()
             },
             None,
+            0,
         );
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 3);
@@ -517,6 +548,7 @@ mod usage_tests {
                 ..UsageStores::default()
             },
             Some(1794580000000),
+            0,
         );
         assert_eq!(ranged.events.len(), 2);
         assert_eq!(ranged.aggregate(0).totals.tokens.total(), 97);
@@ -524,7 +556,7 @@ mod usage_tests {
 
     #[test]
     fn a_tool_that_is_not_installed_is_skipped_without_a_word() {
-        let report = usage_events_at(UsageStores::default(), None);
+        let report = usage_events_at(UsageStores::default(), None, 0);
         assert!(report.events.is_empty());
         assert!(report.failures.is_empty());
         assert_eq!(report.aggregate(0).totals.events, 0);
