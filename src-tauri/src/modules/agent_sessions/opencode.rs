@@ -188,13 +188,17 @@ pub(crate) fn session_table(path: &Path) -> Result<String, String> {
 
 /// Every usage event in this store, oldest first.
 ///
-/// Two schemas, and which one is live matters: current opencode keeps a message's cost on its
-/// `step-finish` parts (`part.data.tokens`) and the model on the message row (`session_message.data
-/// .model`), while the older schema put both on `message.data`. The older table is still there and
-/// stops being updated once the new one exists - measured on this machine: `message` ended in
-/// October and `session_message` was current, so reading the old table alone would have reported a
-/// month-old month for ever. So the current shape is read first and the old one only when the new
-/// tables are absent.
+/// Four schemas, and which one is live matters. Current opencode writes a message's usage **on the
+/// message row** (`session_message.data.tokens`, with `data.model`), and that is the shape read
+/// first. Before it, usage lived on the message's `step-finish` parts (`part.data.tokens`); before
+/// that, on `message.data.tokens`.
+///
+/// Measured on this machine (2026-11-13), and the reason this order exists: `part` stops at
+/// 2026-10-14 while `session_message` keeps going, so a reader that trusted the parts reported
+/// 3.36B tokens for a history whose real figure is 12.7B - four fifths of the usage was invisible,
+/// and every day after mid-October was missing from the chart. The two shapes also overlap (parts
+/// exist for messages of the same era), so exactly one of them may be read: the first that answers.
+/// The message-row shape also removes the 1,788 orphaned parts this file used to explain away.
 ///
 /// Read per step rather than per session row: a session that ran for a week is a week of days, and
 /// the session row has one number for all of it. `since_ms` is pushed into the query.
@@ -213,6 +217,10 @@ pub(crate) fn usage_events_at(path: &Path, since_ms: Option<i64>) -> super::usag
             return report;
         }
     };
+    if read_message_tokens(&conn, since_ms, &mut report) {
+        report.events.sort_by_key(|event| event.at_ms);
+        return report;
+    }
     if read_step_parts(&conn, since_ms, &mut report) {
         report.events.sort_by_key(|event| event.at_ms);
         return report;
@@ -220,6 +228,69 @@ pub(crate) fn usage_events_at(path: &Path, since_ms: Option<i64>) -> super::usag
     read_legacy_messages(&conn, since_ms, &mut report);
     report.events.sort_by_key(|event| event.at_ms);
     report
+}
+
+/// The shape current opencode writes: one event per assistant message, usage on the message row.
+///
+/// `session_message.data` is `{time, agent, model:{id, providerID}, content, tokens, cost}` for an
+/// assistant message; a message that never finished (an error, or the one being streamed right now)
+/// has no `tokens` and is not an event yet. Returns whether this store has that shape at all - a
+/// table with no token-bearing row is an older opencode, and the caller falls back to the parts.
+fn read_message_tokens(
+    conn: &Connection,
+    since_ms: Option<i64>,
+    report: &mut super::usage::UsageReadReport,
+) -> bool {
+    let mut statement = match conn.prepare(
+        r"select time_created, data
+          from session_message
+          where type = 'assistant'
+            and (?1 is null or time_created >= ?1)
+            and case when json_valid(data)
+                     then json_extract(data, '$.tokens') end is not null",
+    ) {
+        Ok(statement) => statement,
+        Err(error) => {
+            if !error.to_string().contains("no such table") {
+                report
+                    .failures
+                    .push(format!("无法查询 opencode 消息用量：{error}"));
+            }
+            return false;
+        }
+    };
+    let rows = match statement.query_map(rusqlite::params![since_ms], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+    }) {
+        Ok(rows) => rows,
+        Err(error) => {
+            report
+                .failures
+                .push(format!("无法读取 opencode 消息用量：{error}"));
+            return false;
+        }
+    };
+    let mut answered = false;
+    for row in rows {
+        let Ok((at_ms, Some(data))) = row else {
+            continue;
+        };
+        let Ok(data) = serde_json::from_str::<serde_json::Value>(&data) else {
+            continue;
+        };
+        let Some(usage) = super::usage::opencode_usage_of_row(&data) else {
+            continue;
+        };
+        answered = true;
+        report.events.push(super::usage::OwnedUsageEvent {
+            at_ms,
+            tool: TOOL,
+            provider: usage.provider,
+            model: usage.model,
+            tokens: usage.tokens,
+        });
+    }
+    answered
 }
 
 /// The current shape: one event per `step-finish` part, joined to its message for the model.
@@ -292,6 +363,7 @@ fn read_step_parts(
         };
         report.events.push(super::usage::OwnedUsageEvent {
             at_ms,
+            tool: TOOL,
             provider: usage.provider,
             model: usage.model,
             tokens: usage.tokens,
@@ -342,6 +414,7 @@ fn read_legacy_messages(
         };
         report.events.push(super::usage::OwnedUsageEvent {
             at_ms,
+            tool: TOOL,
             provider: usage.provider,
             model: usage.model,
             tokens: usage.tokens,
@@ -656,6 +729,52 @@ mod tests {
         )
         .expect("schema");
         (dir, path)
+    }
+
+    /// Current opencode: the tokens are on the message row, and the parts of the same era must not
+    /// be counted on top of them.
+    #[test]
+    fn message_rows_carry_the_usage_and_their_parts_are_not_counted_again() {
+        let (dir, path) = temp_db_parts();
+        let conn = Connection::open(&path).expect("open");
+        conn.execute(
+            "INSERT INTO session_message (id, session_id, type, time_created, time_updated, data)              VALUES ('msg_1', 'ses_1', 'assistant', 1794500000000, 1794500000000, ?1)",
+            rusqlite::params![
+                r#"{"model":{"providerID":"workbuddy","id":"deepseek-v4.1-flash"},"tokens":{"total":126,"input":100,"output":20,"reasoning":0,"cache":{"read":5,"write":1}}}"#
+            ],
+        )
+        .expect("message");
+        // A user row and an assistant row that never finished: neither is an event.
+        conn.execute(
+            "INSERT INTO session_message (id, session_id, type, time_created, time_updated, data)              VALUES ('msg_user', 'ses_1', 'user', 1794500001000, 1794500001000, ?1)",
+            rusqlite::params![r#"{"time":{"created":1794500001000}}"#],
+        )
+        .expect("user row");
+        conn.execute(
+            "INSERT INTO session_message (id, session_id, type, time_created, time_updated, data)              VALUES ('msg_streaming', 'ses_1', 'assistant', 1794500002000, 1794500002000, ?1)",
+            rusqlite::params![
+                r#"{"model":{"providerID":"workbuddy","id":"deepseek-v4.1-flash"},"content":[]}"#
+            ],
+        )
+        .expect("streaming row");
+        // The parts of the same message, which the old reader used: counting both would double it.
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)              VALUES ('prt_1', 'msg_1', 'ses_1', 1794500000000, 1794500000000, ?1)",
+            rusqlite::params![
+                r#"{"type":"step-finish","tokens":{"total":126,"input":100,"output":20,"cache":{"read":5,"write":1}}}"#
+            ],
+        )
+        .expect("part");
+        drop(conn);
+
+        let report = usage_events_at(&path, None);
+        assert!(report.failures.is_empty(), "{:?}", report.failures);
+        assert_eq!(report.events.len(), 1, "{:?}", report.events);
+        assert_eq!(report.events[0].tokens.total(), 126);
+        assert_eq!(report.events[0].provider.as_deref(), Some("workbuddy"));
+        assert_eq!(report.events[0].model.as_deref(), Some("deepseek-v4.1-flash"));
+        assert_eq!(report.events[0].at_ms, 1794500000000);
+        drop(dir);
     }
 
     #[test]

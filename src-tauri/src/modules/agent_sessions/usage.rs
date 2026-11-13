@@ -112,11 +112,13 @@ impl TokenScope {
 
 /// One thing that happened and cost tokens.
 ///
-/// `at_ms` is when the tool says it happened, `provider`/`model` are the caller's names for what
-/// answered (`None` when the record does not say, which some do not).
+/// `at_ms` is when the tool says it happened; `tool` is which agent wrote the record (`claude`,
+/// `pi` or `opencode`), the one attribution every reader always knows; `provider`/`model` are the
+/// names the record itself gives for what answered (`None` when it does not say one).
 #[derive(Debug, Clone, Copy)]
 pub struct UsageEvent<'a> {
     pub at_ms: i64,
+    pub tool: &'a str,
     pub provider: Option<&'a str>,
     pub model: Option<&'a str>,
     pub tokens: UsageTokens,
@@ -142,11 +144,38 @@ impl UsageTotals {
     }
 }
 
+/// One tool/provider/model triple inside one day: the finest split a window draws with.
+///
+/// A day is the only bucket that has to be stable over time (its label is a calendar date); this is
+/// that bucket broken down, and every view a window offers is a slice of it: the trend chart stacks
+/// cells by model within the day, the heatmap uses the day's total, the tool and model tables are
+/// sums over the days in the range, and the composition bar is the sum of every cell's parts. So one
+/// read answers all of them and changing the range is a sum over a slice, not another scan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CellUsage {
+    pub tool: String,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub totals: UsageTotals,
+}
+
 /// One day (`day` is a day index: days since 1970-01-01 in the caller's offset).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DayUsage {
     pub day: i64,
+    pub totals: UsageTotals,
+    /// Biggest first, so a chart that draws the first few and folds the rest does not have to sort
+    /// what was already ordered.
+    pub cells: Vec<CellUsage>,
+}
+
+/// One tool's totals over the whole report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolUsage {
+    pub tool: String,
     pub totals: UsageTotals,
 }
 
@@ -168,6 +197,8 @@ pub struct UsageReport {
     pub days: Vec<DayUsage>,
     /// Biggest first (by raw total), the unnamed bucket last when it ties.
     pub models: Vec<ModelUsage>,
+    /// The same rule, keyed by the tool that wrote the record.
+    pub tools: Vec<ToolUsage>,
 }
 
 /// Which day an instant falls in, for the given offset from UTC in minutes.
@@ -215,24 +246,60 @@ where
         totals: UsageTotals::default(),
         days: Vec::new(),
         models: Vec::new(),
+        tools: Vec::new(),
     };
-    let mut days: std::collections::BTreeMap<i64, UsageTotals> = Default::default();
+    // Day -> (tool, provider, model) -> totals, a `BTreeMap` at every level: two reads of the same
+    // events then answer in the same order, so nothing a window draws moves on its own.
+    type CellKey = (String, Option<String>, Option<String>);
+    let mut days: std::collections::BTreeMap<i64, std::collections::BTreeMap<CellKey, UsageTotals>> =
+        Default::default();
     let mut models: std::collections::BTreeMap<(Option<String>, Option<String>), UsageTotals> =
         Default::default();
+    let mut tools: std::collections::BTreeMap<String, UsageTotals> = Default::default();
     for event in events {
         report.totals.add(&event);
-        days.entry(day_of(event.at_ms, offset_minutes))
-            .or_default()
-            .add(&event);
-        let key = (
+        let model_key = (
             event.provider.map(str::to_string),
             event.model.map(str::to_string),
         );
-        models.entry(key).or_default().add(&event);
+        days.entry(day_of(event.at_ms, offset_minutes))
+            .or_default()
+            .entry((
+                event.tool.to_string(),
+                model_key.0.clone(),
+                model_key.1.clone(),
+            ))
+            .or_default()
+            .add(&event);
+        models.entry(model_key).or_default().add(&event);
+        tools.entry(event.tool.to_string()).or_default().add(&event);
     }
     report.days = days
         .into_iter()
-        .map(|(day, totals)| DayUsage { day, totals })
+        .map(|(day, cells)| {
+            // The day's own total is the sum of its cells, never a separate number: a day total that
+            // disagrees with the bars drawn from it is the one bug this shape rules out.
+            let mut totals = UsageTotals::default();
+            let mut rows: Vec<CellUsage> = cells
+                .into_iter()
+                .map(|((tool, provider, model), totals)| CellUsage {
+                    tool,
+                    provider,
+                    model,
+                    totals,
+                })
+                .collect();
+            for row in &rows {
+                totals.tokens += row.totals.tokens;
+                totals.events = totals.events.saturating_add(row.totals.events);
+            }
+            sort_cells(&mut rows);
+            DayUsage {
+                day,
+                totals,
+                cells: rows,
+            }
+        })
         .collect();
     report.models = models
         .into_iter()
@@ -241,6 +308,10 @@ where
             model,
             totals,
         })
+        .collect();
+    report.tools = tools
+        .into_iter()
+        .map(|(tool, totals)| ToolUsage { tool, totals })
         .collect();
     // Biggest first, and a stable order among equals: the window draws these as bars, and bars that
     // move between two reads of the same data are a bug the eye reads as change.
@@ -253,7 +324,30 @@ where
             .then_with(|| left.provider.cmp(&right.provider))
             .then_with(|| left.model.cmp(&right.model))
     });
+    report.tools.sort_by(|left, right| {
+        right
+            .totals
+            .tokens
+            .total()
+            .cmp(&left.totals.tokens.total())
+            .then_with(|| left.tool.cmp(&right.tool))
+    });
     report
+}
+
+/// Biggest first, with a stable order among equals: a chart draws the first few cells and folds the
+/// rest, so a cell that swapped places between two reads would move a bar's colour.
+fn sort_cells(cells: &mut [CellUsage]) {
+    cells.sort_by(|left, right| {
+        right
+            .totals
+            .tokens
+            .total()
+            .cmp(&left.totals.tokens.total())
+            .then_with(|| left.tool.cmp(&right.tool))
+            .then_with(|| left.provider.cmp(&right.provider))
+            .then_with(|| left.model.cmp(&right.model))
+    });
 }
 
 /// What one transcript line says about a single answer: its cost and who gave it.
@@ -270,6 +364,9 @@ pub struct LineUsage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedUsageEvent {
     pub at_ms: i64,
+    /// Which agent wrote the record. Static because there are three tools and their names are in
+    /// the code, not in the data.
+    pub tool: &'static str,
     pub provider: Option<String>,
     pub model: Option<String>,
     pub tokens: UsageTokens,
@@ -280,6 +377,7 @@ impl OwnedUsageEvent {
     pub fn as_event(&self) -> UsageEvent<'_> {
         UsageEvent {
             at_ms: self.at_ms,
+            tool: self.tool,
             provider: self.provider.as_deref(),
             model: self.model.as_deref(),
             tokens: self.tokens,
@@ -393,11 +491,28 @@ pub fn opencode_usage_of_message(data: &serde_json::Value) -> Option<LineUsage> 
     if data.get("role").and_then(serde_json::Value::as_str) != Some("assistant") {
         return None;
     }
+    opencode_usage_of_row(data)
+}
+
+/// The same, for a row whose assistant-ness is already known.
+///
+/// Current opencode stores the role in a column (`session_message.type`) rather than in the JSON, and
+/// the model as `model:{id, providerID}`; the older `message` rows keep both inside the JSON, flat.
+/// A reader that knows which table it is looking at therefore cannot go through the role check that
+/// `opencode_usage_of_message` does.
+pub fn opencode_usage_of_row(data: &serde_json::Value) -> Option<LineUsage> {
     let tokens = opencode_tokens(data.get("tokens")?)?;
+    let (provider, model) = match data.get("model") {
+        Some(model) => (
+            text_of(model.get("providerID")),
+            text_of(model.get("id")),
+        ),
+        None => (text_of(data.get("providerID")), text_of(data.get("modelID"))),
+    };
     Some(LineUsage {
         tokens,
-        provider: text_of(data.get("providerID")),
-        model: text_of(data.get("modelID")),
+        provider,
+        model,
     })
 }
 
@@ -449,6 +564,86 @@ fn opencode_tokens(tokens: &serde_json::Value) -> Option<UsageTokens> {
     }
 }
 
+/// A zcode answer's cost, from its `message` table.
+///
+/// zcode keeps opencode's old `message` shape - `{role, time, modelId, providerId, tokens:{total,
+/// input, output, reasoning, cache:{read, write}}}` in `~/.zcode/cli/db/db.sqlite` - but its
+/// accounting is OpenAI's rather than opencode's: **`input` already contains the cached part**.
+/// Measured on a real row: 477,824 input + 3,113 output = 480,937 total, with 477,056 of that input
+/// served from cache. Adding the classes as they stand would count those tokens twice, so the cache
+/// is moved into its own class first (`reclassify`), exactly as for workbuddy.
+pub fn zcode_usage_of_message(data: &serde_json::Value) -> Option<LineUsage> {
+    if data.get("role").and_then(serde_json::Value::as_str) != Some("assistant") {
+        return None;
+    }
+    let tokens = data.get("tokens")?;
+    let raw_input = as_u64(tokens.get("input"))?;
+    let output = as_u64(tokens.get("output")).unwrap_or(0);
+    let cache = tokens.get("cache");
+    let cache_read = as_u64(cache.and_then(|cache| cache.get("read"))).unwrap_or(0);
+    let cache_write = as_u64(cache.and_then(|cache| cache.get("write"))).unwrap_or(0);
+    Some(LineUsage {
+        tokens: reclassify(raw_input, output, cache_read, cache_write, tokens),
+        provider: text_of(data.get("providerId")),
+        model: text_of(data.get("modelId")),
+    })
+}
+
+/// A workbuddy answer's cost.
+///
+/// One JSONL line per event under `~/.workbuddy/projects/<project>/<session>.jsonl`; the assistant's
+/// lines carry `providerData.usage` with the same OpenAI-style counts as zcode's
+/// (`inputTokensDetails[0].cached_tokens` is the cached part of the prompt, `outputTokensDetails[0]
+/// .reasoning_tokens` is already inside `outputTokens`). The model is `providerData.requestModelId`.
+pub fn workbuddy_usage_of_line(value: &serde_json::Value) -> Option<LineUsage> {
+    let provider = value.get("providerData")?;
+    let usage = provider.get("usage")?;
+    let raw_input = as_u64(usage.get("inputTokens"))?;
+    let output = as_u64(usage.get("outputTokens")).unwrap_or(0);
+    let cache_read = usage
+        .get("inputTokensDetails")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|details| details.first())
+        .and_then(|detail| as_u64(detail.get("cached_tokens")))
+        .unwrap_or(0);
+    let cache_write = 0;
+    let tokens = reclassify(raw_input, output, cache_read, cache_write, usage);
+    Some(LineUsage {
+        tokens,
+        provider: text_of(provider.get("providerId")),
+        model: text_of(provider.get("requestModelId"))
+            .or_else(|| text_of(provider.get("requestModelName"))),
+    })
+}
+
+/// OpenAI-style counts into the classes the report keeps: the prompt total already contains the
+/// cached part, so it is taken out of `input` and given its own class. The tool's own `totalTokens`
+/// wins when the classes do not add up to it, the same rule every other extractor follows.
+fn reclassify(
+    raw_input: u64,
+    output: u64,
+    cache_read: u64,
+    cache_write: u64,
+    usage: &serde_json::Value,
+) -> UsageTokens {
+    let parts = UsageTokens {
+        input: raw_input.saturating_sub(cache_read),
+        output,
+        reasoning: 0,
+        cache_read,
+        cache_write,
+        unsplit: 0,
+    };
+    match as_u64(usage.get("totalTokens")) {
+        Some(total) if parts.total() == total => parts,
+        Some(total) => UsageTokens {
+            unsplit: total,
+            ..UsageTokens::ZERO
+        },
+        None => parts,
+    }
+}
+
 fn text_of(value: Option<&serde_json::Value>) -> Option<String> {
     value
         .and_then(serde_json::Value::as_str)
@@ -481,6 +676,7 @@ mod tests {
     fn event<'a>(at_ms: i64, model: Option<&'a str>, tokens: UsageTokens) -> UsageEvent<'a> {
         UsageEvent {
             at_ms,
+            tool: "test",
             provider: Some("test"),
             model,
             tokens,
@@ -790,6 +986,7 @@ mod tests {
         let report = aggregate(
             events.iter().map(|(at_ms, tokens)| UsageEvent {
                 at_ms: *at_ms,
+                tool: "claude",
                 provider: Some("anthropic"),
                 model: Some("claude-sonnet-4-5"),
                 tokens: *tokens,
@@ -840,5 +1037,143 @@ mod tests {
         let usage = opencode_usage_of_step(&part, None).expect("usage");
         assert_eq!(usage.tokens.unsplit, 900);
         assert_eq!(usage.tokens.input, 0);
+    }
+
+    /// A day's cells, the day, and the report all have to agree: a window draws all three.
+    #[test]
+    fn a_days_cells_add_up_to_the_day_and_the_days_add_up_to_the_report() {
+        let events = [
+            UsageEvent {
+                at_ms: at("2026-11-13T01:00:00.000Z"),
+                tool: "claude",
+                provider: None,
+                model: Some("claude-sonnet-4-5"),
+                tokens: plain(100, 10),
+            },
+            UsageEvent {
+                at_ms: at("2026-11-13T02:00:00.000Z"),
+                tool: "opencode",
+                provider: Some("workbuddy"),
+                model: Some("glm-5.3-flash"),
+                tokens: plain(300, 30),
+            },
+            UsageEvent {
+                at_ms: at("2026-11-14T02:00:00.000Z"),
+                tool: "pi",
+                provider: Some("openai_agentrouter"),
+                model: Some("gpt-5.6-sol"),
+                tokens: plain(7, 3),
+            },
+        ];
+        let report = aggregate(events, 0);
+
+        // Cells are biggest first inside the day, so a chart drawing the first few keeps the
+        // important ones and folds a tail that is small by construction.
+        let first = &report.days[0];
+        assert_eq!(first.cells.len(), 2);
+        assert_eq!(first.cells[0].tool, "opencode");
+        assert_eq!(first.cells[1].tool, "claude");
+        assert_eq!(first.cells[0].model.as_deref(), Some("glm-5.3-flash"));
+
+        for day in &report.days {
+            let cells: u64 = day.cells.iter().map(|cell| cell.totals.tokens.total()).sum();
+            assert_eq!(cells, day.totals.tokens.total(), "day {}", day.day);
+            let events: u32 = day.cells.iter().map(|cell| cell.totals.events).sum();
+            assert_eq!(events, day.totals.events, "day {}", day.day);
+        }
+        let by_days: u64 = report.days.iter().map(|day| day.totals.tokens.total()).sum();
+        assert_eq!(by_days, report.totals.tokens.total());
+
+        // Tools come out biggest first, and they are the three the readers write.
+        let tools: Vec<&str> = report.tools.iter().map(|row| row.tool.as_str()).collect();
+        assert_eq!(tools, vec!["opencode", "claude", "pi"]);
+        assert_eq!(report.tools[0].totals.tokens.total(), 330);
+    }
+
+    /// The same events answer "which model" and "which tool" without overlapping: a cell belongs to
+    /// exactly one of each, so summing the model list and summing the tool list both reach the total.
+    #[test]
+    fn both_attributions_reach_the_total() {
+        let report = aggregate(
+            [
+                UsageEvent {
+                    at_ms: at("2026-11-13T01:00:00.000Z"),
+                    tool: "claude",
+                    provider: None,
+                    model: Some("claude-sonnet-4-5"),
+                    tokens: plain(5, 5),
+                },
+                UsageEvent {
+                    at_ms: at("2026-11-13T03:00:00.000Z"),
+                    tool: "opencode",
+                    provider: Some("workbuddy"),
+                    model: Some("glm-5.3-flash"),
+                    tokens: plain(20, 0),
+                },
+            ],
+            0,
+        );
+        let by_model: u64 = report.models.iter().map(|row| row.totals.tokens.total()).sum();
+        let by_tool: u64 = report.tools.iter().map(|row| row.totals.tokens.total()).sum();
+        assert_eq!(by_model, 30);
+        assert_eq!(by_tool, 30);
+        assert_eq!(report.totals.tokens.total(), 30);
+    }
+
+    #[test]
+    fn zcode_counts_cache_reads_once_even_though_its_input_includes_them() {
+        let line = json!({
+            "role": "assistant",
+            "modelId": "GLM-5.3-Flash",
+            "providerId": "account:bigmodel-start-plan",
+            "tokens": { "total": 480937, "input": 477824, "output": 3113, "reasoning": 0,
+                        "cache": { "read": 477056, "write": 0 } }
+        });
+        let usage = zcode_usage_of_message(&line).expect("usage");
+        // The prompt count already contains the cached part, so the cache moves out of `input`.
+        assert_eq!(usage.tokens.input, 768);
+        assert_eq!(usage.tokens.cache_read, 477_056);
+        assert_eq!(usage.tokens.output, 3_113);
+        assert_eq!(usage.tokens.total(), 480_937);
+        assert_eq!(usage.model.as_deref(), Some("GLM-5.3-Flash"));
+        assert_eq!(
+            usage.provider.as_deref(),
+            Some("account:bigmodel-start-plan")
+        );
+        assert_eq!(
+            zcode_usage_of_message(&json!({ "role": "user", "content": "hi" })),
+            None
+        );
+    }
+
+    #[test]
+    fn workbuddy_usage_is_openai_shaped_too() {
+        let line = json!({
+            "type": "function_call",
+            "timestamp": 1_792_588_393_537i64,
+            "providerData": {
+                "requestModelId": "hy3",
+                "usage": {
+                    "requests": 1,
+                    "inputTokens": 43847,
+                    "outputTokens": 926,
+                    "totalTokens": 44773,
+                    "inputTokensDetails": [{ "cached_tokens": 6528 }],
+                    "outputTokensDetails": [{ "reasoning_tokens": 719 }]
+                }
+            }
+        });
+        let usage = workbuddy_usage_of_line(&line).expect("usage");
+        assert_eq!(usage.tokens.input, 37_319);
+        assert_eq!(usage.tokens.cache_read, 6_528);
+        assert_eq!(usage.tokens.output, 926);
+        // Reasoning is inside `outputTokens`, so it must not be added on top of it.
+        assert_eq!(usage.tokens.reasoning, 0);
+        assert_eq!(usage.tokens.total(), 44_773);
+        assert_eq!(usage.model.as_deref(), Some("hy3"));
+        assert_eq!(
+            workbuddy_usage_of_line(&json!({ "type": "reasoning" })),
+            None
+        );
     }
 }

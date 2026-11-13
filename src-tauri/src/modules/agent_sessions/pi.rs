@@ -210,6 +210,7 @@ fn collect_usage(file: &Path, since_ms: Option<i64>, report: &mut super::usage::
         }
         report.events.push(super::usage::OwnedUsageEvent {
             at_ms,
+            tool: TOOL,
             provider: usage.provider,
             model: usage.model,
             tokens: usage.tokens,

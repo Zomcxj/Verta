@@ -37,6 +37,25 @@ pub(crate) fn default_root() -> Option<PathBuf> {
     Some(dirs::home_dir()?.join(".claude/projects"))
 }
 
+/// Every directory Claude Code can keep transcripts in, on this machine.
+///
+/// `CLAUDE_CONFIG_DIR` wins when it is set - that is how a second profile is configured - and
+/// `transcripts/` is read beside `projects/` because both exist in the wild and the second is where
+/// some versions keep a session's own log. Only the directories that exist are returned.
+pub(crate) fn usage_roots() -> Vec<PathBuf> {
+    let config = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".claude")));
+    let Some(config) = config else {
+        return Vec::new();
+    };
+    ["projects", "transcripts"]
+        .into_iter()
+        .map(|name| config.join(name))
+        .filter(|path| path.is_dir())
+        .collect()
+}
+
 pub(crate) fn list() -> Result<AgentSessionsPayload, String> {
     let root = default_root().ok_or("找不到用户主目录，无法定位 Claude Code 会话目录")?;
     list_at(&root)
@@ -152,43 +171,53 @@ fn agent_files(dir: &Path) -> Vec<PathBuf> {
 /// message of every transcript: the day a token was used is the day its message was written, and a
 /// session that ran for a week is a week of days. `since_ms` skips what a window's range leaves out;
 /// a file that cannot be opened becomes a failure rather than a silent hole in the numbers.
-pub(crate) fn usage_events_at(root: &Path, since_ms: Option<i64>) -> super::usage::UsageReadReport {
+pub(crate) fn usage_events_at(
+    roots: &[PathBuf],
+    since_ms: Option<i64>,
+) -> super::usage::UsageReadReport {
     let mut report = super::usage::UsageReadReport::default();
-    if !root.is_dir() {
-        return report;
+    let mut files = Vec::new();
+    for root in roots {
+        walk_jsonl(root, 4, &mut files);
     }
-    let projects = match child_paths(root) {
-        Ok(projects) => projects,
-        Err(error) => {
-            report.failures.push(error);
-            return report;
-        }
-    };
-    for project in projects {
-        if !project.is_dir() {
-            continue;
-        }
-        let files = match child_paths(&project) {
-            Ok(files) => files,
-            Err(error) => {
-                report.failures.push(error);
-                continue;
-            }
-        };
-        for file in files {
-            if file.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-                continue;
-            }
-            collect_usage(&file, since_ms, &mut report);
-        }
+    // A response that was streamed is persisted more than once with the same `message.id`, so the
+    // read remembers what it has already counted.
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for file in files {
+        collect_usage(&file, since_ms, &mut report, &mut seen);
     }
     report.events.sort_by_key(|event| event.at_ms);
     report
 }
 
+/// Every `.jsonl` under `dir`, `depth` directories deep.
+///
+/// Recursive rather than two levels because the parts that matter live deeper: a session's
+/// subagents are in `<session>/subagents/agent-*.jsonl`, and those runs spent tokens of their own.
+fn walk_jsonl(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            if depth > 0 {
+                walk_jsonl(&path, depth - 1, out);
+            }
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
+            out.push(path);
+        }
+    }
+}
+
 /// One transcript's events. A file that cannot be read is reported; a line that is not a usage
 /// record is not.
-fn collect_usage(file: &Path, since_ms: Option<i64>, report: &mut super::usage::UsageReadReport) {
+fn collect_usage(
+    file: &Path,
+    since_ms: Option<i64>,
+    report: &mut super::usage::UsageReadReport,
+    seen: &mut std::collections::HashSet<String>,
+) {
     let handle = match std::fs::File::open(file) {
         Ok(handle) => handle,
         Err(error) => {
@@ -219,6 +248,15 @@ fn collect_usage(file: &Path, since_ms: Option<i64>, report: &mut super::usage::
         let Some(usage) = super::usage::claude_usage_of_line(&value) else {
             continue;
         };
+        if let Some(id) = value
+            .get("message")
+            .and_then(|message| message.get("id"))
+            .and_then(Value::as_str)
+        {
+            if !seen.insert(id.to_string()) {
+                continue;
+            }
+        }
         // No timestamp, no day to put it in: counted nowhere rather than in the wrong day.
         let Some(at_ms) = stamp_of(&value) else {
             continue;
@@ -228,6 +266,7 @@ fn collect_usage(file: &Path, since_ms: Option<i64>, report: &mut super::usage::
         }
         report.events.push(super::usage::OwnedUsageEvent {
             at_ms,
+            tool: TOOL,
             provider: usage.provider,
             model: usage.model,
             tokens: usage.tokens,
@@ -916,7 +955,7 @@ mod tests {
             r#"{"type":"assistant","timestamp":"2026-11-13T09:00:00.000Z","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":5,"output_tokens":1}}}"#,
         );
 
-        let report = usage_events_at(dir.path(), None);
+        let report = usage_events_at(&[dir.path().to_path_buf()], None);
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 2, "the untimed line is not an event");
         assert!(report.events[0].at_ms < report.events[1].at_ms);
@@ -931,15 +970,65 @@ mod tests {
         assert_eq!(report.events[1].model.as_deref(), Some("claude-sonnet-4-5"));
 
         // A range start keeps what is inside it and drops the rest, which is what a window asks for.
-        let ranged = usage_events_at(dir.path(), Some(report.events[1].at_ms));
+        let ranged =
+            usage_events_at(&[dir.path().to_path_buf()], Some(report.events[1].at_ms));
         assert_eq!(ranged.events.len(), 1);
         assert_eq!(ranged.events[0].model.as_deref(), Some("claude-sonnet-4-5"));
+    }
+
+    /// A streamed answer is written to the transcript more than once, with the same `message.id`;
+    /// counting each line would multiply a session's usage by however often it was flushed.
+    #[test]
+    fn a_message_written_twice_is_counted_once() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let project = dir.path().join("proj");
+        write_file(
+            &project,
+            "s1.jsonl",
+            &[
+                r#"{"type":"assistant","timestamp":"2026-11-13T01:00:00.000Z","message":{"id":"msg_1","model":"m","usage":{"input_tokens":100,"output_tokens":10}}}"#,
+                r#"{"type":"assistant","timestamp":"2026-11-13T01:00:01.000Z","message":{"id":"msg_1","model":"m","usage":{"input_tokens":100,"output_tokens":10}}}"#,
+                r#"{"type":"assistant","timestamp":"2026-11-13T01:00:02.000Z","message":{"id":"msg_2","model":"m","usage":{"input_tokens":7,"output_tokens":1}}}"#,
+            ]
+            .join("
+"),
+        );
+        let report = usage_events_at(&[dir.path().to_path_buf()], None);
+        assert!(report.failures.is_empty(), "{:?}", report.failures);
+        assert_eq!(report.events.len(), 2, "{:?}", report.events);
+        assert_eq!(
+            report.events.iter().map(|event| event.tokens.total()).sum::<u64>(),
+            118
+        );
+    }
+
+    /// A session's subagents live two levels deeper than its own transcript; their tokens count.
+    #[test]
+    fn subagent_transcripts_are_read_too() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let project = dir.path().join("proj");
+        write_file(
+            &project,
+            "s1.jsonl",
+            r#"{"type":"assistant","timestamp":"2026-11-13T01:00:00.000Z","message":{"id":"m1","model":"m","usage":{"input_tokens":10}}}"#,
+        );
+        write_file(
+            &project.join("s1").join("subagents"),
+            "agent-a1.jsonl",
+            r#"{"type":"assistant","timestamp":"2026-11-13T01:05:00.000Z","message":{"id":"m2","model":"m","usage":{"input_tokens":5}}}"#,
+        );
+        let report = usage_events_at(&[dir.path().to_path_buf()], None);
+        assert_eq!(report.events.len(), 2, "{:?}", report.events);
+        assert_eq!(
+            report.events.iter().map(|event| event.tokens.total()).sum::<u64>(),
+            15
+        );
     }
 
     #[test]
     fn a_store_that_is_not_there_has_no_events_and_nothing_to_report() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let report = usage_events_at(&dir.path().join("nope"), None);
+        let report = usage_events_at(&[dir.path().join("nope")], None);
         assert!(report.events.is_empty());
         assert!(report.failures.is_empty());
     }

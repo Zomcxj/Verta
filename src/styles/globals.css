@@ -511,23 +511,27 @@ html:not([data-theme-surface]) [data-theme-surface-layer],
 html:not([data-theme-surface]) [data-theme-surface-fill] {
   display: none;
 }
-/* The settings window is its own document: the body there is the whole screen,
- * so it takes the theme's surface directly instead of layering a portal fill
- * (which would sit above the settings card and hide it). */
-:root:has(#settings-root)[data-theme-surface] body {
+/* The child windows (settings, usage) are their own documents: the body there is the
+ * whole screen, so it takes the theme's surface directly instead of layering a portal
+ * fill (which would sit above their content and hide it). Both roots are listed
+ * everywhere below: a window that is not named here silently drops the theme's surface,
+ * its glass, and the rounded frame, which is what a usage window with its own root id
+ * did. */
+:root:has(:is(#settings-root, #usage-root))[data-theme-surface] body {
   background-color: var(--theme-surface-background, transparent);
   background-image: var(--theme-surface-image, none);
   background-repeat: var(--theme-surface-repeat, no-repeat);
   background-size: var(--theme-surface-size, cover);
   background-position: center;
 }
-/* The fill layer is for the main window only; the settings window has no
- * #root, and its body already carries the surface. */
-:root:has(#settings-root) [data-theme-surface-fill] {
+/* The fill layer is for the main window only; a child window has no #root, and its
+ * body already carries the surface. */
+:root:has(:is(#settings-root, #usage-root)) [data-theme-surface-fill] {
   display: none;
 }
-/* Settings root would otherwise paint a solid colour over the surface. */
-:root:has(#settings-root)[data-theme-surface] #settings-root {
+/* Those roots would otherwise paint a solid colour over the surface. */
+:root:has(:is(#settings-root, #usage-root))[data-theme-surface]
+  :is(#settings-root, #usage-root) {
   background: transparent;
 }
 /* Its card and header sit on the textured body, so they read as glass too.
@@ -536,7 +540,8 @@ html:not([data-theme-surface]) [data-theme-surface-fill] {
  * settings page just as it does through the main window's gutters -- and with
  * vibrancy off both go opaque together. A separate 82% here made the settings
  * page's texture weaker than the main window's, i.e. the two did not match. */
-:root:has(#settings-root)[data-theme-surface] .settings-shell {
+:root:has(:is(#settings-root, #usage-root))[data-theme-surface]
+  :is(.settings-shell, .usage-shell) {
   background: var(--frame);
 }
 /* Window drag (macOS WebKit): while `data-live-resize` is set (see
@@ -570,7 +575,7 @@ html[data-chrome="borderless"] body {
   background: transparent !important;
 }
 html[data-chrome="borderless"] #root,
-html[data-chrome="borderless"] #settings-root {
+html[data-chrome="borderless"] :is(#settings-root, #usage-root) {
   height: 100%;
   border-radius: var(--window-radius);
   overflow: hidden;
@@ -582,7 +587,7 @@ html[data-chrome="borderless"] #settings-root {
  * and the settings card keep their own backgrounds; only these full-window
  * shells go clear. */
 html[data-theme-surface] #root,
-html[data-theme-surface] #settings-root {
+html[data-theme-surface] :is(#settings-root, #usage-root) {
   background: transparent;
 }
 html[data-chrome="borderless"] #root {
@@ -595,11 +600,13 @@ html[data-chrome="borderless"] #root {
  * (`#root` takes the frame's colour, the shell takes the pane's tint). Until this
  * existed the root painted an opaque `--background`, so the main window was
  * see-through while the settings window stayed a solid slab, acrylic included. */
-html[data-vibrancy="on"]:not([data-theme-surface]) #settings-root,
-html[data-theme-glass]:not([data-theme-surface]) #settings-root {
+html[data-vibrancy="on"]:not([data-theme-surface])
+  :is(#settings-root, #usage-root),
+html[data-theme-glass]:not([data-theme-surface])
+  :is(#settings-root, #usage-root) {
   background: var(--frame);
 }
-html[data-theme-glass] .settings-shell {
+html[data-theme-glass] :is(.settings-shell, .usage-shell) {
   background: color-mix(
     in oklab,
     var(--background) calc(var(--theme-pane-opacity, 1) * 100%),

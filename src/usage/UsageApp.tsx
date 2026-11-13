@@ -1,5 +1,7 @@
 import { Switch } from "@/components/ui/switch";
 import { WindowControls } from "@/components/WindowControls";
+import { AgentIcon } from "@/modules/launcher/lib/agentIcon";
+import { IS_MAC } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { useLanguage, useT } from "@/modules/i18n";
 import { WindowActivityBridge, WindowVibrancyBridge } from "@/modules/theme";
@@ -7,52 +9,83 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   type JSX,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { Heatmap } from "./Heatmap";
+import { SummaryCard } from "./SummaryCard";
 import {
+  buildHeatmap,
+  buildTrend,
+  buildView,
+  CHART_RANGES,
+  type ChartRange,
+  dayOf,
   localOffsetMinutes,
-  sinceForDays,
   type TokenScope,
+  USAGE_RANGES,
   type UsagePayload,
-  withScope,
+  type UsageRange,
 } from "./tokens";
-
-/** The ranges the window offers, in days. `0` is everything on the machine. */
-const RANGES = [7, 30, 90, 0] as const;
-type Range = (typeof RANGES)[number];
+import { TrendChart } from "./TrendChart";
+import { UsageTable } from "./UsageTable";
 
 const RANGE_KEYS = {
-  7: "usage.range7",
-  30: "usage.range30",
-  90: "usage.range90",
-  0: "usage.rangeAll",
+  today: "usage.rangeToday",
+  week: "usage.rangeWeek",
+  month: "usage.rangeMonth",
+  all: "usage.rangeAll",
 } as const;
+
+const CHART_RANGE_KEYS = {
+  7: "usage.chart7",
+  30: "usage.chart30",
+  90: "usage.chart90",
+  365: "usage.chart365",
+  0: "usage.chartAll",
+} as const;
+
+const HEATMAP_WEEKS = 53;
+
+/**
+ * The agents this window reads. A store that is absent simply has no rows.
+ *
+ * The three terminal agents keep sessions as well (opencode, pi, Claude Code); the two IDE agents
+ * are usage only, which is all they record. dsh is not here yet: its sessions are zstd-compressed
+ * and there is no decoder in this build.
+ */
+const TOOLS = ["claude", "pi", "opencode", "zcode", "workbuddy"] as const;
 
 export function UsageApp(): JSX.Element {
   const t = useT();
   const language = useLanguage();
-  const [range, setRange] = useState<Range>(30);
+  const [range, setRange] = useState<UsageRange>("month");
+  const [chartRange, setChartRange] = useState<ChartRange>(30);
+  const [chartKind, setChartKind] = useState<"bars" | "line">("bars");
+  const [tool, setTool] = useState<string | null>(null);
   const [scope, setScope] = useState<TokenScope>({
     cacheRead: true,
     cacheWrite: true,
   });
   const [payload, setPayload] = useState<UsagePayload | null>(null);
   const [loading, setLoading] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Answers can arrive out of order when a range is clicked twice quickly; only the newest one is
-  // allowed to paint, or the window would show 7 days under a "90 days" button.
+  // Answers can arrive out of order when refresh is pressed twice quickly; only the newest paints.
   const requestRef = useRef(0);
 
-  const load = useCallback((next: Range) => {
+  const load = useCallback(() => {
     const ticket = ++requestRef.current;
     setLoading(true);
     setError(null);
     void invoke<UsagePayload>("agent_usage_events", {
-      sinceMs: sinceForDays(next),
+      // Everything, once. The ranges are sums over these days, so switching between them - or
+      // ticking a cache switch - never pays for the scan again.
+      sinceMs: null,
       offsetMinutes: localOffsetMinutes(),
       cacheRead: true,
       cacheWrite: true,
@@ -60,6 +93,7 @@ export function UsageApp(): JSX.Element {
       .then((answer) => {
         if (ticket !== requestRef.current) return;
         setPayload(answer);
+        setUpdatedAt(Date.now());
       })
       .catch((reason) => {
         if (ticket !== requestRef.current) return;
@@ -72,11 +106,9 @@ export function UsageApp(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    load(range);
-  }, [load, range]);
+    load();
+  }, [load]);
 
-  // The window title is interface text, so it comes from the message table and follows the
-  // language. usage.html carries a neutral title for the moment before this runs.
   useEffect(() => {
     const title = t("usage.windowTitle");
     document.title = title;
@@ -85,61 +117,144 @@ export function UsageApp(): JSX.Element {
       .catch(() => {});
   }, [t]);
 
-  // Scope is applied here rather than by asking Rust again: the answer already carries the raw
-  // parts, and the read it would repeat is every store on the machine.
-  const shown = useMemo(
-    () => (payload ? withScope(payload, scope) : null),
-    [payload, scope],
+  const offset = payload?.offsetMinutes ?? localOffsetMinutes();
+  const today = dayOf(Date.now(), offset);
+
+  const view = useMemo(
+    () => (payload ? buildView(payload, { range, tool, scope, today }) : null),
+    [payload, range, tool, scope, today],
+  );
+  const trend = useMemo(
+    () =>
+      payload
+        ? buildTrend(payload, {
+            range: chartRange,
+            tool,
+            scope,
+            today,
+            otherLabel: t("usage.other"),
+          })
+        : null,
+    [payload, chartRange, tool, scope, today, t],
+  );
+  const heatmap = useMemo(
+    () =>
+      payload
+        ? buildHeatmap(payload, { tool, scope, today, weeks: HEATMAP_WEEKS })
+        : null,
+    [payload, tool, scope, today],
   );
 
-  // The probe reads this, so what it checks is what the window drew, not a second calculation.
+  // The probe reads this, so what it checks is what the window drew.
   useEffect(() => {
     const w = window as unknown as { __vertaUsage?: () => unknown };
     w.__vertaUsage = () =>
-      shown
+      payload && view && trend && heatmap
         ? {
             range,
-            sinceMs: shown.sinceMs,
-            scope: shown.scope,
-            tokens: shown.tokens,
-            events: shown.events,
-            excludedCacheRead: shown.excludedCacheRead,
-            excludedCacheWrite: shown.excludedCacheWrite,
-            days: shown.days.length,
-            models: shown.models.length,
-            failures: shown.failures,
-            // What Rust counted for the scope it was asked for, so a probe can check the two
-            // implementations agree instead of assuming it.
-            rustTokens: payload?.tokens ?? null,
-            rustScope: payload?.scope ?? null,
+            tool,
+            scope,
+            tokens: view.tokens,
+            rustTokens: payload.tokens,
+            events: view.events,
+            days: view.days.length,
+            activeDays: view.activeDays,
+            streak: view.streak,
+            peak: view.peak,
+            tools: view.byTool.map((row) => ({
+              label: row.label,
+              tokens: row.tokens,
+            })),
+            models: view.byModel.length,
+            modelOf: view.byModel.slice(0, 3).map((row) => ({
+              label: row.label,
+              tokens: row.tokens,
+            })),
+            cells: view.days.reduce((sum, day) => sum + day.cells.length, 0),
+            trend: {
+              columns: trend.columns.length,
+              series: trend.series.map((entry) => ({
+                label: entry.label,
+                total: entry.total,
+              })),
+              peak: trend.peak,
+            },
+            heat: {
+              cells: heatmap.cells.length,
+              painted: heatmap.cells.filter((cell) => cell.level > 0).length,
+            },
+            failures: payload.failures,
           }
         : null;
-  }, [shown, range, payload]);
+  }, [payload, view, trend, heatmap, range, tool, scope]);
 
-  const format = useCallback(
-    (value: number) => new Intl.NumberFormat(language).format(value),
-    [language],
-  );
-  const compact = useCallback(
-    (value: number) =>
-      new Intl.NumberFormat(language, {
-        notation: "compact",
-        maximumFractionDigits: 1,
-      }).format(value),
-    [language],
+  const chips = <T extends string | number | null>(
+    values: readonly T[],
+    current: T,
+    onPick: (value: T) => void,
+    label: (value: T) => string,
+    ariaLabel: string,
+    iconOf?: (value: T) => ReactNode,
+  ) => (
+    <div
+      role="tablist"
+      aria-label={ariaLabel}
+      className="flex items-center gap-0.5 rounded-md bg-foreground/[0.05] p-0.5"
+    >
+      {values.map((value) => (
+        <button
+          key={String(value)}
+          type="button"
+          role="tab"
+          // A stable handle for the probe: the label is interface text and follows the language.
+          data-usage-chip={String(value)}
+          aria-selected={current === value}
+          onClick={() => onPick(value)}
+          className={cn(
+            "flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 text-[10.5px] whitespace-nowrap outline-none transition-[background-color,color,transform] duration-150 focus-visible:ring-2 focus-visible:ring-primary/40 active:scale-[0.97]",
+            current === value
+              ? "bg-primary font-medium text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {iconOf?.(value) ? (
+            <span className="shrink-0">{iconOf(value)}</span>
+          ) : null}
+          {label(value)}
+        </button>
+      ))}
+    </div>
   );
 
-  const maxDay =
-    shown?.days.reduce((max, day) => Math.max(max, day.tokens), 0) ?? 0;
-  const maxModel =
-    shown?.models.reduce((max, model) => Math.max(max, model.tokens), 0) ?? 0;
+  const card = (
+    title: string,
+    extra: ReactNode,
+    body: ReactNode,
+    className?: string,
+  ) => (
+    <section
+      className={cn(
+        "min-w-0 rounded-[10px] border border-border/60 bg-card/60 px-3 py-2.5",
+        className,
+      )}
+    >
+      <div className="mb-1.5 flex items-center gap-2">
+        <h2 className="text-[12px] font-semibold text-foreground">{title}</h2>
+        {extra}
+      </div>
+      {body}
+    </section>
+  );
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground select-none">
+    <div className="usage-shell flex h-screen flex-col overflow-hidden bg-background text-foreground select-none">
       <WindowVibrancyBridge />
       <header
         data-tauri-drag-region
-        className="flex h-11 shrink-0 items-center gap-2 border-b border-border/60 bg-card/60 pr-0 pl-3"
+        className={cn(
+          "flex h-11 shrink-0 items-center gap-2 border-b border-border/60 bg-card/60",
+          IS_MAC ? "pr-3 pl-22" : "pr-0 pl-3",
+        )}
       >
         <span
           className="text-[12px] font-medium text-foreground"
@@ -147,191 +262,235 @@ export function UsageApp(): JSX.Element {
         >
           {t("usage.title")}
         </span>
-        <div
-          role="tablist"
-          aria-label={t("usage.range")}
-          className="ml-2 flex items-center gap-0.5 rounded-md bg-foreground/[0.05] p-0.5"
-        >
-          {RANGES.map((value) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              aria-selected={range === value}
-              disabled={loading}
-              onClick={() => setRange(value)}
-              className={cn(
-                "cursor-pointer rounded px-2 py-0.5 text-[10.5px] outline-none transition-colors duration-[var(--dur-base)] focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60",
-                range === value
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {t(RANGE_KEYS[value])}
-            </button>
-          ))}
-        </div>
+        <div className="ml-1" />
+        {chips(
+          USAGE_RANGES,
+          range,
+          setRange,
+          (value) => t(RANGE_KEYS[value]),
+          t("usage.range"),
+        )}
+        <div className="ml-auto" />
         <button
           type="button"
           disabled={loading}
-          onClick={() => load(range)}
+          onClick={load}
           className="cursor-pointer rounded-md px-2 py-1 text-[11px] text-muted-foreground outline-none transition-colors duration-[var(--dur-base)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-50"
         >
           {loading ? t("usage.loading") : t("usage.refresh")}
         </button>
-        <div className="ml-auto" />
         <WindowControls closeOnly />
       </header>
       <WindowActivityBridge />
 
-      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/40 px-4 py-2">
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <Switch
-            checked={scope.cacheRead}
-            onCheckedChange={(cacheRead) =>
-              setScope((current) => ({ ...current, cacheRead }))
-            }
-          />
-          {t("usage.cacheRead")}
-        </div>
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <Switch
-            checked={scope.cacheWrite}
-            onCheckedChange={(cacheWrite) =>
-              setScope((current) => ({ ...current, cacheWrite }))
-            }
-          />
-          {t("usage.cacheWrite")}
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/40 px-4 py-1.5">
+        {chips(
+          [null, ...TOOLS] as (string | null)[],
+          tool,
+          setTool,
+          (value) => value ?? t("usage.allTools"),
+          t("usage.agent"),
+          // The same marks the session list uses, so "which agent" is read at a glance here too.
+          (value) =>
+            value === null ? null : <AgentIcon agent={value} size={11} />,
+        )}
+        <span className="text-[10px] text-muted-foreground">
+          {view
+            ? t("usage.statusLine", {
+                days: view.days.length,
+                events: view.events,
+              })
+            : ""}
+        </span>
+        {updatedAt && !loading ? (
+          <span className="text-[10px] text-muted-foreground">
+            {t("usage.updatedAt", {
+              time: new Date(updatedAt).toLocaleTimeString(language, {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            })}
+          </span>
+        ) : null}
+        <div className="ml-auto flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <Switch
+              checked={scope.cacheRead}
+              onCheckedChange={(cacheRead) =>
+                setScope((current) => ({ ...current, cacheRead }))
+              }
+            />
+            {t("usage.cacheRead")}
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <Switch
+              checked={scope.cacheWrite}
+              onCheckedChange={(cacheWrite) =>
+                setScope((current) => ({ ...current, cacheWrite }))
+              }
+            />
+            {t("usage.cacheWrite")}
+          </div>
         </div>
       </div>
 
-      <main className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <main className="min-h-0 flex-1 overflow-y-auto px-4 py-3 [-ms-overflow-style:none] [scrollbar-width:thin]">
         {error ? (
           <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[11px] break-words whitespace-pre-line text-destructive">
             {error}
           </div>
         ) : null}
 
-        {shown && shown.failures.length > 0 ? (
-          <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+        {payload && payload.failures.length > 0 ? (
+          <div className="mb-3 rounded-md border border-amber-500/35 bg-amber-500/8 px-3 py-2 text-[11px] text-amber-600 dark:text-amber-400">
             <div className="font-medium">
-              {t("usage.failures", { count: shown.failures.length })}
+              {t("usage.failures", { count: payload.failures.length })}
             </div>
             <div className="mt-0.5 break-words whitespace-pre-line opacity-80">
-              {shown.failures.join("\n")}
+              {payload.failures.join("\n")}
             </div>
           </div>
         ) : null}
 
-        {!shown ? (
-          <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
-            {loading
-              ? t(range === 0 ? "usage.loadingAll" : "usage.loading")
-              : t("usage.empty")}
+        {!payload || !view || !trend || !heatmap ? (
+          <div className="flex h-full items-center justify-center text-center text-[12px] text-muted-foreground">
+            {loading ? t("usage.loadingAll") : t("usage.empty")}
+          </div>
+        ) : payload.days.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
+            <div className="text-[13px] text-amber-600 dark:text-amber-400">
+              {t("usage.noData")}
+            </div>
+            <div className="max-w-[420px] text-[11px] text-muted-foreground">
+              {t("usage.noDataHint")}
+            </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-5">
-            <section>
-              <div className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                {t("usage.total")}
-              </div>
-              <div
-                className="mt-0.5 text-2xl font-semibold tabular-nums"
-                title={format(shown.tokens)}
-              >
-                {compact(shown.tokens)}
-              </div>
-              <div className="mt-0.5 text-[11px] text-muted-foreground">
-                {t("usage.events", { count: format(shown.events) })}
-                {shown.excludedCacheRead + shown.excludedCacheWrite > 0
-                  ? ` · ${t("usage.excluded", {
-                      read: compact(shown.excludedCacheRead),
-                      write: compact(shown.excludedCacheWrite),
-                    })}`
-                  : ""}
-              </div>
+          <div className="flex flex-col gap-4">
+            <section className="rounded-[10px] border border-border/60 bg-card/60 px-3 py-2.5">
+              <SummaryCard
+                view={view}
+                scope={scope}
+                language={language}
+                rangeLabel={t(RANGE_KEYS[range])}
+                today={today}
+                labels={{
+                  composition: [
+                    t("usage.colInput"),
+                    t("usage.colOutput"),
+                    t("usage.colCacheRead"),
+                    t("usage.colCacheWrite"),
+                  ],
+                  activeDays: t("usage.activeDays"),
+                  streak: t("usage.streak"),
+                  perDay: t("usage.perDay"),
+                  peakDay: t("usage.peakDay"),
+                  favourite: t("usage.favourite"),
+                  shareOfAll: t("usage.shareOfAll"),
+                  daysUnit: (count) => t("usage.daysUnit", { count }),
+                  perDayLine: (value) => t("usage.perDayLine", { value }),
+                  emptyRange: t("usage.emptyRange", {
+                    range: t(RANGE_KEYS[range]),
+                  }),
+                  today: t("usage.today"),
+                  yesterday: t("usage.yesterday"),
+                  unnamedModel: t("usage.unnamedModel"),
+                }}
+              />
             </section>
 
-            <section data-usage-days>
-              <div className="mb-1.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                {t("usage.byDay")}
-              </div>
-              {shown.days.length === 0 ? (
-                <div className="text-[11px] text-muted-foreground">
-                  {t("usage.empty")}
-                </div>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  {[...shown.days].reverse().map((day) => (
-                    <div key={day.day} className="flex items-center gap-2">
-                      <span className="w-18 shrink-0 text-[10.5px] text-muted-foreground tabular-nums">
-                        {day.label.slice(5)}
-                      </span>
-                      <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-sm bg-foreground/[0.05]">
-                        <div
-                          className="h-full rounded-sm bg-primary/70"
-                          style={{
-                            width: `${maxDay > 0 ? (day.tokens / maxDay) * 100 : 0}%`,
-                          }}
-                        />
-                      </div>
-                      <span
-                        className="w-16 shrink-0 text-right text-[10.5px] text-foreground tabular-nums"
-                        title={format(day.tokens)}
-                        data-usage-day-tokens={day.tokens}
-                      >
-                        {compact(day.tokens)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+            {card(
+              t("usage.trend"),
+              <>
+                {chips(
+                  CHART_RANGES,
+                  chartRange,
+                  setChartRange,
+                  (value) => t(CHART_RANGE_KEYS[value]),
+                  t("usage.range"),
+                )}
+                <div className="ml-auto" />
+                {chips(
+                  ["bars", "line"] as const,
+                  chartKind,
+                  setChartKind,
+                  (value) =>
+                    value === "bars"
+                      ? t("usage.kindBars")
+                      : t("usage.kindLine"),
+                  t("usage.trend"),
+                )}
+              </>,
+              <TrendChart
+                trend={trend}
+                kind={chartKind}
+                peakLabel={t("usage.trend")}
+              />,
+            )}
 
-            <section data-usage-models>
-              <div className="mb-1.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                {t("usage.byModel")}
-              </div>
-              {shown.models.length === 0 ? (
-                <div className="text-[11px] text-muted-foreground">
-                  {t("usage.empty")}
-                </div>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  {shown.models.map((row) => (
-                    <div
-                      key={`${row.provider ?? ""}/${row.model ?? ""}`}
-                      className="flex items-center gap-2"
-                      data-usage-model={row.model ?? ""}
-                    >
-                      <span className="w-44 shrink-0 truncate text-[10.5px] text-muted-foreground">
-                        {row.model ?? t("usage.unnamedModel")}
-                        <span className="ml-1 opacity-60">
-                          {row.provider ?? t("usage.unnamedProvider")}
-                        </span>
-                      </span>
-                      <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-sm bg-foreground/[0.05]">
-                        <div
-                          className="h-full rounded-sm bg-primary/70"
-                          style={{
-                            width: `${
-                              maxModel > 0 ? (row.tokens / maxModel) * 100 : 0
-                            }%`,
-                          }}
-                        />
-                      </div>
-                      <span
-                        className="w-20 shrink-0 text-right text-[10.5px] text-foreground tabular-nums"
-                        title={format(row.tokens)}
-                        data-usage-model-tokens={row.tokens}
-                      >
-                        {compact(row.tokens)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+            {card(
+              t("usage.heatmap"),
+              <span className="text-[9.5px] text-muted-foreground">
+                {t("usage.heatmapWeeks", { count: HEATMAP_WEEKS })}
+              </span>,
+              <Heatmap
+                cells={heatmap.cells}
+                weeks={heatmap.weeks}
+                labels={{
+                  less: t("usage.heatLess"),
+                  more: t("usage.heatMore"),
+                  scale: t("usage.heatScale"),
+                  none: t("usage.heatNone"),
+                }}
+              />,
+            )}
+
+            {/* Side by side only when there is room: at this window's width each card would be
+                ~420px, and five numeric columns leave about a hundred for the name, which truncates
+                every model id to "deepseek-...". Stacked, each table gets the full width. */}
+            <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+              {card(
+                t("usage.agent"),
+                null,
+                <UsageTable
+                  nameHeader={t("usage.colAgent")}
+                  labels={{
+                    total: t("usage.colTotal"),
+                    input: t("usage.colInput"),
+                    output: t("usage.colOutput"),
+                    cacheRead: t("usage.colCacheRead"),
+                    share: t("usage.colShare"),
+                  }}
+                  rows={view.byTool}
+                  nameOf={(row) => row.label}
+                  iconOf={(row) => (
+                    <AgentIcon agent={row.tool ?? row.label} size={12} />
+                  )}
+                  emptyLabel={t("usage.empty")}
+                  onPick={(row) => setTool(row.tool ?? null)}
+                />,
               )}
-            </section>
+              {card(
+                t("usage.models"),
+                <span className="text-[9.5px] text-muted-foreground">
+                  {view.byModel.length}
+                </span>,
+                <UsageTable
+                  nameHeader={t("usage.colModel")}
+                  labels={{
+                    total: t("usage.colTotal"),
+                    input: t("usage.colInput"),
+                    output: t("usage.colOutput"),
+                    cacheRead: t("usage.colCacheRead"),
+                    share: t("usage.colShare"),
+                  }}
+                  rows={view.byModel}
+                  nameOf={(row) => row.model ?? t("usage.unnamedModel")}
+                  noteOf={(row) => row.provider ?? t("usage.unnamedProvider")}
+                  emptyLabel={t("usage.empty")}
+                />,
+              )}
+            </div>
           </div>
         )}
       </main>

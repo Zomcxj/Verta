@@ -5,6 +5,8 @@ mod delete;
 mod image;
 mod opencode;
 mod pi;
+mod workbuddy;
+mod zcode;
 mod service_turns;
 pub mod stats;
 pub mod usage;
@@ -124,30 +126,61 @@ pub async fn agent_sessions_delete(targets: Vec<SessionTarget>) -> DeleteReport 
 /// pretend they are covered, so this says so in one place instead of silently leaving them out.
 pub fn usage_events(since_ms: Option<i64>) -> usage::UsageReadReport {
     usage_events_at(
-        claude::default_root().as_deref(),
-        pi::default_root().as_deref(),
-        opencode::default_db_path().as_deref(),
+        UsageStores {
+            claude: &claude::usage_roots(),
+            pi: pi::default_root().as_deref(),
+            opencode: opencode::default_db_path().as_deref(),
+            zcode: zcode::default_db_path().as_deref(),
+            workbuddy: &workbuddy::usage_roots(),
+        },
         since_ms,
     )
 }
 
-/// The same, with the three stores handed in. A store passed as `None` is skipped, which is what a
-/// tool that is not installed looks like.
+/// The stores a usage read draws on, each optional.
+///
+/// A struct rather than a list of arguments because the set keeps growing (three when this was
+/// written, five now) and positional `Option<&Path>` parameters become unreadable long before that.
+/// A store passed as `None` is skipped, which is what an agent that is not installed looks like.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UsageStores<'a> {
+    /// Claude Code's transcript directories: `projects/` and `transcripts/`, under
+    /// `CLAUDE_CONFIG_DIR` when that is set.
+    pub claude: &'a [std::path::PathBuf],
+    pub pi: Option<&'a std::path::Path>,
+    /// opencode, and only opencode: its forks keep their own directories and are read by their own
+    /// readers.
+    pub opencode: Option<&'a std::path::Path>,
+    /// zcode, an IDE agent: usage only, from its own database.
+    pub zcode: Option<&'a std::path::Path>,
+    /// workbuddy, an IDE agent: usage only, from its project transcripts (two roots exist in the
+    /// wild, `.workbuddy` and `.workbuddy-ai`).
+    pub workbuddy: &'a [std::path::PathBuf],
+}
+
+/// The same, with the stores handed in.
 pub fn usage_events_at(
-    claude_root: Option<&std::path::Path>,
-    pi_root: Option<&std::path::Path>,
-    opencode_db: Option<&std::path::Path>,
+    stores: UsageStores<'_>,
     since_ms: Option<i64>,
 ) -> usage::UsageReadReport {
     let mut report = usage::UsageReadReport::default();
-    if let Some(root) = claude_root {
-        merge_usage(&mut report, claude::usage_events_at(root, since_ms));
+    if !stores.claude.is_empty() {
+        merge_usage(&mut report, claude::usage_events_at(stores.claude, since_ms));
     }
-    if let Some(root) = pi_root {
+    if let Some(root) = stores.pi {
         merge_usage(&mut report, pi::usage_events_at(root, since_ms));
     }
-    if let Some(path) = opencode_db {
+    if let Some(path) = stores.opencode {
         merge_usage(&mut report, opencode::usage_events_at(path, since_ms));
+    }
+    if let Some(root) = stores.zcode {
+        merge_usage(&mut report, zcode::usage_events_at(root, since_ms));
+    }
+    if !stores.workbuddy.is_empty() {
+        merge_usage(
+            &mut report,
+            workbuddy::usage_events_at(stores.workbuddy, since_ms),
+        );
     }
     // One order for the whole machine: the window's day buckets are built from this, and two readers
     // that each sorted their own half would leave the report half-ordered.
@@ -160,30 +193,17 @@ fn merge_usage(into: &mut usage::UsageReadReport, mut other: usage::UsageReadRep
     into.failures.append(&mut other.failures);
 }
 
-/// A day's tokens: the raw parts and, beside them, the same numbers counted under the scope the
-/// caller asked for.
+/// One tool/provider/model cell of one day: the finest split the window draws with.
 ///
-/// The parts are what a window switches scope with. Everything it needs is in this one answer, so
-/// ticking "include cache reads" out and back in is a re-render rather than a second read of 5.6 GB
-/// of opencode plus every transcript on the machine. `tokens` is the Rust count, kept beside the
-/// parts so a window cannot silently disagree with it: `UsageApp` recomputes from `parts` and the
-/// probe checks the two agree.
+/// `parts` is what a window switches the cache accounting with, `tokens` is the same cell counted
+/// under the scope the caller asked for. One read then answers every view: the trend chart stacks
+/// cells inside a day, the heatmap sums a day, the two tables sum over the days in the range, and
+/// the composition bar sums the parts. Changing the range or ticking a cache switch is arithmetic on
+/// what is already here, not another scan of 5.6 GB of opencode plus every transcript.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UsageDayRow {
-    /// Days since 1970-01-01 in the caller's offset.
-    pub day: i64,
-    /// `YYYY-MM-DD`, so a window never has to do date arithmetic of its own.
-    pub label: String,
-    pub parts: usage::UsageTokens,
-    pub tokens: u64,
-    pub events: u32,
-}
-
-/// A provider/model pair, in the same two shapes as a day.
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UsageModelRow {
+pub struct UsageCellRow {
+    pub tool: String,
     pub provider: Option<String>,
     pub model: Option<String>,
     pub parts: usage::UsageTokens,
@@ -191,11 +211,27 @@ pub struct UsageModelRow {
     pub events: u32,
 }
 
+/// One day, with its cells.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageDayRow {
+    /// Days since 1970-01-01 in the caller's offset.
+    pub day: i64,
+    /// `YYYY-MM-DD`, so a window never has to do date arithmetic of its own.
+    pub label: String,
+    /// The sum of the cells, computed in one place so a day and its bars cannot disagree.
+    pub parts: usage::UsageTokens,
+    pub tokens: u64,
+    pub events: u32,
+    /// Biggest first, as `aggregate` ordered them.
+    pub cells: Vec<UsageCellRow>,
+}
+
 /// What a usage window draws.
 ///
-/// `tokens` and every row's count are computed here, so the accounting rule (`TokenScope`) has one
-/// reference implementation; the raw `parts` ride along so the window can apply a different scope
-/// without reading the stores again.
+/// The counts are computed here, so the accounting rule (`TokenScope`) has one reference
+/// implementation; the raw `parts` ride along so the window can apply a different scope without
+/// reading the stores again.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsagePayload {
@@ -212,17 +248,17 @@ pub struct UsagePayload {
     pub excluded_cache_write: u64,
     /// Oldest first, one row per day that had any event.
     pub days: Vec<UsageDayRow>,
-    /// Biggest first, the unnamed bucket last when it ties.
-    pub models: Vec<UsageModelRow>,
     /// Stores that could not be read. A window shows them; they are not an empty result.
     pub failures: Vec<String>,
 }
 
-/// Usage over a range, per day and per model.
+/// Usage over a range, per day, broken down by tool and model inside each day.
 ///
-/// The read is the expensive part (this machine's three stores are a 5.6 GB opencode database plus
-/// tens of megabytes of transcripts), so it runs on the blocking pool and `since_ms` is pushed into
-/// it: a window that shows the last 30 days must not pay for years of history.
+/// The read is the expensive part (this machine: a 5.6 GB opencode database plus tens of megabytes
+/// of transcripts), so it runs on the blocking pool and `since_ms` is pushed into it. The window
+/// asks for everything once and slices locally, which is why `since_ms` is usually `None` from it:
+/// the ranges it offers (today / this week / this month / all) are then a sum over `days` instead of
+/// a fresh scan each.
 #[tauri::command]
 pub async fn agent_usage_events(
     since_ms: Option<i64>,
@@ -252,23 +288,27 @@ pub async fn agent_usage_events(
         let days = folded
             .days
             .iter()
-            .map(|day| UsageDayRow {
-                day: day.day,
-                label: usage::day_label(day.day),
-                parts: day.totals.tokens,
-                tokens: day.totals.counted(scope),
-                events: day.totals.events,
-            })
-            .collect();
-        let models = folded
-            .models
-            .iter()
-            .map(|model| UsageModelRow {
-                provider: model.provider.clone(),
-                model: model.model.clone(),
-                parts: model.totals.tokens,
-                tokens: model.totals.counted(scope),
-                events: model.totals.events,
+            .map(|day| {
+                let cells = day
+                    .cells
+                    .iter()
+                    .map(|cell| UsageCellRow {
+                        tool: cell.tool.clone(),
+                        provider: cell.provider.clone(),
+                        model: cell.model.clone(),
+                        parts: cell.totals.tokens,
+                        tokens: cell.totals.counted(scope),
+                        events: cell.totals.events,
+                    })
+                    .collect();
+                UsageDayRow {
+                    day: day.day,
+                    label: usage::day_label(day.day),
+                    parts: day.totals.tokens,
+                    tokens: day.totals.counted(scope),
+                    events: day.totals.events,
+                    cells,
+                }
             })
             .collect();
         Ok(UsagePayload {
@@ -281,7 +321,6 @@ pub async fn agent_usage_events(
             excluded_cache_read,
             excluded_cache_write,
             days,
-            models,
             failures: report.failures,
         })
     })
@@ -435,9 +474,12 @@ mod usage_tests {
         drop(conn);
 
         let report = usage_events_at(
-            Some(&dir.path().join("claude")),
-            Some(&dir.path().join("pi")),
-            Some(&db),
+            UsageStores {
+                claude: &[dir.path().join("claude")],
+                pi: Some(&dir.path().join("pi")),
+                opencode: Some(&db),
+                ..UsageStores::default()
+            },
             None,
         );
         assert!(report.failures.is_empty(), "{:?}", report.failures);
@@ -449,16 +491,31 @@ mod usage_tests {
             .collect();
         assert_eq!(models, vec!["m-a", "m-b", "m-c"]);
 
+        // Every event says which tool wrote it, which is what the window's tool filter reads.
+        let tools: Vec<&str> = report.events.iter().map(|event| event.tool).collect();
+        assert_eq!(tools, vec!["claude", "pi", "opencode"]);
+
         let folded = report.aggregate(0);
         assert_eq!(folded.totals.tokens.total(), 107);
         assert_eq!(folded.days.len(), 3, "{:?}", folded.days);
         assert_eq!(folded.models.len(), 3, "{:?}", folded.models);
+        assert_eq!(folded.tools.len(), 3, "{:?}", folded.tools);
+        // Each day has exactly one cell here, and it carries the tool the day came from.
+        let cell_tools: Vec<&str> = folded
+            .days
+            .iter()
+            .map(|day| day.cells[0].tool.as_str())
+            .collect();
+        assert_eq!(cell_tools, vec!["claude", "pi", "opencode"]);
 
         // The same read with a range start: only the two newest events survive, and the total says so.
         let ranged = usage_events_at(
-            Some(&dir.path().join("claude")),
-            Some(&dir.path().join("pi")),
-            Some(&db),
+            UsageStores {
+                claude: &[dir.path().join("claude")],
+                pi: Some(&dir.path().join("pi")),
+                opencode: Some(&db),
+                ..UsageStores::default()
+            },
             Some(1794580000000),
         );
         assert_eq!(ranged.events.len(), 2);
@@ -467,7 +524,7 @@ mod usage_tests {
 
     #[test]
     fn a_tool_that_is_not_installed_is_skipped_without_a_word() {
-        let report = usage_events_at(None, None, None, None);
+        let report = usage_events_at(UsageStores::default(), None);
         assert!(report.events.is_empty());
         assert!(report.failures.is_empty());
         assert_eq!(report.aggregate(0).totals.events, 0);
