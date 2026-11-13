@@ -1126,8 +1126,10 @@ fn text_from(bytes: &[u8], at: usize, count: usize, unit: usize) -> String {
         return slice.iter().map(|byte| *byte as char).collect();
     }
     slice
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
         .map(|value| char::from_u32(value as u32).unwrap_or('?'))
         .collect()
 }
