@@ -5,6 +5,7 @@ import { steppedZoom } from "@/modules/editor/lib/diagramZoom";
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useRef,
@@ -98,6 +99,36 @@ export function zoomedBy(zoom: number, direction: 1 | -1): number {
 }
 
 /**
+ * Where the scrollport belongs after a zoom, so the point being looked at stays where it is.
+ *
+ * The point is in the scrollport's own coordinates - a wheel's position, or the middle of the viewport
+ * for the zoom control. Content coordinates scale with the zoom, so the offset that puts the same
+ * content point back under the same place is the old offset scaled by the ratio. Without this the
+ * scrollport keeps the offset it had, which at 0 is the content's top-left corner: every press of `+`
+ * on a drawing that is wider than its pane would then show the same corner, and zooming would read as
+ * "it only grows downwards and rightwards" rather than "it comes closer".
+ */
+export function anchoredScroll(input: {
+  /** The scale that was in force. */
+  from: number;
+  /** The scale going in force. */
+  to: number;
+  scrollLeft: number;
+  scrollTop: number;
+  /** The point to hold still; the middle of the viewport when there is none (a button, not a wheel). */
+  point?: { x: number; y: number } | null;
+  viewport: { w: number; h: number };
+}): { scrollLeft: number; scrollTop: number } {
+  const ratio = input.from > 0 ? input.to / input.from : 1;
+  const x = input.point?.x ?? input.viewport.w / 2;
+  const y = input.point?.y ?? input.viewport.h / 2;
+  return {
+    scrollLeft: (input.scrollLeft + x) * ratio - x,
+    scrollTop: (input.scrollTop + y) * ratio - y,
+  };
+}
+
+/**
  * The scrollport both a picture and a diagram are looked at through.
  *
  * It owns the scrolling, the drag and the ctrl/cmd + wheel; the content owns its own size, because
@@ -110,6 +141,7 @@ export function PanZoomSurface({
   draggable,
   className,
   children,
+  viewportRef,
 }: {
   /** The scale in force, so a wheel knows what to step from. */
   zoom: number;
@@ -119,16 +151,91 @@ export function PanZoomSurface({
   draggable: boolean;
   className?: string;
   children: ReactNode;
+  /**
+   * The scrollport itself, for a caller that has to measure the room content has.
+   *
+   * A picture needs it before it can be fitted: the scale is the room over the picture's own size,
+   * and the room is this element's content box. Handed in rather than reported because a resize
+   * observer wants the element, and the element is only knowable from inside here.
+   */
+  viewportRef?: RefObject<HTMLDivElement | null>;
 }) {
-  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const ownRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef_ = viewportRef ?? ownRef;
   const dragRef = useRef<DragState | null>(null);
   const swallowClickRef = useRef(false);
   const [dragging, setDragging] = useState(false);
+  /**
+   * Where the content is being looked at, kept current so a zoom has something to anchor against.
+   *
+   * Read continuously rather than once per gesture: the zoom can be asked for from the control as well
+   * as from the wheel, and by then the pointer is over the control, not the content.
+   */
+  const geometryRef = useRef({ scrollLeft: 0, scrollTop: 0, w: 0, h: 0 });
+  /** The point a wheel asked to hold still, until the zoom that follows has been applied. */
+  const wheelPointRef = useRef<{ x: number; y: number } | null>(null);
+  const zoomRef = useRef(zoom);
+
+  // The scrollport's own numbers, kept current. A `scroll` listener covers a drag and the wheel; the
+  // size is read here too because a zoom can change it (a scrollbar appearing takes 15px off the room).
+  useEffect(() => {
+    const viewport = viewportRef_.current;
+    if (!viewport) return;
+    const remember = () => {
+      geometryRef.current = {
+        scrollLeft: viewport.scrollLeft,
+        scrollTop: viewport.scrollTop,
+        w: viewport.clientWidth,
+        h: viewport.clientHeight,
+      };
+    };
+    remember();
+    viewport.addEventListener("scroll", remember, { passive: true });
+    return () => viewport.removeEventListener("scroll", remember);
+  }, [viewportRef_]);
+
+  /**
+   * A zoom keeps the point the reader is looking at where it is.
+   *
+   * Applied on a couple of frames as well as immediately: the content sizes itself in its own render
+   * (an inline width, or a drawing sized from its `viewBox` in an effect of its own), so the frame the
+   * offsets are written in may still be the old layout. Writing a target rather than a delta makes
+   * that harmless - the later frames write the same numbers.
+   */
+  // The effect is keyed on the scale and reads the geometry through a ref on purpose: making the
+  // geometry a dependency would re-anchor the view on every scroll.
+  useEffect(() => {
+    const viewport = viewportRef_.current;
+    const from = zoomRef.current;
+    zoomRef.current = zoom;
+    if (!viewport || from === zoom) return;
+    const geometry = geometryRef.current;
+    const next = anchoredScroll({
+      from,
+      to: zoom,
+      scrollLeft: geometry.scrollLeft,
+      scrollTop: geometry.scrollTop,
+      point: wheelPointRef.current,
+      // The size read live: the room is what a button zoom centres in, and it is not the number that
+      // changes with the content (a scrollbar appearing does take part of it).
+      viewport: { w: viewport.clientWidth, h: viewport.clientHeight },
+    });
+    wheelPointRef.current = null;
+    const apply = () => {
+      viewport.scrollLeft = next.scrollLeft;
+      viewport.scrollTop = next.scrollTop;
+    };
+    apply();
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(apply);
+    });
+  }, [zoom, viewportRef_]);
 
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (!draggable) return;
-      const viewport = viewportRef.current;
+      const viewport = viewportRef_.current;
       if (!viewport) return;
       const state = beginDrag({
         pointerId: event.pointerId,
@@ -145,20 +252,20 @@ export function PanZoomSurface({
       // edge is at the window's edge is the normal case, not the exception.
       event.currentTarget.setPointerCapture(event.pointerId);
     },
-    [draggable],
+    [draggable, viewportRef_],
   );
 
   const onPointerMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const state = dragRef.current;
-      const viewport = viewportRef.current;
+      const viewport = viewportRef_.current;
       if (!state || !viewport || state.pointerId !== event.pointerId) return;
       const next = moveDrag(state, event.clientX, event.clientY);
       dragRef.current = next.state;
       viewport.scrollLeft = next.scrollLeft;
       viewport.scrollTop = next.scrollTop;
     },
-    [],
+    [viewportRef_],
   );
 
   const finishDrag = useCallback(
@@ -185,8 +292,23 @@ export function PanZoomSurface({
     event.preventDefault();
   }, []);
 
+  /**
+   * A natively draggable child does not get to start a drag.
+   *
+   * An `<img>` (and a link) drags itself by default, and a drag of its own takes the gesture away from
+   * this surface: the webview paints a ghost of the picture, stops delivering the moves, and the pane
+   * simply does not move - reported as "the left button does nothing on a picture". Cancelling
+   * `dragstart` inside the surface leaves the gesture where it belongs.
+   */
+  const onDragStart = useCallback(
+    (event: React.DragEvent) => {
+      if (draggable) event.preventDefault();
+    },
+    [draggable],
+  );
+
   useEffect(() => {
-    const viewport = viewportRef.current;
+    const viewport = viewportRef_.current;
     if (!viewport || !onZoomChange) return;
     // Ctrl/cmd + wheel, the gesture a viewer is expected to have. Attached by hand and marked
     // non-passive: React's own wheel listener is passive, so `preventDefault` there would do nothing
@@ -194,21 +316,38 @@ export function PanZoomSurface({
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
-      onZoomChange(zoomedBy(zoom, event.deltaY < 0 ? 1 : -1));
+      const next = zoomedBy(zoom, event.deltaY < 0 ? 1 : -1);
+      if (next === zoom) return;
+      // Where the wheel was, in the scrollport's coordinates: this is the point the zoom has to keep
+      // still. Recorded here rather than from the last move, because a wheel can arrive with the
+      // pointer wherever the reader left it - and it is the wheel that says which point is wanted.
+      const rect = viewport.getBoundingClientRect();
+      wheelPointRef.current = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      const geometry = geometryRef.current;
+      geometryRef.current = {
+        ...geometry,
+        scrollLeft: viewport.scrollLeft,
+        scrollTop: viewport.scrollTop,
+        w: viewport.clientWidth,
+        h: viewport.clientHeight,
+      };
+      onZoomChange(next);
     };
     viewport.addEventListener("wheel", onWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", onWheel);
-  }, [zoom, onZoomChange]);
+  }, [zoom, onZoomChange, viewportRef_]);
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: a scrollport is not a control; these handlers are the drag, the wheel and the click that ends a drag, none of which an element around it can do for it
     <div
-      ref={viewportRef}
+      ref={viewportRef_}
       data-slot="pan-zoom-surface"
       data-dragging={dragging ? "true" : "false"}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={finishDrag}
       onPointerCancel={finishDrag}
+      onDragStart={onDragStart}
       onClickCapture={onClickCapture}
       className={cn(
         // `safe` centring in both axes: plain centring aligns content wider than the scrollport in

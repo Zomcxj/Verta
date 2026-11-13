@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { beginDrag, endDrag, moveDrag, zoomedBy } from "./pan-zoom";
+import { beginDrag, endDrag, moveDrag, zoomedBy, anchoredScroll } from "./pan-zoom";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const surface = readFileSync(path.join(here, "pan-zoom.tsx"), "utf8");
@@ -80,6 +80,60 @@ describe("a wheel asking for a new scale", () => {
   });
 });
 
+describe("where a zoom leaves the view", () => {
+  it("holds the wheel's point still", () => {
+    // The reader is looking at the middle-left of a drawing; the point under the pointer is the point
+    // that has to stay under it. Content coordinates scale with the zoom, so the offset does too.
+    const next = anchoredScroll({
+      from: 1,
+      to: 2,
+      scrollLeft: 100,
+      scrollTop: 40,
+      point: { x: 200, y: 300 },
+      viewport: { w: 1000, h: 800 },
+    });
+    // (100 + 200) * 2 - 200 and (40 + 300) * 2 - 300
+    expect(next).toEqual({ scrollLeft: 400, scrollTop: 380 });
+  });
+
+  it("centres on the viewport when the control asked, not the wheel", () => {
+    // A press of `+` has no pointer position that means anything - the pointer is over the control.
+    const next = anchoredScroll({
+      from: 1,
+      to: 2,
+      scrollLeft: 0,
+      scrollTop: 0,
+      point: null,
+      viewport: { w: 1000, h: 800 },
+    });
+    expect(next).toEqual({ scrollLeft: 500, scrollTop: 400 });
+  });
+
+  it("is the same offset back again when the scale returns", () => {
+    // Zooming in and out from the same point is a round trip: the doubling and the halving cancel, so
+    // a drawing comes back where it was rather than drifting a little further each time.
+    const point = { x: 320, y: 240 };
+    const viewport = { w: 1000, h: 800 };
+    const there = anchoredScroll({ from: 1, to: 2, scrollLeft: 60, scrollTop: 20, point, viewport });
+    const back = anchoredScroll({ from: 2, to: 1, ...there, point, viewport });
+    expect(back.scrollLeft).toBeCloseTo(60, 6);
+    expect(back.scrollTop).toBeCloseTo(20, 6);
+  });
+
+  it("leaves the offset alone when the scale did not move", () => {
+    expect(
+      anchoredScroll({
+        from: 1,
+        to: 1,
+        scrollLeft: 42,
+        scrollTop: 7,
+        point: { x: 10, y: 10 },
+        viewport: { w: 100, h: 100 },
+      }),
+    ).toEqual({ scrollLeft: 42, scrollTop: 7 });
+  });
+});
+
 describe("the surface", () => {
   it("starts a drag from the primary button and keeps the pointer captured", () => {
     // Captured so the gesture survives the pointer leaving the element: dragging a picture whose
@@ -104,11 +158,28 @@ describe("the surface", () => {
     expect(surface).toMatch(/stopPropagation\(\)/);
   });
 
+  it("does not let a draggable child start a drag of its own", () => {
+    // An `<img>` drags itself by default, and that drag takes the gesture away: the webview paints a
+    // ghost, the moves stop arriving and the pane does not move - the left button "does nothing" on a
+    // picture, and works on a drawing.
+    expect(surface).toMatch(/onDragStart=\{onDragStart\}/);
+    expect(surface).toMatch(/if \(draggable\) event\.preventDefault\(\)/);
+  });
+
+  it("holds the point being looked at still across a zoom", () => {
+    // Without this the scrollport keeps its offset, which is 0 until the content overflows: every zoom
+    // showed the same top-left corner, and zooming read as "it only grows downwards and rightwards".
+    expect(surface).toMatch(/anchoredScroll\(\{/);
+    expect(surface).toMatch(/wheelPointRef\.current = \{ x: event\.clientX - rect\.left/);
+    expect(surface).toMatch(/viewport\.addEventListener\("scroll", remember/);
+  });
+
   it("takes ctrl+wheel itself, because React's wheel listener is passive", () => {
     expect(surface).toMatch(
       /addEventListener\("wheel", onWheel, \{ passive: false \}\)/,
     );
-    expect(surface).toMatch(/onZoomChange\(zoomedBy\(zoom/);
+    expect(surface).toMatch(/onZoomChange\(next\)/);
+    expect(surface).toMatch(/const next = zoomedBy\(zoom, event\.deltaY < 0 \? 1 : -1\)/);
   });
 
   it("centres safely in both axes, so nothing can overflow past the scroll origin", () => {

@@ -134,6 +134,21 @@ const diagramIn = () =>
   `[...document.querySelectorAll('[data-slot="mermaid-diagram"]')].find(${VISIBLE})`;
 const errorIn = () =>
   `[...document.querySelectorAll('[data-slot="mermaid-error"]')].find(${VISIBLE})`;
+/**
+ * The element that owns the drawing's controls: its own pane.
+ *
+ * Found by walking up until something contains a zoom level, rather than by searching the document.
+ * More than one pane can be on screen at once (a split, or a tab an earlier run left behind), and a
+ * press aimed at the wrong pane reports on a drawing this run never opened.
+ */
+const paneOf = (nodeExpr) => `(() => {
+  const node = ${nodeExpr};
+  if (!node) return null;
+  for (let el = node; el; el = el.parentElement) {
+    if (el.querySelector('[data-slot="diagram-zoom-level"]')) return el;
+  }
+  return null;
+})()`;
 
 /** Hands a path to the app the way an "Open With" does, and waits for its tab to come forward. */
 const openedTabs = new Set();
@@ -223,6 +238,67 @@ const readDrawing = async () =>
     })()`),
   );
 
+/** A real pointer drag, the way a hand does it: press, several moves, release. */
+const dragBy = async (fromX, fromY, dx, dy, steps = 6) => {
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: fromX, y: fromY, button: "none" });
+  await sleep(40);
+  await send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x: fromX,
+    y: fromY,
+    button: "left",
+    buttons: 1,
+    clickCount: 1,
+  });
+  await sleep(40);
+  for (let step = 1; step <= steps; step += 1) {
+    await send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: fromX + Math.round((dx * step) / steps),
+      y: fromY + Math.round((dy * step) / steps),
+      button: "left",
+      buttons: 1,
+    });
+    await sleep(25);
+  }
+  await send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: fromX + dx,
+    y: fromY + dy,
+    button: "left",
+    buttons: 0,
+    clickCount: 1,
+  });
+  await sleep(120);
+};
+
+/** Where the drawing sits relative to its scrollport, and how far the scrollport can move. */
+const readPan = () =>
+  evaluate(`(() => {
+    const d = ${diagramIn()};
+    const svg = d && d.querySelector("svg");
+    const scroller = svg && svg.closest('[data-slot="pan-zoom-surface"]');
+    if (!svg || !scroller) return JSON.stringify(null);
+    return JSON.stringify({
+      scrollLeft: Math.round(scroller.scrollLeft),
+      scrollTop: Math.round(scroller.scrollTop),
+      maxLeft: Math.round(scroller.scrollWidth - scroller.clientWidth),
+      maxTop: Math.round(scroller.scrollHeight - scroller.clientHeight),
+      draggable: scroller.getAttribute("data-dragging"),
+      cursor: getComputedStyle(scroller).cursor,
+      // The middle of the part of the drawing that is on screen: a zoomed drawing's own centre can
+      // be outside the window, and a press there lands on nothing.
+      box: (() => {
+        const r = svg.getBoundingClientRect();
+        const room = scroller.getBoundingClientRect();
+        return {
+          x: Math.round((Math.max(r.left, room.left) + Math.min(r.right, room.right)) / 2),
+          y: Math.round((Math.max(r.top, room.top) + Math.min(r.bottom, room.bottom)) / 2),
+        };
+      })(),
+    });
+  })()`);
+
 /** The width the drawing is actually painted at. */
 const drawingWidth = () =>
   evaluate(`(() => {
@@ -234,14 +310,16 @@ const drawingWidth = () =>
 /** The percentage the zoom control shows, without touching it. */
 const zoomLevel = () =>
   evaluate(`(() => {
-    const level = [...document.querySelectorAll('[data-slot="diagram-zoom-level"]')].find(${VISIBLE});
+    const pane = ${paneOf(diagramIn())};
+    const level = pane && pane.querySelector('[data-slot="diagram-zoom-level"]');
     return level ? (level.textContent || "").trim() : null;
   })()`);
 
 /** Presses one of the zoom controls by its slot; answers with the level it now shows. */
 const pressZoom = async (slot) => {
   const pressed = await evaluate(`(() => {
-    const button = [...document.querySelectorAll('[data-slot="${slot}"]')].find(${VISIBLE});
+    const pane = ${paneOf(diagramIn())};
+    const button = pane && pane.querySelector('[data-slot="${slot}"]');
     if (!button) return false;
     button.click();
     return true;
@@ -254,7 +332,8 @@ const pressZoom = async (slot) => {
 /** Presses a button of the view switch by its label, for when a tab opened on the other stop. */
 const clickStop = async (pattern) =>
   evaluate(`(() => {
-    const button = [...document.querySelectorAll("button")]
+    const pane = ${paneOf(diagramIn())} ?? document;
+    const button = [...pane.querySelectorAll("button")]
       .filter((b) => !b.closest('[aria-hidden="true"]'))
       .find((b) => ${pattern}.test((b.innerText || "").trim()));
     if (!button) return false;
@@ -409,15 +488,24 @@ try {
     evaluate(`(() => {
       const d = ${diagramIn()};
       const svg = d && d.querySelector("svg");
-      const scroller = svg && svg.closest(".overflow-auto");
+      const scroller = svg && svg.closest('[data-slot="pan-zoom-surface"]');
       if (!svg || !scroller) return JSON.stringify(null);
       const drawing = svg.getBoundingClientRect();
       const pane = scroller.getBoundingClientRect();
       return JSON.stringify({
         level: [...document.querySelectorAll('[data-slot="diagram-zoom-level"]')].find(${VISIBLE})?.textContent?.trim() ?? null,
         drawingWidth: Math.round(drawing.width),
+        drawingHeight: Math.round(drawing.height),
+        // The drawing's own shape, from the viewBox: the ratio every scale has to keep.
+        viewBoxRatio: svg.viewBox.baseVal.height ? svg.viewBox.baseVal.width / svg.viewBox.baseVal.height : null,
         paneWidth: Math.round(pane.width),
         leftOffset: Math.round(drawing.left - pane.left),
+        // Where the drawing starts in *content* coordinates - the offset with the scroll taken back out.
+        // A zoom now leaves the view scrolled into the drawing, so the drawing sitting left of the pane
+        // is the point of it; what must not happen is content before the origin, which nothing can
+        // scroll to.
+        leftAtOrigin: Math.round(drawing.left - pane.left + scroller.scrollLeft),
+        scrollLeft: Math.round(scroller.scrollLeft),
         scrollable: scroller.scrollWidth - scroller.clientWidth,
       });
     })()`);
@@ -427,11 +515,22 @@ try {
     await pressZoom("diagram-zoom-in");
     overflow = JSON.parse(await measureOverflow());
   }
+  // The shape is the drawing's own at every scale. `max-width` is the way this goes wrong: it caps
+  // the width while the height keeps growing, so the drawing comes out stretched - and a diagram is
+  // the case where that is least excusable, because the text in it warps with it.
+  if (overflow && overflow.viewBoxRatio && overflow.drawingWidth > overflow.paneWidth) {
+    const got = overflow.drawingWidth / overflow.drawingHeight;
+    if (Math.abs(got - overflow.viewBoxRatio) > overflow.viewBoxRatio * 0.02) {
+      fail(
+        `the drawing is distorted at ${overflow.level}: ${overflow.drawingWidth}x${overflow.drawingHeight} is ${got.toFixed(3)}, its viewBox is ${overflow.viewBoxRatio.toFixed(3)}`,
+      );
+    }
+  }
   const overflowUnused = JSON.parse(
     await evaluate(`(() => {
       const d = ${diagramIn()};
       const svg = d && d.querySelector("svg");
-      const scroller = svg && svg.closest(".overflow-auto");
+      const scroller = svg && svg.closest('[data-slot="pan-zoom-surface"]');
       if (!svg || !scroller) return JSON.stringify(null);
       const drawing = svg.getBoundingClientRect();
       const pane = scroller.getBoundingClientRect();
@@ -440,6 +539,7 @@ try {
         drawingWidth: Math.round(drawing.width),
         paneWidth: Math.round(pane.width),
         leftOffset: Math.round(drawing.left - pane.left),
+        leftAtOrigin: Math.round(drawing.left - pane.left + scroller.scrollLeft),
         scrollable: scroller.scrollWidth - scroller.clientWidth,
       });
     })()`),
@@ -452,13 +552,138 @@ try {
     // about a check that never ran.
     report.overflowSkipped = `the pane is ${overflow.paneWidth}px wide and the drawing is ${overflow.drawingWidth}px at ${overflow.level}`;
   }
-  if (!report.overflowSkipped && overflow.leftOffset < -1) {
+  if (!report.overflowSkipped && overflow.leftAtOrigin < -1) {
     fail(
-      `a drawing wider than the pane starts ${-overflow.leftOffset}px left of the scroll origin, where nothing can scroll to it`,
+      `a drawing wider than the pane starts ${-overflow.leftAtOrigin}px before the scroll origin, where nothing can scroll to it`,
     );
   }
   if (!report.overflowSkipped && overflow.scrollable <= 0) {
     fail("a drawing wider than the pane does not extend the pane's scroll width");
+  }
+  // ---- Dragging: the drawing follows the hand, and the scroll range is what stops it -------------
+  // The drawing is still zoomed past the pane here, which is the only state a drag means anything in.
+  const beforeDrag = JSON.parse(await readPan());
+  if (!beforeDrag) fail("the drawing is not inside the shared surface");
+  if (beforeDrag.cursor !== "grab" && beforeDrag.cursor !== "grabbing") {
+    fail(`a drawing bigger than its pane does not offer a drag: the cursor is ${beforeDrag.cursor}`);
+  }
+  // Drag up and to the left, which scrolls the content down and right.
+  await dragBy(beforeDrag.box.x, beforeDrag.box.y, -160, -120);
+  const afterDrag = JSON.parse(await readPan());
+  report.drag = { before: beforeDrag, after: afterDrag };
+  const movedX = afterDrag.scrollLeft - beforeDrag.scrollLeft;
+  const movedY = afterDrag.scrollTop - beforeDrag.scrollTop;
+  if (movedX < 40 || movedY < 20) {
+    fail(
+      `dragging 160x120 did not move the drawing: scrollLeft ${beforeDrag.scrollLeft} -> ${afterDrag.scrollLeft}, scrollTop ${beforeDrag.scrollTop} -> ${afterDrag.scrollTop}`,
+    );
+  }
+  // A drag stops at the edge: it must not run past the scrollport's own range.
+  await dragBy(afterDrag.box.x, afterDrag.box.y, -4000, -4000);
+  const pinned = JSON.parse(await readPan());
+  report.dragEdge = pinned;
+  if (pinned.scrollLeft !== pinned.maxLeft || pinned.scrollTop !== pinned.maxTop) {
+    fail(
+      `a drag past the edge did not stop at it: at (${pinned.scrollLeft}, ${pinned.scrollTop}), the range ends at (${pinned.maxLeft}, ${pinned.maxTop})`,
+    );
+  }
+
+  // ---- A wheel zoom keeps the point under the pointer where it is --------------------------------
+  // Same rule as the picture's, because it is the same surface: without it the scrollport keeps its
+  // offset and every zoom shows the same corner of the drawing.
+  const wheelRoom = JSON.parse(await readPan()).box;
+  const roomBox = JSON.parse(
+    await evaluate(`(() => {
+      const d = ${diagramIn()};
+      const svg = d && d.querySelector("svg");
+      const scroller = svg && svg.closest('[data-slot="pan-zoom-surface"]');
+      if (!scroller) return JSON.stringify(null);
+      const rect = scroller.getBoundingClientRect();
+      return JSON.stringify({
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        w: Math.round(rect.width),
+        h: Math.round(rect.height),
+        scrollLeft: Math.round(scroller.scrollLeft),
+        scrollTop: Math.round(scroller.scrollTop),
+        level: [...document.querySelectorAll('[data-slot="diagram-zoom-level"]')].find(${VISIBLE})?.textContent?.trim() ?? null,
+      });
+    })()`),
+  );
+  // Back off the pinned corner first, so the anchor has room on both sides of it.
+  await dragBy(wheelRoom.x, wheelRoom.y, 200, 160);
+  const beforeWheel = JSON.parse(
+    await evaluate(`(() => {
+      const d = ${diagramIn()};
+      const svg = d && d.querySelector("svg");
+      const scroller = svg && svg.closest('[data-slot="pan-zoom-surface"]');
+      if (!scroller) return JSON.stringify(null);
+      const rect = scroller.getBoundingClientRect();
+      return JSON.stringify({
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        w: Math.round(rect.width),
+        h: Math.round(rect.height),
+        scrollLeft: Math.round(scroller.scrollLeft),
+        scrollTop: Math.round(scroller.scrollTop),
+        level: [...document.querySelectorAll('[data-slot="diagram-zoom-level"]')].find(${VISIBLE})?.textContent?.trim() ?? null,
+      });
+    })()`),
+  );
+  report.wheelBefore = beforeWheel;
+  if (!beforeWheel) fail("the drawing is not inside the shared surface");
+  const wheelAt = {
+    x: beforeWheel.left + Math.round(beforeWheel.w / 4),
+    y: beforeWheel.top + Math.round(beforeWheel.h / 4),
+  };
+  const heldX = beforeWheel.scrollLeft + (wheelAt.x - beforeWheel.left);
+  const heldY = beforeWheel.scrollTop + (wheelAt.y - beforeWheel.top);
+  const wasLevel = Number.parseFloat(beforeWheel.level || "");
+  await send("Input.dispatchMouseEvent", {
+    type: "mouseWheel",
+    x: wheelAt.x,
+    y: wheelAt.y,
+    deltaX: 0,
+    deltaY: -120,
+    // Alt = 1, Ctrl = 2, Meta = 4, Shift = 8.
+    modifiers: 2,
+  });
+  await sleep(500);
+  const wheeled = JSON.parse(
+    await evaluate(`(() => {
+      const d = ${diagramIn()};
+      const svg = d && d.querySelector("svg");
+      const scroller = svg && svg.closest('[data-slot="pan-zoom-surface"]');
+      if (!scroller) return JSON.stringify(null);
+      const rect = scroller.getBoundingClientRect();
+      return JSON.stringify({
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        w: Math.round(rect.width),
+        h: Math.round(rect.height),
+        scrollLeft: Math.round(scroller.scrollLeft),
+        scrollTop: Math.round(scroller.scrollTop),
+        level: [...document.querySelectorAll('[data-slot="diagram-zoom-level"]')].find(${VISIBLE})?.textContent?.trim() ?? null,
+      });
+    })()`),
+  );
+  report.wheel = { before: beforeWheel, after: wheeled };
+  const gotLevel = Number.parseFloat(wheeled?.level || "");
+  if (!Number.isFinite(gotLevel) || gotLevel === wasLevel) {
+    fail(`ctrl+wheel did not zoom the drawing: the control reads ${wheeled?.level}`);
+  }
+  const wheelRatio = gotLevel / wasLevel;
+  const gotX = (wheeled.scrollLeft + (wheelAt.x - wheeled.left)) / wheelRatio;
+  const gotY = (wheeled.scrollTop + (wheelAt.y - wheeled.top)) / wheelRatio;
+  if (Math.abs(gotX - heldX) > 6 || Math.abs(gotY - heldY) > 6) {
+    fail(
+      `the zoom did not hold the point under the pointer: it was looking at (${Math.round(heldX)}, ${Math.round(heldY)}) and now looks at (${Math.round(gotX)}, ${Math.round(gotY)})`,
+    );
+  }
+  if (wheeled.w !== beforeWheel.w || wheeled.h !== beforeWheel.h) {
+    fail(
+      `the pane changed size on a ctrl+wheel (${beforeWheel.w}x${beforeWheel.h} -> ${wheeled.w}x${wheeled.h}): the webview zoomed instead of the drawing`,
+    );
   }
   await pressZoom("diagram-zoom-level");
 
@@ -521,7 +746,7 @@ try {
   }
 
   console.log(
-    `PASS: .mmd 画成了图（${report.file.width}×${report.file.height}，标签含 "Start"），节点填充就是主题的 --card（${card}）、边是 --muted-foreground（${edge}）；markdown 里的 \`\`\`mermaid 围栏同样画出来；缩放按一档走 100%→${report.zoomIn.level}（${report.zoomIn.width}px）、再降到 ${report.zoomOut.level}（${report.zoomOut.width}px），点百分比回到 ${report.zoomReset.level}（${report.zoomReset.width}px）；语法错的 .mmd 退回源码并显示错误；切到浅色后重画成浅色的 --card（${report.lightFill ?? report.lightSkipped}）；mermaid 不在启动预载里，是打开图之后才拉下来的（${report.chunksAfter.loaded.join(", ")}）；跑完已还原设置并关掉本轮的标签。`,
+    `PASS: .mmd 画成了图（${report.file.width}×${report.file.height}，标签含 "Start"），节点填充就是主题的 --card（${card}）、边是 --muted-foreground（${edge}）；markdown 里的 \`\`\`mermaid 围栏同样画出来；缩放按一档走 100%→${report.zoomIn.level}（${report.zoomIn.width}px）、再降到 ${report.zoomOut.level}（${report.zoomOut.width}px），点百分比回到 ${report.zoomReset.level}（${report.zoomReset.width}px）；放大到 ${report.overflow.level} 时图宽 ${report.overflow.drawingWidth}px 超过面板 ${report.overflow.paneWidth}px，内容坐标下仍从滚动原点开始（${report.overflow.leftAtOrigin}px）且长宽比等于 viewBox；左键拖动让滚动从 (${report.drag.before.scrollLeft}, ${report.drag.before.scrollTop}) 到 (${report.drag.after.scrollLeft}, ${report.drag.after.scrollTop})，拖到头停在 (${report.dragEdge.scrollLeft}, ${report.dragEdge.scrollTop})；ctrl+滚轮 ${report.wheel.before.level}→${report.wheel.after.level} 在指针处锚定（窗口未被缩放）；语法错的 .mmd 退回源码并显示错误；切到浅色后重画成浅色的 --card（${report.lightFill ?? report.lightSkipped}）；mermaid 不在启动预载里，是打开图之后才拉下来的（${report.chunksAfter.loaded.join(", ")}）；跑完已还原设置并关掉本轮的标签。`,
   );
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {
@@ -553,7 +778,11 @@ try {
       const ids = ${JSON.stringify([...openedTabs])};
       for (const el of document.querySelectorAll("[data-tab-id]")) {
         if (!ids.includes(el.getAttribute("data-tab-id"))) continue;
-        const chip = el.querySelector('[role="button"]');
+        // The chip with an \`aria-label\`, not the first \`role="button"\` in the tab: that one is the
+        // file icon's dropdown, so clicking it opens a menu and leaves the tab open for the next run.
+        const chip =
+          el.querySelector('[role="button"][aria-label]') ??
+          el.querySelector('[role="button"][data-no-drag]:last-child');
         if (chip) chip.click();
       }
       return ids.length;

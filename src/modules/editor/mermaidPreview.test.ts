@@ -160,6 +160,6 @@ describe("the diagram reader", () => {
     // The scrolling moved into the shared surface (it is the scrollport); what the reader still owns
     // is that the drawing is given the whole pane and padded, rather than being scaled to fit.
     expect(preview).toMatch(/<MermaidDiagram\s+code=\{content\}/);
-    expect(preview).toMatch(/className="h-full p-6"/);
+    expect(preview).toMatch(/className="p-6"/);
   });
 });

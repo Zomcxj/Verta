@@ -177,6 +177,14 @@ export function MarkdownImage({
   const sizing = useTableSizing(ref, asked);
   const loaded = loadedSrc !== null && loadedSrc === resolved;
 
+  // The same race the picture preview had to close: a picture already decoded when React attached
+  // its handler never raises `load`, and this flag is what lifts the placeholder height - without
+  // the read on mount the picture stays locked at `FALLBACK_HEIGHT` for the life of the block.
+  useEffect(() => {
+    const img = ref.current;
+    if (img?.complete && img.naturalWidth > 0) setLoadedSrc(resolved);
+  }, [resolved]);
+
   if (!resolved) {
     return (
       <span className="text-muted-foreground">

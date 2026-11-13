@@ -168,13 +168,20 @@ export function MermaidDiagram({
         zoom={zoom}
         onZoomChange={onZoomChange}
         draggable={overflows}
-        className={cn("min-w-0", className)}
       >
+        {/* The pane's width, not the drawing's: as a flex item this would otherwise be sized by its
+            content, and a drawing zoomed past the pane would then be the scrollport's content rather
+            than an overflow of a full-width box - which puts its left edge out of reach. Sized to the
+            pane, the `safe` centring inside it degrades to the leading edge the moment the drawing is
+            wider. */}
         <div
           ref={hostRef}
           data-slot="mermaid-diagram"
           data-zoom={zoom}
-          className="min-w-0 [&_svg]:max-w-full"
+          className={cn(
+            "grid h-full w-full [align-items:safe_center] [justify-items:safe_center] [&_svg]:max-w-full",
+            className,
+          )}
         />
       </PanZoomSurface>
       {error ? (

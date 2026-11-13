@@ -944,6 +944,47 @@ function ImagePreview({
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
   const [failed, setFailed] = useState(false);
   const viewport = useRef<HTMLDivElement | null>(null);
+  const picture = useRef<HTMLImageElement | null>(null);
+
+  /** The room the picture has. Zero is not a room: a pane that has not been laid out is not a fit. */
+  const rememberRoom = useCallback((room: { w: number; h: number }) => {
+    if (room.w <= 0 || room.h <= 0) return;
+    setBox((was) => (was && was.w === room.w && was.h === room.h ? was : room));
+  }, []);
+
+  /** The scrollport's own content box, read on the spot. */
+  const measureRoom = useCallback(
+    (node: HTMLDivElement) => rememberRoom({ w: node.clientWidth, h: node.clientHeight }),
+    [rememberRoom],
+  );
+
+  /**
+   * The picture's own pixel size, once the browser knows it.
+   *
+   * Read from the element as well as from `load`, because a picture that is already decoded when
+   * React attaches its handler never raises `load` at all - the event has been and gone. Nothing
+   * then knows how big the picture is, so nothing can fit it, and it is drawn at its own pixels:
+   * measured here as a 3072x3072 screenshot sitting at 3074px inside a 1070px pane, with no inline
+   * size at all. Reading `complete` on mount closes that race.
+   */
+  const readNaturalSize = useCallback((img: HTMLImageElement | null) => {
+    if (!img?.complete || img.naturalWidth === 0) return;
+    const next = { w: img.naturalWidth, h: img.naturalHeight };
+    setSize((was) => (was && was.w === next.w && was.h === next.h ? was : next));
+    // The room is read here as well as observed below. A pane that has not been laid out yet - the
+    // one this tab is opened into while the workspace is still switching - reports *nothing* to a
+    // resize observer, not even a zero, and a fit with no room is no fit: measured on a real run as a
+    // 3072px picture opened at its own size in a 1070px pane, with the observer attached and silent.
+    const node = viewport.current;
+    if (node) measureRoom(node);
+  }, [measureRoom]);
+
+  // `src` is a dependency so that swapping the picture re-reads the element: the previous picture's
+  // pixels are not this one's, and a stale size would fit the new one to the old one's shape.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the body reads the element, not `src`; the dependency is what makes a swapped source be read again
+  useEffect(() => {
+    readNaturalSize(picture.current);
+  }, [src, readNaturalSize]);
 
   // The room the picture has, watched rather than measured once: dragging a divider or resizing
   // the window changes it, and a picture that fits has to follow.
@@ -952,28 +993,40 @@ function ImagePreview({
     if (!node) return;
     const observer = new ResizeObserver((entries) => {
       const rect = entries[entries.length - 1]?.contentRect;
-      if (!rect) return;
-      setBox((was) =>
-        was &&
-        Math.abs(was.w - rect.width) < 0.5 &&
-        Math.abs(was.h - rect.height) < 0.5
-          ? was
-          : { w: rect.width, h: rect.height },
-      );
+      if (rect) rememberRoom({ w: rect.width, h: rect.height });
     });
     observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
+    // And a few frames of its own, because the first report from an observer attached before the pane
+    // had a box can be nothing at all: the fit then waits for a resize that may never come, which is
+    // how a picture opened during startup was drawn at its own size.
+    let frames = 0;
+    let frame = requestAnimationFrame(function tick() {
+      measureRoom(node);
+      frames += 1;
+      if (frames < 5) frame = requestAnimationFrame(tick);
+    });
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [measureRoom, rememberRoom]);
 
   // `imageScale` holds the rule and its reasons (fit scales up as well as down, 1:1 means the
   // picture's own pixels, and an unknown size answers `null` rather than drawing at 1).
   const scale = imageScale({ fit, natural: size, box, zoom });
-  // Floored, so a rounding error cannot push the picture past the pane and raise a scrollbar.
+  /**
+   * The size the picture is drawn at, floored.
+   *
+   * Floored so a rounding error cannot raise a scrollbar at the fit stop - `scale` is already the
+   * smaller of the two ratios, so flooring its product cannot exceed the room. It is *not* clamped to
+   * the room: a magnification past 100% has to be able to exceed it, which is what makes the picture
+   * bigger than its pane and therefore worth dragging.
+   */
   const drawn =
-    scale !== null && size !== null && box !== null
+    scale !== null && size !== null
       ? {
-          w: Math.min(Math.floor(box.w), Math.floor(size.w * scale)),
-          h: Math.min(Math.floor(box.h), Math.floor(size.h * scale)),
+          w: Math.max(1, Math.floor(size.w * scale)),
+          h: Math.max(1, Math.floor(size.h * scale)),
         }
       : null;
 
@@ -1018,30 +1071,25 @@ function ImagePreview({
           outside the scrollable range, so its left could never be reached) and drags by moving the
           scroll offsets rather than by transforming the picture. */}
       <PanZoomSurface
+        viewportRef={viewport}
         zoom={zoom}
         onZoomChange={setZoom}
         draggable={drawn !== null && box !== null && (drawn.w > box.w + 1 || drawn.h > box.h + 1)}
-        className="items-center justify-center"
       >
         <img
+          ref={picture}
           src={src}
           alt={name}
           decoding="async"
-          onLoad={(event) =>
-            setSize({
-              w: event.currentTarget.naturalWidth,
-              h: event.currentTarget.naturalHeight,
-            })
-          }
+          onLoad={(event) => readNaturalSize(event.currentTarget)}
           onError={() => setFailed(true)}
           className={
-            // Original size says `max-w-none`, because the base layer caps every image at its
-            // container's width: without it the pixels stay capped by the pane however wide it is.
-            // Fitting hands the size to the picture itself (see `drawn`), so the checkerboard stays
-            // inside the picture instead of covering the pane around it.
-            fit
-              ? "rounded-md border border-border shadow-sm"
-              : "max-w-none rounded-md border border-border shadow-sm"
+            // `max-w-none` in both stops, because the base layer caps every image at its container's
+            // width. The size is the picture's own (see `drawn`), so leaving the cap on would clamp
+            // the width and let the height keep growing - a magnification would stretch the picture
+            // instead of enlarging it. The cap is not needed to protect the pane either: at the fit
+            // stop `drawn` is already the smaller of the two ratios, so it cannot exceed the room.
+            "max-w-none rounded-md border border-border shadow-sm"
           }
           style={{
             ...(drawn ? { width: `${drawn.w}px`, height: `${drawn.h}px` } : {}),

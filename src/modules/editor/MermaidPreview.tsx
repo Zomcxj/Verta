@@ -30,7 +30,7 @@ export function MermaidPreview({
         code={content}
         zoom={zoom}
         onZoomChange={onZoomChange}
-        className="h-full p-6"
+        className="p-6"
       />
     </div>
   );
