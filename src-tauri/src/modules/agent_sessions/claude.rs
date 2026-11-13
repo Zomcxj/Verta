@@ -434,12 +434,18 @@ struct Located {
     owned_directory: Option<PathBuf>,
 }
 
-/// Where a session's own files are, by the name Claude Code files it under.
-fn locate(root: &Path, id: &str) -> Result<Located, String> {
+/// Every file filed under an id, by the name Claude Code files it under.
+///
+/// *Every* one, not the first: Claude Code keeps a session's subagents under the project key of each
+/// directory that session was used in, so the same agent id can be on disk more than once. Deleting
+/// one copy would leave the other to reappear on the next read, which reads as "the delete did
+/// nothing".
+fn locate_all(root: &Path, id: &str) -> Result<Vec<Located>, String> {
     if id.is_empty() || id.contains(['/', '\\']) {
         // The id comes from the page and is about to be a path component.
         return Err(format!("非法的会话 id：{id}"));
     }
+    let mut found = Vec::new();
     for project_dir in child_paths(root)? {
         if !project_dir.is_dir() {
             continue;
@@ -451,13 +457,16 @@ fn locate(root: &Path, id: &str) -> Result<Located, String> {
             // A session owns the directory beside its transcript (its subagents); a subagent's file
             // owns nothing.
             let candidate = file.with_extension("");
-            return Ok(Located {
+            found.push(Located {
                 file,
                 owned_directory: candidate.is_dir().then_some(candidate),
             });
         }
     }
-    Err(format!("Claude Code 里找不到会话 {id}"))
+    if found.is_empty() {
+        return Err(format!("Claude Code 里找不到会话 {id}"));
+    }
+    Ok(found)
 }
 
 pub(crate) fn delete_at(root: &Path, id: &str) -> Result<(), String> {
@@ -467,12 +476,15 @@ pub(crate) fn delete_at(root: &Path, id: &str) -> Result<(), String> {
             root.display()
         ));
     }
-    let located = locate(root, id)?;
+    let located = locate_all(root, id)?;
     let canonical_root = std::fs::canonicalize(root)
         .map_err(|e| format!("无法解析 Claude Code 会话目录 {}：{e}", root.display()))?;
-    let mut targets = vec![located.file];
-    if let Some(directory) = located.owned_directory {
-        targets.push(directory);
+    let mut targets = Vec::new();
+    for copy in located {
+        targets.push(copy.file);
+        if let Some(directory) = copy.owned_directory {
+            targets.push(directory);
+        }
     }
     // Every removal is proved to sit inside the root before anything is removed.
     for target in &targets {
@@ -497,7 +509,7 @@ pub(crate) fn delete_at(root: &Path, id: &str) -> Result<(), String> {
 }
 
 pub(crate) fn exists_at(root: &Path, id: &str) -> Result<bool, String> {
-    Ok(locate(root, id).is_ok())
+    Ok(locate_all(root, id).is_ok())
 }
 
 #[cfg(test)]
@@ -719,6 +731,43 @@ mod tests {
         );
         let payload = list_at(dir.path()).expect("应能列出");
         assert_eq!(payload.sessions[0].id, "9f1c2d3e-0000-4000-8000-000000000000");
+    }
+
+    #[test]
+    fn deleting_a_session_removes_the_copies_under_every_project_key() {
+        // Claude Code keeps the same session under the project key of every directory it was used in.
+        // Deleting one copy leaves the other, and the row comes back on the next read.
+        let dir = tempfile::tempdir().expect("temp dir");
+        for project in ["C--Users-cxj-Desktop", "C--Users-cxj-Desktop-dsh"] {
+            let path = dir.path().join(project);
+            write_session(&path, "s1", "");
+            write_file(&path.join("s1/subagents"), "agent-abc.jsonl", "{}
+");
+        }
+        delete_at(dir.path(), "s1").expect("应能删除");
+        for project in ["C--Users-cxj-Desktop", "C--Users-cxj-Desktop-dsh"] {
+            let path = dir.path().join(project);
+            assert!(!path.join("s1.jsonl").exists(), "{project} 的转录还在");
+            assert!(!path.join("s1").exists(), "{project} 的子代理目录还在");
+        }
+    }
+
+    #[test]
+    fn deleting_a_subagent_removes_every_copy_of_it() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        for project in ["C--Users-cxj-Desktop", "C--Users-cxj-Desktop-dsh"] {
+            let path = dir.path().join(project);
+            write_session(&path, "s1", "");
+            write_file(&path.join("s1/subagents"), "agent-abc.jsonl", "{}
+");
+        }
+        delete_at(dir.path(), "abc").expect("应能删除");
+        for project in ["C--Users-cxj-Desktop", "C--Users-cxj-Desktop-dsh"] {
+            let path = dir.path().join(project);
+            assert!(!path.join("s1/subagents/agent-abc.jsonl").exists(), "{project} 的副本还在");
+            // The session it belonged to is untouched: only the subagent was asked for.
+            assert!(path.join("s1.jsonl").exists(), "{project} 的会话被误删");
+        }
     }
 
     #[test]

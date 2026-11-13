@@ -56,7 +56,7 @@ pub async fn agent_sessions_list(
     tool: String,
     distro: Option<String>,
 ) -> Result<AgentSessionsPayload, String> {
-    crate::modules::fs::blocking(move || match (tool.as_str(), distro.as_deref()) {
+    let listed = crate::modules::fs::blocking(move || match (tool.as_str(), distro.as_deref()) {
         (opencode::TOOL, Some(distro)) => wsl::list(distro),
         (opencode::TOOL, None) => opencode::list(),
         (pi::TOOL, Some(distro)) => Ok(wsl::pi_is_absent(distro)),
@@ -68,7 +68,35 @@ pub async fn agent_sessions_list(
         (claude::TOOL, None) => claude::list(),
         (other, _) => Err(format!("不支持的会话工具：{other}")),
     })
-    .await
+    .await?;
+    Ok(one_row_per_session(listed))
+}
+
+/// One row per session id.
+///
+/// A session id identifies a session, and two rows carrying the same one are not two sessions: the
+/// list cannot tell them apart, the manage view offers to delete "it" twice, and the page keys its
+/// rows by id - so a repeat makes React reconcile two rows onto one key, which is how stale rows were
+/// left behind after leaving the manage view (measured: 14 extra rows per round trip).
+///
+/// This happens for real: Claude Code files a session's subagent directory under the project key of
+/// *every* directory that session was used in, keeping the same `agent-*.jsonl` files under each. On
+/// this machine one session has 22 transcripts under one key and 14 under another, 14 ids in common.
+///
+/// The newest copy wins. Each tool returns its rows newest first, so the first of a group is the one
+/// whose file (and `.meta.json`) was written last - the copy with the name on it.
+fn one_row_per_session(payload: AgentSessionsPayload) -> AgentSessionsPayload {
+    let mut seen = std::collections::HashSet::new();
+    let mut sessions = Vec::with_capacity(payload.sessions.len());
+    for session in payload.sessions {
+        if seen.insert(session.id.clone()) {
+            sessions.push(session);
+        }
+    }
+    AgentSessionsPayload {
+        sessions,
+        warnings: payload.warnings,
+    }
 }
 
 /// Deleting touches sqlite, the filesystem and a child process, so it runs on
@@ -136,4 +164,49 @@ pub async fn agent_sessions_image(
     let skip = skip.unwrap_or(0) as usize;
     crate::modules::fs::blocking(move || image::data_url_by_name(&name, directory.as_deref(), skip))
         .await
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modules::agent_sessions::stats::SessionStats;
+    use crate::modules::agent_sessions::types::AgentSession;
+
+    fn row(id: &str, parent_id: Option<&str>, updated_at_ms: i64, title: &str) -> AgentSession {
+        AgentSession {
+            tool: "claude".to_string(),
+            id: id.to_string(),
+            title: title.to_string(),
+            cwd: "C:/x".to_string(),
+            updated_at_ms,
+            parent_id: parent_id.map(str::to_string),
+            stats: SessionStats::default(),
+        }
+    }
+
+    #[test]
+    fn keeps_one_row_per_session_id_and_takes_the_newest() {
+        // Real shape: one session's subagents filed under two project keys, 14 ids in common. The copy
+        // with the `.meta.json` is the newer one, so its name is the one the row keeps.
+        let payload = AgentSessionsPayload {
+            sessions: vec![
+                row("agent", Some("s1"), 200, "inspect:TraycerAI"),
+                row("s1", None, 150, "daily task"),
+                row("agent", Some("s1"), 100, "agent"),
+            ],
+            warnings: vec![],
+        };
+        let deduped = one_row_per_session(payload);
+        assert_eq!(deduped.sessions.len(), 2, "{:?}", deduped.sessions);
+        assert_eq!(deduped.sessions[0].title, "inspect:TraycerAI");
+    }
+
+    #[test]
+    fn keeps_rows_that_only_look_alike() {
+        // Different ids, same title: two sessions, not one.
+        let payload = AgentSessionsPayload {
+            sessions: vec![row("a", None, 2, "daily task"), row("b", None, 1, "daily task")],
+            warnings: vec![],
+        };
+        assert_eq!(one_row_per_session(payload).sessions.len(), 2);
+    }
 }

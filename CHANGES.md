@@ -15,6 +15,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-13</strong></summary>
 
+**One row per session id**
+
+- `src-tauri/src/modules/agent_sessions/mod.rs`, `claude.rs`: leaving the manage view left a dozen subagent rows behind, still tickable, and every round trip added more of them ("点击管理后点击完成会遗留几个可选子代理会话，点击 agent 或项目切换就正常"; measured: 151 rows of data, 165 drawn, then 179). The ids were on disk twice. Claude Code files a session's subagent directory under the project key of *every* directory that session was used in, keeping the same `agent-*.jsonl` under each - on this machine one session has 22 transcripts under one key and 14 under another, 14 ids in common - and the page keys its rows by id, so two rows sharing one key made React reconcile them onto each other and leave the stale ones mounted. The growth was one more copy per re-read.
+- `one_row_per_session` now runs over every tool's payload: a session id identifies a session, and the newest copy wins. Each tool returns its rows newest first, so the first of a group is the copy whose `.meta.json` was written last - the one with a name. Deleting has the same shape: `locate_all` returns every file filed under an id and the delete removes all of them, because removing one copy would let the other reappear on the next read, which reads as "the delete did nothing".
+- `scripts/dev/probes/manage-mode-rows.mjs`: three 管理 -> 完成 rounds have to draw the same number of rows in the manage view, never repeat an id, and come back to exactly the rows they started from - the accumulation (+14 per round trip) is the other half of the same bug.
+
 **The font row says which family is actually in use**
 
 - `src/lib/fonts.ts`, `src/lib/fontOptions.ts`, `src/settings/components/FontPreview.tsx`, `FontPicker.tsx`, `src/settings/sections/GeneralSection.tsx`: "I chose Cascadia Code and it shows JetBrains Mono" turned out to be three silences rather than one bug. The setting was stored, shown and *honoured* - measured on the running app, the terminal's own cell width at 80px is 47px, which is Cascadia Code's 0.586em advance, against 48px for JetBrains Mono with the setting switched to it as a control - but nothing anywhere said which family was in force, and the two are nearly indistinguishable at 13px: both round to the same 8px integer cell and both draw a *dotted* zero, which is the glyph the report was reading. So the row now shows the sample and names the family.
