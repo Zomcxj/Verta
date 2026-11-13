@@ -1,0 +1,675 @@
+//! Usage over time and per model: the layer a usage window is built on.
+//!
+//! `stats.rs` answers one session at a time - turns, tokens, when it was last talked to. This answers
+//! the two questions a window asks and a session list cannot: how much was used **per day**, and how
+//! much **per model**. It is pure logic, like `stats.rs`: the readers (transcripts, the opencode
+//! database) produce events, and this folds them.
+//!
+//! Three things are deliberately *not* decided here, because they are questions about the user's
+//! accounting rather than about the data:
+//!
+//! - **which tokens count**: the parts are kept separately (input, output, cache read, cache write,
+//!   and whatever a tool only reports as a total), and `TokenScope` decides afterwards. Reading is
+//!   the expensive part; a window that lets the user switch cache reads in and out must not have to
+//!   read the transcripts again.
+//! - **where a day begins**: `offset_minutes` is the caller's time zone, and the same events answer
+//!   differently under different offsets. Local days and UTC days are both one call away.
+//! - **what a provider is**: `provider` and `model` are the caller's strings. The tool that wrote
+//!   the record decides how to name them ("anthropic", "opencode"); this module only groups.
+
+use serde::Serialize;
+
+use super::stats::{as_u64, days_from_civil};
+
+/// Tokens one event used, in the classes the tools themselves separate.
+///
+/// `unsplit` is for a tool that reports only a total for some events (pi writes `totalTokens` on its
+/// own, without the four parts): those tokens are counted, and there is nothing to attribute them
+/// to. Adding `input + output + cache_read + cache_write + unsplit` is the event's total.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageTokens {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    pub unsplit: u64,
+}
+
+impl UsageTokens {
+    pub const ZERO: Self = Self {
+        input: 0,
+        output: 0,
+        cache_read: 0,
+        cache_write: 0,
+        unsplit: 0,
+    };
+
+    /// Everything this event used, whatever class it is in.
+    pub fn total(&self) -> u64 {
+        self.input
+            .saturating_add(self.output)
+            .saturating_add(self.cache_read)
+            .saturating_add(self.cache_write)
+            .saturating_add(self.unsplit)
+    }
+}
+
+impl std::ops::AddAssign for UsageTokens {
+    fn add_assign(&mut self, other: Self) {
+        self.input = self.input.saturating_add(other.input);
+        self.output = self.output.saturating_add(other.output);
+        self.cache_read = self.cache_read.saturating_add(other.cache_read);
+        self.cache_write = self.cache_write.saturating_add(other.cache_write);
+        self.unsplit = self.unsplit.saturating_add(other.unsplit);
+    }
+}
+
+/// Which token classes a report counts.
+///
+/// Cache reads and writes are the two that tools bill differently and people argue about: a cache
+/// read is a prompt served from the provider's cache, and whether it belongs in "how much did I use"
+/// is a matter of taste. Keeping both switches here means the answer is one call, not a re-read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenScope {
+    pub cache_read: bool,
+    pub cache_write: bool,
+}
+
+impl TokenScope {
+    /// Everything the tool reported.
+    pub const ALL: Self = Self {
+        cache_read: true,
+        cache_write: true,
+    };
+    /// Input and output only, plus tokens a tool did not split.
+    pub const WITHOUT_CACHE: Self = Self {
+        cache_read: false,
+        cache_write: false,
+    };
+
+    /// How many tokens these events are worth under this scope.
+    pub fn counted(&self, tokens: &UsageTokens) -> u64 {
+        let mut total = tokens.input.saturating_add(tokens.output);
+        total = total.saturating_add(tokens.unsplit);
+        if self.cache_read {
+            total = total.saturating_add(tokens.cache_read);
+        }
+        if self.cache_write {
+            total = total.saturating_add(tokens.cache_write);
+        }
+        total
+    }
+}
+
+/// One thing that happened and cost tokens.
+///
+/// `at_ms` is when the tool says it happened, `provider`/`model` are the caller's names for what
+/// answered (`None` when the record does not say, which some do not).
+#[derive(Debug, Clone, Copy)]
+pub struct UsageEvent<'a> {
+    pub at_ms: i64,
+    pub provider: Option<&'a str>,
+    pub model: Option<&'a str>,
+    pub tokens: UsageTokens,
+}
+
+/// A sum of events: the raw parts, and how many events went into them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageTotals {
+    pub tokens: UsageTokens,
+    /// Events counted (one per assistant message or session row, depending on the reader).
+    pub events: u32,
+}
+
+impl UsageTotals {
+    pub fn counted(&self, scope: TokenScope) -> u64 {
+        scope.counted(&self.tokens)
+    }
+
+    fn add(&mut self, event: &UsageEvent<'_>) {
+        self.tokens += event.tokens;
+        self.events = self.events.saturating_add(1);
+    }
+}
+
+/// One day (`day` is a day index: days since 1970-01-01 in the caller's offset).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DayUsage {
+    pub day: i64,
+    pub totals: UsageTotals,
+}
+
+/// One provider/model pair. Both are `None` for what a record did not name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelUsage {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub totals: UsageTotals,
+}
+
+/// The three answers a window draws: the total, the same split by day, and by model.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageReport {
+    pub totals: UsageTotals,
+    /// Oldest first, one entry per day that had any event.
+    pub days: Vec<DayUsage>,
+    /// Biggest first (by raw total), the unnamed bucket last when it ties.
+    pub models: Vec<ModelUsage>,
+}
+
+/// Which day an instant falls in, for the given offset from UTC in minutes.
+///
+/// `offset_minutes` is the caller's call, not a guess: 0 is a UTC day, 480 is UTC+8, -300 is UTC-5.
+/// Days are counted from 1970-01-01 and floor towards the past, so an instant before the epoch lands
+/// in the day it really belongs to rather than in day zero.
+pub fn day_of(at_ms: i64, offset_minutes: i32) -> i64 {
+    let shifted = at_ms.saturating_add(i64::from(offset_minutes) * 60_000);
+    shifted.div_euclid(86_400_000)
+}
+
+/// `YYYY-MM-DD` for a day index, the inverse of `day_of`'s counting.
+///
+/// Kept here because an export or a chart axis needs a date string and the conversion is easy to get
+/// wrong (it is the reverse of the civil-days arithmetic `stats.rs` uses).
+pub fn day_label(day: i64) -> String {
+    let (year, month, date) = civil_from_days(day);
+    format!("{year:04}-{month:02}-{date:02}")
+}
+
+/// Days since 1970-01-01 to a calendar date. The inverse of `stats::days_from_civil`.
+fn civil_from_days(day: i64) -> (i64, i64, i64) {
+    let z = day + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let date = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    (if month <= 2 { year + 1 } else { year }, month, date)
+}
+
+/// Fold events into a total, a per-day split and a per-model split.
+///
+/// Scope is not applied here on purpose: `UsageTotals::counted` does that, so one read answers every
+/// accounting question the window offers.
+pub fn aggregate<'a, I>(events: I, offset_minutes: i32) -> UsageReport
+where
+    I: IntoIterator<Item = UsageEvent<'a>>,
+{
+    let mut report = UsageReport {
+        totals: UsageTotals::default(),
+        days: Vec::new(),
+        models: Vec::new(),
+    };
+    let mut days: std::collections::BTreeMap<i64, UsageTotals> = Default::default();
+    let mut models: std::collections::BTreeMap<(Option<String>, Option<String>), UsageTotals> =
+        Default::default();
+    for event in events {
+        report.totals.add(&event);
+        days.entry(day_of(event.at_ms, offset_minutes))
+            .or_default()
+            .add(&event);
+        let key = (
+            event.provider.map(str::to_string),
+            event.model.map(str::to_string),
+        );
+        models.entry(key).or_default().add(&event);
+    }
+    report.days = days
+        .into_iter()
+        .map(|(day, totals)| DayUsage { day, totals })
+        .collect();
+    report.models = models
+        .into_iter()
+        .map(|((provider, model), totals)| ModelUsage {
+            provider,
+            model,
+            totals,
+        })
+        .collect();
+    // Biggest first, and a stable order among equals: the window draws these as bars, and bars that
+    // move between two reads of the same data are a bug the eye reads as change.
+    report.models.sort_by(|left, right| {
+        right
+            .totals
+            .tokens
+            .total()
+            .cmp(&left.totals.tokens.total())
+            .then_with(|| left.provider.cmp(&right.provider))
+            .then_with(|| left.model.cmp(&right.model))
+    });
+    report
+}
+
+/// A Claude Code transcript line's cost, when it is an assistant message with usage.
+///
+/// Anthropic's own names, one usage per assistant message, none on user messages: measured on a real
+/// transcript. `message.model` is the model that answered, and it is what the provider names in its
+/// API (`claude-sonnet-4-5-20250929`).
+pub fn claude_usage_of_line(
+    value: &serde_json::Value,
+) -> Option<(UsageTokens, Option<String>)> {
+    if value.get("type").and_then(serde_json::Value::as_str) != Some("assistant") {
+        return None;
+    }
+    let message = value.get("message")?;
+    let usage = message.get("usage")?;
+    let mut tokens = UsageTokens::ZERO;
+    let mut found = false;
+    for (key, slot) in [
+        ("input_tokens", &mut tokens.input),
+        ("output_tokens", &mut tokens.output),
+        ("cache_read_input_tokens", &mut tokens.cache_read),
+        ("cache_creation_input_tokens", &mut tokens.cache_write),
+    ] {
+        if let Some(part) = as_u64(usage.get(key)) {
+            *slot = part;
+            found = true;
+        }
+    }
+    if !found {
+        return None;
+    }
+    let model = message
+        .get("model")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    Some((tokens, model))
+}
+
+/// A pi message line's cost, when it is an assistant message with usage.
+///
+/// pi sometimes writes the four parts, sometimes only `totalTokens`. When the total is there and the
+/// parts add up to it, the parts are used (they are the breakdown); when they disagree, the tool's
+/// own total wins and the tokens go in `unsplit`, so this never reports a number the session list
+/// would contradict (`stats::pi_tokens_of_message` sums `totalTokens` first, and the two must agree).
+pub fn pi_usage_of_line(value: &serde_json::Value) -> Option<(UsageTokens, Option<String>)> {
+    if value.get("type").and_then(serde_json::Value::as_str) != Some("message") {
+        return None;
+    }
+    let message = value.get("message")?;
+    let usage = message.get("usage")?;
+    let mut parts = UsageTokens::ZERO;
+    let mut found = false;
+    for (key, slot) in [
+        ("input", &mut parts.input),
+        ("output", &mut parts.output),
+        ("cacheRead", &mut parts.cache_read),
+        ("cacheWrite", &mut parts.cache_write),
+    ] {
+        if let Some(part) = as_u64(usage.get(key)) {
+            *slot = part;
+            found = true;
+        }
+    }
+    let total = as_u64(usage.get("totalTokens"));
+    let tokens = match (found, total) {
+        (true, Some(total)) if parts.total() == total => parts,
+        (true, None) => parts,
+        (_, Some(total)) => UsageTokens {
+            unsplit: total,
+            ..UsageTokens::ZERO
+        },
+        (false, None) => return None,
+    };
+    let model = message
+        .get("model")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    Some((tokens, model))
+}
+
+/// The day index for a `YYYY-MM-DD` date, for readers that only have the date (an export file).
+pub fn day_from_label(label: &str) -> Option<i64> {
+    let mut parts = label.split('-');
+    let year = parts.next()?.parse::<i64>().ok()?;
+    let month = parts.next()?.parse::<i64>().ok()?;
+    let date = parts.next()?.parse::<i64>().ok()?;
+    if parts.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&date) {
+        return None;
+    }
+    Some(days_from_civil(year, month, date))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn at(text: &str) -> i64 {
+        super::super::stats::iso_ms(text).expect("timestamp")
+    }
+
+    fn event<'a>(at_ms: i64, model: Option<&'a str>, tokens: UsageTokens) -> UsageEvent<'a> {
+        UsageEvent {
+            at_ms,
+            provider: Some("test"),
+            model,
+            tokens,
+        }
+    }
+
+    fn plain(input: u64, output: u64) -> UsageTokens {
+        UsageTokens {
+            input,
+            output,
+            ..UsageTokens::ZERO
+        }
+    }
+
+    #[test]
+    fn a_day_is_the_callers_day_not_utcs() {
+        // 2026-11-13T23:30Z is still the 13th in UTC and already the 14th in UTC+8. Both answers are
+        // one call away, which is the point: the accounting question is the caller's.
+        let late = at("2026-11-13T23:30:00.000Z");
+        assert_eq!(day_label(day_of(late, 0)), "2026-11-13");
+        assert_eq!(day_label(day_of(late, 480)), "2026-11-14");
+        // And the other way: 00:30Z is the 13th in UTC, still the 12th in UTC-5.
+        let early = at("2026-11-13T00:30:00.000Z");
+        assert_eq!(day_label(day_of(early, 0)), "2026-11-13");
+        assert_eq!(day_label(day_of(early, -300)), "2026-11-12");
+    }
+
+    #[test]
+    fn an_instant_before_the_epoch_lands_in_its_own_day() {
+        // Floor, not truncate: -1 ms is still 1969-12-31, not 1970-01-01.
+        assert_eq!(day_of(-1, 0), -1);
+        assert_eq!(day_label(day_of(-1, 0)), "1969-12-31");
+        assert_eq!(day_of(0, 0), 0);
+        assert_eq!(day_label(0), "1970-01-01");
+    }
+
+    #[test]
+    fn day_labels_and_indices_round_trip_across_leap_years() {
+        for label in [
+            "2024-02-29",
+            "2025-01-01",
+            "2025-12-31",
+            "2026-11-13",
+            "2000-02-29",
+        ] {
+            let day = day_from_label(label).expect("day");
+            assert_eq!(day_label(day), label);
+        }
+        assert_eq!(day_from_label("2026-13-01"), None);
+        assert_eq!(day_from_label("2026-11-13-01"), None);
+        assert_eq!(day_from_label("nope"), None);
+    }
+
+    #[test]
+    fn events_are_split_by_day_and_by_model_at_once() {
+        let report = aggregate(
+            [
+                event(
+                    at("2026-11-12T10:00:00.000Z"),
+                    Some("claude-sonnet-4-5"),
+                    plain(100, 20),
+                ),
+                event(
+                    at("2026-11-12T23:00:00.000Z"),
+                    Some("claude-sonnet-4-5"),
+                    plain(50, 5),
+                ),
+                event(
+                    at("2026-11-13T01:00:00.000Z"),
+                    Some("deepseek-v4.1-flash"),
+                    plain(10, 1),
+                ),
+            ],
+            0,
+        );
+        assert_eq!(report.totals.tokens.input, 160);
+        assert_eq!(report.totals.tokens.output, 26);
+        assert_eq!(report.totals.events, 3);
+        assert_eq!(
+            report
+                .days
+                .iter()
+                .map(|day| (day_label(day.day), day.totals.events))
+                .collect::<Vec<_>>(),
+            vec![("2026-11-12".to_string(), 2), ("2026-11-13".to_string(), 1)]
+        );
+        // Biggest first.
+        assert_eq!(
+            report
+                .models
+                .iter()
+                .map(|model| model.model.clone().unwrap_or_default())
+                .collect::<Vec<_>>(),
+            vec!["claude-sonnet-4-5", "deepseek-v4.1-flash"]
+        );
+        // The two groupings agree with the total, which is the invariant a window's two views rest
+        // on: if they ever disagree, one of the three is lying to the user.
+        let by_days: u64 = report.days.iter().map(|day| day.totals.tokens.total()).sum();
+        let by_models: u64 = report
+            .models
+            .iter()
+            .map(|model| model.totals.tokens.total())
+            .sum();
+        assert_eq!(by_days, report.totals.tokens.total());
+        assert_eq!(by_models, report.totals.tokens.total());
+    }
+
+    #[test]
+    fn a_record_that_names_no_model_is_its_own_bucket_rather_than_dropped() {
+        // Dropping it would make the total unreachable from the bars; the window needs a row that
+        // says "unnamed", and the sum has to stay complete.
+        let report = aggregate(
+            [
+                event(at("2026-11-13T02:00:00.000Z"), None, plain(7, 3)),
+                event(
+                    at("2026-11-13T03:00:00.000Z"),
+                    Some("gpt-5"),
+                    plain(50, 5),
+                ),
+            ],
+            0,
+        );
+        assert_eq!(report.models.len(), 2);
+        assert_eq!(report.models[0].model.as_deref(), Some("gpt-5"));
+        assert_eq!(report.models[1].model, None);
+        assert_eq!(
+            report
+                .models
+                .iter()
+                .map(|model| model.totals.tokens.total())
+                .sum::<u64>(),
+            65
+        );
+    }
+
+    #[test]
+    fn the_same_events_answer_differently_under_different_scopes() {
+        let tokens = UsageTokens {
+            input: 100,
+            output: 20,
+            cache_read: 900,
+            cache_write: 80,
+            unsplit: 0,
+        };
+        let report = aggregate([event(at("2026-11-13T00:00:00.000Z"), None, tokens)], 0);
+        assert_eq!(report.totals.counted(TokenScope::ALL), 1_100);
+        assert_eq!(report.totals.counted(TokenScope::WITHOUT_CACHE), 120);
+        // The raw parts survive, which is what lets a window switch scope without reading again.
+        assert_eq!(report.totals.tokens.cache_read, 900);
+        assert_eq!(report.totals.tokens.cache_write, 80);
+    }
+
+    #[test]
+    fn tokens_a_tool_did_not_split_are_still_counted() {
+        // pi's `totalTokens` with no parts: it belongs in the total under every scope, and there is
+        // nothing to attribute to cache.
+        let tokens = UsageTokens {
+            unsplit: 250,
+            ..UsageTokens::ZERO
+        };
+        let report = aggregate([event(at("2026-11-13T00:00:00.000Z"), None, tokens)], 0);
+        assert_eq!(report.totals.counted(TokenScope::ALL), 250);
+        assert_eq!(report.totals.counted(TokenScope::WITHOUT_CACHE), 250);
+    }
+
+    #[test]
+    fn no_events_is_an_empty_report_not_a_missing_one() {
+        let report = aggregate(Vec::new(), 0);
+        assert_eq!(report.totals.events, 0);
+        assert!(report.days.is_empty());
+        assert!(report.models.is_empty());
+        assert_eq!(report.totals.counted(TokenScope::ALL), 0);
+    }
+
+    #[test]
+    fn claude_lines_give_the_four_parts_and_the_model() {
+        let line = json!({
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "model": "claude-sonnet-4-5-20250929",
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 7,
+                    "cache_read_input_tokens": 3,
+                    "cache_creation_input_tokens": 1
+                }
+            }
+        });
+        let (tokens, model) = claude_usage_of_line(&line).expect("usage");
+        assert_eq!(tokens, UsageTokens { input: 100, output: 7, cache_read: 3, cache_write: 1, unsplit: 0 });
+        assert_eq!(model.as_deref(), Some("claude-sonnet-4-5-20250929"));
+        // The same total the session list already shows for this line.
+        assert_eq!(tokens.total(), 111);
+        assert_eq!(
+            super::super::stats::claude_tokens_of_message(&line),
+            Some(tokens.total())
+        );
+    }
+
+    #[test]
+    fn claude_user_lines_and_usage_less_replies_are_not_events() {
+        assert_eq!(
+            claude_usage_of_line(&json!({
+                "type": "user",
+                "message": { "role": "user", "content": "hi" }
+            })),
+            None
+        );
+        assert_eq!(
+            claude_usage_of_line(&json!({ "type": "assistant", "message": { "role": "assistant" } })),
+            None
+        );
+    }
+
+    #[test]
+    fn pi_parts_are_used_when_they_add_up_to_the_tool_total() {
+        let line = json!({
+            "type": "message",
+            "message": {
+                "role": "assistant",
+                "model": "deepseek-v4.1-flash",
+                "usage": { "input": 100, "output": 20, "cacheRead": 5, "cacheWrite": 1, "totalTokens": 126 }
+            }
+        });
+        let (tokens, model) = pi_usage_of_line(&line).expect("usage");
+        assert_eq!(tokens, UsageTokens { input: 100, output: 20, cache_read: 5, cache_write: 1, unsplit: 0 });
+        assert_eq!(model.as_deref(), Some("deepseek-v4.1-flash"));
+        assert_eq!(
+            super::super::stats::pi_tokens_of_message(&line),
+            Some(tokens.total())
+        );
+    }
+
+    #[test]
+    fn a_pi_total_that_disagrees_with_its_parts_wins_and_goes_unsplit() {
+        // The session list sums the tool's own total; this must not report a different number for the
+        // same line, so the breakdown is given up rather than trusted.
+        let line = json!({
+            "type": "message",
+            "message": {
+                "role": "assistant",
+                "usage": { "input": 1, "output": 1, "totalTokens": 120 }
+            }
+        });
+        let (tokens, _) = pi_usage_of_line(&line).expect("usage");
+        assert_eq!(tokens.unsplit, 120);
+        assert_eq!(tokens.input, 0);
+        assert_eq!(tokens.total(), 120);
+        assert_eq!(
+            super::super::stats::pi_tokens_of_message(&line),
+            Some(tokens.total())
+        );
+    }
+
+    #[test]
+    fn a_pi_line_with_only_a_total_is_an_event_with_no_breakdown() {
+        let line = json!({
+            "type": "message",
+            "message": { "role": "assistant", "usage": { "totalTokens": 120 } }
+        });
+        let (tokens, model) = pi_usage_of_line(&line).expect("usage");
+        assert_eq!(tokens.unsplit, 120);
+        assert_eq!(model, None);
+        assert_eq!(pi_usage_of_line(&json!({ "type": "session_info" })), None);
+        assert_eq!(
+            pi_usage_of_line(&json!({ "type": "message", "message": { "role": "user", "content": "hi" } })),
+            None
+        );
+    }
+
+    /// The shape a reader will have: transcript text in, events out, one report.
+    ///
+    /// The readers do not exist yet (this layer is what they fold into), so the fold is written out
+    /// here as the contract they have to meet: a line the extractor rejects is not an event, a line
+    /// whose timestamp cannot be parsed is not an event either, and neither is allowed to cost the
+    /// total a token.
+    #[test]
+    fn a_transcript_folds_into_days_and_models_through_the_same_path_a_reader_will_use() {
+        let transcript = [
+            r#"{"type":"mode","sessionId":"s1"}"#,
+            r#"{"type":"assistant","timestamp":"2026-11-12T23:59:00.000Z","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":10,"output_tokens":2}}}"#,
+            r#"{"type":"user","timestamp":"2026-11-13T00:00:30.000Z","message":{"role":"user","content":"hi"}}"#,
+            r#"{"type":"assistant","timestamp":"2026-11-13T00:01:00.000Z","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":20,"output_tokens":4,"cache_read_input_tokens":100}}}"#,
+            r#"{"type":"assistant","timestamp":"not a time","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":5}}}"#,
+        ]
+        .join("\n");
+
+        let events: Vec<(i64, UsageTokens, Option<String>)> = transcript
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter_map(|value| {
+                let (tokens, model) = claude_usage_of_line(&value)?;
+                let at = value
+                    .get("timestamp")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(super::super::stats::iso_ms)?;
+                Some((at, tokens, model))
+            })
+            .collect();
+        assert_eq!(events.len(), 2, "the untimed line is not an event");
+
+        let report = aggregate(
+            events.iter().map(|(at_ms, tokens, model)| UsageEvent {
+                at_ms: *at_ms,
+                provider: Some("anthropic"),
+                model: model.as_deref(),
+                tokens: *tokens,
+            }),
+            // Local days at UTC+8: the 23:59Z event is already the 13th there, so both events land
+            // on one day and the report does not depend on where the reader ran.
+            480,
+        );
+        assert_eq!(report.totals.tokens.total(), 136);
+        assert_eq!(report.totals.counted(TokenScope::WITHOUT_CACHE), 36);
+        assert_eq!(report.days.len(), 1);
+        assert_eq!(day_label(report.days[0].day), "2026-11-13");
+        assert_eq!(report.models.len(), 1);
+        assert_eq!(report.models[0].provider.as_deref(), Some("anthropic"));
+        assert_eq!(report.models[0].model.as_deref(), Some("claude-sonnet-4-5"));
+    }
+}

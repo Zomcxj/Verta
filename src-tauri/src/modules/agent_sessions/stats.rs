@@ -79,7 +79,7 @@ pub fn usage_total(usage: &serde_json::Value) -> Option<u64> {
     found.then_some(sum)
 }
 
-fn as_u64(value: Option<&serde_json::Value>) -> Option<u64> {
+pub(crate) fn as_u64(value: Option<&serde_json::Value>) -> Option<u64> {
     match value? {
         serde_json::Value::Number(number) => number.as_u64().or_else(|| {
             // Some fields are floats (cost written as 0.0); tokens should not be, but do not

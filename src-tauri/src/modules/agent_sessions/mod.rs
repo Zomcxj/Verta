@@ -7,6 +7,7 @@ mod opencode;
 mod pi;
 mod service_turns;
 pub mod stats;
+pub mod usage;
 pub mod watch;
 mod wsl;
 
