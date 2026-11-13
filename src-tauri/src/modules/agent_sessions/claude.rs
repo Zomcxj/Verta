@@ -1,9 +1,12 @@
 //! Claude Code's sessions: one transcript per session, under a directory per project.
 //!
 //! `~/.claude/projects/<cwd with punctuation flattened>/<session-id>.jsonl`, and beside each
-//! transcript a *directory* of the same name holding that session's subagent transcripts. Only the
-//! top-level `.jsonl` files are sessions: an `agent-*.jsonl` under that directory is one subagent's
-//! turns, and listing those would show a session per helper a session started.
+//! transcript a *directory* of the same name holding the subagents that session started
+//! (`subagents/agent-*.jsonl`, a workflow's helpers one level deeper). Those are not sessions of their
+//! own - Claude Code has no session-of-a-session - so they are read as what they are: rows carrying
+//! their session's id as `parent_id`, with the id off the `agentId` on their own lines and the name off
+//! the `.meta.json` beside them. The list the user resumes from hides them (`topLevelSessions`); the
+//! manage view shows them, which is the only place a helper run is worth a row.
 //!
 //! The transcript is Claude Code's own ledger and it is mostly bookkeeping - measured on a real one:
 //! `mode`, `permission-mode`, `atis-latch`, `api-request`, `api-request-blob`, `cost-state`,
@@ -12,6 +15,7 @@
 //! `agent-name` for the name), so everything is selected by kind and nothing is assumed about the
 //! rest. There is no `summary` kind, and a `last-prompt` line carries the last prompt written.
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 
@@ -51,8 +55,30 @@ pub(crate) fn list_at(root: &Path) -> Result<AgentSessionsPayload, String> {
         if !project_dir.is_dir() {
             continue;
         }
-        for file in session_files(&project_dir) {
-            match read_session(&file) {
+        // Sessions first, then the runs they started: a child's `parent_id` has to be the id the parent
+        // is *listed* under, and that is what the parent's own transcript says - the directory beside it
+        // is normally named after that id, but the listing must not depend on it being so.
+        let mut parent_ids: HashMap<String, String> = HashMap::new();
+        let mut children: Vec<(PathBuf, String)> = Vec::new();
+        for (file, parent) in session_files(&project_dir) {
+            let Some(found_under) = parent else {
+                match read_session(&file, None) {
+                    Ok(Some(session)) => {
+                        if let Some(stem) = file.file_stem().and_then(|stem| stem.to_str()) {
+                            parent_ids.insert(stem.to_string(), session.id.clone());
+                        }
+                        sessions.push(session);
+                    }
+                    Ok(None) => {}
+                    Err(error) => warnings.push(error),
+                }
+                continue;
+            };
+            children.push((file, found_under));
+        }
+        for (file, found_under) in children {
+            let parent_id = parent_ids.get(&found_under).cloned().unwrap_or(found_under);
+            match read_session(&file, Some(&parent_id)) {
                 Ok(Some(session)) => sessions.push(session),
                 Ok(None) => {}
                 Err(error) => warnings.push(error),
@@ -63,14 +89,58 @@ pub(crate) fn list_at(root: &Path) -> Result<AgentSessionsPayload, String> {
     Ok(AgentSessionsPayload { sessions, warnings })
 }
 
-/// The transcripts directly in one project directory, and nothing deeper.
-fn session_files(project_dir: &Path) -> Vec<PathBuf> {
-    child_paths(project_dir)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|child| child.is_file())
-        .filter(|file| file.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
-        .collect()
+/// A project directory's transcripts, each with the session it belongs to when it is not one itself.
+///
+/// Claude Code keeps a session's subagents in a directory named after it (`<session-id>/subagents/`),
+/// and a workflow's helpers a level deeper still (`subagents/workflows/<id>/`). They are not sessions -
+/// the tool has no session-of-a-session - which is why they are not read as ones: the id comes from the
+/// file, the name from the `.meta.json` beside it, and the parent from the directory they were found in.
+/// They are listed because the manage view exists to show what a session started (`launcher.manage`),
+/// and `topLevelSessions` keeps them out of the list the user resumes from.
+fn session_files(project_dir: &Path) -> Vec<(PathBuf, Option<String>)> {
+    let mut files = Vec::new();
+    for child in child_paths(project_dir).unwrap_or_default() {
+        if child.is_file() {
+            if child.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
+                files.push((child, None));
+            }
+            continue;
+        }
+        // A directory beside a transcript is that session's own, and everything under it that is an
+        // `agent-*.jsonl` is one of the runs it started.
+        let Some(stem) = child.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let parent = stem.to_string();
+        for file in agent_files(&child) {
+            files.push((file, Some(parent.clone())));
+        }
+    }
+    files
+}
+
+/// Every `agent-*.jsonl` under one session's directory, at any depth a workflow puts them.
+fn agent_files(dir: &Path) -> Vec<PathBuf> {
+    // Bounded: a directory tree is not trusted to be finite (nor to be shallow - this one has workflow
+    // helpers two levels down).
+    const MAX_DEPTH: usize = 5;
+    let mut found = Vec::new();
+    let mut stack = vec![(dir.to_path_buf(), 0usize)];
+    while let Some((next, depth)) = stack.pop() {
+        for child in child_paths(&next).unwrap_or_default() {
+            if child.is_dir() {
+                if depth < MAX_DEPTH {
+                    stack.push((child, depth + 1));
+                }
+                continue;
+            }
+            let name = child.file_name().and_then(|name| name.to_str());
+            if name.is_some_and(|name| name.starts_with("agent-") && name.ends_with(".jsonl")) {
+                found.push(child);
+            }
+        }
+    }
+    found
 }
 
 fn child_paths(dir: &Path) -> Result<Vec<PathBuf>, String> {
@@ -83,7 +153,10 @@ fn child_paths(dir: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 /// `Ok(None)` marks a file that cannot be a session: no id anywhere, not even in its name.
-fn read_session(file: &Path) -> Result<Option<AgentSession>, String> {
+///
+/// `parent` is the session this file was found under, when it is one of its runs rather than a session
+/// of its own - which is what a subagent transcript is.
+fn read_session(file: &Path, parent: Option<&str>) -> Result<Option<AgentSession>, String> {
     let prefix = read_prefix(file)?;
     // A `.jsonl` with not one parseable event in it is not a session that lost its cwd: it is junk, or
     // a file this version of the tool does not write. Skipped silently, so the list is shorter rather
@@ -93,11 +166,13 @@ fn read_session(file: &Path) -> Result<Option<AgentSession>, String> {
     }
     // Claude Code names the file after the session id, and the id is also on most events; the file
     // name is the one that is there whatever the version writes.
-    let id = session_id(&prefix).or_else(|| {
-        file.file_stem()
-            .and_then(|stem| stem.to_str())
-            .map(str::to_string)
-    });
+    //
+    // A subagent's lines carry its *session's* id, so the record is the one source that cannot answer
+    // here: the agent's own id is on every line (`agentId`), and the file is named after it.
+    let id = match parent {
+        Some(_) => agent_id(&prefix).or_else(|| id_of_file(file)),
+        None => session_id(&prefix).or_else(|| id_of_file(file)),
+    };
     let Some(id) = id.filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
@@ -107,20 +182,54 @@ fn read_session(file: &Path) -> Result<Option<AgentSession>, String> {
         // un-flattened back into a path: `C--Users-cxj-Desktop` has lost which separators were there.
         return Err(format!("会话 {} 里没有任何一行记录 cwd", file.display()));
     };
-    let title = title_of(&prefix)
-        .or_else(|| last_prompt(&prefix))
-        .unwrap_or_else(|| id.clone());
+    let title = match parent {
+        Some(_) => subagent_title(file, &prefix).unwrap_or_else(|| id.clone()),
+        None => title_of(&prefix)
+            .or_else(|| last_prompt(&prefix))
+            .unwrap_or_else(|| id.clone()),
+    };
     Ok(Some(AgentSession {
         tool: TOOL.to_string(),
         id,
         title,
         cwd,
         updated_at_ms: modified_ms(file).unwrap_or(0),
-        // Claude Code has no session-of-a-session: a subagent's turns are in the directory beside the
-        // transcript, and those are not sessions (see `session_files`).
-        parent_id: None,
+        parent_id: parent.map(str::to_string),
         stats: session_stats(file),
     }))
+}
+
+/// The id a transcript is filed under: the file is named after its session, and a subagent's after the
+/// agent (`agent-<id>.jsonl`).
+fn id_of_file(file: &Path) -> Option<String> {
+    let stem = file.file_stem().and_then(|stem| stem.to_str())?;
+    Some(stem.strip_prefix("agent-").unwrap_or(stem).to_string())
+}
+
+/// The agent id a subagent's lines carry, which is its id rather than its session's.
+fn agent_id(prefix: &str) -> Option<String> {
+    first_string(prefix, "agentId").filter(|id| !id.is_empty())
+}
+
+/// What to call a subagent: the description it was launched with, from the `agent-*.meta.json` beside
+/// its transcript, then what the transcript itself yields.
+///
+/// The launched description is the name a person recognises ("探索 case-08 优化点"); the transcript's
+/// first user line is the brief, which is long and starts with the same words for every helper of a run.
+fn subagent_title(file: &Path, prefix: &str) -> Option<String> {
+    let meta = file.with_extension("meta.json");
+    if let Ok(text) = std::fs::read_to_string(&meta) {
+        if let Ok(value) = serde_json::from_str::<Value>(&text) {
+            if let Some(name) = named(value.get("description")) {
+                return Some(name);
+            }
+            // `<agentType>` is the kind of helper (Explore, general-purpose): a poor name, but a name.
+            if let Some(kind) = named(value.get("agentType")) {
+                return Some(kind);
+            }
+        }
+    }
+    title_of(prefix).or_else(|| last_prompt(prefix))
 }
 
 /// The session id as the transcript records it.
@@ -335,10 +444,12 @@ fn locate(root: &Path, id: &str) -> Result<Located, String> {
         if !project_dir.is_dir() {
             continue;
         }
-        for file in session_files(&project_dir) {
-            if file.file_stem().and_then(|stem| stem.to_str()) != Some(id) {
+        for (file, _parent) in session_files(&project_dir) {
+            if id_of_file(&file).as_deref() != Some(id) {
                 continue;
             }
+            // A session owns the directory beside its transcript (its subagents); a subagent's file
+            // owns nothing.
             let candidate = file.with_extension("");
             return Ok(Located {
                 file,
@@ -512,19 +623,72 @@ mod tests {
     }
 
     #[test]
-    fn does_not_list_the_subagents_beside_a_session() {
+    fn lists_the_subagents_a_session_started_as_children() {
         let dir = tempfile::tempdir().expect("temp dir");
         let project = dir.path().join("C--Users-cxj-Desktop-dsh");
         write_session(&project, "s1", "");
-        // A subagent's own transcript, one level down, exactly where Claude Code keeps them.
+        // A subagent's own transcript, one level down, exactly where Claude Code keeps them - and a
+        // workflow's helper a level deeper than that.
+        write_file(
+            &project.join("s1/subagents"),
+            "agent-abc.jsonl",
+            "{\"type\":\"user\",\"agentId\":\"abc\",\"sessionId\":\"s1\",\"cwd\":\"C:\\\\x\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n",
+        );
         write_file(
             &project.join("s1/subagents/workflows/run-1"),
-            "agent-abc.jsonl",
-            "{\"type\":\"user\",\"sessionId\":\"s1\",\"cwd\":\"C:\\\\x\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n",
+            "agent-def.jsonl",
+            "{\"type\":\"user\",\"agentId\":\"def\",\"sessionId\":\"s1\",\"cwd\":\"C:\\\\x\",\"message\":{\"role\":\"user\",\"content\":\"there\"}}\n",
         );
         let payload = list_at(dir.path()).expect("应能列出");
-        assert_eq!(payload.sessions.len(), 1, "只列顶层转录");
-        assert_eq!(payload.sessions[0].id, "s1");
+        assert_eq!(payload.sessions.len(), 3, "{:?}", payload.sessions);
+        let parent = payload
+            .sessions
+            .iter()
+            .find(|session| session.id == "s1")
+            .expect("父会话");
+        assert_eq!(parent.parent_id, None);
+        let mut children: Vec<_> = payload
+            .sessions
+            .iter()
+            .filter(|session| session.parent_id.is_some())
+            .collect();
+        children.sort_by(|a, b| a.id.cmp(&b.id));
+        // The id is the agent's, not the session id the transcript repeats on every line: two rows
+        // sharing one id would collapse into one.
+        assert_eq!(
+            children.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            ["abc", "def"]
+        );
+        for child in &children {
+            assert_eq!(child.parent_id.as_deref(), Some("s1"));
+            assert_eq!(child.cwd, "C:\\x");
+        }
+    }
+
+    #[test]
+    fn names_a_subagent_after_the_description_it_was_launched_with() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let project = dir.path().join("C--Users-cxj-Desktop-dsh");
+        write_session(&project, "s1", "");
+        write_file(
+            &project.join("s1/subagents"),
+            "agent-abc.jsonl",
+            "{\"type\":\"user\",\"agentId\":\"abc\",\"sessionId\":\"s1\",\"cwd\":\"C:\\\\x\",\"isSidechain\":true,\"message\":{\"role\":\"user\",\"content\":\"你是只读探索代理。目标文件：…\"}}\n",
+        );
+        // What Claude Code writes beside it: the kind of helper, and the description it was launched
+        // with - which is the name a person recognises, unlike the brief it was given.
+        write_file(
+            &project.join("s1/subagents"),
+            "agent-abc.meta.json",
+            "{\"agentType\":\"Explore\",\"description\":\"探索 case-08 优化点\"}\n",
+        );
+        let payload = list_at(dir.path()).expect("应能列出");
+        let child = payload
+            .sessions
+            .iter()
+            .find(|session| session.parent_id.is_some())
+            .expect("子代理");
+        assert_eq!(child.title, "探索 case-08 优化点");
     }
 
     #[test]

@@ -56,6 +56,18 @@ describe("topLevelSessions", () => {
     expect(rows.map((row) => row.id)).toEqual(["parent"]);
   });
 
+  it("hides the subagents a claude session started", () => {
+    // Claude Code keeps a subagent's transcript in a directory beside the session's, and those rows now
+    // come back carrying the session as their parent (see `agent_sessions::claude`). They are what the
+    // manage view shows; the list the user resumes from is not the place for a helper's run.
+    const rows = topLevelSessions([
+      session("s1", null, 30, "claude"),
+      session("abc", "s1", 20, "claude"),
+      session("def", "s1", 10, "claude"),
+    ]);
+    expect(rows.map((row) => row.id)).toEqual(["s1"]);
+  });
+
   it("handles an empty list", () => {
     expect(topLevelSessions([])).toEqual([]);
   });

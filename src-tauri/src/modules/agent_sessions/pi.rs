@@ -47,8 +47,35 @@ pub(crate) fn list_at(root: &Path) -> Result<AgentSessionsPayload, String> {
         if !project_dir.is_dir() {
             continue;
         }
-        for file in session_files(&project_dir) {
-            match read_session(&file) {
+        // Sessions first, then the runs they started: a run's `parent_id` has to be the id the parent is
+        // *listed* under, and that is the one in the parent's header - the file is named after it, which
+        // is where `id_in_stem` reads it back when the parent is gone.
+        let mut parent_ids: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let mut runs: Vec<(std::path::PathBuf, String)> = Vec::new();
+        for (file, parent) in session_files(&project_dir) {
+            let Some(stem) = parent else {
+                match read_session(&file, None) {
+                    Ok(Some(session)) => {
+                        if let Some(stem) = file.file_stem().and_then(|stem| stem.to_str()) {
+                            parent_ids.insert(stem.to_string(), session.id.clone());
+                        }
+                        sessions.push(session);
+                    }
+                    Ok(None) => {}
+                    Err(error) => warnings.push(error),
+                }
+                continue;
+            };
+            runs.push((file, stem));
+        }
+        for (file, stem) in runs {
+            let parent_id = parent_ids
+                .get(&stem)
+                .cloned()
+                .or_else(|| id_in_stem(&stem).map(str::to_string))
+                .unwrap_or_else(|| stem.clone());
+            match read_session(&file, Some(&parent_id)) {
                 Ok(Some(session)) => sessions.push(session),
                 Ok(None) => {}
                 Err(error) => warnings.push(error),
@@ -59,22 +86,67 @@ pub(crate) fn list_at(root: &Path) -> Result<AgentSessionsPayload, String> {
     Ok(AgentSessionsPayload { sessions, warnings })
 }
 
-/// The session files of one project directory: its own transcripts, plus the
-/// forks of each session. pi writes a fork under `<stem>/forks` next to that
-/// session's run artifacts (`<stem>/<run uuid>/run-0`), so a fork sits one
-/// level deeper than the transcript it branched from; nothing deeper than
-/// `forks` is a session.
-fn session_files(project_dir: &Path) -> Vec<PathBuf> {
+/// The session files of one project directory, each with the session it belongs to when it is a run
+/// rather than a session of its own.
+///
+/// pi writes a session as `<ISO>_<id>.jsonl`, a fork under `<stem>/forks`, and a subagent's run under
+/// `<stem>/<run uuid>/run-0/session.jsonl`, beside the artifacts of the same run. A run's file *is* a
+/// session - it has the `session` header, an id and a cwd - so it is read as one, carrying the
+/// transcript it was started from as its parent; nothing deeper than a run's own directory is, which is
+/// what keeps the artifacts out (`subagent_run_artifacts_are_not_sessions`).
+fn session_files(project_dir: &Path) -> Vec<(PathBuf, Option<String>)> {
     let mut files = Vec::new();
     for child in child_paths(project_dir).unwrap_or_default() {
-        if child.is_dir() {
-            files.extend(child_paths(&child.join("forks")).unwrap_or_default());
-        } else {
-            files.push(child);
+        if !child.is_dir() {
+            files.push((child, None));
+            continue;
+        }
+        // A fork records its own parent in its header; a run does not, and is filed under the session
+        // it was started from.
+        files.extend(
+            child_paths(&child.join("forks"))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|file| (file, None)),
+        );
+        let stem = child
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_string);
+        files.extend(run_files(&child).into_iter().map(|file| (file, stem.clone())));
+    }
+    files.retain(|(file, _)| file.extension().and_then(|ext| ext.to_str()) == Some("jsonl"));
+    files
+}
+
+/// The `session.jsonl` of every run one session started: `<stem>/<run uuid>/run-*/`.
+fn run_files(session_dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for run in child_paths(session_dir).unwrap_or_default() {
+        if !run.is_dir() {
+            continue;
+        }
+        for attempt in child_paths(&run).unwrap_or_default() {
+            // `run-0`, `run-1`, ...: a run that was retried keeps each attempt.
+            if !attempt.is_dir() {
+                continue;
+            }
+            found.extend(
+                child_paths(&attempt)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|file| file.is_file()),
+            );
         }
     }
-    files.retain(|file| file.extension().and_then(|ext| ext.to_str()) == Some("jsonl"));
-    files
+    found
+}
+
+/// The session id inside a transcript's file name: pi writes `<ISO>_<id>.jsonl`.
+fn id_in_stem(stem: &str) -> Option<&str> {
+    stem.split_once('_')
+        .map(|(_, id)| id)
+        .filter(|id| !id.is_empty())
 }
 
 fn child_paths(dir: &Path) -> Result<Vec<PathBuf>, String> {
@@ -87,7 +159,10 @@ fn child_paths(dir: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 /// `Ok(None)` marks a file that is not a session (a run artifact, an empty file).
-fn read_session(file: &Path) -> Result<Option<AgentSession>, String> {
+///
+/// `parent` is the session this file was found under, for a run: pi's own header records a fork's
+/// parent (`parentSession`) but not a subagent run's, which is filed under the session that started it.
+fn read_session(file: &Path, parent: Option<&str>) -> Result<Option<AgentSession>, String> {
     let prefix = read_prefix(file)?;
     let Some(header) = prefix.lines().next().and_then(parse_line) else {
         return Ok(None);
@@ -129,7 +204,8 @@ fn read_session(file: &Path) -> Result<Option<AgentSession>, String> {
         parent_id: header
             .get("parentSession")
             .and_then(Value::as_str)
-            .map(str::to_string),
+            .map(str::to_string)
+            .or_else(|| parent.map(str::to_string)),
         stats,
     }))
 }
@@ -597,7 +673,7 @@ fn locate(root: &Path, id: &str) -> Result<Located, String> {
         if !project_dir.is_dir() {
             continue;
         }
-        for file in session_files(&project_dir) {
+        for (file, _parent) in session_files(&project_dir) {
             if session_id_of(&file).as_deref() != Some(id) {
                 continue;
             }
@@ -653,7 +729,7 @@ mod tests {
         rename_at(dir.path(), "s1", "  新名字  ").expect("应能改名");
         // The name read back is the new one, and the old content was not rewritten
         // (appended, not replaced).
-        let session = read_session(&path).expect("read").expect("a session");
+        let session = read_session(&path, None).expect("read").expect("a session");
         assert_eq!(session.title, "新名字");
         let body = std::fs::read_to_string(&path).expect("read file");
         assert_eq!(body.lines().count(), 2, "第一行还是会话头，新名字追加在后面");
@@ -872,7 +948,7 @@ mod tests {
         body.push_str(r#"{"type":"session_info","name":"深在文件里的名字"}"#);
         body.push('\n');
         let path = write_file(dir.path(), "s.jsonl", &body);
-        let session = read_session(&path).expect("read").expect("a session");
+        let session = read_session(&path, None).expect("read").expect("a session");
         assert_eq!(session.title, "深在文件里的名字");
     }
 
@@ -929,7 +1005,7 @@ mod tests {
         let path = write_file(dir.path(), "s.jsonl", body);
         assert_eq!(latest_session_name(&path), None);
         assert_eq!(
-            read_session(&path).expect("read").expect("a session").title,
+            read_session(&path, None).expect("read").expect("a session").title,
             "我在讲 \"type\":\"session_info\" 这个字段"
         );
     }
@@ -1132,6 +1208,46 @@ mod tests {
         assert_eq!(payload.sessions.len(), 1, "{:?}", payload.sessions);
         assert_eq!(payload.sessions[0].id, "01a0864e");
         assert_eq!(payload.sessions[0].parent_id.as_deref(), Some("01a085ce"));
+    }
+
+    #[test]
+    fn lists_a_subagent_run_as_a_child_of_the_session_that_started_it() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let project = root.path().join("--F--x--");
+        write_file(
+            &project,
+            "2026-09-12T13-20-04-533Z_01a095c6.jsonl",
+            concat!(
+                r#"{"type":"session","version":3,"id":"01a095c6","cwd":"F:\\x"}"#,
+                "\n",
+            ),
+        );
+        // Real layout: <stem>/<run uuid>/run-0/session.jsonl - a session of its own (header, id, cwd),
+        // filed under the session that started it.
+        write_file(
+            &project.join("2026-09-12T13-20-04-533Z_01a095c6/00e278ab/run-0"),
+            "session.jsonl",
+            concat!(
+                r#"{"type":"session","version":3,"id":"01a0aaaa","cwd":"F:\\x"}"#,
+                "\n",
+            ),
+        );
+        let payload = list_at(root.path()).expect("list");
+        assert_eq!(payload.sessions.len(), 2, "{:?}", payload.sessions);
+        assert!(payload.warnings.is_empty(), "{:?}", payload.warnings);
+        let child = payload
+            .sessions
+            .iter()
+            .find(|session| session.id == "01a0aaaa")
+            .expect("子代理运行");
+        // The run's own header says nothing about its parent; the directory does.
+        assert_eq!(child.parent_id.as_deref(), Some("01a095c6"));
+        let parent = payload
+            .sessions
+            .iter()
+            .find(|session| session.id == "01a095c6")
+            .expect("父会话");
+        assert_eq!(parent.parent_id, None);
     }
 
     #[test]

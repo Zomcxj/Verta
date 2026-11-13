@@ -6,15 +6,19 @@ import type { AgentSession } from "./types";
  *
  * The two tools need different rules because they keep their data differently:
  *
- * - opencode stores a parent id, and deleting a parent takes its children with
- *   it, so a non-null parent always means "a child that still has a parent".
+ * - opencode stores a parent id, and deleting a parent takes its children with it,
+ *   so a non-null parent always means "a child that still has a parent".
  *   Its query is also capped, so a child can appear without its parent in the
  *   window; hiding that one would make a session vanish for a reason unrelated
- *   to the user, so it stays.
+ *   to the user, so it stays. Claude Code's subagents are read as the same shape
+ *   (one row per `agent-*.jsonl` beside the session, carrying the session as its
+ *   parent), so they follow the same rule.
  * - a pi fork records the parent's *file path*. The parent transcript can be
  *   deleted while the fork stays on disk (this machine has exactly that: a
  *   `subagent-worker-*` fork whose parent is gone). A fork is never something
- *   the user opened, so it is hidden whether or not its parent is still listed.
+ *   the user opened, and neither is the run of a subagent pi kept under
+ *   `<stem>/<run>/run-0/`, so both are hidden whether or not the parent is still
+ *   listed.
  */
 export function topLevelSessions(sessions: AgentSession[]): AgentSession[] {
   const present = new Set(sessions.map((session) => session.id));
