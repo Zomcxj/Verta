@@ -62,6 +62,8 @@ import {
   sessionStateById,
   waitingFirst,
 } from "../lib/sessionActivity";
+import { SessionInfoDialog } from "./SessionInfoDialog";
+import { subagentsOf } from "../lib/sessionInfo";
 import { SessionList, type SessionRowActions } from "./SessionList";
 
 const TOOLS: AgentTool[] = AGENT_TOOLS;
@@ -324,6 +326,7 @@ export function LauncherPanel({
       },
       onCopyId: (session) => copyText(session.id, t("launcher.copied")),
       onStartRename: (session) => setRenaming(sessionKey(session)),
+      onInfo: (session) => setInfoKey(sessionKey(session)),
       canCopyRelative: relativeToRoot(workspaceRoot, "") !== null,
       renameId: renaming,
       onRenameSubmit: (session, name) => {
@@ -338,6 +341,27 @@ export function LauncherPanel({
   const toggleRow = useCallback((session: AgentSession) => {
     setSelected((was) => toggleSelection(was, sessionKey(session)));
   }, []);
+
+  /**
+   * The session whose details are open, by key.
+   *
+   * Held by key rather than by row so a refresh does not close it: the list re-reads while the dialog
+   * is up, and a session that is re-read is the same session. It is looked up in the list at render,
+   * so the dialog always shows the current read of it.
+   */
+  const [infoKey, setInfoKey] = useState<string | null>(null);
+  const infoSession = useMemo(
+    () =>
+      infoKey === null
+        ? null
+        : (sessions.find((session) => sessionKey(session) === infoKey) ?? null),
+    [infoKey, sessions],
+  );
+  /** What it started: the same rows the manage view draws, counted from them. */
+  const infoChildren = useMemo(
+    () => subagentsOf(sessions, infoSession),
+    [infoSession, sessions],
+  );
 
   // The backend watches both session stores and reports a change once per
   // burst. That is what makes a session started in a terminal appear here
@@ -703,6 +727,17 @@ export function LauncherPanel({
           </button>
           <button
             type="button"
+            disabled={selected.size !== 1}
+            onClick={() => {
+              const [key] = [...selected];
+              setInfoKey(key ?? null);
+            }}
+            className="cursor-pointer rounded px-1.5 py-0.5 outline-none transition-colors duration-[var(--dur-base)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-40"
+          >
+            {t("launcher.info")}
+          </button>
+          <button
+            type="button"
             disabled={selected.size === 0 || deleting}
             onClick={openDeleteDialog}
             className="ml-auto cursor-pointer rounded-md px-2 py-1 text-[11px] text-destructive outline-none transition-colors duration-[var(--dur-base)] hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:opacity-40"
@@ -728,6 +763,13 @@ export function LauncherPanel({
             : ""}
         </div>
       )}
+
+      <SessionInfoDialog
+        session={infoSession}
+        subagents={infoChildren}
+        open={infoSession !== null}
+        onOpenChange={(open) => !open && setInfoKey(null)}
+      />
 
       <AlertDialog
         open={pendingDelete !== null}

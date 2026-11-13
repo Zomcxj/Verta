@@ -37,6 +37,8 @@ export type SessionRowActions = {
   onCopyRelative: (session: AgentSession) => void;
   onCopyId: (session: AgentSession) => void;
   onStartRename: (session: AgentSession) => void;
+  /** Open the details dialog for this session. */
+  onInfo: (session: AgentSession) => void;
   /** False when no relative path can be computed (no workspace root), greying out that item. */
   canCopyRelative: boolean;
   renameId: SessionKey | null;
@@ -54,7 +56,7 @@ type Props = {
   selectable?: boolean;
   selected?: ReadonlySet<string>;
   onToggle?: (session: AgentSession) => void;
-  /** Context menu and in-place rename; omitted means no menu (not needed in manage mode). */
+  /** Context menu and in-place rename; omitted means no menu. */
   actions?: SessionRowActions;
   /**
    * Nothing has been read yet. An empty list and an unread one are different things: saying "no
@@ -346,6 +348,9 @@ const SessionButton = memo(function SessionButton({
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => actions.onCopyId(session)}>
           {t("launcher.copySessionId")}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => actions.onInfo(session)}>
+          {t("launcher.info")}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => actions.onStartRename(session)}>
