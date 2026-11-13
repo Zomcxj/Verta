@@ -216,16 +216,74 @@ pub(crate) fn pi_is_absent(_distro: &str) -> AgentSessionsPayload {
     }
 }
 
-/// A distro's Claude Code store, which this app does not read yet.
+/// Where a distro keeps its Claude Code store, as a path this machine can read.
 ///
-/// The store it would have to read is `~/.claude/projects` inside the distro: Claude Code writes
-/// that path on whichever side it runs, so a distribution that has been using it has sessions there.
-/// Until that reader exists a distro answers with an empty list rather than with a notice, and the
-/// local list is not handed out instead, which would list every session once per distro.
-pub(crate) fn claude_is_absent(_distro: &str) -> AgentSessionsPayload {
-    AgentSessionsPayload {
-        sessions: Vec::new(),
-        warnings: Vec::new(),
+/// Claude Code writes `~/.claude/projects` on whichever side it runs, so a distribution that has been
+/// using it has its transcripts there. That is why answering "none" for every distro left anyone
+/// running Claude Code in WSL with an empty list.
+///
+/// The store is plain JSONL, unlike opencode's database, so it needs no query run inside the distro:
+/// the same reader that reads this machine's store reads it through the Windows share of the
+/// distribution's filesystem. Both share names are tried, because `wsl.localhost` is what current
+/// Windows offers and `wsl$` what older builds had.
+#[cfg(any(windows, test))]
+fn claude_root_at(distro: &str, home: &str, share: &str) -> PathBuf {
+    let mut root = PathBuf::from(format!(r"\\{share}\{distro}"));
+    for part in home
+        .trim()
+        .trim_matches('/')
+        .split('/')
+        .filter(|part| !part.is_empty())
+    {
+        root.push(part);
+    }
+    root.join(".claude").join("projects")
+}
+
+#[cfg(windows)]
+pub(crate) fn claude_list(distro: &str) -> Result<AgentSessionsPayload, String> {
+    let home = crate::modules::workspace::wsl_home(distro.to_string())
+        .map_err(|e| format!("无法确定发行版 {distro} 的主目录：{e}"))?;
+    for share in ["wsl.localhost", "wsl$"] {
+        let root = claude_root_at(distro, &home, share);
+        if root.is_dir() {
+            return super::claude::list_at(&root);
+        }
+    }
+    // A distribution that has never run Claude Code, or one whose filesystem this machine cannot
+    // reach: no sessions, and nothing to say about it.
+    Ok(AgentSessionsPayload::default())
+}
+
+#[cfg(not(windows))]
+pub(crate) fn claude_list(_distro: &str) -> Result<AgentSessionsPayload, String> {
+    Ok(AgentSessionsPayload::default())
+}
+
+#[cfg(test)]
+mod claude_root_tests {
+    use super::*;
+
+    #[test]
+    fn a_distro_s_store_is_reached_through_its_share() {
+        // The path Claude Code's own reader expects, built for the Windows share of a distro.
+        assert_eq!(
+            claude_root_at("Ubuntu-22.04", "/home/cxj", "wsl.localhost"),
+            PathBuf::from(r"\\wsl.localhost\Ubuntu-22.04\home\cxj\.claude\projects")
+        );
+        assert_eq!(
+            claude_root_at("Ubuntu-22.04", "/home/cxj", "wsl$"),
+            PathBuf::from(r"\\wsl$\Ubuntu-22.04\home\cxj\.claude\projects")
+        );
+    }
+
+    #[test]
+    fn a_home_that_arrives_with_fluff_lands_in_the_same_place() {
+        // `$HOME` comes back from `wsl.exe` with whatever the shell printed around it.
+        let wanted = PathBuf::from(r"\\wsl.localhost\D\home\me\.claude\projects");
+        assert_eq!(claude_root_at("D", "/home/me/", "wsl.localhost"), wanted);
+        assert_eq!(claude_root_at("D", "home/me", "wsl.localhost"), wanted);
+        assert_eq!(claude_root_at("D", "/home/me\n", "wsl.localhost"), wanted);
     }
 }
 

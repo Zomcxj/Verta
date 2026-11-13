@@ -61,12 +61,10 @@ pub async fn agent_sessions_list(
         (opencode::TOOL, None) => opencode::list(),
         (pi::TOOL, Some(distro)) => Ok(wsl::pi_is_absent(distro)),
         (pi::TOOL, None) => pi::list(),
-        // Reading a distro's own `~/.claude/projects` is not implemented, so a distro answers with an
-        // empty list: answering with the local one instead would list every session once per distro.
-        // The comment here used to say Claude Code "has none" over there, which is not true - it
-        // writes that path on whichever side it runs, and that gap is why a distro can look empty
-        // while the distribution has been using it all along.
-        (claude::TOOL, Some(distro)) => Ok(wsl::claude_is_absent(distro)),
+        // Claude Code writes `~/.claude/projects` on whichever side it runs, so a distro's own store
+        // is read through the share of its filesystem (`wsl::claude_list`). Answering with the local
+        // list instead would show every session once per distro.
+        (claude::TOOL, Some(distro)) => wsl::claude_list(distro),
         (claude::TOOL, None) => claude::list(),
         (other, _) => Err(format!("不支持的会话工具：{other}")),
     })

@@ -15,6 +15,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-13</strong></summary>
 
+**A distro's Claude Code sessions are listed, instead of "none"**
+
+- `src-tauri/src/modules/agent_sessions/wsl.rs`, `mod.rs`: a distro answered an empty list for Claude Code because the code said its sessions are "in this machine's home directory and nowhere else". They are not: Claude Code writes `~/.claude/projects` on whichever side it runs, so a distribution that had been using it all along looked empty. The store is plain JSONL, so it needs no query run inside the distro - the reader for this machine's store reads it through the Windows share of the distribution's filesystem, trying `\\wsl.localhost` and the older `\\wsl$`, with the distro's `$HOME` asked of `wsl.exe` (the same helper a fresh terminal uses). Verified on this machine with a fixture inside the distro: one transcript there listed as one session with its title, cwd, turn count and tokens; removing the fixture returned the list to empty, with nothing to report either way.
+- The first version of that path builder was written with a single leading backslash (a `PathBuf` rooted on the current drive, which is never a distribution's filesystem) *and its unit test pinned the same mistake on both sides*, so it passed while the feature did nothing. The end-to-end check is what caught it; the test now spells the UNC prefix out in full.
+
 **A tool with no session store is not a failure**
 
 - `src-tauri/src/modules/agent_sessions/claude.rs`, `opencode.rs`, `pi.rs`: the session panel showed `claude: 找不到 Claude Code 会话目录: C:\Users\...\.claude/projects。请确认 Claude Code 已安装并至少运行过一次。` ("没找到不要说"). A missing directory is a fact about one path on one machine, and the panel turned it into a claim about the user's: this reader cannot know whether a tool is installed, and Claude Code honours a configuration directory of its own, so a store can sit somewhere this app never looks. A store that is not there now lists nothing, which the list already draws as its own empty state; the three tests that pinned "a missing store is a clear error, not an empty list" now say the reverse, each with the reason.
