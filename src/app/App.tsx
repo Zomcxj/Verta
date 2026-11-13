@@ -47,6 +47,7 @@ import { useAgentAttentionFlash } from "@/app/hooks/useAgentAttentionFlash";
 import { useAgentNotifications } from "@/app/hooks/useAgentNotifications";
 import { useTrayStateDot } from "@/app/hooks/useTrayStateDot";
 import { useAgentStateJudge } from "@/app/hooks/useAgentStateJudge";
+import { useShellEdges } from "@/app/hooks/useShellEdges";
 import { useT } from "@/modules/i18n";
 import {
   basename as projectBasename,
@@ -470,6 +471,17 @@ export default function App() {
     toggleRightPanel,
     openRightPanel,
   } = useRightPanel();
+
+  /**
+   * The row the three regions are laid out in.
+   *
+   * Which of them owns the window's own edge is decided from their *layout* and written as an attribute
+   * by `useShellEdges`: the sheet's rounded corner has to move with the panel, not with the flag the
+   * panel persists afterwards. Held as a node rather than a ref because zen mode replaces the element
+   * and the hook has to attach again.
+   */
+  const [shellRow, setShellRow] = useState<HTMLElement | null>(null);
+  useShellEdges(shellRow);
 
   const [newEditorOpen, setNewEditorOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -1930,10 +1942,14 @@ export default function App() {
             />
           )}
 
-          <main className="zoom-content flex min-h-0 flex-1 flex-col">
+          <main ref={setShellRow} className="zoom-content flex min-h-0 flex-1 flex-col">
             <ResizablePanelGroup
               orientation="horizontal"
-              className="min-h-0 flex-1"
+              // The window's own margin lives here, on the row, and not on the regions: it used to be
+              // the sidebar's `pl-2` and the right panel's `pr-2`, so collapsing either one took the
+              // margin with it and the pane met the window flush (reported with two screenshots).
+              // The row always exists, so the margin always does.
+              className="min-h-0 flex-1 px-2"
               // One flag for the group: while either side is being toggled its width change is drawn
               // as a slide, and every panel in the row moves with it - so the terminal growing as the
               // sidebar closes is part of the same motion rather than a jump after it.
@@ -1971,7 +1987,10 @@ export default function App() {
                   persistSidebarCollapsed(size.inPixels <= 0);
                 }}
               >
-                <div data-shell="sidebar" className="h-full min-h-0 pl-2 pr-0.5">
+                <div
+                  data-shell="sidebar"
+                  className="h-full min-h-0 pr-0.5"
+                >
                   <div className="verta-pane flex h-full min-h-0 flex-col">
                     <div
                       key={sidebarView}
@@ -2017,9 +2036,13 @@ export default function App() {
               <ResizableHandle className="w-1 rounded-full bg-transparent transition-colors duration-[var(--dur-fast)] after:w-4 hover:bg-border" />
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
                 {/* Both seams share the same padding (0.5 each) so sidebar↔terminal
-                    and terminal↔Git look equally wide; the outer window margins
-                    still come from the sidebar's pl-2 and the right panel's pr-2. */}
-                <div data-shell="workspace" className="h-full min-h-0 pl-0.5 pr-0.5">
+                    and terminal↔Git look equally wide; the window's own margin is the
+                    row's (`px-2` on the panel group), so collapsing either panel cannot
+                    take it away and leave the pane flush against the window. */}
+                <div
+                  data-shell="workspace"
+                  className="h-full min-h-0 px-0.5"
+                >
                   <div className="verta-pane flex h-full min-h-0 flex-col">
                     <div className="relative min-h-0 flex-1">
                       <WorkspaceSurface
@@ -2075,7 +2098,10 @@ export default function App() {
                   persistRightCollapsed(size.inPixels <= 0);
                 }}
               >
-                <div data-shell="right" className="h-full min-h-0 pl-0.5 pr-2">
+                <div
+                  data-shell="right"
+                  className="h-full min-h-0 pl-0.5"
+                >
                   <div className="verta-pane flex h-full min-h-0 flex-col">
                     {/* The panel and the stash list below it are siblings, so this wrapper has to
                         be the column that divides the height between them: with a block wrapper

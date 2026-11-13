@@ -101,10 +101,17 @@ const SHAPES: Readonly<Record<ShapeId, ShapeValues>> = {
     borderWidth: "1px",
     borderColor: "var(--border)",
     vars: {
-      // A lit top edge and a dark bottom edge: the pane reads as raised without a shadow that would
-      // need a compositing layer.
-      "--bevel-top": "inset 0 1px 0 oklch(1 0 0 / 0.10)",
-      "--bevel-bottom": "inset 0 -1px 0 oklch(0 0 0 / 0.18)",
+      // A raised plate: lit along the top *and* the left, shaded along the bottom *and* the right, with
+      // a 2px band under the 1px dark edge so the bottom reads as an edge with depth.
+      //
+      // The first version was one 1px line each way, at 10% and 18%. On a dark theme that is a hairline
+      // on a hairline - measured against 极简, which draws no border at all, the two looked the same,
+      // which is what "浮雕 looks like 极简" was reporting. A light has a side, and an edge has
+      // thickness; both are paint, so neither costs a compositing layer (`compositingBudget.test.ts`).
+      "--bevel-top":
+        "inset 0 1px 0 oklch(1 0 0 / 0.18), inset 1px 0 0 oklch(1 0 0 / 0.07)",
+      "--bevel-bottom":
+        "inset 0 -2px 0 oklch(0 0 0 / 0.16), inset 0 -1px 0 oklch(0 0 0 / 0.34), inset -1px 0 0 oklch(0 0 0 / 0.15)",
     },
   },
   slab: {
