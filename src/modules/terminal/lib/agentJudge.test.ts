@@ -4,6 +4,7 @@ import type { AgentSignal } from "./agentActivity";
 import {
   AGENT_GONE_MS,
   IDLE_SETTLE_MS,
+  NO_JOB_SETTLE_MS,
   emptyJudgeEntry,
   judgeTail,
 } from "./agentJudge";
@@ -209,6 +210,7 @@ describe("an agent that leaves the screen", () => {
       state: "idle",
       lostSince: null,
       idleSince: null,
+      noJobSince: null,
     });
   });
 
@@ -241,7 +243,7 @@ describe("an agent that leaves the screen", () => {
     // `$` prompt kept a green dot. Measured on this machine: `phases[65] = idle` and
     // `agents[65] = opencode` on a pane whose whole screen was a prompt.
     const gone = judgeTail(
-      { id: 7, tool: "opencode", state: "idle", lostSince: 6_000, idleSince: null },
+      { id: 7, tool: "opencode", state: "idle", lostSince: 6_000, idleSince: null , noJobSince: null},
       SHELL_PROMPT,
       6_000 + AGENT_GONE_MS,
     );
@@ -318,5 +320,96 @@ describe("the settle before an ending", () => {
     const asked = judgeTail(entry, OPENCODE_BLOCKED, 600);
     expect(asked.kind).toBe("report");
     if (asked.kind === "report") expect(kinds(asked.signals)).toEqual(["attention"]);
+  });
+});
+
+describe("a screen still painted on a pty with nothing running in it", () => {
+  /** The caller's answer when the pty has no command on it and this machine can see that. */
+  const NOTHING = { nothingRunning: true };
+  /** The same caller, with a command on the tty. */
+  const RUNNING = { nothingRunning: false };
+  /** The same caller when the machine cannot see foreground commands at all. */
+  const BLIND = { nothingRunning: false };
+
+  /** An entry that has settled on a question, the state the reported tab was stuck in. */
+  const asked = () => {
+    const outcome = first(OPENCODE_BLOCKED);
+    if (outcome.entry.state !== "blocked") throw new Error("expected a question");
+    return outcome.entry;
+  };
+
+  it("reads the last frame of a stopped agent as rest, not as a question", () => {
+    // The reported case: quitting an agent leaves its question where it was and the shell's prompt
+    // is drawn under it, so the rules keep reading a question nothing is asking. The clear is a
+    // signal, and no signal was ever going to come - the tab stayed blue for the window's life.
+    const entry = asked();
+    const firstRead = judgeTail(entry, OPENCODE_BLOCKED, 10_000, NOTHING);
+    expect(firstRead.kind).toBe("quiet");
+    if (firstRead.kind !== "quiet") return;
+    expect(firstRead.entry.noJobSince).toBe(10_000);
+
+    const settled = judgeTail(
+      firstRead.entry,
+      OPENCODE_BLOCKED,
+      10_000 + NO_JOB_SETTLE_MS,
+      NOTHING,
+    );
+    expect(settled.kind).toBe("report");
+    if (settled.kind !== "report") return;
+    expect(kinds(settled.signals)).toEqual(["idle"]);
+    expect(settled.entry).toMatchObject({ state: "idle", noJobSince: null });
+  });
+
+  it("cannot have the claim put back by the same frame once it has been dropped", () => {
+    // The screen is still the last frame, so the very next read sees the same question. If that
+    // read were believed the dot would go blue again three seconds after every clear, for as long
+    // as the tab lived - a flicker instead of a stuck dot, which is not a fix.
+    const settled = judgeTail(
+      { ...asked(), state: "idle", noJobSince: null },
+      OPENCODE_BLOCKED,
+      20_000,
+      NOTHING,
+    );
+    expect(settled.kind).toBe("quiet");
+    expect(judgeTail(asked(), OPENCODE_BLOCKED, 20_000).kind).toBe("quiet");
+  });
+
+  it("does not announce an agent on a frame nothing is behind", () => {
+    // `started` is what the tab's icon and the store's name come from, and the store reads it as a
+    // session with work in flight: announced over a dead frame, that is a tab drawn for an agent
+    // that is not there, and it is orange.
+    const dead = judgeTail(emptyJudgeEntry(7), OPENCODE_BLOCKED, 21_000, NOTHING);
+    expect(dead.kind).toBe("quiet");
+    if (dead.kind !== "quiet") return;
+    expect(dead.entry.tool).toBeNull();
+  });
+
+  it("says nothing while a command is still on the tty", () => {
+    // A question that is really being asked is asked by a process. With one there, the screen is
+    // judged exactly as before, and a question that has not moved is quiet.
+    expect(judgeTail(asked(), OPENCODE_BLOCKED, 30_000, RUNNING).kind).toBe("quiet");
+  });
+
+  it("takes a blind machine's word for nothing, because its answer is always the same", () => {
+    // `wsl.exe` is the case: its commands are Linux processes and Windows' process list has none of
+    // them, so "nothing running" is what it reports while a distribution is busy.
+    const entry = { ...asked(), noJobSince: null };
+    const read = judgeTail(entry, OPENCODE_BLOCKED, 31_000, BLIND);
+    expect(read.kind).toBe("quiet");
+    expect(read.entry.state).toBe("blocked");
+  });
+
+  it("forgets the wait as soon as a read has a command behind it", () => {
+    // The fact arrives on a slower cadence than the screen: a command that starts between two asks
+    // is seen by the next read, and that read is what says the pty is not dead after all.
+    const firstRead = judgeTail(asked(), OPENCODE_BLOCKED, 40_000, NOTHING);
+    if (firstRead.kind !== "quiet") throw new Error("quiet");
+    expect(firstRead.entry.noJobSince).toBe(40_000);
+    const read = judgeTail(firstRead.entry, OPENCODE_BLOCKED, 41_000, RUNNING);
+    expect(read.entry.noJobSince).toBeNull();
+    // A caller with no answer yet leaves the wait standing rather than restarting it: otherwise a
+    // probe that stops asking, or a slow first ask, would keep the clock at zero for ever.
+    const kept = judgeTail(firstRead.entry, OPENCODE_BLOCKED, 41_000);
+    expect(kept.entry.noJobSince).toBe(40_000);
   });
 });

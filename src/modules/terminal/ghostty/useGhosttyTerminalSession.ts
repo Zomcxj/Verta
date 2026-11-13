@@ -28,6 +28,10 @@ import { GhosttySemanticEventRouter } from "./core/GhosttySemanticEventRouter";
 import { getGhosttyCoreRuntime } from "./GhosttyCoreRuntime";
 import type { GhosttyTerminalModelApi } from "./GhosttyTerminalModel";
 import { isModelLive } from "./modelLiveness";
+import {
+  forgetLeafCommandState,
+  noteLeafCommandState,
+} from "./shellCommandState";
 import { TerminalSizeReports } from "./terminalSizeReports";
 import {
   measureTerminalFont,
@@ -565,6 +569,7 @@ export function disposeGhosttySessionResources(
   session.surface?.dispose();
   session.surface = null;
   disposeGhosttyBlocks(session.leafId);
+  forgetLeafCommandState(session.leafId);
   session.model?.dispose();
   session.model = null;
   session.callbacks.onModel?.(null);
@@ -865,6 +870,10 @@ async function initializeSessionGeneration(
     },
     onCommandState: (running) => {
       if (!running) mark("firstPromptMs");
+      // The state judge reads this: a screen that still shows an agent's question is not evidence
+      // that anything is asking it, and this is the shell saying whether a command of its own is in
+      // flight. See `shellCommandState.ts`.
+      noteLeafCommandState(session.leafId, running);
     },
   });
   const model = await coreRuntime.createModel({

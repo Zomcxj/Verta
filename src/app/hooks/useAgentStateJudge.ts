@@ -1,11 +1,20 @@
 import { useEffect, useRef } from "react";
 import type { Tab } from "@/modules/tabs";
-import { leafIds, leafScreenTail, ptyIdForLeaf } from "@/modules/terminal";
-import { applySignal, useAgentActivityStore } from "@/modules/terminal/lib/agentActivity";
+import {
+  leafCommandRunning,
+  leafIds,
+  leafScreenTail,
+  ptyIdForLeaf,
+} from "@/modules/terminal";
+import {
+  applySignal,
+  useAgentActivityStore,
+} from "@/modules/terminal/lib/agentActivity";
 import {
   emptyJudgeEntry,
   type JudgeEntry,
   judgeTail,
+  type ScreenFacts,
 } from "@/modules/terminal/lib/agentJudge";
 import {
   collectSessionClaims,
@@ -96,7 +105,19 @@ export function useAgentStateJudge({ tabs }: { tabs: readonly Tab[] }): void {
         const entry =
           current && current.id === ptyId ? current : emptyJudgeEntry(ptyId);
         // No `await` anywhere above: one screen read per leaf, in this process.
-        const outcome = judgeTail(entry, tail, now);
+        //
+        // The second fact is the shell's own: it prints the OSC 133 markers, and the terminal's
+        // parser turns them into "a command is in flight" / "a prompt has been drawn since". A
+        // screen that still shows a question is not evidence that anything is asking it, and this
+        // is what tells the two apart. `null` is a shell that has never said - no integration, or a
+        // distribution's shell reached through `wsl.exe` - and then the screen is judged as it
+        // always was.
+        const commandRunning = leafCommandRunning(leafId);
+        const facts: ScreenFacts | undefined =
+          commandRunning === null
+            ? undefined
+            : { nothingRunning: !commandRunning };
+        const outcome = judgeTail(entry, tail, now, facts);
         entries.set(leafId, outcome.entry);
         if (outcome.kind === "report") {
           for (const signal of outcome.signals) applySignal(signal);
@@ -105,6 +126,7 @@ export function useAgentStateJudge({ tabs }: { tabs: readonly Tab[] }): void {
     };
 
     const timer = window.setInterval(tick, TICK_MS);
+
     return () => {
       stopped = true;
       window.clearInterval(timer);

@@ -19,6 +19,20 @@
  * for as long as the tab lives, so the query answered "yes, something is running" at an
  * idle prompt (measured, see the probe this module was verified with; the pty module now
  * walks past that stub). The screen is the better instrument, and it is free.
+ *
+ * The screen is not the only instrument any more. It can go on saying "a question is waiting"
+ * after the process that painted it is gone: quitting an agent leaves its last frame where it was
+ * and the shell's new prompt is drawn under it, so the question is still inside the bottom lines
+ * the rules read - measured on this machine, a tab stayed blue for good that way. So the caller
+ * also reports whether the shell has a command in flight at all (`ScreenFacts`), and a screen that
+ * claims a question with nothing behind it is read as rest.
+ *
+ * That fact comes from the shell, not from the system. Measured here (2026-11-13): a command started
+ * in a Git bash shell is recorded against a fork helper that exits at once, so Windows' own process
+ * table says the shell has no children while `sleep 60` runs. The app's shell integration prints the
+ * OSC 133 markers, and the terminal's parser already turns them into "a command started" and "a
+ * prompt was drawn" - the shell testifying about itself, and the only witness that is right on this
+ * platform.
  */
 
 import type { AgentSignal } from "@/modules/terminal/lib/agentActivity";
@@ -56,6 +70,34 @@ export const AGENT_GONE_MS = 2000;
  */
 export const IDLE_SETTLE_MS = 1500;
 
+/**
+ * How long the shell may keep saying it is at a prompt, while its screen still claims work, before
+ * the screen is believed to be the last frame a dead process painted.
+ *
+ * A screen outlives its process: an agent that quits leaves its last frame in place, the shell's
+ * prompt is drawn under it, and the question or the spinner is still inside the bottom lines the
+ * rules read. Measured on this machine (2026-11-13, from the user's report): a session that had
+ * stopped kept its tab blue, because the only thing that clears a question is a signal, and no
+ * signal was ever going to come.
+ *
+ * The wait is a margin around a fact, not the fact itself: the shell's markers are exact, but the
+ * screen lags them by a frame or two, and a marker read mid repaint must not speak. Long enough to
+ * cover that, short enough that a stopped session is not left claiming the user's attention.
+ */
+export const NO_JOB_SETTLE_MS = 3000;
+
+/**
+ * What the caller knows about the shell itself, rather than about the screen.
+ *
+ * `nothingRunning` means the shell says it is back at a prompt: it has drawn one since its last
+ * command was started. A shell that says nothing at all - no integration, or a distribution's shell
+ * reached through `wsl.exe` - gives the caller no fact to pass, and that is not the same thing as
+ * one that says "nothing is running".
+ */
+export type ScreenFacts = {
+  readonly nothingRunning: boolean;
+};
+
 /** What was last reported about one leaf. */
 export type JudgeEntry = {
   /** The pty the leaf was showing when this entry was made. */
@@ -71,6 +113,12 @@ export type JudgeEntry = {
    * not saying that. A state that has to be settled before it is reported - see `IDLE_SETTLE_MS`.
    */
   readonly idleSince: number | null;
+  /**
+   * When the shell first said it was back at a prompt while the screen was still claiming
+   * something (ms), or `null` otherwise. A screen that claims work with nothing behind it has to
+   * keep claiming it for a moment before that is believed - see `NO_JOB_SETTLE_MS`.
+   */
+  readonly noJobSince: number | null;
 };
 
 export const emptyJudgeEntry = (id: number): JudgeEntry => ({
@@ -79,6 +127,7 @@ export const emptyJudgeEntry = (id: number): JudgeEntry => ({
   state: "unknown",
   lostSince: null,
   idleSince: null,
+  noJobSince: null,
 });
 
 export type JudgeOutcome =
@@ -126,17 +175,69 @@ function signalKindFor(
  * text and `nowMs` is the caller's clock. A leaf that has been reused for another
  * pty starts from `emptyJudgeEntry`, which is how the agent on it is announced
  * again.
+ *
+ * `facts` is the caller's, and it is optional: a caller whose shell has never said anything about a
+ * command in flight passes nothing, and the screen is judged as it always was. See `ScreenFacts`.
  */
 export function judgeTail(
   previous: JudgeEntry,
   tail: string,
   nowMs: number,
+  facts?: ScreenFacts,
 ): JudgeOutcome {
   const family = identifyAgent(tail);
   if (family === null) return judgeWithoutAgent(previous, nowMs);
 
+  // Nothing is on the tty, so nothing on this screen is happening: what the rules read there is the
+  // last frame a process painted before it died. Quitting an agent leaves its question where it was
+  // and the shell's prompt is drawn under it, so "a question is waiting" stays readable for as long
+  // as the tab lives, and the only thing that ever clears it is a signal that is never going to
+  // come - measured on this machine (2026-11-13, from the user's report): a stopped session kept
+  // its tab blue.
+  if (facts?.nothingRunning === true) {
+    if (
+      previous.state !== "blocked" &&
+      previous.state !== "working" &&
+      previous.state !== "trailing"
+    ) {
+      // Nothing was claimed here, so a dead frame claims nothing: an agent's chrome left on screen
+      // after its process ended is not an agent. Deliberately no `started` either - that signal is
+      // what the tab's icon is drawn from and what the store records as work in flight, so it would
+      // paint the name of an agent that is not there. The read that sees this agent really running
+      // announces it.
+      return {
+        kind: "quiet",
+        entry: { ...previous, lostSince: null, noJobSince: null },
+      };
+    }
+    // A claim was standing. It is not dropped on the first read: the screen lags the shell's own
+    // markers by a frame or two, and what is on screen may be the frame before the prompt came
+    // back. See `NO_JOB_SETTLE_MS`.
+    const noJobSince = previous.noJobSince ?? nowMs;
+    if (nowMs - noJobSince < NO_JOB_SETTLE_MS) {
+      return {
+        kind: "quiet",
+        entry: { ...previous, lostSince: null, noJobSince },
+      };
+    }
+    // Reported as `idle` rather than `finished`, for the reason `judgeWithoutAgent` gives: an
+    // ending nobody saw end is not news, and a done mark for a turn that may never have run is
+    // worse than rest.
+    return {
+      kind: "report",
+      entry: { ...previous, state: "idle", idleSince: null, noJobSince: null },
+      signals: [{ id: previous.id, kind: "idle" }],
+    };
+  }
+
   const signals: AgentSignal[] = [];
-  let entry: JudgeEntry = { ...previous, lostSince: null };
+  let entry: JudgeEntry = {
+    ...previous,
+    lostSince: null,
+    // Only an answer that says a command is there clears the wait: no answer at all leaves it
+    // standing, so a shell that goes quiet cannot restart the clock on every screen read.
+    noJobSince: facts === undefined ? previous.noJobSince : null,
+  };
   if (entry.tool !== family.tool) {
     // The agent appeared. The store takes the name from this signal, which is what
     // the tab's brand icon is drawn from.
@@ -146,6 +247,7 @@ export function judgeTail(
       state: "unknown",
       lostSince: null,
       idleSince: null,
+      noJobSince: null,
     };
     signals.push({ id: entry.id, kind: "started", agent: family.tool });
   }
@@ -230,6 +332,7 @@ function judgeWithoutAgent(previous: JudgeEntry, nowMs: number): JudgeOutcome {
     state: "idle",
     lostSince: null,
     idleSince: null,
+    noJobSince: null,
   };
   // The agent left the screen, and the store has to be told or the tab goes on describing an agent
   // that is not there. It used to be told only when the screen had been showing a turn: an agent
@@ -243,7 +346,11 @@ function judgeWithoutAgent(previous: JudgeEntry, nowMs: number): JudgeOutcome {
   // and this is the opposite of that.
   if (previous.state === "idle") {
     // Already reported as finished; the store's bookkeeping is all that is left to clear.
-    return { kind: "report", entry, signals: [{ id: previous.id, kind: "exited" }] };
+    return {
+      kind: "report",
+      entry,
+      signals: [{ id: previous.id, kind: "exited" }],
+    };
   }
   if (previous.state === "blocked") {
     // What left the screen was a question, and a question is not a turn: reported as rest, so

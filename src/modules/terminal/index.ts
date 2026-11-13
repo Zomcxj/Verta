@@ -14,6 +14,7 @@ export {
 export {
   clearFocusedTerminal,
   disposeSession,
+  leafCommandRunning,
   leafHasForegroundProcess,
   leafIdForPty,
   leafOutputBytes,

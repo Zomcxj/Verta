@@ -27,6 +27,7 @@ import {
 } from "@/modules/terminal/ghostty/ghosttyBlockSessions";
 export type { WatermarkState } from "@/modules/terminal/ghostty/ghosttyBlockSessions";
 import { forgetLeafPresentation } from "@/modules/terminal/lib/ptyPresentation";
+import { leafCommandRunning as shellCommandRunning } from "@/modules/terminal/ghostty/shellCommandState";
 import type { WatermarkState } from "@/modules/terminal/ghostty/ghosttyBlockSessions";
 
 export async function whenSessionReady(
@@ -153,6 +154,16 @@ export function leafIdForPty(ptyId: number): number | null {
 
 export function ptyIdForLeaf(leafId: number): number | null {
   return ghosttyPtyIdForLeaf(leafId);
+}
+
+/**
+ * Whether this leaf's shell says a command is in flight, or `null` when it has never said.
+ *
+ * The shell's own statement, read from its OSC 133 markers: see `ghostty/shellCommandState.ts` for
+ * why neither the screen nor the system's process table can answer this.
+ */
+export function leafCommandRunning(leafId: number): boolean | null {
+  return shellCommandRunning(leafId);
 }
 
 export async function leafHasForegroundProcess(
