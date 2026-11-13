@@ -109,6 +109,57 @@ pub async fn agent_sessions_delete(targets: Vec<SessionTarget>) -> DeleteReport 
         .unwrap_or_default()
 }
 
+/// Every usage event this machine's tools can offer, oldest first.
+///
+/// The seam a usage window and an export read. Each tool is read independently and its failures are
+/// collected rather than raised: one store that cannot be read must not hide the others' numbers
+/// (the same rule the session list follows), and a tool whose store is simply not there contributes
+/// nothing without saying anything about it.
+///
+/// `since_ms` is the oldest instant worth reading - a window's range start. It is pushed into each
+/// reader, so a range query does not pay for years of history.
+///
+/// WSL distributions are not read here: their opencode store needs the in-distro query (`wsl`), and
+/// the two JSONL stores have no distro reader at all. A window that means to include them cannot
+/// pretend they are covered, so this says so in one place instead of silently leaving them out.
+pub fn usage_events(since_ms: Option<i64>) -> usage::UsageReadReport {
+    usage_events_at(
+        claude::default_root().as_deref(),
+        pi::default_root().as_deref(),
+        opencode::default_db_path().as_deref(),
+        since_ms,
+    )
+}
+
+/// The same, with the three stores handed in. A store passed as `None` is skipped, which is what a
+/// tool that is not installed looks like.
+pub fn usage_events_at(
+    claude_root: Option<&std::path::Path>,
+    pi_root: Option<&std::path::Path>,
+    opencode_db: Option<&std::path::Path>,
+    since_ms: Option<i64>,
+) -> usage::UsageReadReport {
+    let mut report = usage::UsageReadReport::default();
+    if let Some(root) = claude_root {
+        merge_usage(&mut report, claude::usage_events_at(root, since_ms));
+    }
+    if let Some(root) = pi_root {
+        merge_usage(&mut report, pi::usage_events_at(root, since_ms));
+    }
+    if let Some(path) = opencode_db {
+        merge_usage(&mut report, opencode::usage_events_at(path, since_ms));
+    }
+    // One order for the whole machine: the window's day buckets are built from this, and two readers
+    // that each sorted their own half would leave the report half-ordered.
+    report.events.sort_by_key(|event| event.at_ms);
+    report
+}
+
+fn merge_usage(into: &mut usage::UsageReadReport, mut other: usage::UsageReadReport) {
+    into.events.append(&mut other.events);
+    into.failures.append(&mut other.failures);
+}
+
 /// Rename a session (rename only, no session management).
 ///
 /// Each tool has its own mechanism: opencode updates the `title` column, pi appends a
@@ -209,5 +260,88 @@ mod tests {
             warnings: vec![],
         };
         assert_eq!(one_row_per_session(payload).sessions.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod usage_tests {
+    use super::*;
+    use std::path::Path;
+
+    fn write(path: &Path, body: &str) {
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("dir");
+        std::fs::write(path, body).expect("write");
+    }
+
+    /// One store of each tool, then one report from all three.
+    ///
+    /// This is the seam a usage window reads: each reader sorts its own half, so the merge has to
+    /// sort again or the days would be built from a half-ordered stream.
+    #[test]
+    fn the_three_stores_are_merged_into_one_ordered_report() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(
+            &dir.path().join("claude/proj/s1.jsonl"),
+            r#"{"type":"assistant","timestamp":"2026-11-12T10:00:00.000Z","message":{"model":"m-a","usage":{"input_tokens":10}}}"#,
+        );
+        write(
+            &dir
+                .path()
+                .join("pi/--proj--/sess/6f0a/run-0/session.jsonl"),
+            r#"{"type":"message","message":{"role":"assistant","provider":"prov","model":"m-b","timestamp":1794580000000,"usage":{"totalTokens":90}}}"#,
+        );
+        let db = dir.path().join("opencode.db");
+        let conn = rusqlite::Connection::open(&db).expect("open");
+        conn.execute_batch(
+            "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, \
+             time_updated INTEGER, data TEXT);",
+        )
+        .expect("schema");
+        conn.execute(
+            "INSERT INTO message VALUES ('m1', 's', 1794700000000, 1794700000000, ?1)",
+            rusqlite::params![
+                r#"{"role":"assistant","providerID":"pv","modelID":"m-c","tokens":{"total":7,"input":7}}"#
+            ],
+        )
+        .expect("row");
+        drop(conn);
+
+        let report = usage_events_at(
+            Some(&dir.path().join("claude")),
+            Some(&dir.path().join("pi")),
+            Some(&db),
+            None,
+        );
+        assert!(report.failures.is_empty(), "{:?}", report.failures);
+        assert_eq!(report.events.len(), 3);
+        let models: Vec<String> = report
+            .events
+            .iter()
+            .map(|event| event.model.clone().unwrap_or_default())
+            .collect();
+        assert_eq!(models, vec!["m-a", "m-b", "m-c"]);
+
+        let folded = report.aggregate(0);
+        assert_eq!(folded.totals.tokens.total(), 107);
+        assert_eq!(folded.days.len(), 3, "{:?}", folded.days);
+        assert_eq!(folded.models.len(), 3, "{:?}", folded.models);
+
+        // The same read with a range start: only the two newest events survive, and the total says so.
+        let ranged = usage_events_at(
+            Some(&dir.path().join("claude")),
+            Some(&dir.path().join("pi")),
+            Some(&db),
+            Some(1794580000000),
+        );
+        assert_eq!(ranged.events.len(), 2);
+        assert_eq!(ranged.aggregate(0).totals.tokens.total(), 97);
+    }
+
+    #[test]
+    fn a_tool_that_is_not_installed_is_skipped_without_a_word() {
+        let report = usage_events_at(None, None, None, None);
+        assert!(report.events.is_empty());
+        assert!(report.failures.is_empty());
+        assert_eq!(report.aggregate(0).totals.events, 0);
     }
 }

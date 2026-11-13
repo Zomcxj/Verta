@@ -146,6 +146,95 @@ fn agent_files(dir: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// Every usage event in this store, oldest first.
+///
+/// Unlike the list, which reads a prefix of one transcript per session, this walks every assistant
+/// message of every transcript: the day a token was used is the day its message was written, and a
+/// session that ran for a week is a week of days. `since_ms` skips what a window's range leaves out;
+/// a file that cannot be opened becomes a failure rather than a silent hole in the numbers.
+pub(crate) fn usage_events_at(root: &Path, since_ms: Option<i64>) -> super::usage::UsageReadReport {
+    let mut report = super::usage::UsageReadReport::default();
+    if !root.is_dir() {
+        return report;
+    }
+    let projects = match child_paths(root) {
+        Ok(projects) => projects,
+        Err(error) => {
+            report.failures.push(error);
+            return report;
+        }
+    };
+    for project in projects {
+        if !project.is_dir() {
+            continue;
+        }
+        let files = match child_paths(&project) {
+            Ok(files) => files,
+            Err(error) => {
+                report.failures.push(error);
+                continue;
+            }
+        };
+        for file in files {
+            if file.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                continue;
+            }
+            collect_usage(&file, since_ms, &mut report);
+        }
+    }
+    report.events.sort_by_key(|event| event.at_ms);
+    report
+}
+
+/// One transcript's events. A file that cannot be read is reported; a line that is not a usage
+/// record is not.
+fn collect_usage(file: &Path, since_ms: Option<i64>, report: &mut super::usage::UsageReadReport) {
+    let handle = match std::fs::File::open(file) {
+        Ok(handle) => handle,
+        Err(error) => {
+            report
+                .failures
+                .push(format!("无法打开会话文件 {}：{error}", file.display()));
+            return;
+        }
+    };
+    let mut reader = BufReader::new(handle);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(error) => {
+                report.failures.push(format!(
+                    "读取会话文件 {} 中断：{error}",
+                    file.display()
+                ));
+                break;
+            }
+        }
+        let Some(value) = parse_line(line.trim_end()) else {
+            continue;
+        };
+        let Some(usage) = super::usage::claude_usage_of_line(&value) else {
+            continue;
+        };
+        // No timestamp, no day to put it in: counted nowhere rather than in the wrong day.
+        let Some(at_ms) = stamp_of(&value) else {
+            continue;
+        };
+        if since_ms.is_some_and(|since| at_ms < since) {
+            continue;
+        }
+        report.events.push(super::usage::OwnedUsageEvent {
+            at_ms,
+            provider: usage.provider,
+            model: usage.model,
+            tokens: usage.tokens,
+        });
+    }
+}
+
 fn child_paths(dir: &Path) -> Result<Vec<PathBuf>, String> {
     let entries =
         std::fs::read_dir(dir).map_err(|e| format!("无法读取目录 {}：{e}", dir.display()))?;
@@ -801,6 +890,58 @@ mod tests {
             assert!(exists_at(dir.path(), id).is_ok_and(|found| !found), "{id}");
         }
         assert!(delete_at(dir.path(), "nope").is_err(), "不存在的 id 要报错");
+    }
+
+    #[test]
+    fn usage_events_come_from_every_assistant_message_of_every_transcript() {
+        // Two sessions, three assistant messages, one user line and one line with no time: the store
+        // is walked whole, because a session that ran for a week is a week of days.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let one = dir.path().join("proj-a");
+        write_file(
+            &one,
+            "s1.jsonl",
+            &[
+                r#"{"type":"user","timestamp":"2026-11-12T10:00:00.000Z","message":{"role":"user","content":"hi"}}"#,
+                r#"{"type":"assistant","timestamp":"2026-11-12T10:00:10.000Z","message":{"model":"deepseek-v4.1-flash","usage":{"input_tokens":10,"output_tokens":2,"cache_read_input_tokens":100}}}"#,
+                // No timestamp: there is no day to put it in, so it is not an event.
+                r#"{"type":"assistant","message":{"model":"deepseek-v4.1-flash","usage":{"input_tokens":999}}}"#,
+            ]
+            .join("\n"),
+        );
+        let two = dir.path().join("proj-b");
+        write_file(
+            &two,
+            "s2.jsonl",
+            r#"{"type":"assistant","timestamp":"2026-11-13T09:00:00.000Z","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":5,"output_tokens":1}}}"#,
+        );
+
+        let report = usage_events_at(dir.path(), None);
+        assert!(report.failures.is_empty(), "{:?}", report.failures);
+        assert_eq!(report.events.len(), 2, "the untimed line is not an event");
+        assert!(report.events[0].at_ms < report.events[1].at_ms);
+        assert_eq!(
+            report.events[0].model.as_deref(),
+            Some("deepseek-v4.1-flash")
+        );
+        // Claude Code's transcripts name no provider; nothing is invented for them.
+        assert_eq!(report.events[0].provider, None);
+        assert_eq!(report.events[0].tokens.input, 10);
+        assert_eq!(report.events[0].tokens.cache_read, 100);
+        assert_eq!(report.events[1].model.as_deref(), Some("claude-sonnet-4-5"));
+
+        // A range start keeps what is inside it and drops the rest, which is what a window asks for.
+        let ranged = usage_events_at(dir.path(), Some(report.events[1].at_ms));
+        assert_eq!(ranged.events.len(), 1);
+        assert_eq!(ranged.events[0].model.as_deref(), Some("claude-sonnet-4-5"));
+    }
+
+    #[test]
+    fn a_store_that_is_not_there_has_no_events_and_nothing_to_report() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let report = usage_events_at(&dir.path().join("nope"), None);
+        assert!(report.events.is_empty());
+        assert!(report.failures.is_empty());
     }
 
     #[test]

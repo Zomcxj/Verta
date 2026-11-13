@@ -186,7 +186,160 @@ pub(crate) fn session_table(path: &Path) -> Result<String, String> {
     Err("opencode 数据库里既没有 session_v2 也没有 session 表".to_string())
 }
 
-/// A WAL database can only be opened read-only when its `-shm` sidecar stays
+/// Every usage event in this store, oldest first.
+///
+/// Two schemas, and which one is live matters: current opencode keeps a message's cost on its
+/// `step-finish` parts (`part.data.tokens`) and the model on the message row (`session_message.data
+/// .model`), while the older schema put both on `message.data`. The older table is still there and
+/// stops being updated once the new one exists - measured on this machine: `message` ended in
+/// October and `session_message` was current, so reading the old table alone would have reported a
+/// month-old month for ever. So the current shape is read first and the old one only when the new
+/// tables are absent.
+///
+/// Read per step rather than per session row: a session that ran for a week is a week of days, and
+/// the session row has one number for all of it. `since_ms` is pushed into the query.
+///
+/// A store with no message tables at all is an opencode older than both shapes: no events, and
+/// nothing to report about it. A store that cannot be opened or queried is a failure.
+pub(crate) fn usage_events_at(path: &Path, since_ms: Option<i64>) -> super::usage::UsageReadReport {
+    let mut report = super::usage::UsageReadReport::default();
+    if !path.is_file() {
+        return report;
+    }
+    let conn = match open_read_only(path) {
+        Ok(conn) => conn,
+        Err(error) => {
+            report.failures.push(error);
+            return report;
+        }
+    };
+    if read_step_parts(&conn, since_ms, &mut report) {
+        report.events.sort_by_key(|event| event.at_ms);
+        return report;
+    }
+    read_legacy_messages(&conn, since_ms, &mut report);
+    report.events.sort_by_key(|event| event.at_ms);
+    report
+}
+
+/// The current shape: one event per `step-finish` part, joined to its message for the model.
+///
+/// Returns whether this store has that shape at all. A part whose message is missing is kept with no
+/// attribution rather than dropped: those tokens were still spent, and a left join is what says so.
+/// Measured on this machine (2026-11-13): 1,788 of 16,996 token-carrying parts point at a message row
+/// that is no longer there - their sessions have over a thousand messages each, so those particular
+/// answers were pruned while their parts stayed - and they are 254M of 3.36B tokens, 7.6% of the
+/// total. Attributing them to the session's current model would be a guess; leaving them unnamed
+/// keeps the total honest and the bar chart whole.
+fn read_step_parts(
+    conn: &Connection,
+    since_ms: Option<i64>,
+    report: &mut super::usage::UsageReadReport,
+) -> bool {
+    let mut statement = match conn.prepare(
+        "select p.time_created, p.data, m.data          from part p left join session_message m on m.id = p.message_id          where (?1 is null or p.time_created >= ?1)",
+    ) {
+        Ok(statement) => statement,
+        Err(error) => {
+            // Both tables are needed for this shape; either missing means the old one applies.
+            if !error.to_string().contains("no such table") {
+                report
+                    .failures
+                    .push(format!("无法查询 opencode 步骤：{error}"));
+            }
+            return false;
+        }
+    };
+    let rows = match statement.query_map(rusqlite::params![since_ms], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, Option<String>>(2)?,
+        ))
+    }) {
+        Ok(rows) => rows,
+        Err(error) => {
+            report
+                .failures
+                .push(format!("无法读取 opencode 步骤：{error}"));
+            return false;
+        }
+    };
+    for row in rows {
+        let Ok((at_ms, Some(part), message)) = row else {
+            continue;
+        };
+        let (Ok(part), message) = (
+            serde_json::from_str::<serde_json::Value>(&part),
+            message
+                .as_deref()
+                .and_then(|data| serde_json::from_str::<serde_json::Value>(data).ok()),
+        ) else {
+            continue;
+        };
+        let Some(usage) = super::usage::opencode_usage_of_step(&part, message.as_ref()) else {
+            continue;
+        };
+        report.events.push(super::usage::OwnedUsageEvent {
+            at_ms,
+            provider: usage.provider,
+            model: usage.model,
+            tokens: usage.tokens,
+        });
+    }
+    true
+}
+
+/// The older shape: one event per assistant `message` row, which carried its own tokens and model.
+fn read_legacy_messages(
+    conn: &Connection,
+    since_ms: Option<i64>,
+    report: &mut super::usage::UsageReadReport,
+) {
+    let mut statement = match conn
+        .prepare("select time_created, data from message where (?1 is null or time_created >= ?1)")
+    {
+        Ok(statement) => statement,
+        Err(error) => {
+            if !error.to_string().contains("no such table") {
+                report
+                    .failures
+                    .push(format!("无法查询 opencode 消息：{error}"));
+            }
+            return;
+        }
+    };
+    let rows = match statement.query_map(rusqlite::params![since_ms], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+    }) {
+        Ok(rows) => rows,
+        Err(error) => {
+            report
+                .failures
+                .push(format!("无法读取 opencode 消息：{error}"));
+            return;
+        }
+    };
+    for row in rows {
+        let Ok((at_ms, Some(data))) = row else {
+            continue;
+        };
+        let Ok(data) = serde_json::from_str::<serde_json::Value>(&data) else {
+            continue;
+        };
+        let Some(usage) = super::usage::opencode_usage_of_message(&data) else {
+            continue;
+        };
+        report.events.push(super::usage::OwnedUsageEvent {
+            at_ms,
+            provider: usage.provider,
+            model: usage.model,
+            tokens: usage.tokens,
+        });
+    }
+}
+
+/// A WAL database can only be opened read-only when its `-shm` sidecar stays/// A WAL database can only be opened read-only when its `-shm` sidecar stays
 /// writable, so a failure here is a real error to show, never an empty list.
 pub(super) fn open_read_only(path: &Path) -> Result<Connection, String> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| {
@@ -448,6 +601,155 @@ mod tests {
             rusqlite::params![id, parent_id, title, directory, time_updated],
         )
         .expect("insert");
+    }
+
+    /// A message row with opencode's own JSON in `data`.
+    fn insert_usage(path: &Path, id: &str, time_created: i64, data: &str) {
+        let conn = Connection::open(path).expect("open");
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?1, 'ses_1', ?2, ?2, ?3)",
+            rusqlite::params![id, time_created, data],
+        )
+        .expect("insert message");
+    }
+
+    /// The current schema: `session_message` for the model, `part` for the cost.
+    fn temp_db_parts() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("opencode.db");
+        let conn = Connection::open(&path).expect("open");
+        conn.execute_batch(
+            "CREATE TABLE session_message (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                type TEXT NOT NULL,
+                seq INTEGER,
+                time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL,
+                data TEXT
+            );
+            CREATE TABLE part (
+                id TEXT PRIMARY KEY,
+                message_id TEXT,
+                session_id TEXT,
+                time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL,
+                data TEXT
+            );
+            CREATE TABLE message (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL,
+                data TEXT
+            );",
+        )
+        .expect("schema");
+        (dir, path)
+    }
+
+    #[test]
+    fn the_current_schema_is_read_from_step_parts_and_the_message_gives_the_model() {
+        // Measured on this machine: `message` stopped being written in October while
+        // `session_message`/`part` were current, so a reader that prefers the old table reports a
+        // month-old month. The old row here would be wrong if it were believed.
+        let (dir, path) = temp_db_parts();
+        let conn = Connection::open(&path).expect("open");
+        conn.execute(
+            "INSERT INTO session_message (id, session_id, type, time_created, time_updated, data)              VALUES ('msg_1', 'ses_1', 'assistant', 1794500000000, 1794500000000, ?1)",
+            rusqlite::params![
+                r#"{"model":{"providerID":"workbuddy","id":"deepseek-v4.1-flash"}}"#
+            ],
+        )
+        .expect("message");
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)              VALUES ('prt_1', 'msg_1', 'ses_1', 1794500001000, 1794500001000, ?1)",
+            rusqlite::params![
+                r#"{"type":"step-finish","tokens":{"total":126,"input":100,"output":20,"reasoning":0,"cache":{"read":5,"write":1}}}"#
+            ],
+        )
+        .expect("part");
+        // A part with no tokens is not an event; a part whose message is gone still counts.
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)              VALUES ('prt_2', 'msg_1', 'ses_1', 1794500002000, 1794500002000, ?1)",
+            rusqlite::params![r#"{"type":"text","text":"hi"}"#],
+        )
+        .expect("text part");
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)              VALUES ('prt_3', 'msg_gone', 'ses_1', 1794500003000, 1794500003000, ?1)",
+            rusqlite::params![r#"{"type":"step-finish","tokens":{"total":40,"input":40}}"#],
+        )
+        .expect("orphan part");
+        // The stale legacy table must be ignored while the current shape exists.
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data)              VALUES ('old_1', 'ses_1', 1794000000000, 1794000000000, ?1)",
+            rusqlite::params![
+                r#"{"role":"assistant","providerID":"stale","modelID":"stale","tokens":{"total":999999}}"#
+            ],
+        )
+        .expect("legacy row");
+        drop(conn);
+
+        let report = usage_events_at(&path, None);
+        assert!(report.failures.is_empty(), "{:?}", report.failures);
+        assert_eq!(report.events.len(), 2, "{:?}", report.events);
+        assert_eq!(report.events[0].provider.as_deref(), Some("workbuddy"));
+        assert_eq!(report.events[0].model.as_deref(), Some("deepseek-v4.1-flash"));
+        assert_eq!(report.events[0].tokens.total(), 126);
+        // The orphaned part counts, with no attribution invented for it.
+        assert_eq!(report.events[1].model, None);
+        assert_eq!(report.events[1].tokens.total(), 40);
+        // And the stale number never appears.
+        assert!(report.events.iter().all(|event| event.tokens.total() != 999_999));
+        drop(dir);
+    }
+
+    #[test]
+    fn legacy_message_rows_are_read_when_the_step_tables_are_absent() {
+        // A session that ran for a week has one number on its row; the days are only in `message`.
+        let (dir, path) = temp_db("session");
+        insert_usage(
+            &path,
+            "msg_a",
+            1_794_500_000_000,
+            r#"{"role":"assistant","providerID":"workbuddy","modelID":"glm-5.3-flash","tokens":{"total":126,"input":100,"output":20,"reasoning":0,"cache":{"read":5,"write":1}}}"#,
+        );
+        insert_usage(&path, "msg_user", 1_794_520_000_000, r#"{"role":"user"}"#);
+        insert_usage(
+            &path,
+            "msg_b",
+            1_794_580_000_000,
+            r#"{"role":"assistant","providerID":"workbuddy","modelID":"glm-5.3-flash","tokens":{"total":900}}"#,
+        );
+
+        let report = usage_events_at(&path, None);
+        assert!(report.failures.is_empty(), "{:?}", report.failures);
+        assert_eq!(report.events.len(), 2, "the user row is not an event");
+        assert_eq!(report.events[0].at_ms, 1_794_500_000_000);
+        assert_eq!(report.events[0].provider.as_deref(), Some("workbuddy"));
+        assert_eq!(report.events[0].model.as_deref(), Some("glm-5.3-flash"));
+        assert_eq!(report.events[0].tokens.total(), 126);
+        assert_eq!(report.events[0].tokens.cache_read, 5);
+        // A row that only carries the tool's total is counted, with no breakdown claimed.
+        assert_eq!(report.events[1].tokens.unsplit, 900);
+
+        let ranged = usage_events_at(&path, Some(1_794_580_000_000));
+        assert_eq!(ranged.events.len(), 1);
+        assert_eq!(ranged.events[0].tokens.unsplit, 900);
+        drop(dir);
+    }
+
+    #[test]
+    fn a_store_without_a_message_table_is_an_older_opencode_not_a_failure() {
+        // `session` only: the pre-`message` schema. Nothing to read, nothing to complain about.
+        let (dir, path) = temp_db("session");
+        let conn = Connection::open(&path).expect("open");
+        conn.execute_batch("DROP TABLE message").expect("drop");
+        drop(conn);
+        let report = usage_events_at(&path, None);
+        assert!(report.events.is_empty());
+        assert!(report.failures.is_empty(), "{:?}", report.failures);
+        drop(dir);
     }
 
     #[test]

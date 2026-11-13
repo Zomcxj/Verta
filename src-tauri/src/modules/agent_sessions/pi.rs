@@ -141,6 +141,82 @@ fn run_files(session_dir: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// Every usage event in this store, oldest first.
+///
+/// pi keeps no index either, so this walks the same projects and runs the list does (`session_files`)
+/// and reads every assistant message. `since_ms` skips what a window's range leaves out.
+pub(crate) fn usage_events_at(root: &Path, since_ms: Option<i64>) -> super::usage::UsageReadReport {
+    let mut report = super::usage::UsageReadReport::default();
+    if !root.is_dir() {
+        return report;
+    }
+    let projects = match child_paths(root) {
+        Ok(projects) => projects,
+        Err(error) => {
+            report.failures.push(error);
+            return report;
+        }
+    };
+    for project in projects {
+        if !project.is_dir() {
+            continue;
+        }
+        for (file, _) in session_files(&project) {
+            collect_usage(&file, since_ms, &mut report);
+        }
+    }
+    report.events.sort_by_key(|event| event.at_ms);
+    report
+}
+
+/// One session file's events. A file that cannot be read is reported; a line that is not a usage
+/// record is not.
+fn collect_usage(file: &Path, since_ms: Option<i64>, report: &mut super::usage::UsageReadReport) {
+    let handle = match std::fs::File::open(file) {
+        Ok(handle) => handle,
+        Err(error) => {
+            report
+                .failures
+                .push(format!("无法打开会话文件 {}：{error}", file.display()));
+            return;
+        }
+    };
+    let mut reader = BufReader::new(handle);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(error) => {
+                report.failures.push(format!(
+                    "读取会话文件 {} 中断：{error}",
+                    file.display()
+                ));
+                break;
+            }
+        }
+        let Some(value) = parse_line(line.trim_end()) else {
+            continue;
+        };
+        let Some(usage) = super::usage::pi_usage_of_line(&value) else {
+            continue;
+        };
+        let Some(at_ms) = message_stamp(&value) else {
+            continue;
+        };
+        if since_ms.is_some_and(|since| at_ms < since) {
+            continue;
+        }
+        report.events.push(super::usage::OwnedUsageEvent {
+            at_ms,
+            provider: usage.provider,
+            model: usage.model,
+            tokens: usage.tokens,
+        });
+    }
+}
+
 /// The session id inside a transcript's file name: pi writes `<ISO>_<id>.jsonl`.
 fn id_in_stem(stem: &str) -> Option<&str> {
     stem.split_once('_')
@@ -1270,6 +1346,48 @@ mod tests {
         let payload = list_at(root.path()).expect("list");
         assert_eq!(payload.sessions.len(), 1, "{:?}", payload.sessions);
         assert!(payload.warnings.is_empty(), "{:?}", payload.warnings);
+    }
+
+    #[test]
+    fn usage_events_come_from_every_message_of_every_run() {
+        // The real layout: <project>/<session>/<run uuid>/run-0/session.jsonl.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let run = dir
+            .path()
+            .join("--proj--")
+            .join("2026-11-12T10-00-00-000Z_01a0")
+            .join("6f0a")
+            .join("run-0");
+        write_file(
+            &run,
+            "session.jsonl",
+            &[
+                r#"{"type":"message","message":{"role":"user","content":"hi"}}"#,
+                r#"{"type":"message","message":{"role":"assistant","provider":"openai_agentrouter","model":"gpt-5.6-sol","timestamp":1794500000000,"usage":{"input":100,"output":20,"cacheRead":5,"cacheWrite":1,"totalTokens":126}}}"#,
+                r#"{"type":"message","message":{"role":"assistant","provider":"openai_agentrouter","model":"gpt-5.6-sol","timestamp":1794580000000,"usage":{"totalTokens":900}}}"#,
+                // A day later than the integer-stamped one above, so the sort is unambiguous.
+                r#"{"type":"message","timestamp":"2026-11-14T05:00:00.000Z","message":{"role":"assistant","model":"gpt-5.6-sol","usage":{"input":1}}}"#,
+            ]
+            .join("\n"),
+        );
+
+        let report = usage_events_at(dir.path(), None);
+        assert!(report.failures.is_empty(), "{:?}", report.failures);
+        assert_eq!(report.events.len(), 3, "the user line is not an event");
+        assert_eq!(report.events[0].at_ms, 1794500000000);
+        assert_eq!(report.events[0].provider.as_deref(), Some("openai_agentrouter"));
+        assert_eq!(report.events[0].model.as_deref(), Some("gpt-5.6-sol"));
+        assert_eq!(report.events[0].tokens.total(), 126);
+        // pi's own total with no breakdown is still a counted event.
+        assert_eq!(report.events[1].tokens.unsplit, 900);
+        // The line-level ISO timestamp is used when the message carries none.
+        assert_eq!(report.events[2].tokens.input, 1);
+        assert!(report.events[0].at_ms < report.events[1].at_ms);
+        assert!(report.events[1].at_ms < report.events[2].at_ms);
+
+        let ranged = usage_events_at(dir.path(), Some(1794580000000));
+        assert_eq!(ranged.events.len(), 2);
+        assert_eq!(ranged.events[0].tokens.unsplit, 900);
     }
 
     #[test]

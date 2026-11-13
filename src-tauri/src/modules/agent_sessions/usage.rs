@@ -25,12 +25,15 @@ use super::stats::{as_u64, days_from_civil};
 ///
 /// `unsplit` is for a tool that reports only a total for some events (pi writes `totalTokens` on its
 /// own, without the four parts): those tokens are counted, and there is nothing to attribute them
-/// to. Adding `input + output + cache_read + cache_write + unsplit` is the event's total.
+/// to. `reasoning` is its own class because opencode counts thinking tokens separately and putting
+/// them in `output` would invent a different number from the one the tool shows its own user.
+/// Adding every field is the event's total.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageTokens {
     pub input: u64,
     pub output: u64,
+    pub reasoning: u64,
     pub cache_read: u64,
     pub cache_write: u64,
     pub unsplit: u64,
@@ -40,6 +43,7 @@ impl UsageTokens {
     pub const ZERO: Self = Self {
         input: 0,
         output: 0,
+        reasoning: 0,
         cache_read: 0,
         cache_write: 0,
         unsplit: 0,
@@ -49,6 +53,7 @@ impl UsageTokens {
     pub fn total(&self) -> u64 {
         self.input
             .saturating_add(self.output)
+            .saturating_add(self.reasoning)
             .saturating_add(self.cache_read)
             .saturating_add(self.cache_write)
             .saturating_add(self.unsplit)
@@ -59,6 +64,7 @@ impl std::ops::AddAssign for UsageTokens {
     fn add_assign(&mut self, other: Self) {
         self.input = self.input.saturating_add(other.input);
         self.output = self.output.saturating_add(other.output);
+        self.reasoning = self.reasoning.saturating_add(other.reasoning);
         self.cache_read = self.cache_read.saturating_add(other.cache_read);
         self.cache_write = self.cache_write.saturating_add(other.cache_write);
         self.unsplit = self.unsplit.saturating_add(other.unsplit);
@@ -92,6 +98,7 @@ impl TokenScope {
     /// How many tokens these events are worth under this scope.
     pub fn counted(&self, tokens: &UsageTokens) -> u64 {
         let mut total = tokens.input.saturating_add(tokens.output);
+        total = total.saturating_add(tokens.reasoning);
         total = total.saturating_add(tokens.unsplit);
         if self.cache_read {
             total = total.saturating_add(tokens.cache_read);
@@ -249,14 +256,62 @@ where
     report
 }
 
+/// What one transcript line says about a single answer: its cost and who gave it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LineUsage {
+    pub tokens: UsageTokens,
+    /// The provider the record names, when it names one. Claude Code's transcripts do not; pi's
+    /// messages do (`openai_agentrouter`); opencode's messages do (`workbuddy`).
+    pub provider: Option<String>,
+    pub model: Option<String>,
+}
+
+/// A usage event that owns its names, which is what a reader returns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnedUsageEvent {
+    pub at_ms: i64,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub tokens: UsageTokens,
+}
+
+impl OwnedUsageEvent {
+    /// The borrowed shape `aggregate` takes.
+    pub fn as_event(&self) -> UsageEvent<'_> {
+        UsageEvent {
+            at_ms: self.at_ms,
+            provider: self.provider.as_deref(),
+            model: self.model.as_deref(),
+            tokens: self.tokens,
+        }
+    }
+}
+
+/// Reads a tool's records: the events it can see, oldest first, and what could not be read.
+///
+/// One tool failing must not hide another's numbers, so failures are collected rather than returned
+/// (the same rule the session list follows), and an unreadable file is a failure only when *nothing*
+/// in its store could be read.
+#[derive(Debug, Default)]
+pub struct UsageReadReport {
+    pub events: Vec<OwnedUsageEvent>,
+    pub failures: Vec<String>,
+}
+
+impl UsageReadReport {
+    /// Fold what was read into the report shape a window draws.
+    pub fn aggregate(&self, offset_minutes: i32) -> UsageReport {
+        aggregate(self.events.iter().map(OwnedUsageEvent::as_event), offset_minutes)
+    }
+}
+
 /// A Claude Code transcript line's cost, when it is an assistant message with usage.
 ///
 /// Anthropic's own names, one usage per assistant message, none on user messages: measured on a real
 /// transcript. `message.model` is the model that answered, and it is what the provider names in its
-/// API (`claude-sonnet-4-5-20250929`).
-pub fn claude_usage_of_line(
-    value: &serde_json::Value,
-) -> Option<(UsageTokens, Option<String>)> {
+/// API (`claude-sonnet-4-5-20250929`), or whatever the user pointed Claude Code at (a real one here
+/// read `deepseek-v4.1-flash`, which is why nothing assumes the vendor from the tool).
+pub fn claude_usage_of_line(value: &serde_json::Value) -> Option<LineUsage> {
     if value.get("type").and_then(serde_json::Value::as_str) != Some("assistant") {
         return None;
     }
@@ -278,11 +333,11 @@ pub fn claude_usage_of_line(
     if !found {
         return None;
     }
-    let model = message
-        .get("model")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string);
-    Some((tokens, model))
+    Some(LineUsage {
+        tokens,
+        provider: text_of(message.get("provider")),
+        model: text_of(message.get("model")),
+    })
 }
 
 /// A pi message line's cost, when it is an assistant message with usage.
@@ -291,7 +346,8 @@ pub fn claude_usage_of_line(
 /// parts add up to it, the parts are used (they are the breakdown); when they disagree, the tool's
 /// own total wins and the tokens go in `unsplit`, so this never reports a number the session list
 /// would contradict (`stats::pi_tokens_of_message` sums `totalTokens` first, and the two must agree).
-pub fn pi_usage_of_line(value: &serde_json::Value) -> Option<(UsageTokens, Option<String>)> {
+/// `message.provider` and `message.model` are pi's own names for what answered.
+pub fn pi_usage_of_line(value: &serde_json::Value) -> Option<LineUsage> {
     if value.get("type").and_then(serde_json::Value::as_str) != Some("message") {
         return None;
     }
@@ -320,11 +376,85 @@ pub fn pi_usage_of_line(value: &serde_json::Value) -> Option<(UsageTokens, Optio
         },
         (false, None) => return None,
     };
-    let model = message
-        .get("model")
+    Some(LineUsage {
+        tokens,
+        provider: text_of(message.get("provider")),
+        model: text_of(message.get("model")),
+    })
+}
+
+/// An opencode message row's cost, when it is an assistant message (the older schema).
+///
+/// The row is the `data` JSON of the `message` table: `{"role":"assistant","tokens":{"total":…,
+/// "input":…,"output":…,"reasoning":…,"cache":{"read":…,"write":…}},"modelID":…,"providerID":…}`.
+/// Current opencode keeps the tokens on the message's `step-finish` parts instead; see
+/// `opencode_usage_of_step`.
+pub fn opencode_usage_of_message(data: &serde_json::Value) -> Option<LineUsage> {
+    if data.get("role").and_then(serde_json::Value::as_str) != Some("assistant") {
+        return None;
+    }
+    let tokens = opencode_tokens(data.get("tokens")?)?;
+    Some(LineUsage {
+        tokens,
+        provider: text_of(data.get("providerID")),
+        model: text_of(data.get("modelID")),
+    })
+}
+
+/// An opencode step's cost: the current schema keeps tokens on a `step-finish` part, and the model on
+/// the message that part belongs to.
+///
+/// `part` is the part row's `data` (`{"type":"step-finish","tokens":{…},"cost":…}`) and `message` is
+/// the `session_message` row it belongs to (`{"model":{"providerID":…,"id":…}}`), or `None` when the
+/// join found no message: the tokens are then still counted, with no attribution invented for them.
+///
+/// Measured on this machine (2026-11-13): summing these parts over a session reproduces exactly the
+/// `tokens_input`/`tokens_output`/`tokens_cache_read` the session row carries, so a step is counted
+/// once and nothing is double-counted by reading parts instead of the message.
+pub fn opencode_usage_of_step(
+    part: &serde_json::Value,
+    message: Option<&serde_json::Value>,
+) -> Option<LineUsage> {
+    let tokens = opencode_tokens(part.get("tokens")?)?;
+    let model = message.and_then(|message| message.get("model"));
+    Some(LineUsage {
+        tokens,
+        provider: text_of(model.and_then(|model| model.get("providerID"))),
+        model: text_of(model.and_then(|model| model.get("id"))),
+    })
+}
+
+/// opencode's token object, in either schema's spelling, with the same rule as pi's: the parts are
+/// used when they add up to the tool's own `total`, and the total wins (as `unsplit`) when they do
+/// not, so a report can never contradict what opencode shows its own user.
+fn opencode_tokens(tokens: &serde_json::Value) -> Option<UsageTokens> {
+    let mut parts = UsageTokens {
+        input: as_u64(tokens.get("input")).unwrap_or(0),
+        output: as_u64(tokens.get("output")).unwrap_or(0),
+        reasoning: as_u64(tokens.get("reasoning")).unwrap_or(0),
+        ..UsageTokens::ZERO
+    };
+    let cache = tokens.get("cache");
+    parts.cache_read = as_u64(cache.and_then(|cache| cache.get("read"))).unwrap_or(0);
+    parts.cache_write = as_u64(cache.and_then(|cache| cache.get("write"))).unwrap_or(0);
+    let total = as_u64(tokens.get("total"));
+    match (parts.total() > 0, total) {
+        (true, Some(total)) if parts.total() == total => Some(parts),
+        (true, None) => Some(parts),
+        (_, Some(total)) => Some(UsageTokens {
+            unsplit: total,
+            ..UsageTokens::ZERO
+        }),
+        (false, None) => None,
+    }
+}
+
+fn text_of(value: Option<&serde_json::Value>) -> Option<String> {
+    value
         .and_then(serde_json::Value::as_str)
-        .map(str::to_string);
-    Some((tokens, model))
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
 }
 
 /// The day index for a `YYYY-MM-DD` date, for readers that only have the date (an export file).
@@ -493,7 +623,7 @@ mod tests {
             output: 20,
             cache_read: 900,
             cache_write: 80,
-            unsplit: 0,
+            ..UsageTokens::ZERO
         };
         let report = aggregate([event(at("2026-11-13T00:00:00.000Z"), None, tokens)], 0);
         assert_eq!(report.totals.counted(TokenScope::ALL), 1_100);
@@ -540,9 +670,12 @@ mod tests {
                 }
             }
         });
-        let (tokens, model) = claude_usage_of_line(&line).expect("usage");
-        assert_eq!(tokens, UsageTokens { input: 100, output: 7, cache_read: 3, cache_write: 1, unsplit: 0 });
-        assert_eq!(model.as_deref(), Some("claude-sonnet-4-5-20250929"));
+        let usage = claude_usage_of_line(&line).expect("usage");
+        let tokens = usage.tokens;
+        assert_eq!(tokens, UsageTokens { input: 100, output: 7, reasoning: 0, cache_read: 3, cache_write: 1, unsplit: 0 });
+        assert_eq!(usage.model.as_deref(), Some("claude-sonnet-4-5-20250929"));
+        // Claude Code's transcripts name no provider: the model is the only attribution there is.
+        assert_eq!(usage.provider, None);
         // The same total the session list already shows for this line.
         assert_eq!(tokens.total(), 111);
         assert_eq!(
@@ -576,9 +709,10 @@ mod tests {
                 "usage": { "input": 100, "output": 20, "cacheRead": 5, "cacheWrite": 1, "totalTokens": 126 }
             }
         });
-        let (tokens, model) = pi_usage_of_line(&line).expect("usage");
-        assert_eq!(tokens, UsageTokens { input: 100, output: 20, cache_read: 5, cache_write: 1, unsplit: 0 });
-        assert_eq!(model.as_deref(), Some("deepseek-v4.1-flash"));
+        let usage = pi_usage_of_line(&line).expect("usage");
+        let tokens = usage.tokens;
+        assert_eq!(tokens, UsageTokens { input: 100, output: 20, reasoning: 0, cache_read: 5, cache_write: 1, unsplit: 0 });
+        assert_eq!(usage.model.as_deref(), Some("deepseek-v4.1-flash"));
         assert_eq!(
             super::super::stats::pi_tokens_of_message(&line),
             Some(tokens.total())
@@ -596,7 +730,7 @@ mod tests {
                 "usage": { "input": 1, "output": 1, "totalTokens": 120 }
             }
         });
-        let (tokens, _) = pi_usage_of_line(&line).expect("usage");
+        let tokens = pi_usage_of_line(&line).expect("usage").tokens;
         assert_eq!(tokens.unsplit, 120);
         assert_eq!(tokens.input, 0);
         assert_eq!(tokens.total(), 120);
@@ -612,9 +746,9 @@ mod tests {
             "type": "message",
             "message": { "role": "assistant", "usage": { "totalTokens": 120 } }
         });
-        let (tokens, model) = pi_usage_of_line(&line).expect("usage");
-        assert_eq!(tokens.unsplit, 120);
-        assert_eq!(model, None);
+        let usage = pi_usage_of_line(&line).expect("usage");
+        assert_eq!(usage.tokens.unsplit, 120);
+        assert_eq!(usage.model, None);
         assert_eq!(pi_usage_of_line(&json!({ "type": "session_info" })), None);
         assert_eq!(
             pi_usage_of_line(&json!({ "type": "message", "message": { "role": "user", "content": "hi" } })),
@@ -639,25 +773,25 @@ mod tests {
         ]
         .join("\n");
 
-        let events: Vec<(i64, UsageTokens, Option<String>)> = transcript
+        let events: Vec<(i64, UsageTokens)> = transcript
             .lines()
             .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
             .filter_map(|value| {
-                let (tokens, model) = claude_usage_of_line(&value)?;
+                let usage = claude_usage_of_line(&value)?;
                 let at = value
                     .get("timestamp")
                     .and_then(serde_json::Value::as_str)
                     .and_then(super::super::stats::iso_ms)?;
-                Some((at, tokens, model))
+                Some((at, usage.tokens))
             })
             .collect();
         assert_eq!(events.len(), 2, "the untimed line is not an event");
 
         let report = aggregate(
-            events.iter().map(|(at_ms, tokens, model)| UsageEvent {
+            events.iter().map(|(at_ms, tokens)| UsageEvent {
                 at_ms: *at_ms,
                 provider: Some("anthropic"),
-                model: model.as_deref(),
+                model: Some("claude-sonnet-4-5"),
                 tokens: *tokens,
             }),
             // Local days at UTC+8: the 23:59Z event is already the 13th there, so both events land
@@ -671,5 +805,40 @@ mod tests {
         assert_eq!(report.models.len(), 1);
         assert_eq!(report.models[0].provider.as_deref(), Some("anthropic"));
         assert_eq!(report.models[0].model.as_deref(), Some("claude-sonnet-4-5"));
+    }
+
+    #[test]
+    fn opencode_step_parts_carry_the_cost_and_the_message_carries_the_model() {
+        // The current schema: tokens on the `step-finish` part, `model` on the message row.
+        let part = json!({
+            "type": "step-finish",
+            "tokens": { "total": 201938, "input": 1086, "output": 148, "reasoning": 0, "cache": { "write": 0, "read": 200704 } }
+        });
+        let message = json!({ "model": { "providerID": "workbuddy", "id": "deepseek-v4.1-flash", "variant": "max" } });
+        let usage = opencode_usage_of_step(&part, Some(&message)).expect("usage");
+        assert_eq!(usage.provider.as_deref(), Some("workbuddy"));
+        assert_eq!(usage.model.as_deref(), Some("deepseek-v4.1-flash"));
+        assert_eq!(usage.tokens.total(), 201_938);
+        assert_eq!(usage.tokens.cache_read, 200_704);
+
+        // A part whose message could not be joined still counts; nothing is invented for it.
+        let alone = opencode_usage_of_step(&part, None).expect("usage");
+        assert_eq!(alone.provider, None);
+        assert_eq!(alone.model, None);
+        assert_eq!(alone.tokens.total(), 201_938);
+
+        // A part without tokens is not an event (open messages, text, tool calls).
+        assert_eq!(
+            opencode_usage_of_step(&json!({ "type": "text", "text": "hi" }), Some(&message)),
+            None
+        );
+    }
+
+    #[test]
+    fn opencode_totals_that_disagree_with_their_parts_go_unsplit() {
+        let part = json!({ "type": "step-finish", "tokens": { "total": 900, "input": 1 } });
+        let usage = opencode_usage_of_step(&part, None).expect("usage");
+        assert_eq!(usage.tokens.unsplit, 900);
+        assert_eq!(usage.tokens.input, 0);
     }
 }
