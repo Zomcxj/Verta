@@ -6,6 +6,7 @@ import type { Tab } from "@/modules/tabs";
 import { TabBar, type TerminalChoice } from "@/modules/tabs";
 import { NotificationBell } from "@/modules/notifications/NotificationBell";
 import {
+  Analytics01Icon,
   CommandIcon,
   CropIcon,
   GithubIcon,
@@ -61,6 +62,8 @@ type Props = {
   changedCount: number;
   onOpenCommandPalette: () => void;
   onOpenSettings: () => void;
+  /** The usage window: what the three tools spent, per day and per model. */
+  onOpenUsage: () => void;
   searchTarget: SearchTarget;
   searchRef: RefObject<SearchInlineHandle | null>;
 };
@@ -93,6 +96,7 @@ export function Header({
   changedCount,
   onOpenCommandPalette,
   onOpenSettings,
+  onOpenUsage,
   searchTarget,
   searchRef,
 }: Props) {
@@ -110,6 +114,18 @@ export function Header({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  const usageButton = (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+      onClick={onOpenUsage}
+      title={t("header.usage")}
+    >
+      <HugeiconsIcon icon={Analytics01Icon} size={15} strokeWidth={1.75} />
+    </Button>
+  );
 
   const settingsButton = (
     <Button
@@ -243,6 +259,8 @@ export function Header({
           </span>
         ) : null}
       </Button>
+
+      {usageButton}
 
       {IS_MAC && settingsButton}
 

@@ -15,6 +15,19 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-13</strong></summary>
 
+**The usage window: one read, then the switches are a re-render**
+
+- `src-tauri/src/modules/agent_sessions/mod.rs`: `agent_usage_events(since_ms, offset_minutes, cache_read, cache_write)`, the command the window reads. The scan runs on the blocking pool, `since_ms` is pushed into each reader, and the answer is the total, one row per day and one per provider/model. Every row carries both the raw token parts and the number counted for the requested scope, so ticking a cache switch out and back in is a re-render rather than a second scan of every store on the machine. A store that cannot be read is returned in `failures` and shown as a banner, not turned into an empty window.
+- `src-tauri/src/lib.rs`: `open_usage_window`, plus a `usage` window label and its inclusion in the teardown loop. Closing it hides it (as settings does) and the button re-shows it with its numbers intact, which is what a 10 s read makes worth doing. `src-tauri/capabilities/default.json` and `desktop.json` list the new window.
+- `usage.html`, `src/usage/main.tsx`, `src/usage/UsageApp.tsx`, `src/usage/tokens.ts`, `src/usage/openUsageWindow.ts`: the window itself, in Verta's own shape rather than a copy of ModelHarbor's: ranges of 7/30/90 days or everything, two cache switches, the total with the excluded cache amounts named beside it, a bar per day (newest first) and a bar per provider/model, and the current read's failures.
+- `src/modules/header/Header.tsx`, `src/app/App.tsx`: the header button that opens it, next to settings.
+- `src/modules/i18n/messages.ts`: every string of the window in both languages.
+- `vite.config.ts`: the `usage` entry.
+- `src-tauri/src/modules/agent_sessions/opencode.rs`: the step query now asks SQL for `step-finish` parts only. The `part` table also holds every text and tool-output blob (378 MB here, 3.4 MB of it step parts) and pulling all of it into Rust to parse it made this one read take ~10 s instead of ~1 s. `json_valid` is a `CASE` guard, not an `AND` term: SQLite does not promise `AND` term order, and one malformed row would otherwise fail the whole query.
+- `src/usage/tokens.test.ts`: the frontend's counting is pinned to the same numbers as Rust's `TokenScope` test, and the payload's own count, `from the command`, `sum of the day rows` and `sum of the model rows` are all checked equal.
+- Read back on the release build: a 30-day range is 2,089 events and 410,399,318 tokens over 13 days and 7 provider/model pairs; the day rows and the model rows each add up to the total; switching cache reads off drops exactly 385,209,664 in 8 ms and switching it back restores the total. Probe: `scripts/dev/probes/usage-window.mjs`.
+- Not done: the export (ccswitch / tokenmonitor), which needs a sample of each format before it can be written.
+
 **The usage readers: three stores, one ordered stream of events**
 
 - `src-tauri/src/modules/agent_sessions/claude.rs`, `pi.rs`, `opencode.rs`: each tool now folds its own store into `usage::OwnedUsageEvent`s, oldest first, with `since_ms` pushed into the read so a window's range does not pay for the whole history. Claude Code and pi walk every assistant message of every transcript (a session that ran for a week is a week of days, which a per-session number cannot say), and opencode is read from `part` joined to `session_message`.

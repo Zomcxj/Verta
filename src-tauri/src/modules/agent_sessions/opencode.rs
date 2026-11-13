@@ -236,8 +236,18 @@ fn read_step_parts(
     since_ms: Option<i64>,
     report: &mut super::usage::UsageReadReport,
 ) -> bool {
+    // Only the step rows are wanted, and asking for them in SQL is not a micro-optimisation: the
+    // `part` table also stores every text and tool-output blob (378 MB on this machine, of which
+    // the step parts are 3.4 MB), and pulling all of it into Rust to parse it took this read from
+    // ~1 s to ~10 s. `json_valid` is a `CASE` guard rather than an `AND` term because SQLite does
+    // not promise the order it evaluates `AND` terms in, and one malformed row would otherwise fail
+    // the entire query instead of being skipped.
     let mut statement = match conn.prepare(
-        "select p.time_created, p.data, m.data          from part p left join session_message m on m.id = p.message_id          where (?1 is null or p.time_created >= ?1)",
+        r"select p.time_created, p.data, m.data
+          from part p left join session_message m on m.id = p.message_id
+          where (?1 is null or p.time_created >= ?1)
+            and case when json_valid(p.data)
+                     then json_extract(p.data, '$.type') end = 'step-finish'",
     ) {
         Ok(statement) => statement,
         Err(error) => {

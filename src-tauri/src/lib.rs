@@ -89,6 +89,9 @@ fn parse_launch_target() -> LaunchTarget {
 /// (`capabilities/default.json`, `capabilities/desktop.json`), which give this window its
 /// permissions: renaming this constant without those would compile and strip them.
 const SETTINGS_WINDOW: &str = "settings";
+/// The usage window. Spelled out once here and once in the capability file, for the same reason as
+/// `SETTINGS_WINDOW`: a rename that misses one of them compiles and silently strips permissions.
+const USAGE_WINDOW: &str = "usage";
 
 const fn settings_always_on_top(is_macos: bool) -> bool {
     !is_macos
@@ -232,6 +235,71 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     Ok(())
 }
 
+/// Opens the usage window, or brings the one already open forward.
+///
+/// The window is kept alive when closed (hidden) for the same reason the settings window is: it
+/// reads every store on this machine, and rebuilding the webview on each open would add several
+/// seconds of blank window on top of a read that is already the slow part.
+#[tauri::command]
+async fn open_usage_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(USAGE_WINDOW) {
+        centre_on_main(&app, &window);
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    let builder = WebviewWindowBuilder::new(
+        &app,
+        USAGE_WINDOW,
+        WebviewUrl::App("usage.html".into()),
+    )
+    .title("Usage")
+    .inner_size(880.0, 720.0)
+    .min_inner_size(560.0, 420.0)
+    .resizable(true)
+    .visible(false);
+
+    // No shadow, for the reason spelled out in `open_settings_window`: tao adds the hidden frame
+    // offset onto the size it is asked to set, and the window-state plugin then saves the inflated
+    // number.
+    #[cfg(target_os = "windows")]
+    let builder = builder.shadow(false);
+
+    let builder = if let Some(main) = app.get_webview_window("main") {
+        builder.parent(&main).map_err(|e| e.to_string())?
+    } else {
+        builder
+    };
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let builder = builder.decorations(false).transparent(true);
+
+    let window = builder.build().map_err(|e| e.to_string())?;
+
+    let hide_instead_of_close = window.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = hide_instead_of_close.hide();
+        }
+    });
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = window.set_decorations(false);
+    }
+
+    centre_on_main(&app, &window);
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(windows)]
@@ -336,7 +404,7 @@ pub fn run() {
                         // Both of these are hidden rather than destroyed. On their own they
                         // would leave the process running with no window on screen, which is
                         // what "I quit it hours ago and verta.exe is still there" was.
-                        for label in [SETTINGS_WINDOW, "screenshot"] {
+                        for label in [SETTINGS_WINDOW, USAGE_WINDOW, "screenshot"] {
                             if let Some(window) = handle.get_webview_window(label) {
                                 let _ = window.destroy();
                             }
@@ -512,11 +580,13 @@ pub fn run() {
             get_launch_dir,
             get_launch_files,
             open_settings_window,
+            open_usage_window,
             agent_sessions::agent_sessions_running,
             agent_sessions::agent_sessions_list,
             agent_sessions::agent_sessions_delete,
             agent_sessions::agent_sessions_rename,
             agent_sessions::agent_sessions_image,
+            agent_sessions::agent_usage_events,
             agent_versions::agent_versions_check,
             agent_versions::agent_versions_upgrade,
             agent_versions::agent_versions_upgrade_many,

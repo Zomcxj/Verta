@@ -43,6 +43,7 @@ import {
 import { setLspNavigator } from "@/modules/lsp";
 import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
+import { openUsageWindow } from "@/usage/openUsageWindow";
 import { useAgentAttentionFlash } from "@/app/hooks/useAgentAttentionFlash";
 import { useAgentNotifications } from "@/app/hooks/useAgentNotifications";
 import { useTrayStateDot } from "@/app/hooks/useTrayStateDot";
@@ -529,6 +530,9 @@ export default function App() {
     () => void openSettingsWindow(),
     [],
   );
+
+  /** The header's opener for the usage window: same reason. */
+  const openUsageFromHeader = useCallback(() => void openUsageWindow(), []);
 
   const activeTab = tabs.find((t) => t.id === activeId);
   const isTerminalTab = activeTab?.kind === "terminal";
@@ -1981,6 +1985,7 @@ export default function App() {
               changedCount={sourceControl.changedCount}
               onOpenCommandPalette={openCommandPaletteFromHeader}
               onOpenSettings={openSettingsFromHeader}
+              onOpenUsage={openUsageFromHeader}
               searchTarget={searchTarget}
               searchRef={searchInlineRef}
               onOverrideLanguage={setOverrideLanguage}

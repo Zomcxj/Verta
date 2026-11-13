@@ -160,6 +160,134 @@ fn merge_usage(into: &mut usage::UsageReadReport, mut other: usage::UsageReadRep
     into.failures.append(&mut other.failures);
 }
 
+/// A day's tokens: the raw parts and, beside them, the same numbers counted under the scope the
+/// caller asked for.
+///
+/// The parts are what a window switches scope with. Everything it needs is in this one answer, so
+/// ticking "include cache reads" out and back in is a re-render rather than a second read of 5.6 GB
+/// of opencode plus every transcript on the machine. `tokens` is the Rust count, kept beside the
+/// parts so a window cannot silently disagree with it: `UsageApp` recomputes from `parts` and the
+/// probe checks the two agree.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageDayRow {
+    /// Days since 1970-01-01 in the caller's offset.
+    pub day: i64,
+    /// `YYYY-MM-DD`, so a window never has to do date arithmetic of its own.
+    pub label: String,
+    pub parts: usage::UsageTokens,
+    pub tokens: u64,
+    pub events: u32,
+}
+
+/// A provider/model pair, in the same two shapes as a day.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageModelRow {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub parts: usage::UsageTokens,
+    pub tokens: u64,
+    pub events: u32,
+}
+
+/// What a usage window draws.
+///
+/// `tokens` and every row's count are computed here, so the accounting rule (`TokenScope`) has one
+/// reference implementation; the raw `parts` ride along so the window can apply a different scope
+/// without reading the stores again.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsagePayload {
+    /// The range that was read, echoed back so a slow answer cannot be shown as a fresh one.
+    pub since_ms: Option<i64>,
+    pub offset_minutes: i32,
+    pub scope: usage::TokenScope,
+    pub parts: usage::UsageTokens,
+    pub tokens: u64,
+    pub events: u32,
+    /// Cache tokens the scope left out, so the window can say what it is not counting instead of
+    /// looking like a different total for no reason.
+    pub excluded_cache_read: u64,
+    pub excluded_cache_write: u64,
+    /// Oldest first, one row per day that had any event.
+    pub days: Vec<UsageDayRow>,
+    /// Biggest first, the unnamed bucket last when it ties.
+    pub models: Vec<UsageModelRow>,
+    /// Stores that could not be read. A window shows them; they are not an empty result.
+    pub failures: Vec<String>,
+}
+
+/// Usage over a range, per day and per model.
+///
+/// The read is the expensive part (this machine's three stores are a 5.6 GB opencode database plus
+/// tens of megabytes of transcripts), so it runs on the blocking pool and `since_ms` is pushed into
+/// it: a window that shows the last 30 days must not pay for years of history.
+#[tauri::command]
+pub async fn agent_usage_events(
+    since_ms: Option<i64>,
+    offset_minutes: Option<i32>,
+    cache_read: Option<bool>,
+    cache_write: Option<bool>,
+) -> Result<UsagePayload, String> {
+    let offset = offset_minutes.unwrap_or(0);
+    let scope = usage::TokenScope {
+        cache_read: cache_read.unwrap_or(true),
+        cache_write: cache_write.unwrap_or(true),
+    };
+    crate::modules::fs::blocking(move || {
+        let report = usage_events(since_ms);
+        let folded = report.aggregate(offset);
+        let tokens = folded.totals.counted(scope);
+        let excluded_cache_read = if scope.cache_read {
+            0
+        } else {
+            folded.totals.tokens.cache_read
+        };
+        let excluded_cache_write = if scope.cache_write {
+            0
+        } else {
+            folded.totals.tokens.cache_write
+        };
+        let days = folded
+            .days
+            .iter()
+            .map(|day| UsageDayRow {
+                day: day.day,
+                label: usage::day_label(day.day),
+                parts: day.totals.tokens,
+                tokens: day.totals.counted(scope),
+                events: day.totals.events,
+            })
+            .collect();
+        let models = folded
+            .models
+            .iter()
+            .map(|model| UsageModelRow {
+                provider: model.provider.clone(),
+                model: model.model.clone(),
+                parts: model.totals.tokens,
+                tokens: model.totals.counted(scope),
+                events: model.totals.events,
+            })
+            .collect();
+        Ok(UsagePayload {
+            since_ms,
+            offset_minutes: offset,
+            scope,
+            parts: folded.totals.tokens,
+            tokens,
+            events: folded.totals.events,
+            excluded_cache_read,
+            excluded_cache_write,
+            days,
+            models,
+            failures: report.failures,
+        })
+    })
+    .await
+}
+
 /// Rename a session (rename only, no session management).
 ///
 /// Each tool has its own mechanism: opencode updates the `title` column, pi appends a
