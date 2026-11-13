@@ -41,6 +41,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { FontPicker } from "../components/FontPicker";
+import { FontPreview } from "../components/FontPreview";
 import { SettingRow } from "../components/SettingRow";
 
 const TERMINAL_FONT_WEIGHTS = [
@@ -374,10 +375,13 @@ export function GeneralSection() {
           title={t("settings.fontFamily.title")}
           description={t("settings.fontFamily.description")}
         >
-          <FontPicker
-            value={terminalFontFamily}
-            onChange={(v) => void setTerminalFontFamily(v)}
-          />
+          <div className="flex flex-col items-end gap-1">
+            <FontPicker
+              value={terminalFontFamily}
+              onChange={(v) => void setTerminalFontFamily(v)}
+            />
+            <FontPreview />
+          </div>
         </SettingRow>
         <SettingRow
           title={t("settings.fontWeight.title")}

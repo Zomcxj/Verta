@@ -48,7 +48,17 @@ export const CJK_CHAIN = [
   "monospace",
 ].join(", ");
 
-export const FALLBACK_CHAIN = `"JetBrains Mono", SFMono-Regular, Menlo, ${CJK_CHAIN}`;
+/**
+ * The monospace family the application ships (`@font-face` in `styles/fonts.css`).
+ *
+ * It is the end of every stack for a reason, and that reason is also a trap: a chosen face that the
+ * webview cannot use falls through to this one, which looks like a normal monospace rather than like a
+ * broken font - so "the font I picked has no effect" is indistinguishable from "the font I picked is
+ * very similar to this one". `effectiveMonoFamily` exists to make that case sayable.
+ */
+export const BUNDLED_MONO_FAMILY = "JetBrains Mono";
+
+export const FALLBACK_CHAIN = `"${BUNDLED_MONO_FAMILY}", SFMono-Regular, Menlo, ${CJK_CHAIN}`;
 
 /** The resolved stack (with quoting and the fallback chain); the public API stays as it was. */
 let detected: string | null = null;
@@ -56,6 +66,10 @@ let detected: string | null = null;
 let detectedName: string | null = null;
 let detectedOnce = false;
 let monoReady: Promise<void> | null = null;
+/** Answers already measured for `familyResolves`, keyed by the lowercased family name. */
+const availability = new Map<string, boolean>();
+/** One canvas for the availability probe: measuring is the only way to ask, and it is cached anyway. */
+let probeCanvas: HTMLCanvasElement | null = null;
 
 export function ensureMonoFontsLoaded(): Promise<void> {
   if (monoReady) return monoReady;
@@ -103,6 +117,102 @@ export function resolveFontStack(family: string): string {
     names.push(detectedToken);
   }
   return [...names, FALLBACK_CHAIN].join(", ");
+}
+
+/**
+ * Whether this webview can actually draw with a family.
+ *
+ * Three oracles were available and only the third answers the question. `document.fonts.check` says
+ * yes for a name it has never heard of; the installed-font list is the *system's* view, and a face can
+ * be listed there and still be unusable inside the webview (and the reverse). What the terminal itself
+ * does is measure: a name the browser cannot resolve measures exactly like the generic family it falls
+ * back to, so the width is compared against both generic baselines - one is enough to be fooled by a
+ * design whose advance happens to match.
+ *
+ * `true` when the measurement cannot be taken: not having a canvas is not evidence that the font is
+ * missing, and a warning that cannot be trusted is worse than no warning.
+ */
+export function familyResolves(family: string): boolean {
+  const name = family.trim();
+  if (!name) return false;
+  // A face the document has not fetched measures exactly like the generic family under it (see
+  // `measureDiffersFromGeneric`), and that measurement is not wrong - it is early. Answering "unusable"
+  // there was wrong twice over: it said so about a font this application ships, and it cached the
+  // answer, so the settings row kept reporting a fallback long after the face had arrived. Until the
+  // bytes are here the honest answer is "no evidence", which is the answer for a missing canvas too -
+  // and nothing is remembered, so the real measurement still gets to decide.
+  if (facePending(name)) {
+    void document.fonts?.load?.(`16px ${quotedFamily(name)}`)?.catch?.(() => undefined);
+    return true;
+  }
+  const key = name.toLowerCase();
+  const cached = availability.get(key);
+  if (cached !== undefined) return cached;
+  const measured = measureDiffersFromGeneric(name);
+  availability.set(key, measured);
+  return measured;
+}
+
+/**
+ * Whether this family has a face the document has declared but not fetched.
+ *
+ * That is the bundled JetBrains Mono in every window that has not drawn a terminal yet: the settings
+ * window has the `@font-face` rule and none of the bytes. Only a face that is still `unloaded` or
+ * `loading` counts - one that finished (`loaded`) can be measured, and one that failed (`error`) is
+ * missing for real and must be reported as such.
+ */
+function facePending(name: string): boolean {
+  const fonts = typeof document === "undefined" ? undefined : document.fonts;
+  if (!fonts) return false;
+  const wanted = name.replace(/['"]/g, "").trim().toLowerCase();
+  for (const face of [...fonts]) {
+    if (face.family.replace(/['"]/g, "").trim().toLowerCase() !== wanted) continue;
+    if (face.status === "unloaded" || face.status === "loading") return true;
+  }
+  return false;
+}
+
+/** One family, quoted the way a CSS font shorthand wants it. */
+function quotedFamily(name: string): string {
+  return `"${name.replace(/['"]/g, "")}"`;
+}
+
+function measureDiffersFromGeneric(name: string): boolean {
+  if (typeof document === "undefined") return true;
+  probeCanvas ??= document.createElement("canvas");
+  const context = probeCanvas.getContext?.("2d");
+  if (!context) return true;
+  const sample = "Wim0123";
+  const quoted = quotedFamily(name);
+  for (const generic of ["monospace", "serif"]) {
+    context.font = `16px ${generic}`;
+    const baseline = context.measureText(sample).width;
+    context.font = `16px ${quoted}, ${generic}`;
+    if (context.measureText(sample).width !== baseline) return true;
+  }
+  return false;
+}
+
+/**
+ * The family the terminal will really draw with, and whether that is not the one asked for.
+ *
+ * `fallback` is only true when the asked-for face was *measured* as unusable - the setting being empty
+ * is not a fallback, it is the documented "auto-detect". What is reported here is the same answer the
+ * settings row shows, so the row cannot quietly disagree with the terminal.
+ */
+export function effectiveMonoFamily(family: string): {
+  /** The family name that will be used, unquoted. */
+  family: string;
+  /** The asked-for face cannot be used here; something else is being drawn instead. */
+  fallback: boolean;
+} {
+  const asked = family.trim();
+  if (asked && familyResolves(asked)) return { family: asked, fallback: false };
+  const detected = detectedFamilyName();
+  return {
+    family: detected ?? BUNDLED_MONO_FAMILY,
+    fallback: asked !== "",
+  };
 }
 
 /** Fold one input into a font token: with a comma it is used as-is as the stack head,

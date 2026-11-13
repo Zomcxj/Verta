@@ -12,6 +12,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { fontOptions } from "@/lib/fontOptions";
+import type { FontOption } from "@/lib/fontOptions";
 import { useT } from "@/modules/i18n";
 import { Tick02Icon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -65,10 +66,13 @@ export function FontPicker({
   }
 
   const options = fontOptions(families, value, t("settings.font.auto"));
-  const labelOf = (option: { label: string; missing?: boolean }) =>
-    option.missing
-      ? `${option.label}（${t("settings.font.missing")}）`
-      : option.label;
+  const labelOf = (option: FontOption) => {
+    if (option.missing) return `${option.label}（${t("settings.font.missing")}）`;
+    // Shipped with the app: the one entry that is guaranteed to work here, and the face every stack
+    // falls back to - worth naming, because seeing it is how a silent fallback becomes visible.
+    if (option.bundled) return `${option.label}（${t("settings.font.bundled")}）`;
+    return option.label;
+  };
   const current = options.find((option) => option.value === value);
 
   return (

@@ -1019,6 +1019,10 @@ const zh = {
   "settings.fontFamily.placeholder": "自动检测",
   "settings.font.auto": "自动检测",
   "settings.font.missing": "不在本机",
+  "settings.font.bundled": "内置",
+  "settings.font.effective": "生效：{family}",
+  "settings.font.fellBack":
+    "生效：{family}（内置回退 —— 选中的字体在这里用不到）",
   "settings.font.listFailed": "读取本机字体列表失败，请手动输入。",
   "settings.font.search": "搜索字体…",
   "settings.font.none": "无匹配字体。",
@@ -2585,6 +2589,10 @@ const en: Record<MessageKey, string> = {
   "settings.fontFamily.placeholder": "Auto-detect",
   "settings.font.auto": "Auto-detect",
   "settings.font.missing": "not installed",
+  "settings.font.bundled": "built in",
+  "settings.font.effective": "In use: {family}",
+  "settings.font.fellBack":
+    "In use: {family} (built-in fallback - the selected font is not available here)",
   "settings.font.listFailed":
     "Could not list this machine's fonts, type it instead.",
   "settings.font.search": "Search fonts…",

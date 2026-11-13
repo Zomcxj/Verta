@@ -231,3 +231,130 @@ describe("the JetBrains Mono faces the app asks for", () => {
     }
   });
 });
+
+describe("whether the chosen face can be used at all", () => {
+  /**
+   * A canvas whose measurements are whatever the test says: `width` receives the font string the code
+   * set, so a test can make one family measurable and every other one indistinguishable from the
+   * generic family it falls back to.
+   */
+  const canvasWith = (width: (font: string) => number) => {
+    const context = {
+      font: "",
+      measureText: (text: string) => ({ width: width(context.font) + text.length * 0 }),
+    };
+    return { createElement: () => ({ getContext: () => context }) };
+  };
+
+  it("calls a face unusable when it measures exactly like the generic family", async () => {
+    // This is what an unresolvable name does: the browser draws the fallback, so the width is the
+    // fallback's width. It is the only oracle that answers, because `document.fonts.check` says yes
+    // for names it has never heard of and the installed list is the system's view, not the webview's.
+    vi.stubGlobal("document", canvasWith(() => 100));
+    const { familyResolves, effectiveMonoFamily } = await import("./fonts");
+    expect(familyResolves("Cascadia Code")).toBe(false);
+    expect(effectiveMonoFamily("Cascadia Code")).toEqual({
+      family: "JetBrains Mono",
+      fallback: true,
+    });
+  });
+
+  it("keeps the asked-for face when it measures differently on either baseline", async () => {
+    vi.stubGlobal(
+      "document",
+      canvasWith((font) => (font.includes("Cascadia Code") ? 130 : 100)),
+    );
+    const { familyResolves, effectiveMonoFamily } = await import("./fonts");
+    expect(familyResolves("Cascadia Code")).toBe(true);
+    expect(effectiveMonoFamily("Cascadia Code")).toEqual({
+      family: "Cascadia Code",
+      fallback: false,
+    });
+    // Whitespace around the name is the picker's problem, not the font's.
+    expect(effectiveMonoFamily("  Cascadia Code  ")).toEqual({
+      family: "Cascadia Code",
+      fallback: false,
+    });
+  });
+
+  it("does not turn an empty setting into a fallback", async () => {
+    // "" is "auto-detect", which is a documented choice: nothing was overridden, so nothing was lost.
+    vi.stubGlobal(
+      "document",
+      canvasWith((font) => (font.includes('"Hack Nerd Font"') ? 130 : 100)),
+    );
+    const { effectiveMonoFamily } = await import("./fonts");
+    expect(effectiveMonoFamily("")).toEqual({ family: "Hack Nerd Font", fallback: false });
+  });
+
+  it("says nothing rather than guessing when there is no canvas to measure with", async () => {
+    // No canvas is not evidence that the font is missing, and a warning that cannot be trusted is
+    // worse than no warning.
+    vi.stubGlobal("document", { createElement: () => ({ getContext: () => null }) });
+    const { familyResolves, effectiveMonoFamily } = await import("./fonts");
+    expect(familyResolves("Cascadia Code")).toBe(true);
+    expect(effectiveMonoFamily("Cascadia Code")).toEqual({
+      family: "Cascadia Code",
+      fallback: false,
+    });
+  });
+
+  it("measures a name once, including the case of a different spelling", async () => {
+    const measureText = vi.fn((_text: string) => ({ width: 100 }));
+    vi.stubGlobal("document", {
+      createElement: () => ({ getContext: () => ({ font: "", measureText }) }),
+    });
+    const { familyResolves } = await import("./fonts");
+    familyResolves("Cascadia Code");
+    const calls = measureText.mock.calls.length;
+    // Two baselines, each measured twice (bare and with the family in front of it).
+    expect(calls).toBe(4);
+    familyResolves("cascadia code");
+    expect(measureText).toHaveBeenCalledTimes(calls);
+  });
+
+  it("does not call a face unusable before the document has fetched it", async () => {
+    // The bundled JetBrains Mono ships as `@font-face`. A window that has never drawn the terminal -
+    // the settings window - has the rule but not the bytes, and a face that has not arrived measures
+    // exactly like the generic family it falls back to. So the first measurement said "unusable" about
+    // a font this application ships, *and the answer was cached*: the row read "falling back to
+    // MesloLGM Nerd Font" while the same window, a moment later, measured the family as present.
+    const face = { family: "JetBrains Mono", status: "unloaded" };
+    const fonts = Object.assign([face], { load: vi.fn(async () => [face]) });
+    vi.stubGlobal("document", { ...canvasWith(() => 100), fonts });
+    const { familyResolves, effectiveMonoFamily } = await import("./fonts");
+    expect(familyResolves("JetBrains Mono")).toBe(true);
+    expect(effectiveMonoFamily("JetBrains Mono")).toEqual({
+      family: "JetBrains Mono",
+      fallback: false,
+    });
+    // And it was asked for, so the next answer can be measured instead of guessed.
+    expect(fonts.load).toHaveBeenCalled();
+  });
+
+  it("does not cache the guess a pending face forced", async () => {
+    const face = { family: "Cascadia Code", status: "unloaded" };
+    const fonts = Object.assign([face], { load: vi.fn(async () => []) });
+    vi.stubGlobal("document", { ...canvasWith(() => 100), fonts });
+    const { familyResolves } = await import("./fonts");
+    expect(familyResolves("Cascadia Code")).toBe(true);
+    // The face arrives, and it really is unusable: the answer is measured now, not remembered.
+    face.status = "loaded";
+    expect(familyResolves("Cascadia Code")).toBe(false);
+  });
+
+  it("still calls a face unusable when it failed to load", async () => {
+    const face = { family: "Cascadia Code", status: "error" };
+    const fonts = Object.assign([face], { load: vi.fn(async () => []) });
+    vi.stubGlobal("document", { ...canvasWith(() => 100), fonts });
+    const { familyResolves } = await import("./fonts");
+    expect(familyResolves("Cascadia Code")).toBe(false);
+  });
+
+  it("is what the empty setting falls back to, so the name has one source", async () => {
+    vi.stubGlobal("document", canvasWith(() => 100));
+    const { BUNDLED_MONO_FAMILY, FALLBACK_CHAIN } = await import("./fonts");
+    expect(BUNDLED_MONO_FAMILY).toBe("JetBrains Mono");
+    expect(FALLBACK_CHAIN.startsWith(`"${BUNDLED_MONO_FAMILY}"`)).toBe(true);
+  });
+});
