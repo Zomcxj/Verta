@@ -6,65 +6,35 @@ import {
   Grok02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-import type { CSSProperties } from "react";
 
-// Pi mark, from github.com/earendil-works pi-website logo.svg (MIT).
-function PiIcon({
-  size,
-  className,
-  style,
-}: {
-  size: number;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  return (
-    <svg
-      viewBox="0 0 800 800"
-      width={size}
-      height={size}
-      className={className}
-      style={style}
-      aria-hidden="true"
-    >
-      <path
-        fill="currentColor"
-        fillRule="evenodd"
-        d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"
-      />
-      <path fill="currentColor" d="M517.36 400H634.72V634.72H517.36Z" />
-    </svg>
-  );
-}
+/**
+ * The agents whose own mark is shipped with the app, as PNGs under `public/agents`.
+ *
+ * These are the products' own icons - each one is the tile the tool ships for itself, in its own
+ * colours - rather than a drawing that resembles them. That matters in the one place several agents
+ * are listed together: a launcher full of look-alike glyphs cannot be read at a glance, and a brand
+ * mark can.
+ *
+ * `pi` is matched by name, not as a substring: "copilot" and "api" are not pi. The rest are matched
+ * loosely because their names appear with suffixes in the stores ("dsh-desktop",
+ * "workbuddy-ai").
+ */
+const AGENT_MARKS: { match?: string[]; exact?: string; src: string }[] = [
+  { exact: "pi", src: "/agents/pi.png" },
+  { match: ["opencode"], src: "/agents/opencode.png" },
+  { match: ["zcode"], src: "/agents/zcode.png" },
+  { match: ["workbuddy", "codebuddy"], src: "/agents/workbuddy.png" },
+  { match: ["dsh", "deepseek"], src: "/agents/dsh.png" },
+];
 
-// OpenCode mark, the glyph of the official wordmark embedded in @opencode/cli
-// (MIT): an outer frame with a solid block in the lower half of its opening.
-// The two opacities keep the mark's two-tone reading in a monochrome list.
-// The viewBox is padded to 48 units around the 24x30 glyph so the ink covers
-// about 62% of the box, which is what the Pi mark's own viewBox does; without
-// that padding this mark reads a size larger than the others.
-function OpenCodeIcon({
-  size,
-  className,
-  style,
-}: {
-  size: number;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  return (
-    <svg
-      viewBox="-12 -3 48 48"
-      width={size}
-      height={size}
-      className={className}
-      style={style}
-      aria-hidden="true"
-    >
-      <path fill="currentColor" fillOpacity="0.45" d="M18 30H6V18H18V30Z" />
-      <path fill="currentColor" d="M18 12H6V30H18V12ZM24 36H0V6H24V36Z" />
-    </svg>
-  );
+/** The shipped mark this agent is drawn with, if the app ships one. */
+export function agentMark(agent: string): string | null {
+  const a = agent.trim().toLowerCase();
+  for (const { match, exact, src } of AGENT_MARKS) {
+    if (exact && a === exact) return src;
+    if (match?.some((name) => a.includes(name))) return src;
+  }
+  return null;
 }
 
 function iconFor(agent: string): IconSvgElement {
@@ -78,38 +48,26 @@ function iconFor(agent: string): IconSvgElement {
 }
 
 /**
- * The colour each agent's mark is drawn in.
+ * The colour an agent's drawn mark takes, for the agents that have no shipped one.
  *
- * Every agent icon is coloured rather than inheriting the text colour: several of them sit side by
- * side in one list (the launcher, the usage window's chips and its agent table), and a column of
- * identical grey marks says nothing about which agent a row belongs to. The two marks with a
- * published colour keep it - Claude Code's clay, Gemini's blue - and the rest take a hue that no
- * neighbour already has, because a set of six colours is only useful if they can be told apart.
- *
- * One table rather than a colour per call site: the session list, the usage window and the
- * notifications all show the same agent, and three answers to "what colour is pi" would be three
- * wrong ones.
+ * Claude Code's mark is drawn rather than shipped, and it is drawn in the agent's own clay: the
+ * session list, the usage window's chips and its agent table all show it next to other agents' marks
+ * and a grey one reads as "no agent" rather than "Claude Code". One table rather than a colour per
+ * call site - three answers to "what colour is Claude Code" would be three wrong ones.
  */
 const AGENT_COLORS: { match: string[]; color: string }[] = [
   { match: ["claude"], color: "#D97757" },
-  { match: ["opencode"], color: "#22C55E" },
-  { match: ["zcode"], color: "#2563EB" },
-  { match: ["workbuddy", "codebuddy"], color: "#F59E0B" },
-  { match: ["dsh", "deepseek"], color: "#06B6D4" },
   { match: ["gemini"], color: "#4285F4" },
   { match: ["grok"], color: "#64748B" },
   { match: ["codex", "gpt", "openai"], color: "#10A37F" },
 ];
 
-/** `pi` is its own name rather than a substring: "copilot" and "api" are not pi. */
-const PI_COLOR = "#A855F7";
 /** An agent this table has never heard of still gets a colour, so it is not the odd grey one out. */
 const FALLBACK_COLOR = "#0EA5E9";
 
-/** The colour this agent's mark is drawn in. */
+/** The colour this agent's drawn mark takes. */
 export function agentColor(agent: string): string {
   const a = agent.trim().toLowerCase();
-  if (a === "pi") return PI_COLOR;
   for (const { match, color } of AGENT_COLORS) {
     if (match.some((name) => a.includes(name))) return color;
   }
@@ -125,17 +83,23 @@ export function AgentIcon({
   size?: number;
   className?: string;
 }) {
-  const style: CSSProperties = { color: agentColor(agent) };
-  if (agent.toLowerCase() === "pi") {
-    return <PiIcon size={size} className={className} style={style} />;
-  }
-  if (agent.toLowerCase().includes("opencode")) {
-    return <OpenCodeIcon size={size} className={className} style={style} />;
-  }
   if (agent.toLowerCase().includes("verta")) {
     return (
       <img
         src="/logo.png"
+        alt=""
+        width={size}
+        height={size}
+        className={className}
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  const mark = agentMark(agent);
+  if (mark) {
+    return (
+      <img
+        src={mark}
         alt=""
         width={size}
         height={size}
@@ -150,7 +114,9 @@ export function AgentIcon({
       size={size}
       strokeWidth={1.75}
       className={className}
-      color={style.color}
+      // Inline, not the `color` attribute: call sites pass `text-muted-foreground` and a class beats
+      // an attribute, which is why these marks used to come out grey while the shipped ones did not.
+      style={{ color: agentColor(agent) }}
     />
   );
 }

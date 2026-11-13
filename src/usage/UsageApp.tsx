@@ -1,4 +1,9 @@
 import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { WindowControls } from "@/components/WindowControls";
 import { AgentIcon } from "@/modules/launcher/lib/agentIcon";
 import { IS_MAC } from "@/lib/platform";
@@ -208,28 +213,43 @@ export function UsageApp(): JSX.Element {
       aria-label={ariaLabel}
       className="flex items-center gap-0.5 rounded-md bg-foreground/[0.05] p-0.5"
     >
-      {values.map((value) => (
-        <button
-          key={String(value)}
-          type="button"
-          role="tab"
-          // A stable handle for the probe: the label is interface text and follows the language.
-          data-usage-chip={String(value)}
-          aria-selected={current === value}
-          onClick={() => onPick(value)}
-          className={cn(
-            "flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 text-[10.5px] whitespace-nowrap outline-none transition-[background-color,color,transform] duration-150 focus-visible:ring-2 focus-visible:ring-primary/40 active:scale-[0.97]",
-            current === value
-              ? "bg-primary font-medium text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {iconOf?.(value) ? (
-            <span className="shrink-0">{iconOf(value)}</span>
-          ) : null}
-          {label(value)}
-        </button>
-      ))}
+      {values.map((value) => {
+        const icon = iconOf?.(value) ?? null;
+        const text = label(value);
+        // A chip that has a mark says what it is with the mark alone; the name is one hover away.
+        // Six agents plus their names is most of an 880px header, and the marks are what a glance
+        // reads anyway. The name stays as the accessible name, so it is still spoken.
+        const button = (
+          <button
+            key={String(value)}
+            type="button"
+            role="tab"
+            // A stable handle for the probe: the label is interface text and follows the language.
+            data-usage-chip={String(value)}
+            aria-label={icon ? text : undefined}
+            aria-selected={current === value}
+            onClick={() => onPick(value)}
+            className={cn(
+              "flex cursor-pointer items-center gap-1 rounded text-[10.5px] whitespace-nowrap outline-none transition-[background-color,color,transform] duration-150 focus-visible:ring-2 focus-visible:ring-primary/40 active:scale-[0.97]",
+              icon ? "px-1.5 py-[3px]" : "px-2 py-0.5",
+              current === value
+                ? "bg-primary font-medium text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {icon ? <span className="shrink-0">{icon}</span> : text}
+          </button>
+        );
+        if (!icon) return button;
+        return (
+          <Tooltip key={String(value)}>
+            <TooltipTrigger asChild>{button}</TooltipTrigger>
+            <TooltipContent side="bottom" sideOffset={6}>
+              {text}
+            </TooltipContent>
+          </Tooltip>
+        );
+      })}
     </div>
   );
 

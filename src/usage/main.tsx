@@ -1,5 +1,6 @@
 import "../styles/globals.css";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { ThemeProvider } from "@/modules/theme";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -14,7 +15,9 @@ ReactDOM.createRoot(
   document.getElementById("usage-root") as HTMLElement,
 ).render(
   <ThemeProvider>
-    <UsageApp />
+    <TooltipProvider>
+      <UsageApp />
+    </TooltipProvider>
   </ThemeProvider>,
 );
 
