@@ -216,6 +216,19 @@ pub(crate) fn pi_is_absent(_distro: &str) -> AgentSessionsPayload {
     }
 }
 
+/// Claude Code's sessions are in this machine's home directory and nowhere else.
+///
+/// It has no WSL story to report: the store it writes is `~/.claude/projects` on whichever side it
+/// runs, so a distro read answers with nothing rather than with a notice. Without this the local list
+/// would also be returned for every distro the user has, and every session would appear once per
+/// distro.
+pub(crate) fn claude_is_absent(_distro: &str) -> AgentSessionsPayload {
+    AgentSessionsPayload {
+        sessions: Vec::new(),
+        warnings: Vec::new(),
+    }
+}
+
 /// One line of the query's output.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

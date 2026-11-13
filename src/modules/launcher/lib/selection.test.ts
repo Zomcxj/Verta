@@ -114,7 +114,7 @@ describe("deletionSummary", () => {
       session("b", "pi"),
     ]);
     expect(summary.total).toBe(3);
-    expect(summary.byTool).toEqual({ opencode: 2, pi: 1 });
+    expect(summary.byTool).toEqual({ opencode: 2, pi: 1, claude: 0 });
     expect(summary.subagents).toBe(1);
     expect(summary.hasSubagents).toBe(true);
   });
@@ -122,7 +122,7 @@ describe("deletionSummary", () => {
   it("handles an empty selection", () => {
     const summary = deletionSummary([]);
     expect(summary.total).toBe(0);
-    expect(summary.byTool).toEqual({ opencode: 0, pi: 0 });
+    expect(summary.byTool).toEqual({ opencode: 0, pi: 0, claude: 0 });
     expect(summary.subagents).toBe(0);
     expect(summary.hasSubagents).toBe(false);
   });

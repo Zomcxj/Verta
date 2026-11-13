@@ -78,7 +78,7 @@ export type DeletionSummary = {
 };
 
 export function deletionSummary(sessions: AgentSession[]): DeletionSummary {
-  const byTool: Record<AgentTool, number> = { opencode: 0, pi: 0 };
+  const byTool: Record<AgentTool, number> = { opencode: 0, pi: 0, claude: 0 };
   let subagents = 0;
   for (const session of sessions) {
     byTool[session.tool] += 1;

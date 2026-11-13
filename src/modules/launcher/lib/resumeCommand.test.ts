@@ -51,6 +51,37 @@ describe("resumeCommand (pi)", () => {
   });
 });
 
+describe("resumeCommand (claude)", () => {
+  it("resumes by id only, because Claude Code looks it up in the cwd's own project", () => {
+    // Its transcripts live under `~/.claude/projects/<the cwd, flattened>/`, so the session is found
+    // from the directory the terminal opened in - the same reason pi carries no directory.
+    expect(
+      resumeCommand(
+        {
+          tool: "claude",
+          id: "b282aa01-3997-4af9-96d5-76c8aa9f9ded",
+          cwd: "C:\\Users\\cxj\\Desktop\\dsh",
+        },
+        true,
+      ),
+    ).toBe("claude --resume b282aa01-3997-4af9-96d5-76c8aa9f9ded");
+  });
+
+  it("carries nothing for a distro, because its sessions are never inside one", () => {
+    const command = resumeCommand(
+      {
+        tool: "claude",
+        id: "b282aa01-3997-4af9-96d5-76c8aa9f9ded",
+        cwd: "/home/cxj/work",
+        distro: "Ubuntu-22.04",
+      },
+      false,
+    );
+    expect(command).toBe("claude --resume b282aa01-3997-4af9-96d5-76c8aa9f9ded");
+    expect(command).not.toContain("env PATH");
+  });
+});
+
 describe("resumeCommand (id validation)", () => {
   it("refuses an id that could break out of the command", () => {
     expect(() =>
@@ -98,6 +129,7 @@ describe("newSessionCommand", () => {
   it("starts the agent without a session id", () => {
     expect(newSessionCommand("opencode")).toBe("opencode");
     expect(newSessionCommand("pi")).toBe("pi");
+    expect(newSessionCommand("claude")).toBe("claude");
     expect(newSessionCommand("opencode")).not.toContain("--session");
   });
 

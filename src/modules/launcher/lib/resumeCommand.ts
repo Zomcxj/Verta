@@ -36,6 +36,7 @@ export function newSessionCommand(
   distro?: string | null,
 ): string {
   if (tool === "opencode") return distro ? WSL_OPENCODE : "opencode";
+  if (tool === "claude") return "claude";
   return "pi";
 }
 
@@ -61,6 +62,16 @@ export function resumeCommand(
     // Inside a distro it is a Linux path, so quote it POSIX-style.
     const directory = quoteShellArg(cwd, distro ? false : windows);
     return `${binary} --session ${id} ${directory}`;
+  }
+  if (tool === "claude") {
+    // `--resume <session-id>`, as its own `--help` documents it (`-r` is the same flag).
+    //
+    // Nothing else comes along, and that is the whole shape of it: Claude Code looks a session up
+    // inside its own project directory, which is keyed by the working directory, and the terminal is
+    // opened *in* the session's cwd (see `planSessionResume`). There is also nothing to prefix for a
+    // distro - these sessions live in this machine's home directory and the Rust side answers an
+    // empty list for a distro.
+    return `claude --resume ${id}`;
   }
   // pi looks sessions up by id within its own cwd, which the terminal's working
   // directory provides.

@@ -1,5 +1,6 @@
 pub mod types;
 
+mod claude;
 mod delete;
 mod image;
 mod opencode;
@@ -60,6 +61,11 @@ pub async fn agent_sessions_list(
         (opencode::TOOL, None) => opencode::list(),
         (pi::TOOL, Some(distro)) => Ok(wsl::pi_is_absent(distro)),
         (pi::TOOL, None) => pi::list(),
+        // Claude Code keeps its transcripts in this machine's home directory, so a distro has none:
+        // an empty list is the honest answer, and answering with the local one instead would list
+        // every session once per distro.
+        (claude::TOOL, Some(distro)) => Ok(wsl::claude_is_absent(distro)),
+        (claude::TOOL, None) => claude::list(),
         (other, _) => Err(format!("不支持的会话工具：{other}")),
     })
     .await
@@ -109,6 +115,12 @@ fn rename_session(tool: &str, id: &str, name: &str, distro: Option<&str>) -> Res
                 .ok_or_else(|| "找不到 pi 会话目录的位置".to_string())?;
             pi::rename_at(&root, id, name)
         }
+        // Refused rather than approximated: Claude Code's name is a `custom-title` event inside its
+        // own ledger, and a line this app appended is not something the tool is known to read back. A
+        // name that silently does nothing would be worse than saying it cannot be set here.
+        claude::TOOL => Err(
+            "Claude Code 的会话名由 Claude Code 自己写，这里改不了（可在它内部用 /rename）".to_string(),
+        ),
         other => Err(format!("不支持的会话工具：{other}")),
     }
 }

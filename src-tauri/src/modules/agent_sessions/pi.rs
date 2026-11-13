@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use super::stats::{self, SessionStats};
+use super::stats::{self, iso_ms, SessionStats};
 use super::types::{AgentSession, AgentSessionsPayload};
 
 pub(crate) const TOOL: &str = "pi";
@@ -205,48 +205,6 @@ fn message_stamp(value: &Value) -> Option<i64> {
                 .and_then(Value::as_str)
                 .and_then(iso_ms)
         })
-}
-
-/// `2026-09-09T05:48:06.288Z` → milliseconds. None when unparsable (no guessing).
-///
-/// Hand-rolled instead of pulling in chrono: only pi's one shape
-/// (`YYYY-MM-DDThh:mm:ss[.sss]Z`) is supported, and a few lines of arithmetic beat an
-/// extra dependency.
-fn iso_ms(text: &str) -> Option<i64> {
-    let bytes = text.as_bytes();
-    if bytes.len() < 20 || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T' {
-        return None;
-    }
-    let num = |range: std::ops::Range<usize>| -> Option<i64> {
-        text.get(range)?.parse::<i64>().ok()
-    };
-    let (year, month, day) = (num(0..4)?, num(5..7)?, num(8..10)?);
-    let (hour, minute, second) = (num(11..13)?, num(14..16)?, num(17..19)?);
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 || second > 60 {
-        return None;
-    }
-    let millis = text
-        .get(19..)
-        .and_then(|rest| rest.strip_prefix('.'))
-        .filter(|rest| rest.len() >= 3)
-        .and_then(|rest| rest.get(0..3))
-        .and_then(|digits| digits.parse::<i64>().ok())
-        .unwrap_or(0);
-    let days = days_from_civil(year, month, day);
-    let secs = days * 86_400 + hour * 3_600 + minute * 60 + second.min(59);
-    Some(secs * 1_000 + millis)
-}
-
-/// Civil date → days since 1970-01-01 (Howard Hinnant's algorithm, avoiding time
-/// zones and leap-year tables).
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let y = if month <= 2 { year - 1 } else { year };
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = y - era * 400;
-    let mp = (month + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
 }
 
 fn parse_line(line: &str) -> Option<Value> {
@@ -666,6 +624,8 @@ fn locate(root: &Path, id: &str) -> Result<Located, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The date arithmetic behind `iso_ms` moved to `stats`, where both tools' timestamps share it.
+    use super::stats::days_from_civil;
 
     fn write_file(dir: &Path, name: &str, body: &str) -> PathBuf {
         std::fs::create_dir_all(dir).expect("create dir");

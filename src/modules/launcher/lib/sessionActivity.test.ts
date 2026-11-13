@@ -247,7 +247,7 @@ describe("backgroundStateById", () => {
 describe("activeByWindow", () => {
   const MINUTE = 60_000;
   /** One window for both tools, so the arithmetic below is about the boundary and not the table. */
-  const SAME = { opencode: MINUTE, pi: MINUTE } as const;
+  const SAME = { opencode: MINUTE, pi: MINUTE, claude: MINUTE } as const;
   const row = (
     id: string,
     lastAtMs: number | null,

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::modules::agent_sessions::{opencode, pi};
+use crate::modules::agent_sessions::{claude, opencode, pi};
 
 /// What the frontend may send: a tool name and an id. Paths are resolved on this
 /// side from the tool's own store, never accepted from the caller.
@@ -55,6 +55,7 @@ pub(crate) fn validate_session_id(id: &str) -> Result<(), String> {
 pub(crate) struct Stores {
     pub(crate) opencode: Option<PathBuf>,
     pub(crate) pi: Option<PathBuf>,
+    pub(crate) claude: Option<PathBuf>,
 }
 
 impl Stores {
@@ -62,6 +63,7 @@ impl Stores {
         Self {
             opencode: opencode::default_db_path(),
             pi: pi::default_root(),
+            claude: claude::default_root(),
         }
     }
 
@@ -75,6 +77,10 @@ impl Stores {
                 .pi
                 .as_deref()
                 .ok_or_else(|| "找不到 pi 会话目录的位置".to_string()),
+            claude::TOOL => self
+                .claude
+                .as_deref()
+                .ok_or_else(|| "找不到 Claude Code 会话目录的位置".to_string()),
             other => Err(format!("不支持的会话工具：{other}")),
         }
     }
@@ -129,6 +135,7 @@ fn attempt(target: &SessionTarget, stores: &Stores) -> Result<(), String> {
     match target.tool.as_str() {
         opencode::TOOL => opencode::delete_at(path, &target.id),
         pi::TOOL => pi::delete_at(path, &target.id),
+        claude::TOOL => claude::delete_at(path, &target.id),
         other => Err(format!("不支持的会话工具：{other}")),
     }
 }
@@ -140,6 +147,7 @@ fn is_gone(target: &SessionTarget, stores: &Stores) -> bool {
     let exists = match target.tool.as_str() {
         opencode::TOOL => opencode::exists_at(path, &target.id),
         pi::TOOL => pi::exists_at(path, &target.id),
+        claude::TOOL => claude::exists_at(path, &target.id),
         _ => Ok(true),
     };
     // A store that cannot be read counts as "not gone": never a false success.
@@ -164,6 +172,7 @@ mod tests {
         Stores {
             opencode: None,
             pi: Some(root.to_path_buf()),
+            claude: None,
         }
     }
 
@@ -300,6 +309,7 @@ mod tests {
         let stores = Stores {
             opencode: Some(db),
             pi: None,
+            claude: None,
         };
         let report = delete_targets(&[target("opencode", "ses_probe")], &stores);
         assert_eq!(report.deleted, 0);

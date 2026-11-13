@@ -36,6 +36,9 @@ fn watch_targets() -> Vec<(PathBuf, RecursiveMode)> {
         (home.join(".local/share/opencode"), RecursiveMode::NonRecursive),
         // One directory per project, so this one is recursive.
         (home.join(".pi/agent/sessions"), RecursiveMode::Recursive),
+        // A project directory per project here too, and each transcript is written inside its own
+        // project's directory, so this one is recursive as well.
+        (home.join(".claude/projects"), RecursiveMode::Recursive),
     ]
 }
 
@@ -151,16 +154,18 @@ mod tests {
     fn watches_the_database_and_the_session_tree() {
         // The database is watched non-recursively: its WAL and SHM siblings sit
         // beside it, so a commit is seen without descending into the log folder.
-        // The pi sessions live one directory per project, so that one recurses.
+        // pi's and Claude Code's sessions live one directory per project, so those recurse.
         let targets = watch_targets();
-        assert_eq!(targets.len(), 2);
+        assert_eq!(targets.len(), 3);
         let paths: Vec<String> = targets
             .iter()
             .map(|(path, _)| path.to_string_lossy().replace('\\', "/"))
             .collect();
         assert!(paths[0].ends_with(".local/share/opencode"), "{paths:?}");
         assert!(paths[1].ends_with(".pi/agent/sessions"), "{paths:?}");
+        assert!(paths[2].ends_with(".claude/projects"), "{paths:?}");
         assert!(matches!(targets[0].1, RecursiveMode::NonRecursive));
         assert!(matches!(targets[1].1, RecursiveMode::Recursive));
+        assert!(matches!(targets[2].1, RecursiveMode::Recursive));
     }
 }

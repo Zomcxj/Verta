@@ -140,6 +140,7 @@ export function backgroundStateById(
 export const ACTIVE_WINDOW_BY_TOOL: Readonly<Record<AgentTool, number>> = {
   opencode: 3 * 60_000,
   pi: 3 * 60_000,
+  claude: 3 * 60_000,
 };
 
 /**

@@ -36,6 +36,32 @@ pub fn pi_tokens_of_message(value: &serde_json::Value) -> Option<u64> {
     usage_total(usage)
 }
 
+/// Whether a Claude Code `assistant` line carries `usage`, whose four parts get summed.
+///
+/// Claude Code writes Anthropic's own names on its assistant messages - `input_tokens`,
+/// `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` - one usage per message,
+/// and none on user messages. Measured on a real transcript rather than assumed.
+pub fn claude_tokens_of_message(value: &serde_json::Value) -> Option<u64> {
+    if value.get("type").and_then(serde_json::Value::as_str) != Some("assistant") {
+        return None;
+    }
+    let usage = value.get("message")?.get("usage")?;
+    let mut sum = 0u64;
+    let mut found = false;
+    for key in [
+        "input_tokens",
+        "output_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+    ] {
+        if let Some(part) = as_u64(usage.get(key)) {
+            sum = sum.saturating_add(part);
+            found = true;
+        }
+    }
+    found.then_some(sum)
+}
+
 /// pi's usage accounting: use `totalTokens` when present, otherwise sum the four parts.
 pub fn usage_total(usage: &serde_json::Value) -> Option<u64> {
     if let Some(total) = as_u64(usage.get("totalTokens")) {
@@ -62,6 +88,51 @@ fn as_u64(value: Option<&serde_json::Value>) -> Option<u64> {
         }),
         _ => None,
     }
+}
+
+/// An ISO-8601 UTC timestamp, to milliseconds.
+///
+/// pi and Claude Code both write `2026-11-13T01:05:59.276Z` on their conversation events, so the
+/// parser lives here rather than in either of them. Anything it does not recognise answers `None`
+/// rather than being guessed at: a wrong time would silently reorder the list.
+pub(crate) fn iso_ms(text: &str) -> Option<i64> {
+    let bytes = text.as_bytes();
+    if bytes.len() < 20 || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T' {
+        return None;
+    }
+    let num = |range: std::ops::Range<usize>| -> Option<i64> {
+        text.get(range)?.parse::<i64>().ok()
+    };
+    let (year, month, day) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    let (hour, minute, second) = (num(11..13)?, num(14..16)?, num(17..19)?);
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
+    let millis = text
+        .get(19..)
+        .and_then(|rest| rest.strip_prefix('.'))
+        .filter(|rest| rest.len() >= 3)
+        .and_then(|rest| rest.get(0..3))
+        .and_then(|digits| digits.parse::<i64>().ok())
+        .unwrap_or(0);
+    let days = days_from_civil(year, month, day);
+    let secs = days * 86_400 + hour * 3_600 + minute * 60 + second.min(59);
+    Some(secs * 1_000 + millis)
+}
+
+pub(crate) fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
 }
 
 /// Sum a series of per-message token counts; none at all means `None`.

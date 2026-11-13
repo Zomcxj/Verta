@@ -1,4 +1,4 @@
-export type AgentTool = "opencode" | "pi";
+export type AgentTool = "opencode" | "pi" | "claude";
 
 export type AgentSession = {
   tool: AgentTool;
