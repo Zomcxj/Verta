@@ -154,6 +154,13 @@ import { CloseDialogs } from "./components/CloseDialogs";
 import { WorkspaceInputBar } from "./components/WorkspaceInputBar";
 import { sessionOpeningVisible } from "./components/sessionOpening";
 import {
+  noteSessionOpeningLifted,
+  noteSessionOpeningShown,
+  type SessionOpeningLift,
+  type SessionOpeningWait,
+  sessionOpeningLeaf,
+} from "./sessionOpeningLog";
+import {
   type ProjectsSub,
   WorkspaceSurface,
 } from "./components/WorkspaceSurface";
@@ -227,6 +234,13 @@ function delay(ms: number): Promise<void> {
  * paint rather than trusted from the tick that decided: the tick read the screen before the
  * renderer caught up, and the frame that arrives can be the agent clearing its screen - a blank
  * one, where `showsLaunch` was conveniently false. That is the other half of the flicker.
+ *
+ * A blank frame is let through, deliberately, and that was decided by measurement rather than by
+ * argument (`session-opening-latency.mjs`, this machine, 2026-11-13): opencode clears the screen at
+ * about 4.4 s and paints its own UI at about 10.2 s, so refusing a blank frame to avoid one blank
+ * moment made every opening 5.8 s longer (4.4 s -> 10.2 s). What the cover exists to hide is the
+ * command, and it is gone by 4.4 s. The pause the user reported is therefore *not* this, and
+ * `sessionOpeningLog.ts` is what will catch it when it happens.
  */
 async function paintsWithoutLaunchLine(
   leafId: number,
@@ -241,7 +255,7 @@ async function waitForAgentUi(
   leafId: number,
   base: number,
   command: string,
-): Promise<void> {
+): Promise<SessionOpeningWait> {
   const hardCap = Date.now() + AGENT_UI_HARD_CAP_MS;
   /** The echo has been seen, so a screen without it means the agent replaced it. */
   let echoed = false;
@@ -249,6 +263,11 @@ async function waitForAgentUi(
   let lastGrowthAt = Date.now();
   let lastBytes = 0;
   const startedAt = Date.now();
+  // Counted so a slow opening can be read from its own record instead of re-derived: how many times
+  // the screen was read, and how many of those a rule fired on while the frame that arrived still
+  // showed the launch line (see `paintsWithoutLaunchLine`).
+  let ticks = 0;
+  let heldTicks = 0;
   // DEV-only trace: what each tick saw and which rule ended the wait. A probe reads this
   // after opening a session, so the moment the cover lifts can be judged from measurements
   // rather than from re-reading the loop.
@@ -260,6 +279,7 @@ async function waitForAgentUi(
       })()
     : null;
   while (Date.now() < hardCap) {
+    ticks += 1;
     const bytes = leafOutputBytes(leafId) - base;
     if (bytes > lastBytes) {
       lastBytes = bytes;
@@ -308,12 +328,13 @@ async function waitForAgentUi(
             ? { t: elapsed, exit: rule, bytes }
             : { t: elapsed, exit: rule },
       );
-      return;
+      return { rule, ticks, heldTicks, bytes };
     }
     if (rule !== null) {
       // The rule said lift, but the frame that arrived put the command back (or cleared to
       // nothing). Recorded so a run that keeps bouncing here is visible in the trace rather than
       // looking like an agent that simply takes a long time.
+      heldTicks += 1;
       trace?.push({ t: elapsed, heldBy: rule, showsLaunch, hasOwnScreen });
     }
     await delay(AGENT_UI_POLL_MS);
@@ -321,6 +342,7 @@ async function waitForAgentUi(
   // Past the hard cap the command may still be on screen. Lifting here would show it, so the
   // cover stays and the caller's own fallback timer hands the pane back instead.
   trace?.push({ t: Date.now() - startedAt, exit: "hard-cap" });
+  return { rule: "gave-up", ticks, heldTicks, bytes: lastBytes };
 }
 
 export default function App() {
@@ -865,22 +887,41 @@ export default function App() {
     (leafId: number, tool: string | null): number => {
       const token = ++sessionOpeningToken.current;
       setSessionOpening({ leafId, tool });
+      noteSessionOpeningShown(token, leafId, tool);
       // The timer is the last resort: a session that never reports its UI up must not
       // cover a terminal indefinitely.
       clearSessionOpeningTimer();
       sessionOpeningTimer.current = window.setTimeout(() => {
         sessionOpeningTimer.current = null;
         if (token !== sessionOpeningToken.current) return;
+        noteSessionOpeningLifted(token, "fallback-timer", null, null);
         setSessionOpening(null);
       }, SESSION_OPENING_FALLBACK_MS);
       return token;
     },
     [clearSessionOpeningTimer],
   );
-  /** Lift the transition layer, but only if this start is still the current one. */
+  /**
+   * Lift the transition layer, but only if this start is still the current one.
+   *
+   * What ended it and what the wait saw are recorded with the duration, and the leaf's screen is
+   * read here, at the instant the cover lifts: that is the frame every rule in `coverRule.ts` is a
+   * question about, and an opening that waited too long can only be explained by it.
+   */
   const hideSessionOpening = useCallback(
-    (token: number) => {
+    (
+      token: number,
+      lift: SessionOpeningLift = "ui-painted",
+      wait: SessionOpeningWait | null = null,
+    ) => {
       if (token !== sessionOpeningToken.current) return;
+      const leafId = sessionOpeningLeaf(token);
+      noteSessionOpeningLifted(
+        token,
+        lift,
+        wait,
+        leafId === null ? null : leafScreenTail(leafId),
+      );
       clearSessionOpeningTimer();
       setSessionOpening(null);
     },
@@ -904,7 +945,7 @@ export default function App() {
    */
   useEffect(() => {
     if (sessionOpening === null || sessionOpeningShown) return;
-    hideSessionOpening(sessionOpeningToken.current);
+    hideSessionOpening(sessionOpeningToken.current, "tab-left");
   }, [sessionOpening, sessionOpeningShown, hideSessionOpening]);
 
   /**
@@ -962,13 +1003,13 @@ export default function App() {
         const baseBytes = leafOutputBytes(leafId);
         if (!writeToSession(leafId, `${plan.command}\r`)) {
           console.error(`[verta] terminal ${leafId} closed before resume`);
-          hideSessionOpening(opening);
+          hideSessionOpening(opening, "write-failed");
           return;
         }
         // Wait for the agent's UI before lifting: lifting early exposes a terminal
         // with the command just typed into it.
-        await waitForAgentUi(leafId, baseBytes, plan.command);
-        hideSessionOpening(opening);
+        const wait = await waitForAgentUi(leafId, baseBytes, plan.command);
+        hideSessionOpening(opening, "ui-painted", wait);
       })();
     },
     [newAgentTab, showSessionOpening, hideSessionOpening, setActiveId],
@@ -1020,12 +1061,16 @@ export default function App() {
         await whenSessionReady(tab.activeLeafId);
         const baseBytes = leafOutputBytes(tab.activeLeafId);
         if (!writeToSession(tab.activeLeafId, `${plan.command}\r`)) {
-          hideSessionOpening(opening);
+          hideSessionOpening(opening, "write-failed");
           clearResumeIntent(tab.id, true);
           return;
         }
-        await waitForAgentUi(tab.activeLeafId, baseBytes, plan.command);
-        hideSessionOpening(opening);
+        const wait = await waitForAgentUi(
+          tab.activeLeafId,
+          baseBytes,
+          plan.command,
+        );
+        hideSessionOpening(opening, "ui-painted", wait);
         clearResumeIntent(tab.id, false);
       })();
     }
@@ -1056,11 +1101,11 @@ export default function App() {
           console.error(
             `[verta] terminal ${leafId} closed before starting ${tool}`,
           );
-          hideSessionOpening(opening);
+          hideSessionOpening(opening, "write-failed");
           return;
         }
-        await waitForAgentUi(leafId, baseBytes, command);
-        hideSessionOpening(opening);
+        const wait = await waitForAgentUi(leafId, baseBytes, command);
+        hideSessionOpening(opening, "ui-painted", wait);
       })();
     },
     [newAgentTab, showSessionOpening, hideSessionOpening],
@@ -1088,11 +1133,11 @@ export default function App() {
           console.error(
             `[verta] terminal ${leafId} closed before starting ${tool}`,
           );
-          hideSessionOpening(opening);
+          hideSessionOpening(opening, "write-failed");
           return;
         }
-        await waitForAgentUi(leafId, baseBytes, command);
-        hideSessionOpening(opening);
+        const wait = await waitForAgentUi(leafId, baseBytes, command);
+        hideSessionOpening(opening, "ui-painted", wait);
       })();
     },
     [newAgentTab, showSessionOpening, hideSessionOpening, workspaceEnv],

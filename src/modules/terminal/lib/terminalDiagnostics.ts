@@ -38,10 +38,26 @@ export async function terminalDebugSnapshot() {
   return { ...terminalDebugStats(), native };
 }
 
-export function installTerminalDiagnostics(): void {
+/**
+ * Install the diagnostics globals.
+ *
+ * `extra` is the application's own: this module belongs to the terminal, and the things it knows
+ * about are terminals. What is app-level (the session-opening cover, for one) is supplied by the
+ * entry point, which is where the two are allowed to meet - so a terminal module never has to
+ * import the application to report on it.
+ */
+export function installTerminalDiagnostics(
+  extra: () => Record<string, unknown> = () => ({}),
+): void {
   Object.assign(window, {
-    __vertaTerm: terminalDebugStats,
-    __vertaTermSnapshot: terminalDebugSnapshot,
+    __vertaTerm: () => ({ ...terminalDebugStats(), ...extra() }),
+    __vertaTermSnapshot: async () => {
+      const [stats, native] = await Promise.all([
+        terminalDebugSnapshot(),
+        Promise.resolve(extra()),
+      ]);
+      return { ...stats, ...native };
+    },
     __vertaTermTrace: recordTerminalResources,
   });
 }

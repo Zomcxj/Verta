@@ -53,9 +53,21 @@ setTimeout(showWindow, 50);
 setTimeout(showWindow, 500);
 
 if (terminalDiagnosticsEnabled()) {
-  void import("@/modules/terminal/lib/terminalDiagnostics").then(
-    (diagnostics) => diagnostics.installTerminalDiagnostics(),
-  );
+  void Promise.all([
+    import("@/modules/terminal/lib/terminalDiagnostics"),
+    import("@/app/sessionOpeningLog"),
+    import("@/modules/terminal/lib/terminalSessionApi"),
+  ]).then(([diagnostics, openings, api]) => {
+    diagnostics.installTerminalDiagnostics(() => ({
+      // How long each session-opening cover was up, what lifted it and what the leaf's screen showed
+      // at that instant (`sessionOpeningLog.ts`). Supplied here rather than read by the terminal's
+      // own diagnostics: the cover belongs to the application.
+      sessionOpenings: openings.sessionOpeningRecords(),
+      // One leaf's visible screen, so a probe can measure what the pane shows from moment to
+      // moment while a cover is up, instead of reading a screenshot.
+      screenTail: (leafId: number) => api.leafScreenTail(leafId),
+    }));
+  });
 }
 
 // DEV-only: what the session-opening cover waits on, so a probe can watch one open instead of
