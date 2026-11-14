@@ -59,6 +59,8 @@ export type UsagePayload = {
   /** Oldest first. */
   days: UsageDay[];
   failures: string[];
+  /** The agents this machine has a store for. Anything else is not installed here. */
+  availableTools?: string[];
 };
 
 /** The ranges the window offers. */
@@ -170,6 +172,10 @@ export type UsageRow = {
   events: number;
   /** This row's share of the range total, 0..1. */
   share: number;
+  /** True for the one row that holds every model below the folding threshold. */
+  other?: boolean;
+  /** How many rows this one holds, when it is the folded one. */
+  folded?: number;
 };
 
 /** Everything the window draws for one range, one tool filter and one scope. */
@@ -200,9 +206,11 @@ export function buildView(
     tool: string | null;
     scope: TokenScope;
     today: number;
+    /** Models below this share of the range are summed into one row; 0 keeps every row. */
+    foldBelow?: number;
   },
 ): UsageView {
-  const { range, tool, scope, today } = options;
+  const { range, tool, scope, today, foldBelow = 0 } = options;
   const start = rangeStartDay(range, today);
   const days = payload.days.filter(
     (day) => day.day >= start && (tool === null || dayHasTool(day, tool)),
@@ -284,6 +292,9 @@ export function buildView(
   };
   const tools = rows(byTool);
   const models = rows(byModel);
+  // The favourite is picked before the tail is folded: with a narrow enough range the folded row
+  // could be the biggest one, and "your favourite model is other" is not an answer.
+  const favourite = models[0] ?? null;
 
   return {
     days,
@@ -293,15 +304,74 @@ export function buildView(
     activeDays,
     perDay: activeDays > 0 ? tokens / activeDays : 0,
     peak,
-    favourite: models[0] ?? null,
+    favourite,
     byTool: tools,
-    byModel: models,
+    byModel: foldTail(models, foldBelow),
     streak: streakOf(payload.days, scope, tool, today),
     shareOfAll:
       range === "all"
         ? null
         : ratioOf(tokens, countTokens(payload.parts, scope)),
   };
+}
+
+/** Key of the row that holds the folded tail. */
+export const OTHER_KEY = "other";
+
+/**
+ * Whether the agent row can offer this tool at all.
+ *
+ * A tool with no store on this machine is not installed, and its mark is drawn without being a
+ * button: clicking it would only prove that the window can draw an empty table. `available` is the
+ * payload's list; a payload from before that list existed says nothing, and "unknown" must not grey
+ * out the whole row.
+ */
+export function isToolAvailable(
+  available: readonly string[] | undefined,
+  tool: string | null,
+): boolean {
+  if (tool === null) return true;
+  if (!available) return true;
+  return available.includes(tool);
+}
+
+/**
+ * Sum every row below a share of the range into one, marked `other`.
+ *
+ * A long history has a long tail: this machine's 139 days hold 102 model ids, and most of them are
+ * one afternoon on a trial key. The tail is real usage and must not be dropped - it is usually a
+ * percent or two of the total - but a hundred rows of 0.02% cannot be read, so they become one row
+ * the caller names ("其他"). `threshold` is a fraction, and 0 keeps every row.
+ */
+export function foldTail(rows: UsageRow[], threshold: number): UsageRow[] {
+  if (threshold <= 0) return rows;
+  const kept: UsageRow[] = [];
+  let folded: UsageRow | null = null;
+  for (const row of rows) {
+    if (row.share >= threshold) {
+      kept.push(row);
+      continue;
+    }
+    folded ??= {
+      key: OTHER_KEY,
+      label: "",
+      provider: null,
+      model: null,
+      parts: EMPTY_PARTS,
+      tokens: 0,
+      events: 0,
+      share: 0,
+      other: true,
+      folded: 0,
+    };
+    folded.parts = addParts(folded.parts, row.parts);
+    folded.tokens += row.tokens;
+    folded.events += row.events;
+    folded.share += row.share;
+    folded.folded = (folded.folded ?? 0) + 1;
+  }
+  if (folded) kept.push(folded);
+  return kept;
 }
 
 function dayHasTool(day: UsageDay, tool: string): boolean {

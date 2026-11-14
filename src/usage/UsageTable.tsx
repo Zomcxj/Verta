@@ -2,6 +2,43 @@ import { cn } from "@/lib/utils";
 import { useMemo, useState } from "react";
 import { compactTokens, percentText, type UsageRow } from "./tokens";
 
+/** The wedge, drawn in a 20-unit box so a 16px render still has clean edges. */
+function SharePie({ share, color }: { share: number; color: string }) {
+  const radius = 8;
+  const center = 10;
+  const sweep = Math.min(1, Math.max(0, share));
+  // A full turn has no start and no end, and an arc from a point to itself draws nothing.
+  const path =
+    sweep >= 0.9995
+      ? `M ${center} ${center - radius} A ${radius} ${radius} 0 1 1 ${center - 0.01} ${center - radius} Z`
+      : sweep <= 0.0005
+        ? ""
+        : (() => {
+            const angle = sweep * Math.PI * 2 - Math.PI / 2;
+            const x = center + radius * Math.cos(angle);
+            const y = center + radius * Math.sin(angle);
+            const large = sweep > 0.5 ? 1 : 0;
+            return `M ${center} ${center} L ${center} ${center - radius} A ${radius} ${radius} 0 ${large} 1 ${x} ${y} Z`;
+          })();
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      width={14}
+      height={14}
+      className="shrink-0"
+      aria-hidden="true"
+    >
+      <circle
+        cx={center}
+        cy={center}
+        r={radius}
+        className="fill-foreground/10"
+      />
+      {path ? <path d={path} fill={color} /> : null}
+    </svg>
+  );
+}
+
 export type SortKey =
   | "name"
   | "total"
@@ -11,6 +48,8 @@ export type SortKey =
   | "share";
 
 type Props = {
+  /** A stable name for the probe: the two tables share row markup, so the rows need a scope. */
+  id: string;
   /** Header of the first column, which is the one the rows are named by. */
   nameHeader: string;
   labels: {
@@ -29,9 +68,11 @@ type Props = {
   onPick?: (row: UsageRow) => void;
   /** An agent mark before the name, so a tool row is recognisable without reading it. */
   iconOf?: (row: UsageRow) => React.ReactNode;
+  /** The colour of a row's share pie. */
+  pieColorOf?: (row: UsageRow) => string;
 };
 
-const NUM_COLUMNS = "62px 62px 62px 62px 48px";
+const NUM_COLUMNS = "58px 58px 58px 58px 30px";
 
 /** Which way a newly chosen column sorts: names read up, numbers read down. */
 function defaultDescending(key: SortKey): boolean {
@@ -56,6 +97,7 @@ function sortValue(row: UsageRow, key: SortKey): string | number {
 }
 
 export function UsageTable({
+  id,
   nameHeader,
   labels,
   rows,
@@ -64,6 +106,7 @@ export function UsageTable({
   emptyLabel,
   onPick,
   iconOf,
+  pieColorOf,
 }: Props) {
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
     key: "total",
@@ -87,6 +130,8 @@ export function UsageTable({
     return list;
   }, [rows, sort]);
 
+  const total = sorted.reduce((sum, row) => sum + row.tokens, 0);
+
   const header = (label: string, key: SortKey, extra?: string) => (
     <button
       type="button"
@@ -109,7 +154,7 @@ export function UsageTable({
   );
 
   return (
-    <div className="text-[11px]">
+    <div className="text-[11px]" data-usage-table={id}>
       <div
         className="grid items-center gap-1 pb-1 text-[10px]"
         style={{ gridTemplateColumns: `minmax(0, 1fr) ${NUM_COLUMNS}` }}
@@ -175,11 +220,15 @@ export function UsageTable({
               <span className="text-right tabular-nums text-muted-foreground">
                 {compactTokens(row.parts.cacheRead)}
               </span>
-              <span className="text-right tabular-nums text-muted-foreground">
-                {percentText(
-                  row.tokens,
-                  sorted.reduce((sum, r) => sum + r.tokens, 0),
-                )}
+              <span
+                className="flex justify-end"
+                // The number is gone from the cell but not from the interface: hovering says it.
+                title={percentText(row.tokens, total)}
+              >
+                <SharePie
+                  share={row.tokens / total}
+                  color={pieColorOf?.(row) ?? "var(--color-primary, currentColor)"}
+                />
               </span>
             </button>
           ))}

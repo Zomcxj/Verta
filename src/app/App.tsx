@@ -30,6 +30,7 @@ import { FileExplorer, type FileExplorerHandle } from "@/modules/explorer";
 import type { GitHistorySearchHandle } from "@/modules/git-history";
 import {
   Header,
+  SearchInline,
   type SearchInlineHandle,
   type SearchTarget,
 } from "@/modules/header";
@@ -1986,8 +1987,6 @@ export default function App() {
               onOpenCommandPalette={openCommandPaletteFromHeader}
               onOpenSettings={openSettingsFromHeader}
               onOpenUsage={openUsageFromHeader}
-              searchTarget={searchTarget}
-              searchRef={searchInlineRef}
               onOverrideLanguage={setOverrideLanguage}
             />
           )}
@@ -2094,6 +2093,10 @@ export default function App() {
                   className="h-full min-h-0 px-0.5"
                 >
                   <div className="verta-pane flex h-full min-h-0 flex-col">
+                    {/* `relative` is for the find box: it floats over the workspace's top-right
+                        corner while it is open, instead of standing in the header and pushing the
+                        pane down. It is inside this box, not the shell, so an open Git panel to the
+                        right does not end up underneath it. */}
                     <div className="relative min-h-0 flex-1">
                       <WorkspaceSurface
                         tabs={tabs}
@@ -2121,6 +2124,7 @@ export default function App() {
                         sessionOpening={sessionOpeningShown}
                         sessionOpeningTool={sessionOpening?.tool ?? null}
                       />
+                      <SearchInline ref={searchInlineRef} target={searchTarget} />
                     </div>
 
                     <WorkspaceInputBar

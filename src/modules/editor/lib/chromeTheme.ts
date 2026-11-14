@@ -277,16 +277,29 @@ const chrome = EditorView.theme({
   },
   ".cm-lint-marker": { display: "none" },
 
+  // The find panel floats over the code, in the file's top-right corner, instead of pushing it down
+  // as a full-width bar. It is only there while someone is searching, which is what "使用时" means:
+  // the editor keeps the whole height it had until the shortcut is pressed.
+  ".cm-panels.cm-panels-top": {
+    position: "absolute",
+    top: "6px",
+    right: "6px",
+    left: "auto",
+    zIndex: "30",
+    maxWidth: "calc(100% - 12px)",
+  },
   ".cm-panel.cm-search, .cm-panel.cm-gotoLine": {
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
     gap: "6px",
-    padding: "6px 8px",
+    padding: "6px 26px 6px 8px",
     fontSize: "12px",
     fontFamily: "inherit",
     backgroundColor: "var(--popover)",
-    borderBottom: "1px solid var(--border)",
+    border: "1px solid var(--border)",
+    borderRadius: "8px",
+    boxShadow: "0 6px 20px color-mix(in srgb, var(--foreground) 18%, transparent)",
   },
   ".cm-panel.cm-search br": { display: "none" },
   ".cm-panel .cm-textfield": {

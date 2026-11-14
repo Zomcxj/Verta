@@ -5,7 +5,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { WindowControls } from "@/components/WindowControls";
-import { AgentIcon } from "@/modules/launcher/lib/agentIcon";
+import { AgentIcon, agentColor } from "@/modules/launcher/lib/agentIcon";
 import { IS_MAC } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { useLanguage, useT } from "@/modules/i18n";
@@ -30,6 +30,7 @@ import {
   CHART_RANGES,
   type ChartRange,
   dayOf,
+  isToolAvailable,
   localOffsetMinutes,
   type TokenScope,
   USAGE_RANGES,
@@ -63,6 +64,16 @@ const HEATMAP_WEEKS = 53;
  * (zcode, workbuddy, dsh) are usage only, which is all they record. Claude Code's history here also
  * carries the days its transcripts no longer exist for, through the cc-switch ledger.
  */
+/**
+ * The shares the model table can fold at, in percent.
+ *
+ * A long history has a long tail of models used once; 1% is the default because it keeps the models
+ * that shape the total and drops the noise, and the others are there for the runs where the answer
+ * changes - a month with twenty near-equal models reads better at 5%.
+ */
+const FOLD_STEPS = [0.5, 0.8, 1, 2, 5] as const;
+const FOLD_DEFAULT = 0.01;
+
 const TOOLS = [
   "claude",
   "pi",
@@ -76,6 +87,7 @@ export function UsageApp(): JSX.Element {
   const t = useT();
   const language = useLanguage();
   const [range, setRange] = useState<UsageRange>("month");
+  const [foldBelow, setFoldBelow] = useState(FOLD_DEFAULT);
   const [chartRange, setChartRange] = useState<ChartRange>(30);
   const [chartKind, setChartKind] = useState<"bars" | "line">("bars");
   const [tool, setTool] = useState<string | null>(null);
@@ -130,11 +142,15 @@ export function UsageApp(): JSX.Element {
   }, [t]);
 
   const offset = payload?.offsetMinutes ?? localOffsetMinutes();
+
   const today = dayOf(Date.now(), offset);
 
   const view = useMemo(
-    () => (payload ? buildView(payload, { range, tool, scope, today }) : null),
-    [payload, range, tool, scope, today],
+    () =>
+      payload
+        ? buildView(payload, { range, tool, scope, today, foldBelow })
+        : null,
+    [payload, range, tool, scope, today, foldBelow],
   );
   const trend = useMemo(
     () =>
@@ -178,6 +194,7 @@ export function UsageApp(): JSX.Element {
               tokens: row.tokens,
             })),
             models: view.byModel.length,
+            availableTools: payload.availableTools ?? null,
             modelOf: view.byModel.slice(0, 3).map((row) => ({
               label: row.label,
               tokens: row.tokens,
@@ -207,6 +224,7 @@ export function UsageApp(): JSX.Element {
     label: (value: T) => string,
     ariaLabel: string,
     iconOf?: (value: T) => ReactNode,
+    disabledOf?: (value: T) => boolean,
   ) => (
     <div
       role="tablist"
@@ -216,6 +234,23 @@ export function UsageApp(): JSX.Element {
       {values.map((value) => {
         const icon = iconOf?.(value) ?? null;
         const text = label(value);
+        // An agent that is not installed here has nothing to filter to. Its mark stays in the row -
+        // the set of agents the window knows does not change with what is installed - but it is not
+        // a button, so it neither takes a click nor a tab stop.
+        if (disabledOf?.(value)) {
+          return (
+            <span
+              key={String(value)}
+              data-usage-chip={String(value)}
+              data-usage-unavailable
+              aria-disabled="true"
+              title={`${text} · ${t("usage.notInstalled")}`}
+              className="flex cursor-not-allowed items-center rounded px-1.5 py-[3px] opacity-40"
+            >
+              {icon}
+            </span>
+          );
+        }
         // A chip that has a mark says what it is with the mark alone; the name is one hover away.
         // Six agents plus their names is most of an 880px header, and the marks are what a glance
         // reads anyway. The name stays as the accessible name, so it is still spoken.
@@ -320,6 +355,7 @@ export function UsageApp(): JSX.Element {
           // The same marks the session list uses, so "which agent" is read at a glance here too.
           (value) =>
             value === null ? null : <AgentIcon agent={value} size={11} />,
+          (value) => !isToolAvailable(payload?.availableTools, value),
         )}
         <span className="text-[10px] text-muted-foreground">
           {view
@@ -412,6 +448,7 @@ export function UsageApp(): JSX.Element {
                   streak: t("usage.streak"),
                   perDay: t("usage.perDay"),
                   peakDay: t("usage.peakDay"),
+                requests: t("usage.requests"),
                   favourite: t("usage.favourite"),
                   shareOfAll: t("usage.shareOfAll"),
                   daysUnit: (count) => t("usage.daysUnit", { count }),
@@ -480,6 +517,7 @@ export function UsageApp(): JSX.Element {
                 t("usage.agent"),
                 null,
                 <UsageTable
+                  id="agent"
                   nameHeader={t("usage.colAgent")}
                   labels={{
                     total: t("usage.colTotal"),
@@ -493,16 +531,45 @@ export function UsageApp(): JSX.Element {
                   iconOf={(row) => (
                     <AgentIcon agent={row.tool ?? row.label} size={12} />
                   )}
+                  pieColorOf={(row) => agentColor(row.tool ?? row.label)}
                   emptyLabel={t("usage.empty")}
                   onPick={(row) => setTool(row.tool ?? null)}
                 />,
               )}
               {card(
                 t("usage.models"),
-                <span className="text-[9.5px] text-muted-foreground">
-                  {view.byModel.length}
-                </span>,
+                <>
+                  <span className="text-[9.5px] text-muted-foreground">
+                    {view.byModel.length}
+                  </span>
+                  <span className="ml-auto flex items-center gap-1.5">
+                    <span className="text-[9.5px] text-muted-foreground">
+                      {t("usage.foldBelow")}
+                    </span>
+                  <span className="flex items-center gap-0.5 rounded-md bg-foreground/[0.05] p-0.5">
+                    {FOLD_STEPS.map((step) => (
+                      <button
+                        key={step}
+                        type="button"
+                        data-usage-chip={`fold-${step}`}
+                        aria-pressed={Math.abs(foldBelow - step / 100) < 1e-9}
+                        onClick={() => setFoldBelow(step / 100)}
+                        className={cn(
+                          "cursor-pointer rounded px-1.5 py-0.5 text-[10px] tabular-nums outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary/40",
+                          Math.abs(foldBelow - step / 100) < 1e-9
+                            ? "bg-primary font-medium text-primary-foreground"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {step}%
+                        </button>
+                      ))}
+                    </span>
+                  </span>
+                </>,
+                
                 <UsageTable
+                  id="models"
                   nameHeader={t("usage.colModel")}
                   labels={{
                     total: t("usage.colTotal"),
@@ -512,8 +579,16 @@ export function UsageApp(): JSX.Element {
                     share: t("usage.colShare"),
                   }}
                   rows={view.byModel}
-                  nameOf={(row) => row.model ?? t("usage.unnamedModel")}
-                  noteOf={(row) => row.provider ?? t("usage.unnamedProvider")}
+                  nameOf={(row) =>
+                    row.other
+                      ? t("usage.other")
+                      : (row.model ?? t("usage.unnamedModel"))
+                  }
+                  noteOf={(row) =>
+                    row.other
+                      ? t("usage.foldedModels", { count: row.folded ?? 0 })
+                      : (row.provider ?? t("usage.unnamedProvider"))
+                  }
                   emptyLabel={t("usage.empty")}
                 />,
               )}

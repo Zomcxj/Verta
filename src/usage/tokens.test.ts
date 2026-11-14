@@ -11,6 +11,9 @@ import {
   MAX_SERIES,
   mondayIndex,
   OTHER_SERIES_KEY,
+  foldTail,
+  isToolAvailable,
+  OTHER_KEY,
   percentText,
   quantiles,
   rangeStartDay,
@@ -407,6 +410,106 @@ describe("buildHeatmap", () => {
     expect(quantiles([1, 2, 3, 4], [0.25, 0.5, 0.75])).toEqual([1, 2, 3]);
     // Duplicate cuts are pushed apart rather than leaving a level unreachable.
     expect(quantiles([5, 5, 5, 5], [0.25, 0.5, 0.75])).toEqual([5, 6, 7]);
+  });
+});
+
+describe("folding the model tail", () => {
+  const range = () =>
+    payload([
+      day(-1, [
+        cell("opencode", null, "big", { input: 900 }),
+        cell("opencode", null, "mid", { input: 90 }),
+        cell("opencode", null, "tiny-a", { input: 6 }),
+        cell("opencode", null, "tiny-b", { input: 4 }),
+      ]),
+    ]);
+
+  it("sums the rows below the share into one, and keeps every token", () => {
+    const data = range();
+    const folded = buildView(data, {
+      range: "all",
+      tool: null,
+      scope: both,
+      today: BASE,
+      foldBelow: 0.01,
+    });
+    // 900 + 90 + 6 + 4; anything under 1% of 1000 (10) is folded. The folded row carries no label:
+    // the window names it in the user's language.
+    expect(folded.byModel.map((row) => row.label)).toEqual(["big", "mid", ""]);
+    expect(folded.byModel[folded.byModel.length - 1]?.key).toBe(OTHER_KEY);
+    const other = folded.byModel.find((row) => row.other);
+    expect(other?.tokens).toBe(10);
+    expect(other?.folded).toBe(2);
+    expect(folded.byModel.reduce((sum, row) => sum + row.tokens, 0)).toBe(1000);
+    expect(folded.tokens).toBe(1000);
+  });
+
+  it("keeps the favourite before the fold, so it is never the folded row", () => {
+    const data = payload([
+      day(-1, [
+        cell("opencode", null, "a", { input: 60 }),
+        cell("opencode", null, "b", { input: 40 }),
+      ]),
+    ]);
+    const folded = buildView(data, {
+      range: "all",
+      tool: null,
+      scope: both,
+      today: BASE,
+      foldBelow: 0.5,
+    });
+    // 60% survives a 50% threshold, 40% does not.
+    expect(folded.byModel).toHaveLength(2);
+    expect(folded.byModel[1]?.other).toBe(true);
+    expect(folded.byModel[1]?.folded).toBe(1);
+    expect(folded.favourite?.label).toBe("a");
+  });
+
+  it("keeps every row at zero, which is what the summary and the chart read", () => {
+    const data = range();
+    const unfolded = buildView(data, {
+      range: "all",
+      tool: null,
+      scope: both,
+      today: BASE,
+    });
+    expect(unfolded.byModel).toHaveLength(4);
+    expect(unfolded.byModel.some((row) => row.other)).toBe(false);
+  });
+
+  it("folds nothing when nothing is below the threshold", () => {
+    const rows = [
+      { share: 0.6 },
+      { share: 0.4 },
+    ].map(({ share }) => ({
+      key: "k",
+      label: "l",
+      provider: null,
+      model: null,
+      parts: parts(),
+      tokens: 0,
+      events: 0,
+      share,
+    }));
+    const kept = foldTail(rows, 0.01);
+    expect(kept).toHaveLength(2);
+    expect(kept.some((row) => row.other)).toBe(false);
+  });
+});
+
+describe("which agents can be filtered to", () => {
+  it("offers a tool the machine has a store for, and not one it does not", () => {
+    const available = ["opencode", "pi"];
+    expect(isToolAvailable(available, "opencode")).toBe(true);
+    expect(isToolAvailable(available, "dsh")).toBe(false);
+  });
+
+  it("always offers the neutral chip", () => {
+    expect(isToolAvailable([], null)).toBe(true);
+  });
+
+  it("treats a payload without a list as everything available", () => {
+    expect(isToolAvailable(undefined, "dsh")).toBe(true);
   });
 });
 

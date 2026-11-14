@@ -1,8 +1,7 @@
-import { useT } from "@/modules/i18n";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { KEY_SEP } from "@/lib/platform";
 import type { EditorPaneHandle } from "@/modules/editor";
+import { useT } from "@/modules/i18n";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { getBindingTokens, SHORTCUTS } from "@/modules/shortcuts/shortcuts";
 import type { TerminalSearchController } from "@/modules/terminal/search/TerminalSearchController";
@@ -39,58 +38,55 @@ export type SearchInlineHandle = { focus: () => void };
 
 type Props = {
   target: SearchTarget;
-  /** When true, collapse to an icon-only button until the user opens it. */
-  compact?: boolean;
 };
 
+/**
+ * The find box, floating over the pane it searches.
+ *
+ * It used to be a field standing in the header, always there, whatever the tab was: 192px of the
+ * chrome spent on a box that is empty most of the time, labelled with a shortcut nobody needs told.
+ * It is now drawn only while it is being used, in the top-right corner of the active pane, and the
+ * pane underneath keeps its full height - the box sits over the terminal or the Git history rather
+ * than pushing them down.
+ *
+ * Escape closes it, as does an empty box losing focus; a box with a query stays until it is closed,
+ * because reading the matches underneath is the point.
+ */
 export const SearchInline = forwardRef<SearchInlineHandle, Props>(
-  function SearchInline({ target, compact }, ref) {
-  const t = useT();
+  function SearchInline({ target }, ref) {
+    const t = useT();
+    const [open, setOpen] = useState(false);
     const [q, setQ] = useState("");
-    // In compact mode the field is hidden behind an icon until activated.
-    // In normal mode the field is always present.
-    const [openInCompact, setOpenInCompact] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
-    const pendingFocusRef = useRef(false);
-    const setInputRef = useCallback((el: HTMLInputElement | null) => {
-      inputRef.current = el;
-      if (!el || !pendingFocusRef.current) return;
-      pendingFocusRef.current = false;
-      el.focus();
-    }, []);
 
     const userShortcuts = usePreferencesStore((s) => s.shortcuts);
 
     const shortcutText = useMemo(() => {
-      const s = SHORTCUTS.find((s) => s.id === "search.focus");
+      const s = SHORTCUTS.find((entry) => entry.id === "search.focus");
       if (!s) return "";
       const bindings = userShortcuts["search.focus"] || s.defaultBindings;
       if (!bindings || bindings.length === 0) return "";
-      const tokens = getBindingTokens(bindings[0]);
-      return tokens.join(KEY_SEP);
+      return getBindingTokens(bindings[0]).join(KEY_SEP);
     }, [userShortcuts]);
 
     const baseLabel =
       target?.kind === "git-history" ? t("header.search.git") : t("header.search");
 
-    const placeholder = useMemo(() => {
-      return shortcutText ? `${baseLabel} (${shortcutText})` : baseLabel;
-    }, [baseLabel, shortcutText]);
-
-    const tooltipTitle = useMemo(() => {
-      return shortcutText ? `${baseLabel} (${shortcutText})` : baseLabel;
-    }, [baseLabel, shortcutText]);
-
-    const expanded = !compact || openInCompact;
+    const placeholder = shortcutText
+      ? `${baseLabel} (${shortcutText})`
+      : baseLabel;
 
     const focus = useCallback(() => {
-      pendingFocusRef.current = true;
-      if (compact) setOpenInCompact(true);
-      else inputRef.current?.focus();
-      if (inputRef.current) pendingFocusRef.current = false;
-    }, [compact]);
+      if (!target) return;
+      setOpen(true);
+    }, [target]);
 
     useImperativeHandle(ref, () => ({ focus }), [focus]);
+
+    // The field does not exist until the box opens, so the focus waits for the render that makes it.
+    useEffect(() => {
+      if (open) inputRef.current?.focus();
+    }, [open]);
 
     const clearTarget = useCallback(() => {
       if (!target) return;
@@ -103,8 +99,20 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
       target.focus();
     }, [target]);
 
-    // Target switched (terminal ↔ editor) or removed → drop highlights.
-    useEffect(() => clearTarget, [clearTarget]);
+    const close = useCallback(() => {
+      setOpen(false);
+      setQ("");
+      clearTarget();
+      restoreTargetFocus();
+    }, [clearTarget, restoreTargetFocus]);
+
+    // Target switched (terminal ↔ editor) or removed → drop highlights. A box left open over a tab
+    // that is no longer there would search the wrong pane.
+    useEffect(() => {
+      clearTarget();
+      setOpen(false);
+      setQ("");
+    }, [clearTarget]);
 
     const applyIncremental = (next: string) => {
       if (!target) return;
@@ -135,75 +143,51 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
       // git-history: the list filters live; Enter has no next/prev semantics.
     };
 
+    if (!open || !target) return null;
+
     return (
       <div
-        className="relative h-7 shrink-0 transition-[width] duration-200 ease-out"
-        style={{ width: expanded ? 192 : 28 }}
+        data-search-float
+        className="absolute top-2 right-3 z-40 flex h-8 items-center gap-1.5 rounded-lg border border-border/80 bg-popover/95 pr-1 pl-2 shadow-lg backdrop-blur-sm animate-in fade-in-0 slide-in-from-top-1 duration-150"
       >
-        {expanded ? (
-          <div className="absolute inset-0 animate-in fade-in-0 duration-150">
-            <HugeiconsIcon
-              icon={Search01Icon}
-              size={13}
-              strokeWidth={1.75}
-              className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              ref={setInputRef}
-              value={q}
-              placeholder={placeholder}
-              className="h-7 w-full bg-muted/80 pr-7 pl-7 text-[13px]! placeholder:text-muted-foreground/70 focus-visible:ring-0"
-              onChange={(e) => {
-                const next = e.target.value;
-                setQ(next);
-                applyIncremental(next);
-              }}
-              onBlur={() => {
-                if (compact && !q) setOpenInCompact(false);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  findDirection(!e.shiftKey);
-                } else if (e.key === "Escape") {
-                  e.preventDefault();
-                  clearTarget();
-                  setQ("");
-                  if (compact) {
-                    setOpenInCompact(false);
-                  }
-                  restoreTargetFocus();
-                }
-              }}
-            />
-            {q && (
-              <button
-                type="button"
-                onClick={() => {
-                  setQ("");
-                  clearTarget();
-                  inputRef.current?.focus();
-                }}
-                className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-label={t("header.clearSearch")}
-              >
-                <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-end animate-in fade-in-0 duration-150">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-              onClick={focus}
-              title={tooltipTitle}
-            >
-              <HugeiconsIcon icon={Search01Icon} size={15} strokeWidth={1.75} />
-            </Button>
-          </div>
-        )}
+        <HugeiconsIcon
+          icon={Search01Icon}
+          size={13}
+          strokeWidth={1.75}
+          className="pointer-events-none shrink-0 text-muted-foreground"
+        />
+        <Input
+          ref={inputRef}
+          value={q}
+          placeholder={placeholder}
+          className="h-6 w-[190px] border-0 bg-transparent px-0 text-[12.5px]! shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0"
+          onChange={(event) => {
+            const next = event.target.value;
+            setQ(next);
+            applyIncremental(next);
+          }}
+          onBlur={() => {
+            // An empty box is not a search: it goes away as soon as it is left.
+            if (!q) setOpen(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              findDirection(!event.shiftKey);
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              close();
+            }
+          }}
+        />
+        <button
+          type="button"
+          onClick={close}
+          className="shrink-0 rounded p-1 text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+          aria-label={t("header.clearSearch")}
+        >
+          <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+        </button>
       </div>
     );
   },

@@ -16,12 +16,7 @@ import {
   SidebarRightIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { type RefObject, useEffect, useRef, useState } from "react";
-import {
-  SearchInline,
-  type SearchInlineHandle,
-  type SearchTarget,
-} from "./SearchInline";
+import { useEffect, useRef, useState } from "react";
 
 type Props = {
   tabs: Tab[];
@@ -64,8 +59,6 @@ type Props = {
   onOpenSettings: () => void;
   /** The usage window: what the three tools spent, per day and per model. */
   onOpenUsage: () => void;
-  searchTarget: SearchTarget;
-  searchRef: RefObject<SearchInlineHandle | null>;
 };
 
 const COMPACT_WIDTH = 720;
@@ -97,8 +90,6 @@ export function Header({
   onOpenCommandPalette,
   onOpenSettings,
   onOpenUsage,
-  searchTarget,
-  searchRef,
 }: Props) {
   const t = useT();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -211,7 +202,7 @@ export function Header({
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
       </div>
 
-      <SearchInline ref={searchRef} target={searchTarget} compact={compact} />
+      {usageButton}
 
       <NotificationBell tabs={tabs} onJump={onSelect} />
 
@@ -259,8 +250,6 @@ export function Header({
           </span>
         ) : null}
       </Button>
-
-      {usageButton}
 
       {IS_MAC && settingsButton}
 

@@ -129,20 +129,63 @@ pub async fn agent_sessions_delete(targets: Vec<SessionTarget>) -> DeleteReport 
 ///
 /// `offset_minutes` is the window's time zone. Only the cc-switch ledger needs it: its rows are dated,
 /// and a date has to be turned into an instant before it can join the stream.
-pub fn usage_events(since_ms: Option<i64>, offset_minutes: i32) -> usage::UsageReadReport {
-    usage_events_at(
-        UsageStores {
-            claude: &claude::usage_roots(),
-            pi: pi::default_root().as_deref(),
-            opencode: opencode::default_db_path().as_deref(),
-            zcode: zcode::default_db_path().as_deref(),
-            workbuddy: &workbuddy::usage_roots(),
-            dsh: &dsh::usage_roots(),
-            ccswitch: ccswitch::default_db_path().as_deref(),
-        },
-        since_ms,
-        offset_minutes,
-    )
+pub fn usage_events(since_ms: Option<i64>, offset_minutes: i32) -> UsageRead {
+    // The single-path stores are bound first: `as_deref` would otherwise borrow a temporary that the
+    // struct literal drops before it is read.
+    let pi_root = pi::default_root();
+    let opencode_db = opencode::default_db_path();
+    let zcode_db = zcode::default_db_path();
+    let ccswitch_db = ccswitch::default_db_path();
+    let stores = UsageStores {
+        claude: &claude::usage_roots(),
+        pi: pi_root.as_deref(),
+        opencode: opencode_db.as_deref(),
+        zcode: zcode_db.as_deref(),
+        workbuddy: &workbuddy::usage_roots(),
+        dsh: &dsh::usage_roots(),
+        ccswitch: ccswitch_db.as_deref(),
+    };
+    UsageRead {
+        available: available_tools(&stores),
+        report: usage_events_at(stores, since_ms, offset_minutes),
+    }
+}
+
+/// What one read produced.
+pub struct UsageRead {
+    pub report: usage::UsageReadReport,
+    /// The agents this machine actually has a store for, in the window's order.
+    pub available: Vec<&'static str>,
+}
+
+/// Which agents are installed, judged by whether their store is there at all.
+///
+/// The window draws a mark for every agent it knows and greys out the ones that are not here: an
+/// agent that is not installed has nothing to filter to, and offering the filter anyway makes the
+/// window look broken rather than empty. This is deliberately *not* "has usage": an installed agent
+/// with nothing in the range is a normal thing to click, and the report already says the range is
+/// empty (see the rule that a missing store and an empty session list are not errors).
+pub fn available_tools(stores: &UsageStores<'_>) -> Vec<&'static str> {
+    let mut available = Vec::new();
+    if stores.claude.iter().any(|root| root.is_dir()) {
+        available.push(claude::TOOL);
+    }
+    if stores.pi.is_some_and(|path| path.is_dir()) {
+        available.push(pi::TOOL);
+    }
+    if stores.opencode.is_some_and(|path| path.is_file()) {
+        available.push(opencode::TOOL);
+    }
+    if stores.zcode.is_some_and(|path| path.is_file()) {
+        available.push(zcode::TOOL);
+    }
+    if stores.workbuddy.iter().any(|root| root.is_dir()) {
+        available.push(workbuddy::TOOL);
+    }
+    if stores.dsh.iter().any(|root| root.is_dir()) {
+        available.push(dsh::TOOL);
+    }
+    available
 }
 
 /// The stores a usage read draws on, each optional.
@@ -280,6 +323,8 @@ pub struct UsagePayload {
     pub days: Vec<UsageDayRow>,
     /// Stores that could not be read. A window shows them; they are not an empty result.
     pub failures: Vec<String>,
+    /// The agents this machine has a store for: the window greys out the rest.
+    pub available_tools: Vec<&'static str>,
 }
 
 /// Usage over a range, per day, broken down by tool and model inside each day.
@@ -302,7 +347,8 @@ pub async fn agent_usage_events(
         cache_write: cache_write.unwrap_or(true),
     };
     crate::modules::fs::blocking(move || {
-        let report = usage_events(since_ms, offset);
+        let read = usage_events(since_ms, offset);
+        let UsageRead { report, available } = read;
         let folded = report.aggregate(offset);
         let tokens = folded.totals.counted(scope);
         let excluded_cache_read = if scope.cache_read {
@@ -352,6 +398,7 @@ pub async fn agent_usage_events(
             excluded_cache_write,
             days,
             failures: report.failures,
+            available_tools: available,
         })
     })
     .await
@@ -552,6 +599,25 @@ mod usage_tests {
         );
         assert_eq!(ranged.events.len(), 2);
         assert_eq!(ranged.aggregate(0).totals.tokens.total(), 97);
+    }
+
+    /// "Installed" is the store being on disk, not usage being in it: an agent with nothing in the
+    /// range is still a normal filter to click, and the report already says the range is empty.
+    #[test]
+    fn only_the_agents_with_a_store_are_offered_for_filtering() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let pi = dir.path().join("pi");
+        std::fs::create_dir_all(&pi).expect("pi dir");
+        let opencode = dir.path().join("opencode.db");
+        std::fs::write(&opencode, b"").expect("opencode db");
+
+        let available = available_tools(&UsageStores {
+            pi: Some(&pi),
+            opencode: Some(&opencode),
+            ..UsageStores::default()
+        });
+        assert_eq!(available, vec!["pi", "opencode"]);
+        assert!(available_tools(&UsageStores::default()).is_empty());
     }
 
     #[test]

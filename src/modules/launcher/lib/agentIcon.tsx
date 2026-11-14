@@ -48,7 +48,7 @@ function iconFor(agent: string): IconSvgElement {
 }
 
 /**
- * The colour an agent's drawn mark takes, for the agents that have no shipped one.
+ * The colour an agent is known by, whether its mark is drawn or shipped.
  *
  * Claude Code's mark is drawn rather than shipped, and it is drawn in the agent's own clay: the
  * session list, the usage window's chips and its agent table all show it next to other agents' marks
@@ -57,10 +57,17 @@ function iconFor(agent: string): IconSvgElement {
  */
 const AGENT_COLORS: { match: string[]; color: string }[] = [
   { match: ["claude"], color: "#D97757" },
+  { match: ["opencode"], color: "#22C55E" },
+  { match: ["zcode"], color: "#2563EB" },
+  { match: ["workbuddy", "codebuddy"], color: "#F59E0B" },
+  { match: ["dsh", "deepseek"], color: "#06B6D4" },
   { match: ["gemini"], color: "#4285F4" },
   { match: ["grok"], color: "#64748B" },
   { match: ["codex", "gpt", "openai"], color: "#10A37F" },
 ];
+
+/** `pi` is its own name rather than a substring: "copilot" and "api" are not pi. */
+const PI_COLOR = "#A855F7";
 
 /** An agent this table has never heard of still gets a colour, so it is not the odd grey one out. */
 const FALLBACK_COLOR = "#0EA5E9";
@@ -68,6 +75,7 @@ const FALLBACK_COLOR = "#0EA5E9";
 /** The colour this agent's drawn mark takes. */
 export function agentColor(agent: string): string {
   const a = agent.trim().toLowerCase();
+  if (a === "pi") return PI_COLOR;
   for (const { match, color } of AGENT_COLORS) {
     if (match.some((name) => a.includes(name))) return color;
   }

@@ -58,6 +58,7 @@ type Props = {
     streak: string;
     perDay: string;
     peakDay: string;
+    requests: string;
     favourite: string;
     shareOfAll: string;
     daysUnit: (count: number) => string;
@@ -123,6 +124,12 @@ export function SummaryCard({
       note: peakNote,
     },
     {
+      // One event is one answer the agent paid for: a request, in the tool's own terms.
+      label: labels.requests,
+      value: view.events.toLocaleString(language),
+      note: null,
+    },
+    {
       label: labels.favourite,
       value: view.favourite
         ? (view.favourite.model ?? labels.unnamedModel)
@@ -160,7 +167,7 @@ export function SummaryCard({
 
       {barTotal > 0 ? (
         <>
-          <div className="mt-2.5 flex h-2 w-full overflow-hidden rounded-[3px]">
+          <div className="mt-2.5 flex h-2.5 w-full overflow-hidden rounded-[3px]">
             {classes.map((entry, index) =>
               entry.value <= 0 ? null : (
                 <span
@@ -178,35 +185,40 @@ export function SummaryCard({
               ),
             )}
           </div>
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+          {/* The four classes are the first thing a person reads under the headline, so they are
+              drawn as four blocks rather than a line of footnotes: the share at a size the eye
+              lands on, the tokens under it. */}
+          <div className="mt-2 grid grid-cols-4 gap-x-3">
             {classes.map((entry, index) =>
               entry.value <= 0 ? null : (
-                <span
-                  key={entry.label}
-                  className="flex items-center gap-1 text-[9.5px] text-muted-foreground"
-                >
-                  <span
-                    className="size-2 rounded-[2px]"
-                    style={{
-                      background: colors[index],
-                      opacity: entry.counted ? 1 : 0.3,
-                    }}
-                  />
-                  {entry.label}
-                  <span className="tabular-nums">
+                <div key={entry.label} className="min-w-0">
+                  <div className="flex items-center gap-1 text-[9.5px] text-muted-foreground">
+                    <span
+                      className="size-2 shrink-0 rounded-[2px]"
+                      style={{
+                        background: colors[index],
+                        opacity: entry.counted ? 1 : 0.3,
+                      }}
+                    />
+                    <span className="truncate">{entry.label}</span>
+                  </div>
+                  <div
+                    className="text-[15px] font-semibold tabular-nums text-foreground"
+                    style={{ opacity: entry.counted ? 1 : 0.45 }}
+                  >
                     {percentText(entry.value, barTotal)}
-                  </span>
-                  <span className="tabular-nums opacity-70">
+                  </div>
+                  <div className="text-[10.5px] tabular-nums text-muted-foreground">
                     {compactTokens(entry.value)}
-                  </span>
-                </span>
+                  </div>
+                </div>
               ),
             )}
           </div>
         </>
       ) : null}
 
-      <div className="mt-3 grid grid-cols-3 gap-x-3 gap-y-2">
+      <div className="mt-3 grid grid-cols-4 gap-x-3 gap-y-2">
         {stats.map((stat) => (
           <div key={stat.label} className="min-w-0">
             <div className="text-[9.5px] text-muted-foreground">

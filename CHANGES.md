@@ -37,6 +37,33 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/launcher/lib/agentIcon.test.ts` (new): pins that the five shipped marks resolve (and by which spelling), that `pi` is not matched inside another name, and that the drawn marks' colours differ from each other.
 - `src/usage/UsageApp.tsx`, `src/usage/main.tsx`: the agent filter is six marks and no names - six names are most of an 880px header, and the mark is what a glance reads. Each chip keeps its name as its accessible name and shows it in a tooltip on hover, which is why the window now mounts a tooltip provider. The range and chart chips are unchanged: they have no mark to stand in for the word.
 
+**A window that fits, a tail that folds, and the opener beside search**
+
+- `src/modules/header/Header.tsx`: the usage opener moved out of the right-hand cluster (where it sat among the panels and settings icons) to the right of the search field.
+- `src/usage/Heatmap.tsx`: the 53-week grid took its cell size from the card's width and then added the gap on top of every column, so 53 x 16 px was drawn inside an 820 px card and the last weeks ran past its right edge. The pitch (cell plus gap) is what gets divided now, and the cell is what is left.
+- `src/usage/tokens.ts`: `foldTail` sums every row below a share of the range into one row marked `other`; `buildView` takes `foldBelow` (a fraction, 0 keeps everything). The favourite model is chosen before the fold, because a narrow range can make the folded row the biggest one and "your favourite model is other" is not an answer.
+- `src/usage/UsageApp.tsx`: the model card offers 0.5, 0.8, 1, 2 and 5 percent, defaulting to 1. The folded row is named "其他" and says how many models it holds, since the number of models is no longer the number of rows.
+- `src/usage/UsageTable.tsx`: the share column draws a pie per row instead of the number; the number is the pie's hover title. Agent rows keep their own colour in it, so the pie and the mark beside the name are the same colour - which is why `agentColor` still names all six agents even though five of them now ship a mark.
+- `src/modules/i18n/messages.ts`: `usage.foldBelow` and `usage.foldedModels`, both languages.
+- `scripts/dev/probes/usage-window.mjs`: folds the tail at the widest step and checks that the rows get fewer while their sum still equals the total, then puts the default back so the rest of the run measures the window as it opens. The tables now carry `data-usage-table`, because the probe used to tell model rows from agent rows by the slash in a `provider/model` key - which the folded row does not have - and both of its totals were reading one table's rows as the other's.
+- The probe's window-vs-command check compares a read the window took when it opened against a fresh read taken later, and this machine keeps spending in between (the run has watched its own agent write ~250k tokens between the two). It now asks that the fresh read is never smaller and that the two agree to within half a percent.
+
+**The find box floats, and the summary's classes grow**
+
+- `src/modules/header/Header.tsx`: the search field is gone from the header. It stood there on every tab, 192px of chrome spent on an empty box, labelled with a shortcut nobody needs told.
+- `src/modules/header/SearchInline.tsx`: the same box is now drawn only while it is being used, as a card floating over the workspace's top-right corner - opened by the find shortcut (or the command palette), closed by Escape or by being left empty, and never pushing the terminal or the Git history down. A tab switch closes it, because it searches the pane that was there.
+- `src/modules/editor/lib/chromeTheme.ts`: the editor's own find panel floats in the file's top-right corner too, with a border, a radius and a shadow instead of the full-width bar that used to slide in above the code. It is still `search({ top: true })`; the panel was already at the top, it was just laid out as a bar.
+- `src/app/App.tsx`, `src/modules/header/index.ts`: the box is mounted inside the workspace box rather than the shell, so an open Git panel to the right is not underneath it.
+- `src/usage/SummaryCard.tsx`: the four token classes under the headline are four blocks now - share at 15px, tokens under it - instead of a line of 9.5px footnotes, and the stat grid gained a request count (one event is one answer the agent paid for). The grid went from three columns to four to hold seven stats evenly.
+
+**An agent that is not installed is a mark, not a button**
+
+- `src-tauri/src/modules/agent_sessions/mod.rs`: `usage_events` now returns `UsageRead` - the report and the agents this machine has a store for (`available_tools`, judged by the store being on disk) - and the payload carries the list as `availableTools`. "Installed" is deliberately not "has usage": an installed agent with nothing in the range is a normal thing to filter to, and the report already says the range is empty.
+- `src/usage/tokens.ts`: `isToolAvailable` holds that rule - a payload without the list reads as "everything is available", and the neutral chip is always offered - so the window's chip and the probe's check cannot drift apart.
+- `src/usage/UsageApp.tsx`: a chip for an agent with no store is drawn as its mark rather than as a button - dimmed, `aria-disabled`, no click, no tab stop, with the reason in its tooltip. The row of marks does not change with what is installed; only what can be clicked does.
+- `scripts/dev/probes/usage-window.mjs`: checks both halves of the rule against the payload - a chip is a `BUTTON` exactly when its agent is installed, and a mark that is not is `aria-disabled`.
+- `src/modules/i18n/messages.ts`: `usage.notInstalled`, both languages.
+
 **Six agents, read back together**
 
 - 87,637 events and 18,150,564,187 tokens over 139 days (2026-04-06 to 2026-11-14): opencode 12.23B, zcode 2.22B, dsh 1.54B, Claude Code 1.04B, pi 871.4M, workbuddy 245.2M.

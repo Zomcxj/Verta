@@ -40,8 +40,12 @@ export function Heatmap({ cells, weeks, labels }: Props) {
     return () => observer.disconnect();
   }, []);
 
-  const size = Math.max(6, Math.floor(width / weeks) - 1);
-  const gap = Math.min(2, Math.round((size * 2) / 13));
+  // The grid is `weeks` columns of `size + gap`, so the pitch is what has to fit, not the cell: the
+  // old arithmetic sized the cell from the width and then added a gap to every column, which put the
+  // last weeks outside the card (53 x 16 = 848 in an 820px card).
+  const gap = 2;
+  const pitch = Math.max(7, Math.min(18, Math.floor(width / weeks)));
+  const size = pitch - gap;
 
   // Month names go on the first column that starts a new month, which is how a contribution graph
   // labels a year without a widow row of them.
@@ -67,7 +71,7 @@ export function Heatmap({ cells, weeks, labels }: Props) {
       <div
         className="grid text-[9.5px] text-muted-foreground"
         style={{
-          gridTemplateColumns: `repeat(${weeks}, ${size + gap}px)`,
+          gridTemplateColumns: `repeat(${weeks}, ${pitch}px)`,
           height: MONTH_ROW,
         }}
       >
@@ -83,8 +87,8 @@ export function Heatmap({ cells, weeks, labels }: Props) {
       <div
         className="grid"
         style={{
-          gridTemplateColumns: `repeat(${weeks}, ${size + gap}px)`,
-          gridTemplateRows: `repeat(7, ${size + gap}px)`,
+          gridTemplateColumns: `repeat(${weeks}, ${pitch}px)`,
+          gridTemplateRows: `repeat(7, ${pitch}px)`,
           gridAutoFlow: "column",
         }}
       >
