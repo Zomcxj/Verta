@@ -20,6 +20,7 @@ import {
   languageCompartment,
   searchPhrasesExtension,
 } from "./lib/extensions";
+import { findCardWidth } from "./lib/chromeTheme";
 import { resolveLanguage, resolveLanguageSync } from "./lib/languageResolver";
 import { useEditorThemeExt } from "./lib/useEditorThemeExt";
 
@@ -325,6 +326,11 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
             editable={false}
             height="100%"
             className="h-full"
+            style={
+              {
+                "--verta-find-card-width": findCardWidth(language),
+              } as React.CSSProperties
+            }
             basicSetup={{
               lineNumbers: true,
               foldGutter: true,

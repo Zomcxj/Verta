@@ -1,4 +1,5 @@
 import { detectMonoFontFamily } from "@/lib/fonts";
+import type { Language } from "@/modules/i18n/language";
 import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import {
@@ -303,9 +304,10 @@ const chrome = EditorView.theme({
     // A width, not `fit-content`: an absolutely positioned box with `left: auto` is sized by its
     // max-content width, and a wrapping flex row's max-content is every item on one line - 890px
     // here, wider than the pane, so the card stretched and its labels wrapped wherever they ran
-    // out. 560 holds the find row in one line with the Chinese labels and wraps to a third line
-    // only when English's longer words need it.
-    width: "560px",
+    // out. The width comes from `findCardWidth`, which measures the labels of the language in use:
+    // the same card that holds the Chinese find row in one line needs 60px more for the English
+    // one, whose words are longer.
+    width: "var(--verta-find-card-width, 560px)",
     maxWidth: "calc(100% - 12px)",
   },
   // CodeMirror puts a `br` between the find row and the replace row, and hiding it was what made the
@@ -452,6 +454,19 @@ const THEME: Extension = Object.freeze([
   modeTheme("light"),
   modeTheme("dark"),
 ]);
+
+/**
+ * The find card's width, in pixels, for the language its labels are drawn in.
+ *
+ * The card is a fixed width because an absolutely positioned box with `left: auto` is sized by its
+ * max-content width, and a wrapping flex row's max-content is every item on one line. The find row
+ * is ten controls: the field, three buttons and three checkboxes, plus the close button the padding
+ * reserves room for. Measured in this interface, the Chinese row needs 500 to 560 pixels and the
+ * English one about 620, the difference being labels like "match case" against "大小写".
+ */
+export function findCardWidth(language: Language): string {
+  return language === "en" ? "620px" : "560px";
+}
 
 export function chromeTheme(): Extension {
   return THEME;

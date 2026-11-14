@@ -1,6 +1,7 @@
 import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
+import { findCardWidth } from "./chromeTheme";
 import { searchPhrasesExtension, wordWrapExtension } from "./extensions";
 
 /**
@@ -74,5 +75,18 @@ describe("searchPhrasesExtension", () => {
     expect(en.phrase("Find")).toBe("Find");
     expect(en.phrase("previous")).toBe("previous");
     expect(en.phrase("replaced match on line $")).toContain("$");
+  });
+});
+
+describe("findCardWidth", () => {
+  it("gives the English card room for its longer labels", () => {
+    // Measured in this interface: the find row holds one line at 500 to 560 pixels with the
+    // Chinese labels and needs about 620 with the English ones, where "match case" and "by word"
+    // take the room "大小写" and "整词" do not.
+    expect(findCardWidth("zh")).toBe("560px");
+    expect(findCardWidth("en")).toBe("620px");
+    expect(Number.parseFloat(findCardWidth("en"))).toBeGreaterThan(
+      Number.parseFloat(findCardWidth("zh")),
+    );
   });
 });

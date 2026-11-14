@@ -39,6 +39,7 @@ import { MermaidPreview } from "./MermaidPreview";
 import { PptxPreview } from "./PptxPreview";
 import { XlsxPreview } from "./XlsxPreview";
 import { htmlPreviewUrl } from "./htmlPreviewUrl";
+import { findCardWidth } from "./lib/chromeTheme";
 import { diagnosticsReporter } from "./lib/diagnosticsReporter";
 import { useDiagnosticsStore } from "./lib/diagnosticsStore";
 import {
@@ -906,6 +907,13 @@ export const EditorPane = memo(
               extensions={extensions}
               height="100%"
               className="verta-code-editor flex-1 min-h-0 overflow-hidden"
+              // The find card is a fixed width, and the width depends on the language of its
+              // labels; the theme reads this property, so switching language needs no reconfigure.
+              style={
+                {
+                  "--verta-find-card-width": findCardWidth(language),
+                } as React.CSSProperties
+              }
               basicSetup={{
                 lineNumbers: true,
                 highlightActiveLineGutter: true,
