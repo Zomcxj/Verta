@@ -215,7 +215,7 @@ describe("buildView", () => {
     expect(view.byModel[0]?.key).toBe("deepseek-v4.1-flash");
     expect(view.byModel[0]?.tokens).toBe(100);
     expect(view.byModel[0]?.provider).toBeNull();
-    // The chart keeps them apart: there a series is a provider and a model.
+    // The chart agrees: a series is a model too, and its legend carries no provider.
     const trend = buildTrend(split, {
       range: 7,
       tool: null,
@@ -223,7 +223,9 @@ describe("buildView", () => {
       today,
       otherLabel: "other",
     });
-    expect(trend.series).toHaveLength(2);
+    expect(trend.series).toHaveLength(1);
+    expect(trend.series[0]?.label).toBe("deepseek-v4.1-flash");
+    expect(trend.series[0]?.total).toBe(100);
   });
 
   it("files a model under its id, not under the agent's spelling of it", () => {
@@ -261,6 +263,29 @@ describe("buildView", () => {
     expect(view.byModel[0]?.tokens).toBe(105);
     expect(view.byModel[0]?.label).toBe("glm-5.3-flash");
     expect(view.byModel[0]?.model).toBe("glm-5.3-flash");
+  });
+
+  it("puts a cell with no model id in the other row, not in a row of its own", () => {
+    const view = buildView(
+      payload([
+        day(0, [
+          cell("pi", null, "big", { input: 900 }),
+          cell("pi", null, null, { input: 100 }),
+        ]),
+      ]),
+      // 0 keeps every named row, which is the case that would leave the unnamed one standing alone:
+      // it names no model, so it is the other row's business whatever the threshold is.
+      { range: "all", tool: null, scope: both, today, foldBelow: 0 },
+    );
+    expect(view.byModel.map((row) => row.key)).toEqual(["big", OTHER_KEY]);
+    const other = view.byModel[1];
+    expect(other?.other).toBe(true);
+    expect(other?.tokens).toBe(100);
+    // It is not a favourite either: "your favourite model is the one with no name" is not an answer.
+    expect(view.favourite?.key).toBe("big");
+    expect(view.byModel.reduce((sum, row) => sum + row.tokens, 0)).toBe(
+      view.tokens,
+    );
   });
 
   it("sums the cells, and both attributions reach the same total", () => {
@@ -367,6 +392,23 @@ describe("buildView", () => {
 });
 
 describe("buildTrend", () => {
+  it("draws the cells with no model id as part of the other series", () => {
+    const trend = buildTrend(
+      payload([
+        day(0, [
+          cell("pi", null, "big", { input: 900 }),
+          cell("pi", null, null, { input: 100 }),
+        ]),
+      ]),
+      { range: 7, tool: null, scope: both, today, otherLabel: "other" },
+    );
+    expect(trend.series.map((series) => series.label)).toEqual([
+      "big",
+      "other",
+    ]);
+    expect(trend.series[1]?.total).toBe(100);
+  });
+
   const many = payload(
     Array.from({ length: MAX_SERIES + 3 }, (_, index) =>
       day(0, [

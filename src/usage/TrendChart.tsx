@@ -100,17 +100,11 @@ export function TrendChart({ trend, kind, peakLabel }: Props) {
   const colorOf = (key: string, index: number) =>
     key === OTHER_SERIES_KEY ? "var(--muted-foreground)" : colors[index];
 
-  // The same model id can arrive from two providers (a Claude Code pointed at the same model as
-  // pi), and two legend entries reading `deepseek-v4.1-flash` in different colours look like a bug.
-  // Only the duplicated ones are qualified: the rest keep the short name.
-  const labelCounts = new Map<string, number>();
-  for (const entry of trend.series) {
-    labelCounts.set(entry.label, (labelCounts.get(entry.label) ?? 0) + 1);
-  }
-  const legendLabel = (entry: Trend["series"][number]) =>
-    (labelCounts.get(entry.label) ?? 0) > 1 && entry.provider
-      ? `${entry.label} · ${entry.provider}`
-      : entry.label;
+  // The legend is a list of models, so it says the model's name and nothing else: a series used to
+  // be a provider and a model, and qualifying a repeated label with the provider only papered over
+  // one model counted twice (2.7B beside 679M, both "glm-5.3-flash"). The series are one per model
+  // now, so a name is enough to tell two entries apart.
+  const legendLabel = (entry: Trend["series"][number]) => entry.label;
 
   const hoveredColumn = hover === null ? null : (columns[hover.index] ?? null);
   const hoverIndex = hover?.index ?? -1;

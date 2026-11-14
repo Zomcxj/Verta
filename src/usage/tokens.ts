@@ -355,9 +355,35 @@ export function buildView(
   }
   const tools = rows(byTool);
   const models = rows(byModel);
+  // A cell with no model id names no model: it is not a row of its own, it is the "other" row's
+  // business - which is also where a reader would look for it. The row is pulled out before the
+  // fold so it lands there even when the threshold keeps everything else.
+  const unnamed = models.find((row) => row.key === "");
+  const named = unnamed ? models.filter((row) => row.key !== "") : models;
+  const foldedModels = foldTail(named, foldBelow);
+  if (unnamed) {
+    const other = foldedModels.find((row) => row.other);
+    if (other) {
+      other.parts = addParts(other.parts, unnamed.parts);
+      other.tokens += unnamed.tokens;
+      other.events += unnamed.events;
+      other.share += unnamed.share;
+      other.folded = (other.folded ?? 0) + 1;
+    } else {
+      foldedModels.push({
+        ...unnamed,
+        key: OTHER_KEY,
+        label: "",
+        provider: null,
+        model: null,
+        other: true,
+        folded: 1,
+      });
+    }
+  }
   // The favourite is picked before the tail is folded: with a narrow enough range the folded row
   // could be the biggest one, and "your favourite model is other" is not an answer.
-  const favourite = models[0] ?? null;
+  const favourite = named[0] ?? null;
 
   return {
     days,
@@ -369,7 +395,7 @@ export function buildView(
     peak,
     favourite,
     byTool: tools,
-    byModel: foldTail(models, foldBelow),
+    byModel: foldedModels,
     streak: streakOf(payload.days, scope, tool, today),
     shareOfAll:
       range === "all"
@@ -527,10 +553,9 @@ export function buildTrend(
   const { range, tool, scope, today, otherLabel } = options;
   const start = range === 0 ? Number.NEGATIVE_INFINITY : today - range + 1;
   const byDay = new Map<number, Map<string, number>>();
-  const totals = new Map<
-    string,
-    { provider: string | null; model: string | null; total: number }
-  >();
+  const totals = new Map<string, { model: string | null; total: number }>();
+  /** model key -> how many tokens each spelling of its name carried, as in the table. */
+  const spellings = new Map<string, Map<string, number>>();
   for (const day of payload.days) {
     if (day.day < start || day.day > today) continue;
     const cells =
@@ -538,28 +563,38 @@ export function buildTrend(
     if (cells.length === 0) continue;
     const bucket = byDay.get(day.day) ?? new Map<string, number>();
     for (const cell of cells) {
-      const key = `${cell.provider ?? ""}/${cell.model ?? ""}`;
+      // A series is a model, not a model and the provider it ran through: the legend is a list of
+      // model names, and "glm-5.3-flash - workbuddy" beside "GLM-5.3-Flash" was the same model
+      // counted twice and named two ways.
+      const identity = modelIdentity(cell.model);
+      const key = identity.key;
       const value = countTokens(cell.parts, scope);
       if (value <= 0) continue;
       bucket.set(key, (bucket.get(key) ?? 0) + value);
-      const entry = totals.get(key) ?? {
-        provider: cell.provider,
-        model: cell.model,
-        total: 0,
-      };
+      const entry = totals.get(key) ?? { model: identity.name, total: 0 };
       entry.total += value;
       totals.set(key, entry);
+      if (identity.name) {
+        const votes = spellings.get(key) ?? new Map<string, number>();
+        votes.set(identity.name, (votes.get(identity.name) ?? 0) + value);
+        spellings.set(key, votes);
+      }
     }
     byDay.set(day.day, bucket);
   }
 
-  const ranked = [...totals.entries()].sort(
-    ([leftKey, left], [rightKey, right]) =>
-      right.total - left.total || leftKey.localeCompare(rightKey),
-  );
+  // A cell with no model id is not a series of its own; it is what the folded bucket is for.
+  const unnamedTotal = totals.get("");
+  const ranked = [...totals.entries()]
+    .filter(([key]) => key !== "")
+    .sort(
+      ([leftKey, left], [rightKey, right]) =>
+        right.total - left.total || leftKey.localeCompare(rightKey),
+    );
   const kept = ranked.slice(0, MAX_SERIES);
   const folded = ranked.slice(MAX_SERIES);
   const foldedKeys = new Set(folded.map(([key]) => key));
+  const hasOther = folded.length > 0 || unnamedTotal !== undefined;
 
   // The full day sequence, so a gap in the history is a gap in the chart rather than two days
   // drawn next to each other as if nothing happened in between.
@@ -569,8 +604,8 @@ export function buildTrend(
     for (let day = Math.max(first, start); day <= today; day += 1) {
       const bucket = byDay.get(day);
       const values = kept.map(([key]) => bucket?.get(key) ?? 0);
-      if (folded.length > 0) {
-        let other = 0;
+      if (hasOther) {
+        let other = unnamedTotal ? (bucket?.get("") ?? 0) : 0;
         for (const key of foldedKeys) other += bucket?.get(key) ?? 0;
         values.push(other);
       }
@@ -583,21 +618,33 @@ export function buildTrend(
     }
   }
 
-  const series: TrendSeries[] = kept.map(([key, entry], index) => ({
-    key,
-    label: entry.model ?? "—",
-    provider: entry.provider,
-    model: entry.model,
-    total: entry.total,
-    values: columns.map((column) => column.values[index] ?? 0),
-  }));
-  if (folded.length > 0) {
+  const series: TrendSeries[] = kept.map(([key, entry], index) => {
+    let best: string | null = entry.model;
+    let bestTokens = -1;
+    for (const [name, tokens] of spellings.get(key) ?? []) {
+      if (tokens > bestTokens) {
+        best = name;
+        bestTokens = tokens;
+      }
+    }
+    return {
+      key,
+      label: best ?? "—",
+      provider: null,
+      model: best,
+      total: entry.total,
+      values: columns.map((column) => column.values[index] ?? 0),
+    };
+  });
+  if (hasOther) {
     series.push({
       key: OTHER_SERIES_KEY,
       label: otherLabel,
       provider: null,
       model: null,
-      total: folded.reduce((sum, [, entry]) => sum + entry.total, 0),
+      total:
+        folded.reduce((sum, [, entry]) => sum + entry.total, 0) +
+        (unnamedTotal?.total ?? 0),
       values: columns.map((column) => column.values[kept.length] ?? 0),
     });
   }
