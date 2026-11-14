@@ -37,6 +37,8 @@ import {
   type UsagePayload,
   type UsageRange,
 } from "./tokens";
+import { useSeriesColors } from "./seriesColors";
+import { SharePie } from "./SharePie";
 import { TrendChart } from "./TrendChart";
 import { UsageTable } from "./UsageTable";
 
@@ -75,12 +77,14 @@ const FOLD_STEPS = [0.5, 0.8, 1, 2, 5] as const;
 const FOLD_DEFAULT = 0.01;
 
 const TOOLS = [
+  // Terminal agents first, then the IDE ones, each group by its first letter: the row reads as the
+  // same two families the product talks about, and the order does not move when one is uninstalled.
   "claude",
-  "pi",
   "opencode",
-  "zcode",
-  "workbuddy",
+  "pi",
   "dsh",
+  "workbuddy",
+  "zcode",
 ] as const;
 
 export function UsageApp(): JSX.Element {
@@ -152,6 +156,8 @@ export function UsageApp(): JSX.Element {
         : null,
     [payload, range, tool, scope, today, foldBelow],
   );
+  // The model pie wears the chart's own colours, so a model is the same colour in both places.
+  const modelColors = useSeriesColors(view?.byModel.length ?? 1);
   const trend = useMemo(
     () =>
       payload
@@ -516,25 +522,37 @@ export function UsageApp(): JSX.Element {
               {card(
                 t("usage.agent"),
                 null,
-                <UsageTable
-                  id="agent"
-                  nameHeader={t("usage.colAgent")}
-                  labels={{
-                    total: t("usage.colTotal"),
-                    input: t("usage.colInput"),
-                    output: t("usage.colOutput"),
-                    cacheRead: t("usage.colCacheRead"),
-                    share: t("usage.colShare"),
-                  }}
-                  rows={view.byTool}
-                  nameOf={(row) => row.label}
-                  iconOf={(row) => (
-                    <AgentIcon agent={row.tool ?? row.label} size={12} />
-                  )}
-                  pieColorOf={(row) => agentColor(row.tool ?? row.label)}
-                  emptyLabel={t("usage.empty")}
-                  onPick={(row) => setTool(row.tool ?? null)}
-                />,
+                <div className="flex items-start gap-4">
+                  <div className="min-w-0 flex-1">
+                    <UsageTable
+                      id="agent"
+                      nameHeader={t("usage.colAgent")}
+                      labels={{
+                        total: t("usage.colTotal"),
+                        input: t("usage.colInput"),
+                        output: t("usage.colOutput"),
+                        cacheRead: t("usage.colCacheRead"),
+                        share: t("usage.colShare"),
+                      }}
+                      rows={view.byTool}
+                      nameOf={(row) => row.label}
+                      iconOf={(row) => (
+                        <AgentIcon agent={row.tool ?? row.label} size={12} />
+                      )}
+                      emptyLabel={t("usage.empty")}
+                      onPick={(row) => setTool(row.tool ?? null)}
+                    />
+                  </div>
+                  <SharePie
+                    slices={view.byTool.map((row) => ({
+                      key: row.key,
+                      label: row.label,
+                      tokens: row.tokens,
+                      color: agentColor(row.tool ?? row.label),
+                    }))}
+                    caption={t("usage.colShare")}
+                  />
+                </div>,
               )}
               {card(
                 t("usage.models"),
@@ -568,29 +586,46 @@ export function UsageApp(): JSX.Element {
                   </span>
                 </>,
                 
-                <UsageTable
-                  id="models"
-                  nameHeader={t("usage.colModel")}
-                  labels={{
-                    total: t("usage.colTotal"),
-                    input: t("usage.colInput"),
-                    output: t("usage.colOutput"),
-                    cacheRead: t("usage.colCacheRead"),
-                    share: t("usage.colShare"),
-                  }}
-                  rows={view.byModel}
-                  nameOf={(row) =>
-                    row.other
-                      ? t("usage.other")
-                      : (row.model ?? t("usage.unnamedModel"))
-                  }
-                  noteOf={(row) =>
-                    row.other
-                      ? t("usage.foldedModels", { count: row.folded ?? 0 })
-                      : (row.provider ?? t("usage.unnamedProvider"))
-                  }
-                  emptyLabel={t("usage.empty")}
-                />,
+                <div className="flex items-start gap-4">
+                  <div className="min-w-0 flex-1">
+                    <UsageTable
+                      id="models"
+                      nameHeader={t("usage.colModel")}
+                      labels={{
+                        total: t("usage.colTotal"),
+                        input: t("usage.colInput"),
+                        output: t("usage.colOutput"),
+                        cacheRead: t("usage.colCacheRead"),
+                        share: t("usage.colShare"),
+                      }}
+                      rows={view.byModel}
+                      nameOf={(row) =>
+                        row.other
+                          ? t("usage.other")
+                          : (row.model ?? t("usage.unnamedModel"))
+                      }
+                      noteOf={(row) =>
+                        row.other
+                          ? t("usage.foldedModels", { count: row.folded ?? 0 })
+                          : (row.provider ?? t("usage.unnamedProvider"))
+                      }
+                      emptyLabel={t("usage.empty")}
+                    />
+                  </div>
+                  <SharePie
+                    slices={view.byModel.map((row, index) => ({
+                      key: row.key,
+                      label: row.other
+                        ? t("usage.other")
+                        : (row.model ?? t("usage.unnamedModel")),
+                      tokens: row.tokens,
+                      color: row.other
+                        ? "color-mix(in oklab, var(--foreground) 26%, transparent)"
+                        : modelColors[index] ?? modelColors[0],
+                    }))}
+                    caption={t("usage.colShare")}
+                  />
+                </div>,
               )}
             </div>
           </div>

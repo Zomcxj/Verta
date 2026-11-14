@@ -158,6 +158,8 @@ export function Header({
         >
           <HugeiconsIcon icon={CommandIcon} size={14} strokeWidth={1.75} />
         </Button>
+
+        {usageButton}
       </div>
 
       {!IS_MAC && (
@@ -201,8 +203,6 @@ export function Header({
         />
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
       </div>
-
-      {usageButton}
 
       <NotificationBell tabs={tabs} onJump={onSelect} />
 
