@@ -6,7 +6,7 @@ import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useT } from "@/modules/i18n";
+import { useLanguage, useT } from "@/modules/i18n";
 import {
   commitDiffKey,
   fetchCommitDiff,
@@ -18,6 +18,7 @@ import {
   buildSharedExtensions,
   DEFAULT_INDENT,
   languageCompartment,
+  searchPhrasesExtension,
 } from "./lib/extensions";
 import { resolveLanguage, resolveLanguageSync } from "./lib/languageResolver";
 import { useEditorThemeExt } from "./lib/useEditorThemeExt";
@@ -139,6 +140,7 @@ function loadStateFromCache(source: WorkingSource | CommitSource): LoadState {
 
 export function GitDiffPane({ source, chipLabel, active }: Props) {
   const t = useT();
+  const language = useLanguage();
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   const themeExt = useEditorThemeExt();
   const [state, setState] = useState<LoadState>(() =>
@@ -213,6 +215,9 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
   const extensions = useMemo(
     () => [
       ...SHARED_EXT,
+      // No compartment here: this pane's extension list is rebuilt when the language changes, and a
+      // rebuilt list is a reconfigured state.
+      searchPhrasesExtension(language),
       DEFAULT_INDENT,
       languageCompartment.of(langExt ?? []),
       ...READONLY_EXT,
@@ -226,7 +231,7 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
       }),
       DIFF_THEME,
     ],
-    [originalContent, langExt],
+    [originalContent, langExt, language],
   );
 
   // Cache-hit path only: the diff came from the cache before the language

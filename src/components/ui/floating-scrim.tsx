@@ -20,12 +20,29 @@ export const FLOATING_SCRIM_EXIT_MS = 100
  * swallowed clicks would break its own dismissal.
  *
  * The caller places this inside the surface's own portal, so it leaves the DOM with that portal.
+ *
+ * `instant` is for a surface that takes the focus away from this window as it opens. A CSS
+ * animation is ticked by the compositor, and the compositor stops ticking for a window that just
+ * lost the foreground: the usage window's scrim was mounted with the right classes and sat at
+ * `opacity: 0` for as long as the window kept its focus, so the layer only appeared once the window
+ * was clicked. Opening at full opacity needs no tick, so it is already there in the first frame that
+ * is drawn - and that frame is the one the window keeps while it is behind.
  */
-export function FloatingScrim({ open }: { open: boolean }) {
+export function FloatingScrim({
+  open,
+  instant = false,
+}: {
+  open: boolean
+  instant?: boolean
+}) {
   const [mounted, setMounted] = React.useState(open)
   React.useEffect(() => {
     if (open) {
       setMounted(true)
+      return
+    }
+    if (instant) {
+      setMounted(false)
       return
     }
     const timer = window.setTimeout(
@@ -33,8 +50,17 @@ export function FloatingScrim({ open }: { open: boolean }) {
       FLOATING_SCRIM_EXIT_MS
     )
     return () => window.clearTimeout(timer)
-  }, [open])
+  }, [open, instant])
   if (!mounted) return null
+  if (instant) {
+    return (
+      <div
+        data-slot="floating-scrim"
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 isolate z-40 bg-black/30 backdrop-blur-sm"
+      />
+    )
+  }
   return (
     <div
       data-slot="floating-scrim"

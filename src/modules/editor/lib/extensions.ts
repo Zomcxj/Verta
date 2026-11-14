@@ -1,4 +1,6 @@
 import { detectMonoFontFamily } from "@/lib/fonts";
+import { type MessageKey, translate } from "@/modules/i18n";
+import type { Language } from "@/modules/i18n/language";
 import { indentUnit } from "@codemirror/language";
 import { lintGutter } from "@codemirror/lint";
 import { search } from "@codemirror/search";
@@ -12,6 +14,38 @@ export const wrapCompartment = new Compartment();
 export const vimCompartment = new Compartment();
 export const lspCompartment = new Compartment();
 export const indentCompartment = new Compartment();
+export const searchPhrasesCompartment = new Compartment();
+
+/**
+ * The find panel's words, in the window's language.
+ *
+ * The panel belongs to CodeMirror, and it asks its state for each label by name (`Find`, `next`,
+ * `match case`, ...). With nothing registered, `state.phrase` falls back to the name itself, so the
+ * panel read as an English card floating in a Chinese window. `on line` and `current match` are the
+ * screen-reader announcement of a match, and `replaced match on line $` is the one that reports a
+ * replacement; they take the same table.
+ */
+export function searchPhrasesExtension(language: Language): Extension {
+  const t = (key: MessageKey) => translate(language, key);
+  return EditorState.phrases.of({
+    Find: t("editor.search.find"),
+    Replace: t("editor.search.replace"),
+    next: t("editor.search.next"),
+    previous: t("editor.search.previous"),
+    all: t("editor.search.all"),
+    "match case": t("editor.search.matchCase"),
+    regexp: t("editor.search.regexp"),
+    "by word": t("editor.search.byWord"),
+    replace: t("editor.search.replaceOne"),
+    "replace all": t("editor.search.replaceAll"),
+    close: t("editor.search.close"),
+    "Go to line": t("editor.search.goToLine"),
+    go: t("editor.search.go"),
+    "current match": t("editor.search.currentMatch"),
+    "on line": t("editor.search.onLine"),
+    "replaced match on line $": t("editor.search.replacedOnLine"),
+  });
+}
 
 export function indentExtension(unit: string): Extension {
   return [

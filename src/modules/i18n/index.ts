@@ -20,6 +20,18 @@ export function useLanguage(): Language {
 }
 
 /**
+ * The same resolution, for code that runs outside a render - an editor's extensions are built once,
+ * before the first paint, and a find panel built there cannot wait for a hook to tell it the
+ * language.
+ */
+export function resolveCurrentLanguage(): Language {
+  return resolveLanguage(
+    usePreferencesStore.getState().language ?? "system",
+    systemLocale(),
+  );
+}
+
+/**
  * Message lookup bound to the current language.
  *
  * Returns a plain function, so a component calls `t("launcher.manage")` and

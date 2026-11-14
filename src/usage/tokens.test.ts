@@ -13,6 +13,7 @@ import {
   OTHER_SERIES_KEY,
   foldTail,
   isToolAvailable,
+  modelIdentity,
   OTHER_KEY,
   percentText,
   quantiles,
@@ -194,6 +195,74 @@ describe("days and ranges", () => {
 });
 
 describe("buildView", () => {
+  it("counts a model once, however many providers answered for it", () => {
+    const split = payload([
+      day(0, [
+        cell("workbuddy", "workbuddy", "deepseek-v4.1-flash", { input: 60 }),
+        cell("opencode", "openai", "deepseek-v4.1-flash", { input: 40 }),
+      ]),
+    ]);
+    const view = buildView(split, {
+      range: "all",
+      tool: null,
+      scope: both,
+      today,
+    });
+    // The provider used to be a line of small text under each model name, and that line was the
+    // only thing telling two rows apart. With it gone, two rows that both read
+    // "deepseek-v4.1-flash" with different totals look like a bug, so the table is by model.
+    expect(view.byModel).toHaveLength(1);
+    expect(view.byModel[0]?.key).toBe("deepseek-v4.1-flash");
+    expect(view.byModel[0]?.tokens).toBe(100);
+    expect(view.byModel[0]?.provider).toBeNull();
+    // The chart keeps them apart: there a series is a provider and a model.
+    const trend = buildTrend(split, {
+      range: 7,
+      tool: null,
+      scope: both,
+      today,
+      otherLabel: "other",
+    });
+    expect(trend.series).toHaveLength(2);
+  });
+
+  it("files a model under its id, not under the agent's spelling of it", () => {
+    // The four spellings this machine really has: one model through a local provider, one through a
+    // routing tag, one with the repository in front, and one the agent re-cased.
+    expect(modelIdentity("custom-local:deepseek-v4.1-flash")).toEqual({
+      key: "deepseek-v4.1-flash",
+      name: "deepseek-v4.1-flash",
+    });
+    expect(modelIdentity("[次]deepseek-v4-flash")).toEqual({
+      key: "deepseek-v4-flash",
+      name: "deepseek-v4-flash",
+    });
+    expect(modelIdentity("Qwen/Qwen3-8B")).toEqual({
+      key: "qwen3-8b",
+      name: "Qwen3-8B",
+    });
+    expect(modelIdentity("GLM-5.3-Flash").key).toBe("glm-5.3-flash");
+    expect(modelIdentity(null)).toEqual({ key: "", name: null });
+    expect(modelIdentity("   ")).toEqual({ key: "", name: null });
+  });
+
+  it("shows the spelling that carried the most tokens", () => {
+    const view = buildView(
+      payload([
+        day(0, [
+          cell("zcode", "workbuddy", "GLM-5.3-Flash", { input: 20 }),
+          cell("opencode", "openai", "glm-5.3-flash", { input: 80 }),
+          cell("workbuddy", null, "custom-local:glm-5.3-flash", { input: 5 }),
+        ]),
+      ]),
+      { range: "all", tool: null, scope: both, today },
+    );
+    expect(view.byModel).toHaveLength(1);
+    expect(view.byModel[0]?.tokens).toBe(105);
+    expect(view.byModel[0]?.label).toBe("glm-5.3-flash");
+    expect(view.byModel[0]?.model).toBe("glm-5.3-flash");
+  });
+
   it("sums the cells, and both attributions reach the same total", () => {
     const view = buildView(fixture, {
       range: "all",

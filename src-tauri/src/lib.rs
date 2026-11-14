@@ -92,6 +92,9 @@ const SETTINGS_WINDOW: &str = "settings";
 /// The usage window. Spelled out once here and once in the capability file, for the same reason as
 /// `SETTINGS_WINDOW`: a rename that misses one of them compiles and silently strips permissions.
 const USAGE_WINDOW: &str = "usage";
+/// Told to the main window when that one goes up (`true`) or away (`false`), so the main window can
+/// dim what is behind it. Another webview's visibility cannot be asked from JavaScript.
+const USAGE_WINDOW_EVENT: &str = "verta:usage-window";
 
 const fn settings_always_on_top(is_macos: bool) -> bool {
     !is_macos
@@ -246,6 +249,9 @@ async fn open_usage_window(app: tauri::AppHandle) -> Result<(), String> {
         centre_on_main(&app, &window);
         let _ = window.show();
         let _ = window.set_focus();
+        // The main window dims itself while this one is up; it cannot see another webview's
+        // visibility, so it is told.
+        let _ = app.emit_to("main", USAGE_WINDOW_EVENT, true);
         return Ok(());
     }
 
@@ -283,10 +289,14 @@ async fn open_usage_window(app: tauri::AppHandle) -> Result<(), String> {
     let window = builder.build().map_err(|e| e.to_string())?;
 
     let hide_instead_of_close = window.clone();
+    let main_for_scrim = app.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
             let _ = hide_instead_of_close.hide();
+            // Closed means hidden here; either way the window is no longer in front, so the main
+            // window drops its scrim.
+            let _ = main_for_scrim.emit_to("main", USAGE_WINDOW_EVENT, false);
         }
     });
 
@@ -296,6 +306,7 @@ async fn open_usage_window(app: tauri::AppHandle) -> Result<(), String> {
     }
 
     centre_on_main(&app, &window);
+    let _ = app.emit_to("main", USAGE_WINDOW_EVENT, true);
 
     Ok(())
 }

@@ -27,7 +27,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useT } from "@/modules/i18n";
+import { resolveCurrentLanguage, useLanguage, useT } from "@/modules/i18n";
 import { MarkdownViewToggle, toggleStopClass, ViewToggleBar } from "@/modules/markdown";
 import { toast } from "sonner";
 import { ZoomControls } from "@/components/mermaid-diagram";
@@ -48,6 +48,8 @@ import {
   indentExtension,
   languageCompartment,
   lspCompartment,
+  searchPhrasesCompartment,
+  searchPhrasesExtension,
   vimCompartment,
   wordWrapExtension,
   wrapCompartment,
@@ -175,6 +177,7 @@ export const EditorPane = memo(
     // Only a `.docx` fills this; the shell's undo shortcut asks it first.
     const docxRef = useRef<DocxPreviewHandle | null>(null);
     const tr = useT();
+    const language = useLanguage();
     const themeExt = useEditorThemeExt();
     const vimMode = usePreferencesStore((s) => s.vimMode);
     const wordWrapColumn = usePreferencesStore((s) =>
@@ -424,6 +427,9 @@ export const EditorPane = memo(
           close: () => onCloseRef.current?.(),
         })),
         ...buildSharedExtensions(),
+        searchPhrasesCompartment.of(
+          searchPhrasesExtension(resolveCurrentLanguage()),
+        ),
         indentCompartment.of(DEFAULT_INDENT),
         languageCompartment.of([]),
         lspCompartment.of([]),
@@ -480,6 +486,17 @@ export const EditorPane = memo(
         effects: wrapCompartment.reconfigure(wordWrapExtension(wordWrapColumn)),
       });
     }, [wordWrapColumn]);
+
+    useEffect(() => {
+      // The find panel is already built; a language switch has to reach into it.
+      const view = cmRef.current?.view;
+      if (!view) return;
+      view.dispatch({
+        effects: searchPhrasesCompartment.reconfigure(
+          searchPhrasesExtension(language),
+        ),
+      });
+    }, [language]);
 
     useEffect(() => {
       if (doc.status !== "ready") return;

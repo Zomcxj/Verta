@@ -160,6 +160,16 @@ export function Header({
         </Button>
 
         {usageButton}
+
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          onClick={onOpenProjectsPanel}
+          title={t("header.projectsPanel")}
+          className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <HugeiconsIcon icon={GithubIcon} size={16} strokeWidth={1.75} />
+        </Button>
       </div>
 
       {!IS_MAC && (
@@ -205,16 +215,6 @@ export function Header({
       </div>
 
       <NotificationBell tabs={tabs} onJump={onSelect} />
-
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        onClick={onOpenProjectsPanel}
-        title={t("header.projectsPanel")}
-        className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-      >
-        <HugeiconsIcon icon={GithubIcon} size={18} strokeWidth={1.75} />
-      </Button>
 
       <Button
         size="icon-sm"

@@ -333,7 +333,7 @@ if (!restored) problems.push("把「含缓存读」开回来，总数没有回�
 // rest. The sum is the point - a fold that loses or duplicates a model would show up here.
 const unfoldRows = (await dom()).modelRows;
 const foldClicked = await usage.evaluate(`(() => {
-  const chip = document.querySelector('[data-usage-chip="fold-5"]');
+  const chip = document.querySelector('[data-usage-chip="fold-2"]');
   chip?.click();
   return !!chip;
 })()`);
@@ -352,8 +352,8 @@ report.fold = {
   tokens: foldView.tokens,
   folded: folded,
 };
-if (!foldClicked) problems.push("没有找到「低于 5%」的折叠档");
-if (foldClicked && !folded) problems.push("切到 5% 之后没有出现「其他」那一行");
+if (!foldClicked) problems.push("没有找到「低于 2%」的折叠档");
+if (foldClicked && !folded) problems.push("切到 2% 之后没有出现「其他」那一行");
 if (folded) {
   if (afterFold.modelRows >= unfoldRows) problems.push("折叠之后模型行数没有变少");
   if (Math.abs(afterFold.modelSum - Math.round(foldView.tokens)) > 2) {
@@ -365,7 +365,7 @@ if (folded) {
 // Back to the default, so the rest of the run measures the window as it opens.
 await usage.evaluate(`document.querySelector('[data-usage-chip="fold-1"]')?.click()`);
 await usage.waitFor(
-  `document.querySelector('[data-usage-chip="fold-5"]').getAttribute("aria-pressed") === "false"`,
+  `document.querySelector('[data-usage-chip="fold-2"]').getAttribute("aria-pressed") === "false"`,
   5_000,
 );
 

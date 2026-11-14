@@ -73,7 +73,10 @@ const HEATMAP_WEEKS = 53;
  * that shape the total and drops the noise, and the others are there for the runs where the answer
  * changes - a month with twenty near-equal models reads better at 5%.
  */
-const FOLD_STEPS = [0.5, 0.8, 1, 2, 5] as const;
+// The steps a model's share can be folded below. 0.1 is there because most of this machine's
+// models sit between it and half a percent, and 5 was never the interesting end of the range: by
+// the time a row is worth 5%, folding it away hides a model the reader came for.
+const FOLD_STEPS = [0.1, 0.5, 0.8, 1, 2] as const;
 const FOLD_DEFAULT = 0.01;
 
 const TOOLS = [
@@ -158,6 +161,36 @@ export function UsageApp(): JSX.Element {
   );
   // The model pie wears the chart's own colours, so a model is the same colour in both places.
   const modelColors = useSeriesColors(view?.byModel.length ?? 1);
+  const agentSlices = useMemo(
+    () =>
+      (view?.byTool ?? []).map((row) => ({
+        key: row.key,
+        label: row.label,
+        tokens: row.tokens,
+        color: agentColor(row.tool ?? row.label),
+      })),
+    [view],
+  );
+  const modelSlices = useMemo(
+    () =>
+      (view?.byModel ?? []).map((row, index) => ({
+        key: row.key,
+        label: row.other
+          ? t("usage.other")
+          : (row.model ?? t("usage.unnamedModel")),
+        tokens: row.tokens,
+        // The folded row belongs to no model, so it gets the neutral the trend chart gives it.
+        color: row.other
+          ? "color-mix(in oklab, var(--foreground) 26%, transparent)"
+          : (modelColors[index] ?? modelColors[0]),
+      })),
+    [view, modelColors, t],
+  );
+  // Keyed rather than positioned: the table sorts, and a slice colour must not follow the sort.
+  const modelColorByKey = useMemo(
+    () => new Map(modelSlices.map((slice) => [slice.key, slice.color])),
+    [modelSlices],
+  );
   const trend = useMemo(
     () =>
       payload
@@ -422,8 +455,21 @@ export function UsageApp(): JSX.Element {
         ) : null}
 
         {!payload || !view || !trend || !heatmap ? (
-          <div className="flex h-full items-center justify-center text-center text-[12px] text-muted-foreground">
-            {loading ? t("usage.loadingAll") : t("usage.empty")}
+          <div className="flex h-full flex-col items-center justify-center gap-2.5 text-center text-[12px] text-muted-foreground">
+            {loading ? (
+              <>
+                {/* The read walks every store on the machine, so it takes seconds; how many is a
+                    guess, and a sentence that guesses at a wait reads as a warning. A spinner
+                    says the same thing without the number. */}
+                <span
+                  aria-hidden="true"
+                  className="size-5 animate-spin rounded-full border-2 border-foreground/15 border-t-foreground/60"
+                />
+                <span>{t("usage.loading")}</span>
+              </>
+            ) : (
+              t("usage.empty")
+            )}
           </div>
         ) : payload.days.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
@@ -539,18 +585,15 @@ export function UsageApp(): JSX.Element {
                       iconOf={(row) => (
                         <AgentIcon agent={row.tool ?? row.label} size={12} />
                       )}
+                      colorOf={(row) => agentColor(row.tool ?? row.label)}
                       emptyLabel={t("usage.empty")}
                       onPick={(row) => setTool(row.tool ?? null)}
                     />
                   </div>
                   <SharePie
-                    slices={view.byTool.map((row) => ({
-                      key: row.key,
-                      label: row.label,
-                      tokens: row.tokens,
-                      color: agentColor(row.tool ?? row.label),
-                    }))}
+                    slices={agentSlices}
                     caption={t("usage.colShare")}
+                    unit={t("usage.unitTokens")}
                   />
                 </div>,
               )}
@@ -604,26 +647,24 @@ export function UsageApp(): JSX.Element {
                           ? t("usage.other")
                           : (row.model ?? t("usage.unnamedModel"))
                       }
+                      // The provider a model ran through was a second line of small text under
+                      // every row: it made the list hard to scan and answered a question nobody
+                      // asked of it. The colour is the row's slice in the donut beside it.
                       noteOf={(row) =>
                         row.other
                           ? t("usage.foldedModels", { count: row.folded ?? 0 })
-                          : (row.provider ?? t("usage.unnamedProvider"))
+                          : null
+                      }
+                      colorOf={(row) =>
+                        modelColorByKey.get(row.key) ?? modelSlices[0]?.color ?? ""
                       }
                       emptyLabel={t("usage.empty")}
                     />
                   </div>
                   <SharePie
-                    slices={view.byModel.map((row, index) => ({
-                      key: row.key,
-                      label: row.other
-                        ? t("usage.other")
-                        : (row.model ?? t("usage.unnamedModel")),
-                      tokens: row.tokens,
-                      color: row.other
-                        ? "color-mix(in oklab, var(--foreground) 26%, transparent)"
-                        : modelColors[index] ?? modelColors[0],
-                    }))}
+                    slices={modelSlices}
                     caption={t("usage.colShare")}
+                    unit={t("usage.unitTokens")}
                   />
                 </div>,
               )}

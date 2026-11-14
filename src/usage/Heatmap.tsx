@@ -42,10 +42,12 @@ export function Heatmap({ cells, weeks, labels }: Props) {
 
   // The grid is `weeks` columns of `size + gap`, so the pitch is what has to fit, not the cell: the
   // old arithmetic sized the cell from the width and then added a gap to every column, which put the
-  // last weeks outside the card (53 x 16 = 848 in an 820px card).
+  // last weeks outside the card (53 x 16 = 848 in an 820px card). The pitch is the width divided by
+  // the weeks, with no upper bound - a cap left the card's right-hand side empty once the window was
+  // wider than 53 x 18, and a year of days that does not reach the edge reads as missing days.
   const gap = 2;
-  const pitch = Math.max(7, Math.min(18, Math.floor(width / weeks)));
-  const size = pitch - gap;
+  const pitch = Math.max(7, width / weeks);
+  const size = Math.max(5, pitch - gap);
 
   // Month names go on the first column that starts a new month, which is how a contribution graph
   // labels a year without a widow row of them.

@@ -47,6 +47,18 @@ const ALLOWED: Record<string, { allows: string[]; why: string }> = {
     allows: ["backdrop filter"],
     why: "CodeMirror tooltip, exists only while shown",
   },
+  "modules/header/SearchInline.tsx": {
+    allows: ["backdrop filter"],
+    why: "the find box, mounted only while someone is searching in that pane",
+  },
+  "usage/Heatmap.tsx": {
+    allows: ["backdrop filter"],
+    why: "day tooltip, only while the pointer rests on a cell",
+  },
+  "usage/TrendChart.tsx": {
+    allows: ["backdrop filter"],
+    why: "bar tooltip, only while the pointer rests on a column",
+  },
 };
 
 // The terminal renderer owns its canvases (see its own budget); tests and the

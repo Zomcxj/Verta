@@ -300,8 +300,25 @@ const chrome = EditorView.theme({
     border: "1px solid var(--border)",
     borderRadius: "8px",
     boxShadow: "0 6px 20px color-mix(in srgb, var(--foreground) 18%, transparent)",
+    // A width, not `fit-content`: an absolutely positioned box with `left: auto` is sized by its
+    // max-content width, and a wrapping flex row's max-content is every item on one line - 890px
+    // here, wider than the pane, so the card stretched and its labels wrapped wherever they ran
+    // out. 560 holds the find row in one line with the Chinese labels and wraps to a third line
+    // only when English's longer words need it.
+    width: "560px",
+    maxWidth: "calc(100% - 12px)",
   },
-  ".cm-panel.cm-search br": { display: "none" },
+  // CodeMirror puts a `br` between the find row and the replace row, and hiding it was what made the
+  // panel a full-width bar: the two rows became one long flex row, wider than the pane, so the
+  // element stretched to the pane's width and its Chinese labels wrapped wherever they ran out of
+  // room. As a full-width flex item the `br` is the row break it always was, which also lets the
+  // card size itself to its content instead of to the pane.
+  ".cm-panel.cm-search br": {
+    display: "block",
+    flex: "0 0 100%",
+    height: "0",
+    margin: "-2px 0",
+  },
   ".cm-panel .cm-textfield": {
     fontFamily: detectMonoFontFamily(),
     fontSize: "12px",
@@ -315,7 +332,8 @@ const chrome = EditorView.theme({
       borderColor: "color-mix(in srgb, var(--ring) 60%, var(--border))",
     },
   },
-  ".cm-panel.cm-search .cm-textfield": { minWidth: "180px" },
+  // Wide enough for a model id or a path, narrow enough that the card fits a split pane.
+  ".cm-panel.cm-search .cm-textfield": { minWidth: "160px", flex: "1 1 160px" },
   ".cm-panel .cm-button": {
     backgroundImage: "none",
     backgroundColor: "color-mix(in srgb, var(--muted) 60%, transparent)",

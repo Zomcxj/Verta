@@ -178,6 +178,36 @@ export type UsageRow = {
   folded?: number;
 };
 
+/**
+ * The name a model is filed under, and the name it is shown as.
+ *
+ * The six agents do not agree on how to spell a model. The same id arrives as `glm-5.3-flash` from
+ * one and `GLM-5.3-Flash` from another, and three of them prefix it with the provider it went
+ * through (`custom-local:deepseek-v4.1-flash`, `global:deepseek-v4.1-flash`, `Qwen/Qwen3-8B`) or
+ * with a routing tag (`[次]deepseek-v4-flash`). Filed literally, one model becomes two or three rows
+ * whose numbers cannot be added up in the reader's head.
+ *
+ * So the prefix and the tag come off, the rest is compared case-insensitively, and what is shown is
+ * the spelling of whichever variant carried the most tokens - the agents' own casing is a
+ * prettification of the id, and the id is what the tool actually asked for.
+ */
+export function modelIdentity(model: string | null): {
+  key: string;
+  name: string | null;
+} {
+  if (!model) return { key: "", name: null };
+  const name = model
+    .trim()
+    // A routing tag in front is not part of the name.
+    .replace(/^\[[^\]]*\]\s*/, "")
+    // `<provider>:<model>`, but not the colon of something that reads as a path.
+    .replace(/^[A-Za-z0-9_.-]+:(?![/\\])/, "")
+    // `<vendor>/<model>`, the repository path a local server reports.
+    .replace(/^[A-Za-z0-9_.-]+\//, "")
+    .trim();
+  return { key: name.toLowerCase(), name: name || null };
+}
+
 /** Everything the window draws for one range, one tool filter and one scope. */
 export type UsageView = {
   /** The days the range covers, oldest first, empty days dropped. */
@@ -222,6 +252,8 @@ export function buildView(
   let peak: UsageView["peak"] = null;
   const byTool = new Map<string, UsageRow>();
   const byModel = new Map<string, UsageRow>();
+  /** model key -> how many tokens each spelling of its name carried. */
+  const spellings = new Map<string, Map<string, number>>();
   for (const day of days) {
     const cells =
       tool === null ? day.cells : day.cells.filter((c) => c.tool === tool);
@@ -253,12 +285,17 @@ export function buildView(
       toolRow.events += cell.events;
       byTool.set(cell.tool, toolRow);
 
-      const modelKey = `${cell.provider ?? ""}/${cell.model ?? ""}`;
+      // Keyed by the model alone: the table is a list of models, and the provider used to be what
+      // told two rows apart - once that line is gone, two rows with one name and two totals read as
+      // a bug. A model reached through two providers is one model here; the trend chart still
+      // splits it, because a series is a provider and a model.
+      const identity = modelIdentity(cell.model);
+      const modelKey = identity.key;
       const modelRow = byModel.get(modelKey) ?? {
         key: modelKey,
-        label: cell.model ?? "",
-        provider: cell.provider,
-        model: cell.model,
+        label: identity.name ?? "",
+        provider: null,
+        model: identity.name,
         parts: EMPTY_PARTS,
         tokens: 0,
         events: 0,
@@ -268,6 +305,16 @@ export function buildView(
       modelRow.tokens += value;
       modelRow.events += cell.events;
       byModel.set(modelKey, modelRow);
+      // The spelling that carried the most tokens names the row, so a model seen mostly as
+      // `glm-5.3-flash` is not shown under the one provider's `GLM-5.3-Flash`.
+      if (identity.name) {
+        const votes = spellings.get(modelKey) ?? new Map<string, number>();
+        votes.set(
+          identity.name,
+          (votes.get(identity.name) ?? 0) + value,
+        );
+        spellings.set(modelKey, votes);
+      }
     }
     parts = addParts(parts, dayParts);
     events += dayEvents;
@@ -290,6 +337,22 @@ export function buildView(
     );
     return list;
   };
+  for (const [key, votes] of spellings) {
+    const row = byModel.get(key);
+    if (!row) continue;
+    let best: string | null = null;
+    let bestTokens = -1;
+    for (const [name, tokens] of votes) {
+      if (tokens > bestTokens) {
+        best = name;
+        bestTokens = tokens;
+      }
+    }
+    if (best) {
+      row.label = best;
+      row.model = best;
+    }
+  }
   const tools = rows(byTool);
   const models = rows(byModel);
   // The favourite is picked before the tail is folded: with a narrow enough range the folded row

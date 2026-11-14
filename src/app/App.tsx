@@ -139,6 +139,7 @@ import {
   workspaceScopeKey,
 } from "@/modules/workspace";
 import { listen } from "@tauri-apps/api/event";
+import { FloatingScrim } from "@/components/ui/floating-scrim";
 import { dirname, homeDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
@@ -405,6 +406,18 @@ export default function App() {
     useState<TerminalSearchController | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const searchInlineRef = useRef<SearchInlineHandle | null>(null);
+  /** True while the usage window is up: the shell behind it dims, the way a dialog's does. */
+  const [usageWindowOpen, setUsageWindowOpen] = useState(false);
+  useEffect(() => {
+    // The usage window is its own webview, and another window's visibility cannot be read from this
+    // one. The Rust side that shows and hides it says so instead.
+    const off = listen<boolean>("verta:usage-window", (event) =>
+      setUsageWindowOpen(event.payload === true),
+    );
+    return () => {
+      void off.then((unlisten) => unlisten());
+    };
+  }, []);
   const terminalRefs = useRef<Map<number, TerminalPaneHandle>>(new Map());
   const editorRefs = useRef<Map<number, EditorPaneHandle>>(new Map());
   const previewRefs = useRef<Map<number, PreviewPaneHandle>>(new Map());
@@ -532,8 +545,18 @@ export default function App() {
     [],
   );
 
-  /** The header's opener for the usage window: same reason. */
-  const openUsageFromHeader = useCallback(() => void openUsageWindow(), []);
+  /**
+   * The header's opener for the usage window.
+   *
+   * The dim goes up here, not on the event the window sends back: this runs while this window still
+   * has the focus, so the frame that carries the scrim is produced before the usage window takes it
+   * away. The event still decides the truth - it is what brings the layer down when that window
+   * closes - but waiting for it would leave the paint until after the focus was gone.
+   */
+  const openUsageFromHeader = useCallback(() => {
+    setUsageWindowOpen(true);
+    void openUsageWindow();
+  }, []);
 
   const activeTab = tabs.find((t) => t.id === activeId);
   const isTerminalTab = activeTab?.kind === "terminal";
@@ -2194,6 +2217,10 @@ export default function App() {
             />
           )}
 
+          {/* Instant: the usage window takes the focus as it opens, and the compositor stops
+              ticking for the window it took it from - an animated scrim stayed invisible until the
+              window was clicked. */}
+          <FloatingScrim open={usageWindowOpen} instant />
           <WindowVibrancyBridge />
           {IS_MAC ? <LivePageResizeBridge /> : null}
           <WindowActivityBridge

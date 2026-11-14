@@ -31,6 +31,8 @@ type Props = {
   onPick?: (row: UsageRow) => void;
   /** An agent mark before the name, so a tool row is recognisable without reading it. */
   iconOf?: (row: UsageRow) => React.ReactNode;
+  /** The row's colour in the donut beside the table, so a slice can be found in the list. */
+  colorOf?: (row: UsageRow) => string;
 };
 
 const NUM_COLUMNS = "62px 62px 62px 62px 48px";
@@ -67,6 +69,7 @@ export function UsageTable({
   emptyLabel,
   onPick,
   iconOf,
+  colorOf,
 }: Props) {
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
     key: "total",
@@ -150,6 +153,13 @@ export function UsageTable({
               style={{ gridTemplateColumns: `minmax(0, 1fr) ${NUM_COLUMNS}` }}
             >
               <span className="flex min-w-0 items-center gap-1.5">
+                {colorOf?.(row) ? (
+                  <span
+                    className="size-[7px] shrink-0 rounded-[2px]"
+                    style={{ background: colorOf(row) }}
+                    aria-hidden="true"
+                  />
+                ) : null}
                 {iconOf?.(row) ? (
                   <span className="shrink-0 text-foreground/80">
                     {iconOf(row)}
