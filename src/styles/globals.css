@@ -454,6 +454,7 @@ html[data-theme-glass] .verta-pane > * {
   position: relative;
   z-index: 1;
 }
+
 /*
  * Floating layers (menus, popovers, dialogs, the command palette) follow the glass theme the way a
  * pane does. They used to paint `--popover` at full opacity, which read as a solid slab in a window
@@ -1292,8 +1293,8 @@ html[data-window-inactive]:not([data-window-hidden]) .verta-state-indicator * {
   }
 }
 
-/* The compact session list's details card: **one** card for the whole list, anchored to whichever
- * row the pointer is on.
+/* The session list's details card: **one** card for the whole list, anchored to whichever row the
+ * pointer is on, drawn in either density and in either mode.
  *
  * It is positioned with a `transform`, so following the pointer down the list is the card moving
  * rather than a panel per row appearing and disappearing - the eye tracks one object, which is what
@@ -1304,10 +1305,11 @@ html[data-window-inactive]:not([data-window-hidden]) .verta-state-indicator * {
  * `data-ready` is set one frame after the first placement, so the first appearance is not animated -
  * the card is simply where the row is - and only a move between rows slides. Its content is keyed by
  * session, and `.verta-compact-card-body` fades in when the row changes, so the details of the next
- * session arrive while the card itself keeps travelling.
+ * session arrive while the card itself keeps travelling. The class name is from the density the card
+ * was first written for; it is the shared "card" motion surface now, and the tooltip's `motion="card"`
+ * uses it too.
  *
- * Only transform and opacity are involved, and the card's width is fixed, so nothing reads the layout
- * between frames.
+ * Only transform and opacity are involved, so nothing reads the layout between frames.
  */
 .verta-compact-card {
   transition: none;

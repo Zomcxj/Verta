@@ -1,10 +1,13 @@
-// Does the compact session details card *move* between rows?
+// Does the session details card *move* between rows?
 //
 // The point of the edge-dock reference that survives here: one card for the whole list, anchored to
 // whichever row the pointer is on, moved by its transform. Switching rows must therefore reuse the
 // same element - a card per row could only appear and disappear - with its transform changing, a
 // transition long enough to see, the content replaced while the card keeps travelling, and nothing
 // but transform and opacity involved.
+//
+// The card is no longer a compact-density device: both densities draw it, so this probe reads
+// whichever density is on screen instead of skipping the other one.
 //
 //   node scripts/dev/probes/compact-card-roam.mjs [--port=9222]
 const args = process.argv.slice(2);
@@ -67,7 +70,7 @@ const PRESS = `
   };
 `;
 
-// The session list, in compact density, with the rows the card will be pointed at.
+// The session list, in whichever density is stored, with the rows the card will be pointed at.
 const rows = JSON.parse(
   await evaluate(`
   ${PRESS}
@@ -78,12 +81,10 @@ const rows = JSON.parse(
   }
   const list = document.querySelector("[data-session-density]");
   if (!list) return JSON.stringify({ step: "no-session-list" });
-  if (list.getAttribute("data-session-density") !== "compact") {
-    return JSON.stringify({ step: "standard-density" });
-  }
   const visible = [...document.querySelectorAll("[data-session-id]")].filter((el) => el.offsetParent !== null);
   return JSON.stringify({
     step: "rows",
+    density: list.getAttribute("data-session-density"),
     rows: visible.slice(0, 3).map((el) => {
       const r = el.getBoundingClientRect();
       return { id: el.getAttribute("data-session-id"), x: Math.round(r.left + Math.min(80, r.width / 2)), y: Math.round(r.top + r.height / 2) };
@@ -92,18 +93,13 @@ const rows = JSON.parse(
 `),
 );
 report.rows = rows;
-if (rows.step === "standard-density") {
-  console.log(JSON.stringify(report, null, 2));
-  console.log("SKIP: 会话列表不是紧凑密度，这一档没有详情卡可量。");
-  process.exit(0);
-}
 if (rows.step !== "rows") fail(`会话列表没就绪：${rows.step}`);
 if (rows.rows.length < 2) fail(`可见会话行少于 2，无法量"切换到下一行"：${JSON.stringify(rows.rows)}`);
 
 /** The card as it is right now, plus the element identity a comparison needs. */
 const readCard = () =>
   evaluate(`
-    const el = document.querySelector("[data-compact-card]");
+    const el = document.querySelector("[data-hover-card]");
     if (!el) return JSON.stringify({ step: "none" });
     if (!window.__probeCard) window.__probeCard = el;
     const style = getComputedStyle(el);
@@ -117,7 +113,7 @@ const readCard = () =>
       width: Math.round(el.getBoundingClientRect().width),
       filter: style.filter,
       willChange: style.willChange,
-      body: (el.querySelector("[data-compact-card-body]")?.textContent ?? "").slice(0, 60),
+      body: (el.querySelector("[data-hover-card-body]")?.textContent ?? "").slice(0, 60),
       describedBy: [...document.querySelectorAll("[data-session-id]")].filter((row) => row.getAttribute("aria-describedby") === el.id).map((row) => row.getAttribute("data-session-id")),
     });
   `);
@@ -197,6 +193,6 @@ if (away.step === "card" && away.transform !== first.transform) {
 socket.close();
 console.log(JSON.stringify(report, null, 2));
 console.log(
-  `PASS: 会话详情卡是列表里唯一的一张（同一 DOM），宽度自适应（实测 ${report.first.width}px→${report.second.width}px），换行时整体移动 ${report.movedBy}px、内容换新、被描述的行跟着走，指针离开后淡出；只动 transform/opacity，无滤镜无 will-change。`,
+  `PASS: 会话详情卡是列表里唯一的一张（同一 DOM，密度 ${rows.density}），宽度自适应（实测 ${report.first.width}px→${report.second.width}px），换行时整体移动 ${report.movedBy}px、内容换新、被描述的行跟着走，指针离开后淡出；只动 transform/opacity，无滤镜无 will-change。`,
 );
 process.exit(0);

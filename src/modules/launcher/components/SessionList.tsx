@@ -17,6 +17,7 @@ import { AgentIcon } from "../lib/agentIcon";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { memo, useCallback, useEffect, useId, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { parentCountKey } from "../lib/sessionInfo";
 import { isRenaming, type SessionKey, sessionKey } from "../lib/selection";
 import {
   lastTalkedDayLabel,
@@ -25,8 +26,8 @@ import {
   turnsLabel,
 } from "../lib/sessionStats";
 import type { AgentSession } from "../lib/types";
-import { CompactSessionCard } from "./CompactSessionCard";
-import type { CardAnchor } from "../lib/compactCardPosition";
+import { SessionHoverCard } from "./SessionHoverCard";
+import type { CardAnchor } from "../lib/cardPlacement";
 
 /** Everything the context-menu items need. Paths are computed by the UI: a relative
  *  path against the session cwd's parent is meaningless, so it is resolved against the
@@ -58,6 +59,8 @@ type Props = {
   onToggle?: (session: AgentSession) => void;
   /** Context menu and in-place rename; omitted means no menu. */
   actions?: SessionRowActions;
+  /** The sessions filed under each one, for the manage view's row badges. */
+  subagentsByParent?: ReadonlyMap<string, readonly AgentSession[]>;
   /**
    * Nothing has been read yet. An empty list and an unread one are different things: saying "no
    * sessions" while the first read is still running is a claim nobody has checked.
@@ -67,10 +70,10 @@ type Props = {
 
 /**
  * One row per session. The list is memoised together with the row: a session row carries a context
- * menu, and in the compact density a tooltip as well, with the popper layers behind them, which is a
- * dozen Radix components per row - and the panel around this list re-renders for reasons that have
- * nothing to do with the rows (a tab switch, the query box, managing mode). `LauncherPanel` keeps the
- * props it hands down stable so this holds.
+ * menu, and the list carries one hover card with the popper layers behind the menu, which is a dozen
+ * Radix components per row - and the panel around this list re-renders for reasons that have nothing
+ * to do with the rows (a tab switch, the query box, managing mode). `LauncherPanel` keeps the props
+ * it hands down stable so this holds.
  */
 export const SessionList = memo(function SessionList({
   sessions,
@@ -81,26 +84,30 @@ export const SessionList = memo(function SessionList({
   selected,
   onToggle,
   actions,
+  subagentsByParent,
   reading = false,
 }: Props) {
   const t = useT();
   const density = usePreferencesStore((s) => s.sessionListDensity);
   const cardId = useId();
   /**
-   * Which row the details card is anchored to, and where that row is on screen.
+   * Which row the card is anchored to, and where that row is on screen.
    *
-   * One card for the whole list, so moving between rows moves it. The row element itself is kept as
-   * well, because a scroll moves the row without any pointer event: the anchor is recomputed from
-   * the element, not remembered as a number.
+   * One card for the whole list, so moving between rows moves it. The row is held by key rather than
+   * by object, so a read that lands while the pointer rests - the watcher fires on its own - draws
+   * the session as it is now instead of as it was when the pointer arrived; a row that is gone after
+   * that read takes the card with it. The row element itself is kept as well, because a scroll moves
+   * the row without any pointer event: the anchor is recomputed from the element, not remembered as
+   * a number.
    */
   const [hovered, setHovered] = useState<{
-    session: AgentSession;
+    key: SessionKey;
     anchor: CardAnchor;
   } | null>(null);
   const hoveredRowRef = useRef<HTMLElement | null>(null);
   const hoverRow = useCallback((session: AgentSession, el: HTMLElement) => {
     hoveredRowRef.current = el;
-    setHovered({ session, anchor: rowAnchor(el) });
+    setHovered({ key: sessionKey(session), anchor: rowAnchor(el) });
   }, []);
   const clearRow = useCallback(() => {
     hoveredRowRef.current = null;
@@ -138,13 +145,23 @@ export const SessionList = memo(function SessionList({
       </div>
     );
   }
-  // Managing turns rows into checkboxes and renaming turns one into a text field: neither is a row
-  // whose details are worth showing, so the card is only drawn for a plain compact list.
+  // The card is drawn for every row, in either density and in either mode. A row says a title and,
+  // in the standard density, three numbers; what a session *is* - its id, its directory, and the
+  // session it belongs to - is what the card adds, one hover away wherever the list is drawn.
+  // Managing included: a tick takes a parent's children along, so "which session is this" is asked
+  // most often there, and it is asked by moving the pointer rather than by opening something.
+  //
+  // Renaming is the one exception: the row is a text field with the list's own width, and a card
+  // beside it would cover the rows the field is being typed into.
+  const hoveredSession =
+    hovered === null
+      ? null
+      : (sessions.find((session) => sessionKey(session) === hovered.key) ??
+        null);
   const showCard =
-    density === "compact" &&
-    !selectable &&
     hovered !== null &&
-    !(actions && isRenaming(actions.renameId, hovered.session));
+    hoveredSession !== null &&
+    !(actions && isRenaming(actions.renameId, hoveredSession));
   return (
     // Which density was drawn, the way a row carries `data-session-id`: a probe measuring the two
     // modes has to know which one it is looking at, and counting lines is a guess.
@@ -167,17 +184,19 @@ export const SessionList = memo(function SessionList({
           checked={selected?.has(sessionKey(session)) ?? false}
           onToggle={onToggle}
           actions={actions}
-          onHover={density === "compact" ? hoverRow : undefined}
+          childCount={
+            subagentsByParent?.get(parentCountKey(session.tool, session.id))
+              ?.length ?? 0
+          }
+          onHover={hoverRow}
           describedBy={
-            showCard && hovered !== null && hovered.session.id === session.id
-              ? cardId
-              : undefined
+            showCard && hovered?.key === sessionKey(session) ? cardId : undefined
           }
         />
       ))}
-      {showCard && hovered !== null ? (
-        <CompactSessionCard
-          session={hovered.session}
+      {showCard && hovered !== null && hoveredSession !== null ? (
+        <SessionHoverCard
+          session={hoveredSession}
           anchor={hovered.anchor}
           id={cardId}
         />
@@ -192,6 +211,7 @@ function rowAnchor(el: HTMLElement): CardAnchor {
   return { top: rect.top, left: rect.left, right: rect.right };
 }
 
+
 const SessionButton = memo(function SessionButton({
   session,
   active,
@@ -202,6 +222,7 @@ const SessionButton = memo(function SessionButton({
   checked,
   onToggle,
   actions,
+  childCount,
   onHover,
   describedBy,
 }: {
@@ -213,8 +234,10 @@ const SessionButton = memo(function SessionButton({
   state: AgentState | null;
   selectable: boolean;
   checked: boolean;
-  /** Tells the list which row the details card should be anchored to; absent in standard density. */
+  /** Tells the list which row the card should be anchored to; the list has no card without it. */
   onHover?: (session: AgentSession, el: HTMLElement) => void;
+  /** How many sessions this one started, drawn only while managing: a tick takes them along. */
+  childCount: number;
   /** Set on the one row the card is describing, so a screen reader gets the details too. */
   describedBy?: string;
 } & Pick<Props, "onOpen" | "onToggle" | "actions">) {
@@ -229,18 +252,13 @@ const SessionButton = memo(function SessionButton({
       // person reading the DOM) can tell which row is which without guessing from
       // the title.
       data-session-id={session.id}
-      // The tooltip keeps only the session title: the path is no longer shown, so it must
-      // not sneak back in through a tooltip. The compact row has no native tooltip at all -
-      // it has the details card, and two popups on one hover is worse than the one.
-      title={density === "standard" ? session.title : undefined}
+      // No native tooltip, in either density: the card that appears on hover says the title in full
+      // and more, and two popups on one hover is worse than the one. What the browser said was only
+      // the title, so nothing is lost.
       aria-describedby={describedBy}
       // The card follows the pointer and, for someone tabbing through the list, the focus.
-      onPointerEnter={
-        onHover ? (event) => onHover(session, event.currentTarget) : undefined
-      }
-      onFocus={
-        onHover ? (event) => onHover(session, event.currentTarget) : undefined
-      }
+      onPointerEnter={(event) => onHover?.(session, event.currentTarget)}
+      onFocus={(event) => onHover?.(session, event.currentTarget)}
       onClick={() =>
         selectable && onToggle ? onToggle(session) : onOpen(session)
       }
@@ -292,6 +310,18 @@ const SessionButton = memo(function SessionButton({
               {t("launcher.subagent")}
             </span>
           ) : null}
+          {/* While managing, a parent says how many rows come with it: the tick removes the
+              children too, and that has to be visible before the tick rather than in the dialog
+              after it. */}
+          {selectable && childCount > 0 ? (
+            <span
+              data-subagent-count={childCount}
+              title={t("launcher.subagentCount", { count: childCount })}
+              className="shrink-0 rounded border border-border/60 px-1 text-[9px] leading-4 text-muted-foreground"
+            >
+              {`↳${childCount}`}
+            </span>
+          ) : null}
         </span>
         {/* The path is gone: show how much this session talked about, how big it is,
             and when instead: these identify a session better than a path. The compact row
@@ -320,23 +350,30 @@ const SessionButton = memo(function SessionButton({
 
   // The row carries the context menu; the details card is not here at all. It belongs to the list,
   // because it is one card that moves - a card per row could only ever appear and disappear.
-  const body =
-    actions && !selectable && !renaming ? (
-      <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-    ) : (
-      row
-    );
+  // The menu is attached in the manage view as well. There the rows are checkboxes, so the reading
+  // items are what is left of it - open and rename would leave the mode the list was put in - but
+  // "what is this session, and what will I lose" is the question the manage view exists to answer,
+  // and it has to be askable from the row itself, including from a subagent's row.
+  const body = actions ? (
+    <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+  ) : (
+    row
+  );
 
-  if (!actions || selectable || renaming) return body;
+  if (!actions || renaming) return body;
 
   return (
     <ContextMenu>
       {body}
       <ContextMenuContent className="min-w-44">
-        <ContextMenuItem onSelect={() => actions.onOpen(session)}>
-          {t("launcher.open")}
-        </ContextMenuItem>
-        <ContextMenuSeparator />
+        {selectable ? null : (
+          <>
+            <ContextMenuItem onSelect={() => actions.onOpen(session)}>
+              {t("launcher.open")}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        )}
         <ContextMenuItem onSelect={() => actions.onCopyAbsolute(session)}>
           {t("launcher.copyAbsPath")}
         </ContextMenuItem>
@@ -352,10 +389,14 @@ const SessionButton = memo(function SessionButton({
         <ContextMenuItem onSelect={() => actions.onInfo(session)}>
           {t("launcher.info")}
         </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => actions.onStartRename(session)}>
-          {t("launcher.renameSession")}
-        </ContextMenuItem>
+        {selectable ? null : (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => actions.onStartRename(session)}>
+              {t("launcher.renameSession")}
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );

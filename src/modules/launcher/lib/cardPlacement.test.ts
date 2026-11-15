@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactCardPlacement } from "./compactCardPosition";
+import { cardPlacement } from "./cardPlacement";
 
 const card = { width: 288, height: 96 };
 const viewport = { width: 1440, height: 900 };
@@ -7,7 +7,7 @@ const viewport = { width: 1440, height: 900 };
 describe("the roaming details card's placement", () => {
   it("sits to the right of its row", () => {
     const anchor = { top: 120, left: 40, right: 320 };
-    expect(compactCardPlacement(anchor, card, viewport)).toEqual({
+    expect(cardPlacement(anchor, card, viewport)).toEqual({
       x: 328,
       y: 120,
       side: "right",
@@ -15,12 +15,12 @@ describe("the roaming details card's placement", () => {
   });
 
   it("follows the row down the list by exactly one row", () => {
-    const first = compactCardPlacement(
+    const first = cardPlacement(
       { top: 120, left: 40, right: 320 },
       card,
       viewport,
     );
-    const second = compactCardPlacement(
+    const second = cardPlacement(
       { top: 154, left: 40, right: 320 },
       card,
       viewport,
@@ -33,7 +33,7 @@ describe("the roaming details card's placement", () => {
     // A narrow window: the card would end past the right edge.
     const narrow = { width: 700, height: 900 };
     const anchor = { top: 200, left: 380, right: 660 };
-    expect(compactCardPlacement(anchor, card, narrow)).toEqual({
+    expect(cardPlacement(anchor, card, narrow)).toEqual({
       x: 84,
       y: 200,
       side: "left",
@@ -47,10 +47,10 @@ describe("the roaming details card's placement", () => {
     const anchor = { top: 120, left: 40, right: 560 };
     const shortCard = { width: 208, height: 96 };
     const longCard = { width: 304, height: 96 };
-    expect(compactCardPlacement(anchor, shortCard, narrowWindow).side).toBe(
+    expect(cardPlacement(anchor, shortCard, narrowWindow).side).toBe(
       "right",
     );
-    expect(compactCardPlacement(anchor, longCard, narrowWindow).side).toBe(
+    expect(cardPlacement(anchor, longCard, narrowWindow).side).toBe(
       "left",
     );
   });
@@ -58,20 +58,20 @@ describe("the roaming details card's placement", () => {
   it("keeps a card that does not fit either side inside the margin", () => {
     const tiny = { width: 200, height: 400 };
     const anchor = { top: 40, left: 20, right: 180 };
-    const placed = compactCardPlacement(anchor, card, tiny);
+    const placed = cardPlacement(anchor, card, tiny);
     expect(placed.x).toBe(8);
     expect(placed.side).toBe("left");
   });
 
   it("lifts a card off the bottom edge for a row near the end of the list", () => {
     const anchor = { top: 860, left: 40, right: 320 };
-    const placed = compactCardPlacement(anchor, card, viewport);
+    const placed = cardPlacement(anchor, card, viewport);
     expect(placed.y).toBe(viewport.height - card.height - 8);
     expect(placed.y).toBeLessThan(anchor.top);
   });
 
   it("does not push a card below the top margin for a row scrolled above the window", () => {
-    const placed = compactCardPlacement(
+    const placed = cardPlacement(
       { top: -40, left: 40, right: 320 },
       card,
       viewport,

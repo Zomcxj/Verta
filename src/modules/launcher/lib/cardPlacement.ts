@@ -1,5 +1,5 @@
 /**
- * Where the roaming details card sits for the row it is anchored to.
+ * Where the details card sits for the row it is anchored to.
  *
  * The card is one element for the whole list, positioned with a `transform` rather than by being
  * mounted next to the row: switching rows moves it, which is the point - a panel that unmounts and
@@ -12,8 +12,8 @@
  *  - either way it stays inside the window: `x` is clamped between the margins, `y` too, so a row
  *    near the bottom of the list still shows its card above the status bar.
  *
- * The card has a fixed width and is measured before it is placed, so `y` never has to reseat itself
- * once the card is on screen.
+ * The card's width comes from its own content and is measured before it is placed, so `y` never has
+ * to reseat itself once the card is on screen.
  */
 export type CardAnchor = { top: number; left: number; right: number };
 export type CardSize = { width: number; height: number };
@@ -25,7 +25,7 @@ export type CardPlacement = { x: number; y: number; side: "left" | "right" };
 export const CARD_GAP = 8;
 export const CARD_MARGIN = 8;
 
-export function compactCardPlacement(
+export function cardPlacement(
   anchor: CardAnchor,
   card: CardSize,
   viewport: CardViewport,

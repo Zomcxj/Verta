@@ -1,52 +1,63 @@
-// What a session row draws in each density, and what a compact row's popup says.
+// What a session row draws in each density, and what its hover card says.
 //
-// A row's density is a fact about a rendered panel, not about a function: how many lines it
-// takes, whether the browser's own title tooltip is still attached, and - in the compact case -
-// whether hovering really produces a popup, whether that popup's three parts stack, and whether
-// the row still opens a session. The last two are the ones that break silently: two triggers
-// sitting on one element is the arrangement that decides them, and neither the stylesheet nor a
-// unit test can see it.
+// A row's density is a fact about a rendered panel, not about a function: how many lines it takes,
+// and - in both densities now - whether hovering really produces the one card, what that card says
+// about the session, and whether the row still opens a session. The last one is the one that breaks
+// silently: a card riding on the row's own pointer events decides it, and neither the stylesheet nor
+// a unit test can see it.
 //
 // It reads the density from the marker the list carries rather than counting lines and guessing,
 // and it fails loudly when the sessions list is not on screen: a probe that finds no rows has
 // measured nothing, and reporting that as a pass is how a feature ships broken.
 //
 // Usage:
-//   node scripts/dev/probes/session-list-density.mjs --match=http://tauri.localhost/ --expect=standard
+//   node scripts/dev/probes/session-list-density.mjs --match=http://tauri.localhost/ --expect=standard --hover
 //   node scripts/dev/probes/session-list-density.mjs --match=http://tauri.localhost/ --expect=compact --hover
 //   node scripts/dev/probes/session-list-density.mjs --match=http://tauri.localhost/ --hover --click-row
+//   node scripts/dev/probes/session-list-density.mjs --match=http://tauri.localhost/ --hover --manage
 //
 // Name the window exactly. The settings page is served from the same origin, so `tauri.localhost/`
 // matches both it and the window with the list on it, and the first of the two the debugger lists
 // wins - measured: a run that thought it was reading a standard list was reading the settings page,
 // which has no list at all.
 //
-// `--expect=standard|compact` asserts the drawn density and its consequences: a standard row is
-// two lines, keeps its `title`, and produces no popup on hover; a compact row is one line, has no
-// `title`, and produces exactly one popup that says three things.
+// `--expect=standard|compact` asserts the drawn density and its consequences: a standard row is two
+// lines, a compact row is one, and neither carries a native `title` any more - the card says the
+// title in full, so a browser tooltip on top of it would be two popups on one hover.
 //
-// `--hover` puts the pointer on the first row's centre for real (a synthesized event is not what a
-// tooltip listens for) and reads what appeared. `--click-row` presses and releases there, then
-// reports the tab count before and after, which is the only honest way to know the row still
-// works with a popup attached to it.
+// `--hover` puts the pointer on the first row's centre for real (a synthesized event is not what the
+// card listens for) and reads what appeared: exactly one card, holding the session's id, directory,
+// usage and what it started.
+//
+// `--manage` presses the manage button first, so the same card is read from the view where the rows
+// are checkboxes - the view whose question is "what will I lose if I tick this".
 const arg = (name) => {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
   return hit === undefined ? null : hit.slice(name.length + 3);
 };
 
 const match = arg("match");
-const expect = arg("expect");
+const expectDensity = arg("expect");
 const hover = process.argv.includes("--hover");
 const clickRow = process.argv.includes("--click-row");
-// Every density's consequence that matters is about hovering - a standard row produces no popup, a
-// compact one exactly one - so a run that checks a density without hovering would report a pass on a
-// build where either of those is broken.
-if (expect !== null && !hover) {
-  console.error("--expect 必须和 --hover 一起用（每种密度的判定都落在悬停上）");
+const manage = process.argv.includes("--manage");
+// Every density's consequence that matters is about hovering, so a run that checks a density
+// without hovering would report a pass on a build where the card is not drawn at all.
+if (expectDensity !== null && !hover) {
+  console.error("--expect 必须和 --hover 一起用（两种密度的判定都落在悬停上）");
   process.exit(2);
 }
-if (expect !== null && expect !== "standard" && expect !== "compact") {
-  console.error(`--expect must be standard or compact (got ${expect})`);
+if (
+  expectDensity !== null &&
+  expectDensity !== "standard" &&
+  expectDensity !== "compact"
+) {
+  console.error(`--expect must be standard or compact (got ${expectDensity})`);
+  process.exit(2);
+}
+if (manage && clickRow) {
+  // A manage row is a checkbox: pressing it never opens a session, so the two checks contradict.
+  console.error("--manage 和 --click-row 不能一起用（管理模式下点击是勾选，不会开会话）");
   process.exit(2);
 }
 
@@ -92,29 +103,45 @@ const pageEval = async (body) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Everything the checks below read, in one pass: the list, its rows, the popups present. */
+/** Everything the checks below read, in one pass: the list, its rows, the card if it is up. */
 const readScreen = () =>
   pageEval(`
     const list = document.querySelector("[data-session-density]");
     const rows = [...document.querySelectorAll("[data-session-id]")].map((row) => {
       const r = row.getBoundingClientRect();
       return {
+        id: row.getAttribute("data-session-id"),
         title: (row.textContent || "").trim().split("\\n")[0].slice(0, 32),
         meta: row.querySelectorAll("[data-session-meta]").length,
+        subagent: /子代理|Subagent/.test(row.textContent || ""),
         nativeTitle: row.getAttribute("title"),
-        lines: new Set(
-          [...row.querySelectorAll("*")].map((el) => Math.round(el.getBoundingClientRect().top))
-        ).size,
+        checkbox: row.querySelector("[data-checked]") !== null,
+        badge: row.querySelector("[data-subagent-count]")?.getAttribute("data-subagent-count") ?? null,
         centre: [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)]
       };
     });
-    const popups = [...document.querySelectorAll('[data-slot="tooltip-content"]')].map((p) => {
-      const s = getComputedStyle(p);
+    const cards = [...document.querySelectorAll("[data-hover-card]")].map((card) => {
+      const s = getComputedStyle(card);
+      const text = (selector) => (card.querySelector(selector)?.textContent ?? "").trim();
       return {
-        text: (p.textContent || "").trim(),
-        lines: [...p.children].map((c) => (c.textContent || "").trim()),
-        direction: s.flexDirection,
-        height: Math.round(p.getBoundingClientRect().height)
+        ready: card.getAttribute("data-ready"),
+        opacity: s.opacity,
+        height: Math.round(card.getBoundingClientRect().height),
+        title: (card.querySelector("[data-hover-card-body] > span")?.textContent ?? "").trim(),
+        id: text("[data-session-facts-id]"),
+        dir: text("[data-session-facts-dir]"),
+        stats: text("[data-session-facts-stats]"),
+        parent: text("[data-session-facts-parent]"),
+        // The card is a glance: the id, the directory, the usage, and the parent for a subagent. The
+        // agent is the icon on its row, and the subagents a session started are the dialog's job.
+        children: card.querySelector("[data-session-facts-children]") !== null,
+        recordFields:
+          card.querySelector(
+            "[data-session-facts-tool], [data-session-facts-source]",
+          ) !== null,
+        describedBy: [...document.querySelectorAll("[data-session-id]")]
+          .filter((row) => row.getAttribute("aria-describedby") === card.id)
+          .map((row) => row.getAttribute("data-session-id"))
       };
     });
     return JSON.stringify({
@@ -122,9 +149,37 @@ const readScreen = () =>
       listFound: list !== null,
       tabs: document.querySelectorAll("[data-tab-id]").length,
       rows,
-      popups
+      cards
     });
   `);
+
+if (manage) {
+  // Already managing: the button says 完成 and the rows are checkboxes, which is the state this run
+  // wants anyway. Seen while probing: a second run against a window left in the mode reported "no
+  // manage button" as a failure.
+  const already = await pageEval(
+    `document.querySelectorAll("[data-checked]").length > 0 ? "managing" : "not-managing"`,
+  );
+  const pressed = already === "managing" ? "pressed" : await pageEval(`
+    const button = [...document.querySelectorAll("button")].find((b) =>
+      /^(管理|Manage)$/.test((b.textContent || "").trim())
+    );
+    if (!button) return "no-button";
+    const o = { bubbles: true, cancelable: true, button: 0, buttons: 1, isPrimary: true, pointerId: 1, pointerType: "mouse" };
+    button.dispatchEvent(new PointerEvent("pointerdown", o));
+    button.dispatchEvent(new PointerEvent("pointerup", { ...o, buttons: 0 }));
+    button.dispatchEvent(new MouseEvent("click", { ...o, buttons: 0 }));
+    return "pressed";
+  `);
+  if (pressed !== "pressed") {
+    console.error("没找到「管理」按钮，管理模式起不来");
+    process.exit(1);
+  }
+  await sleep(1200);
+  console.log(
+    already === "managing" ? "管理模式：本来就在" : "管理模式：已按下",
+  );
+}
 
 const before = JSON.parse(await readScreen());
 if (!before.listFound || before.rows.length === 0) {
@@ -142,32 +197,40 @@ console.log(`画出来的密度：${before.density}`);
 console.log(`标签数：${before.tabs}`);
 for (const row of before.rows.slice(0, 5)) {
   console.log(
-    `  行「${row.title}」可换行数元素 ${row.lines}，数字行 ${row.meta} 个，原生 title ${
+    `  行「${row.title}」数字行 ${row.meta} 个，勾选格 ${
+      row.checkbox ? "有" : "无"
+    }，子代理徽标 ${row.badge === null ? "无" : row.badge}，原生 title ${
       row.nativeTitle === null ? "没有" : `「${row.nativeTitle}」`
     }`,
   );
 }
-console.log(`悬停前的悬浮窗：${before.popups.length} 个`);
+console.log(`悬停前的详情卡：${before.cards.length} 个`);
 
 const first = before.rows[0];
 let after = before;
 if (hover) {
-  // A tooltip opens on a real pointer move: a synthesized pointerover event is not what it
+  // The card opens on a real pointer move: a synthesized pointerover event is not what the row
   // listens for, the same reason the file tree's menu needs a real contextmenu.
   await send("Input.dispatchMouseEvent", {
     type: "mouseMoved",
     x: first.centre[0],
     y: first.centre[1],
   });
-  // Read while the pointer is still on the row. Radix closes the popup as soon as the pointer
-  // leaves, and pointing it somewhere else to evaluate is exactly that: the first run of this
-  // probe reported "no popup" for a popup that had opened.
-  await sleep(500);
+  // Read while the pointer is still on the row. The card closes as soon as the pointer leaves the
+  // list, and pointing it somewhere else to evaluate is exactly that: an earlier run of this probe
+  // reported "no card" for a card that had opened.
+  await sleep(600);
   after = JSON.parse(await readScreen());
-  console.log(`\n悬停后：${after.popups.length} 个悬浮窗`);
-  for (const popup of after.popups) {
-    console.log(`  方向 ${popup.direction}，高 ${popup.height}px`);
-    for (const line of popup.lines) console.log(`    ${line}`);
+  console.log(`\n悬停后：${after.cards.length} 张详情卡`);
+  for (const card of after.cards) {
+    console.log(`  ready=${card.ready} opacity=${card.opacity} 高 ${card.height}px`);
+    console.log(`    标题：${card.title}`);
+    console.log(`    id：${card.id}`);
+    console.log(`    目录：${card.dir}`);
+    console.log(`    用量：${card.stats}`);
+    console.log(`    所属会话：${card.parent || "（无，这是主会话）"}`);
+    console.log(`    子代理段：${card.children ? "有（不该有）" : "无"}`);
+    console.log(`    被描述的行：${card.describedBy.join(",") || "无"}`);
   }
 }
 
@@ -198,51 +261,82 @@ if (clickRow) {
 }
 
 const failures = [];
-if (expect !== null && judged.density !== expect) {
-  failures.push(`密度是 ${judged.density}，不是 --expect 的 ${expect}`);
+if (expectDensity !== null && judged.density !== expectDensity) {
+  failures.push(`密度是 ${judged.density}，不是 --expect 的 ${expectDensity}`);
 }
 if (judged.rows.length === 0) {
   failures.push("一行都没读到：这一轮什么都没量到，不能算通过");
 }
 
 for (const row of judged.rows) {
-  if (expect === "compact" || judged.density === "compact") {
-    if (row.meta !== 0) failures.push(`「${row.title}」是紧凑行却还有 ${row.meta} 条数字行`);
-    if (row.nativeTitle !== null) {
-      failures.push(`「${row.title}」是紧凑行却还挂着原生 title（会和悬浮窗叠着弹两层）`);
-    }
+  if (row.nativeTitle !== null) {
+    failures.push(`「${row.title}」还挂着原生 title（会和详情卡叠着弹两层）`);
   }
-  if (expect === "standard" || judged.density === "standard") {
+  if (expectDensity === "compact" || judged.density === "compact") {
+    if (row.meta !== 0) failures.push(`「${row.title}」是紧凑行却还有 ${row.meta} 条数字行`);
+  }
+  if (expectDensity === "standard" || judged.density === "standard") {
     if (row.meta !== 1) failures.push(`「${row.title}」是标准行却没有那一条数字行`);
-    if (row.nativeTitle === null) failures.push(`「${row.title}」的标准行丢了原生 title`);
+  }
+  if (manage && !row.checkbox) {
+    failures.push(`「${row.title}」在管理模式下没有勾选格`);
   }
 }
 
 if (hover) {
-  if (after.density === "compact") {
-    if (after.popups.length !== 1) {
-      failures.push(`紧凑行悬停后有 ${after.popups.length} 个悬浮窗，应该恰好一个`);
+  // Both densities, both modes: exactly one card, and it says what the session is.
+  if (after.cards.length !== 1) {
+    failures.push(
+      `${after.density} 行悬停后有 ${after.cards.length} 张详情卡，应该恰好一张（标准密度也要有）`,
+    );
+  }
+  for (const card of after.cards) {
+    if (card.ready !== "true") failures.push(`详情卡没置 data-ready：${card.ready}`);
+    if (card.opacity !== "1") failures.push(`详情卡不可见：opacity ${card.opacity}`);
+    if (card.title.length === 0) failures.push("详情卡没有标题");
+    if (!/^[A-Za-z0-9_-]{6,}$/.test(card.id)) {
+      failures.push(`详情卡里的 id 不像 id：${card.id}`);
     }
-    for (const popup of after.popups) {
-      if (popup.lines.length !== 3) {
-        failures.push(`悬浮窗有 ${popup.lines.length} 段，应给标题、那三个数、目录三段`);
-      }
-      if (popup.direction !== "column") {
-        failures.push(`悬浮窗没有竖排（flex-direction: ${popup.direction}），三句话会挤在一行`);
-      }
-      const numbers = popup.lines[1] ?? "";
-      if ((numbers.match(/·/g) ?? []).length !== 2) {
-        failures.push(`悬浮窗里那行数不是三段：${numbers}`);
-      }
-      const where = popup.lines[2] ?? "";
-      if (!/^([A-Za-z]:\/|[/\\]|\\\\|\/mnt\/|\/home\/)/.test(where)) {
-        failures.push(`悬浮窗最后一段不像目录：${where}`);
-      }
+    if (!/^([A-Za-z]:[/\\]|[/\\]|\\\\|\/mnt\/|\/home\/)/.test(card.dir)) {
+      failures.push(`详情卡里的目录不像目录：${card.dir}`);
     }
-  } else if (after.popups.length !== 0) {
-    // Not "no more than before": a popup already on screen and one opened by this hover are the same
-    // failure, and the standard density is the one everybody sees.
-    failures.push(`标准行悬停后有 ${after.popups.length} 个悬浮窗（缺省模式不该挂它）`);
+    if ((card.stats.match(/·/g) ?? []).length !== 2) {
+      failures.push(`详情卡的用量不是三段：${card.stats}`);
+    }
+    // A top-level session says nothing about a parent and nothing about what it started; a subagent
+    // says whose it is. Anything else is the dialog's job.
+    if (card.children) {
+      failures.push("详情卡画了「派出 N 个子代理」——那是对话框的事");
+    }
+    if (card.recordFields) {
+      failures.push("详情卡又画了「来自 / 来源」，它该只有 id、目录、用量、所属会话");
+    }
+    // The row the card names is the row it is anchored to; its own badge is what says whether it is a
+    // subagent, and the parent line has to agree with that.
+    // `after` and not `judged`: the card belongs to the reading taken while the pointer was on the
+    // row, and a later reading (after a click) is a different list.
+    const described = after.rows.find((row) => row.id === card.describedBy[0]);
+    if (!described) {
+      failures.push(`卡片描述的行 ${card.describedBy[0]} 不在列表里`);
+    } else if (described.subagent && card.parent === "") {
+      failures.push("悬停的是子代理行，卡片却没有「所属会话」");
+    } else if (!described.subagent && card.parent !== "") {
+      failures.push(`主会话的卡片画了「所属会话」：${card.parent}`);
+    }
+    if (card.describedBy.length !== 1) {
+      failures.push(
+        `被描述的行不唯一：${JSON.stringify(card.describedBy)}`,
+      );
+    }
+  }
+}
+
+if (manage) {
+  // The badge is the manage view's own statement: a tick takes the children along.
+  const badges = judged.rows.filter((row) => row.badge !== null).length;
+  console.log(`带子代理徽标的行：${badges} / ${judged.rows.length}`);
+  if (badges === 0) {
+    failures.push("管理模式里没有任何一行带子代理徽标，勾选会连带删除的信息没有出现");
   }
 }
 
@@ -251,7 +345,9 @@ if (clickRow && clicked && clicked.after <= clicked.before) {
 }
 
 if (failures.length === 0) {
-  console.log(`\n通过：${judged.density} 的列表，${judged.rows.length} 行都对得上。`);
+  console.log(
+    `\n通过：${judged.density} 的列表${manage ? "（管理模式）" : ""}，${judged.rows.length} 行都对得上。`,
+  );
   process.exit(0);
 }
 console.log("\n不通过：");

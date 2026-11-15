@@ -63,7 +63,7 @@ import {
   waitingFirst,
 } from "../lib/sessionActivity";
 import { SessionInfoDialog } from "./SessionInfoDialog";
-import { subagentsOf } from "../lib/sessionInfo";
+import { subagentsByParent, subagentsOf } from "../lib/sessionInfo";
 import { SessionList, type SessionRowActions } from "./SessionList";
 
 const TOOLS: AgentTool[] = AGENT_TOOLS;
@@ -357,7 +357,14 @@ export function LauncherPanel({
         : (sessions.find((session) => sessionKey(session) === infoKey) ?? null),
     [infoKey, sessions],
   );
-  /** What it started: the same rows the manage view draws, counted from them. */
+  /**
+   * The rows filed under each session, grouped once per read.
+   *
+   * Two surfaces ask: the badge the manage view draws beside a parent's title, and the hover card
+   * that names them. Both read this grouping of the same rows the list draws, so neither can show
+   * something the other does not - and the grouping is keyed by tool and id, like the lookup.
+   */
+  const childrenByParent = useMemo(() => subagentsByParent(sessions), [sessions]);
   const infoChildren = useMemo(
     () => subagentsOf(sessions, infoSession),
     [infoSession, sessions],
@@ -688,6 +695,7 @@ export function LauncherPanel({
                       states={rowStates}
                       onOpen={onOpenSession}
                       selectable={managing}
+                      subagentsByParent={childrenByParent}
                       actions={rowActions}
                       selected={selected}
                       onToggle={toggleRow}

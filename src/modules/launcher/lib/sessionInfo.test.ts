@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { subagentsOf } from "./sessionInfo";
+import { parentCountKey, subagentsByParent, subagentsOf } from "./sessionInfo";
 import type { AgentSession, AgentTool } from "./types";
 
 const session = (
@@ -53,5 +53,45 @@ describe("the subagents of one session", () => {
       "newer",
       "older",
     ]);
+  });
+});
+
+/**
+ * The same relation, asked of every session at once.
+ *
+ * The manage view's badge and the hover card both need the children of a row without a hover to look
+ * up first, and both have to agree with `subagentsOf` about what a child is - so the grouping is
+ * keyed the same way, per tool and parent id, and keeps the list's order.
+ */
+describe("the subagents of every session", () => {
+  it("groups the rows under their parent, per tool", () => {
+    const rows = [
+      session("s1", null),
+      session("a", "s1"),
+      session("b", "s1"),
+      session("s1", null, "pi"),
+      session("c", "s1", "pi"),
+    ];
+    const byParent = subagentsByParent(rows);
+    // Two tools, two parents: an id is unique only within a tool, so the groups are too.
+    expect(
+      byParent.get(parentCountKey("claude", "s1"))?.map((row) => row.id),
+    ).toEqual(["a", "b"]);
+    expect(
+      byParent.get(parentCountKey("pi", "s1"))?.map((row) => row.id),
+    ).toEqual(["c"]);
+    expect(byParent.get(parentCountKey("claude", "a"))).toBeUndefined();
+  });
+
+  it("agrees with the per-session lookup", () => {
+    const parent = session("s1", null);
+    const rows = [parent, session("a", "s1"), session("other", "s2")];
+    expect(subagentsByParent(rows).get(parentCountKey("claude", "s1"))).toEqual(
+      subagentsOf(rows, parent),
+    );
+  });
+
+  it("groups nothing when nothing is filed anywhere", () => {
+    expect(subagentsByParent([session("s1", null)]).size).toBe(0);
   });
 });
