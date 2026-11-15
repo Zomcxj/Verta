@@ -127,6 +127,20 @@ const SHAPE_VARS: readonly string[] = [
  * Its own cell, next to the shape's, because it is its own axis - and the caller has to run it last: a
  * theme may spell `colors.radius`, so this is the answer that wins.
  */
+/**
+ * Writes the merged-sheet axis onto the document element.
+ *
+ * Its own axis rather than a shape: `data-boundless` is what `globals.css` keys the merged layout
+ * off - no gutters, the window's own corners - and it has to survive a shape change, because a sheet
+ * that is one surface under `glass` is still one surface under `slab`. The shape keeps drawing its
+ * borders, shadows and material on that surface; only the seams go away.
+ */
+export function applyBoundless(on: boolean): void {
+  const root = document.documentElement;
+  if (on) root.setAttribute("data-boundless", "on");
+  else root.removeAttribute("data-boundless");
+}
+
 export function applyRadius(stop: unknown): void {
   const { vars } = resolveRadius(stop);
   for (const [name, value] of Object.entries(vars)) {

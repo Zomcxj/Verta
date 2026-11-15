@@ -247,16 +247,11 @@ html[data-shape="cloud"] .verta-compact-card {
 }
 
 html[data-shape="emboss"] .verta-pane {
-  /* Four-sided and thick at the bottom (see `--bevel-top` / `--bevel-bottom` in `modules/theme/shape.ts`),
-   * plus a sheen that fades out a third of the way down: the plate is lit from above, and the fade is what
-   * says the surface is not flat. Painted, not layered - a gradient is a fill, so it is outside the
-   * compositing budget's concern. */
+  /* Four-sided and thick at the bottom (see `--bevel-top` / `--bevel-bottom` in
+   * `modules/theme/shape.ts`). No gradient of its own: a plate that paints a lighter band behind the
+   * interface is a backdrop, and the shape is the edge - which also keeps the sheet one surface when
+   * 无界 is on. */
   box-shadow: var(--bevel-top), var(--bevel-bottom);
-  background-image: linear-gradient(
-    to bottom,
-    oklch(1 0 0 / 0.05),
-    transparent 32%
-  );
 }
 
 
@@ -268,16 +263,16 @@ html[data-shape="emboss"] .verta-pane {
  *
  * Pane corners are zero for this shape (the shape says so), because two rounded corners meeting
  * along a seam that no longer exists would leave the frame showing through the notch. */
-html[data-shape="boundless"] [data-shell="sidebar"] {
+html[data-boundless] [data-shell="sidebar"] {
   padding-right: 0;
 }
-html[data-shape="boundless"] [data-shell="workspace"] {
+html[data-boundless] [data-shell="workspace"] {
   padding-inline: 0;
 }
-html[data-shape="boundless"] [data-shell="right"] {
+html[data-boundless] [data-shell="right"] {
   padding-left: 0;
 }
-html[data-shape="boundless"] [data-slot="resizable-handle"] {
+html[data-boundless] [data-slot="resizable-handle"] {
   width: 0;
 }
 
@@ -289,7 +284,7 @@ html[data-shape="boundless"] [data-slot="resizable-handle"] {
  * pointer is on that area or the drag is running, which is the state the shape was hiding - the sheet has
  * no seams at rest. `--ring` rather than the muted border: this is a control being used, and it has to be
  * findable against a terminal. */
-html[data-shape="boundless"] [data-slot="resizable-handle"]::after {
+html[data-boundless] [data-slot="resizable-handle"]::after {
   background-image: linear-gradient(
     to right,
     transparent calc(50% - 0.5px),
@@ -300,14 +295,14 @@ html[data-shape="boundless"] [data-slot="resizable-handle"]::after {
   opacity: 0;
   transition: opacity var(--dur-fast) ease;
 }
-html[data-shape="boundless"] [data-slot="resizable-handle"]:hover::after,
-html[data-shape="boundless"] [data-slot="resizable-handle"]:active::after,
-html[data-shape="boundless"] [data-slot="resizable-handle"][data-separator="active"]::after {
+html[data-boundless] [data-slot="resizable-handle"]:hover::after,
+html[data-boundless] [data-slot="resizable-handle"]:active::after,
+html[data-boundless] [data-slot="resizable-handle"][data-separator="active"]::after {
   opacity: 1;
 }
 /* A stacked pair (the handle turns sideways for a horizontal split) needs the stripe the other way
  * round: the same rule, rotated. */
-html[data-shape="boundless"] [data-slot="resizable-handle"][aria-orientation="horizontal"]::after {
+html[data-boundless] [data-slot="resizable-handle"][aria-orientation="horizontal"]::after {
   background-image: linear-gradient(
     to bottom,
     transparent calc(50% - 0.5px),
@@ -351,24 +346,27 @@ html[data-shape="cloud"] [data-shell="right"] {
  * - the sheet stopped looking like a card exactly when a panel was closed. `data-edge-left` /
  * `data-edge-right` say which region is at the end of the row (`shellEdges` in `App.tsx`), so the two
  * rules below are the only place the outer corner is decided. */
-html[data-shape="boundless"] [data-shell] .verta-pane {
+html[data-boundless] [data-shell] .verta-pane {
   border-radius: 0;
 }
-html[data-shape="boundless"] [data-shell][data-edge-left] .verta-pane {
+html[data-boundless] [data-shell][data-edge-left] .verta-pane {
   border-start-start-radius: var(--pane-radius);
   border-end-start-radius: var(--pane-radius);
 }
-html[data-shape="boundless"] [data-shell][data-edge-right] .verta-pane {
+html[data-boundless] [data-shell][data-edge-right] .verta-pane {
   border-start-end-radius: var(--pane-radius);
   border-end-end-radius: var(--pane-radius);
 }
+/* The wrapper is deliberately left alone: rounding and clipping it drew a second corner inside the
+ * window - the sheet's own edge is the pane's, and a clipped wrapper puts a rounded seam where the
+ * regions meet. */
 
 /* The rail that switches the sidebar between 会话 and 文件 draws a band of its own, and a hairline
  * above it, to sit apart from the list - which is right when the sidebar is a card with edges of its
  * own. 无界 is the shape that removes those edges: the three regions are one surface, so the band is
  * the last line drawn inside it, and the rail reads as a strip pasted onto the panel. It keeps only
  * what is a state: the chosen view's background, and the hover. */
-html[data-shape="boundless"] [data-slot="sidebar-rail"] {
+html[data-boundless] [data-slot="sidebar-rail"] {
   background: transparent;
   border-top-color: transparent;
 }
@@ -453,6 +451,33 @@ html[data-theme-glass] .verta-pane::before {
 html[data-theme-glass] .verta-pane > * {
   position: relative;
   z-index: 1;
+}
+
+/* One sheet means no line across it, whatever the shape is drawing.
+ *
+ * The dividers are the vertical ones: a border on every pane, the 1px ring the glass layer paints
+ * round each pane, and the left/right insets of the emboss bevel. Horizontal light is not a divider -
+ * three panes side by side put their top highlights on the same line, and that is what makes the
+ * sheet read as one lit surface - so it stays, and so do the drop shadows: a shadow with a y offset
+ * falls under the sheet, not between two panes. Declared after the shapes' own rules, because the tie
+ * on specificity would otherwise let `emboss` and `glass` win it. */
+html[data-boundless] .verta-pane {
+  border-color: transparent;
+}
+html[data-boundless][data-theme-glass] .verta-pane {
+  /* The pane keeps the top hairline and loses the ring around its edges. */
+  box-shadow: inset 0 1px 0
+    oklch(1 0 0 / calc(var(--theme-glass-edge, 0.12) * 0.45));
+}
+html[data-boundless][data-shape="emboss"] .verta-pane {
+  /* The bevel, minus its two vertical edges: lit along the top, banded along the bottom. */
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.18),
+    inset 0 -2px 0 oklch(0 0 0 / 0.16), inset 0 -1px 0 oklch(0 0 0 / 0.34);
+}
+/* The floating card's inset is a gap, and a sheet has none: the three regions meet. `padding-block`
+ * stays, because that is the sheet's distance from the window's own edge, not a gap inside it. */
+html[data-boundless] [data-shell] {
+  padding-inline: 0;
 }
 
 /*

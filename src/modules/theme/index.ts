@@ -18,7 +18,9 @@ export {
   type StoredAppearance,
 } from "./appearance";
 export {
+  ACRYLIC_DEFAULT_PARAMS,
   DEFAULT_SHAPE_ID,
+  defaultGlassParamsFor,
   GLASS_DEFAULT_PARAMS,
   isShapeId,
   isShapePref,
@@ -32,6 +34,7 @@ export {
   type GlassParams,
   type ResolvedShape,
   type ShapeId,
+  type ShapeMaterial,
   type ShapeOptions,
   type ShapePref,
 } from "./shape";

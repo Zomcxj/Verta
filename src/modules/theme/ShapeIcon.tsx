@@ -43,7 +43,7 @@ const ICON = {
   cornerCap: 0.45,
   /** The three regions left to right: sidebar, workspace, right panel. */
   panes: [8, 12, 6],
-  /** The frame showing between two panes. Zero for the merged shape, which has none. */
+  /** The frame showing between two panes. */
   gutter: 2,
   /** How far a floating card steps in from the block's edge. */
   cloudInset: 1.5,
@@ -66,6 +66,7 @@ const EXTRAS: Partial<
   cloud: { card: true, inset: true },
   emboss: { bevel: true },
   slab: { contact: true },
+  acrylic: { sheen: true },
   glass: { sheen: true },
 };
 
@@ -100,21 +101,16 @@ export function ShapeIcon({
   className?: string;
 }) {
   const { vars } = resolveShape(shape);
-  const merged = shape === "boundless";
   const extras = EXTRAS[shape] ?? {};
   // Icon scale, not window scale: the drawing has to stay legible, and the point is that the stops are
   // told apart, not that the numbers match the window's.
   const scaled =
     Number.parseFloat(radius) * 16 * ICON.radiusScale;
   const cornerOf = (paneWidth: number) =>
-    merged
-      ? 0
-      : Math.round(
-          Math.min(scaled, paneWidth * ICON.cornerCap) * 10,
-        ) / 10;
+    Math.round(Math.min(scaled, paneWidth * ICON.cornerCap) * 10) / 10;
   const blockCorner = Math.round(scaled * ICON.blockScale * 10) / 10;
   const borderWidth = vars["--pane-border-width"] ?? "0px";
-  const bordered = !merged && borderWidth !== "0px";
+  const bordered = borderWidth !== "0px";
   const borderColor =
     BORDER_COLOR[shape] ??
     "color-mix(in oklab, var(--foreground) 36%, transparent)";
@@ -122,20 +118,17 @@ export function ShapeIcon({
   return (
     <span
       data-shape-icon={shape}
-      // `0` for the merged shape and the hairline of frame the others keep: the one number a probe
-      // can read to tell the two borderless choices apart.
-      data-gap={merged ? "0" : String(ICON.gutter)}
-      data-block={merged ? "" : undefined}
+      // The hairline of frame between two panes: what a bordered shape draws its border on.
+      data-gap={String(ICON.gutter)}
       className={cn("flex items-stretch overflow-hidden", className)}
       style={{
         width: ICON.width,
         height: ICON.height,
-        gap: merged ? 0 : ICON.gutter,
+        gap: ICON.gutter,
         padding: extras.inset ? ICON.cloudInset : 0,
-        // The window's own corners are DWM's, and every shape keeps them; the merged one then has
-        // nothing else to round, which is what `data-block` marks.
+        // The window's own corners are DWM's, and every shape keeps them.
         borderRadius: blockCorner,
-        background: merged ? PANE_FILL : FRAME_FILL,
+        background: FRAME_FILL,
         boxShadow: [
           RING,
           extras.card

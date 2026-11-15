@@ -15,7 +15,13 @@ import {
   setThemeId as persistThemeId,
   type ThemePref,
 } from "@/modules/settings/store";
-import { applyRadius, applyShape, applyTheme, clearTheme } from "./applyTheme";
+import {
+  applyBoundless,
+  applyRadius,
+  applyShape,
+  applyTheme,
+  clearTheme,
+} from "./applyTheme";
 import {
   DEFAULT_RADIUS,
   radiusOf,
@@ -26,7 +32,13 @@ import {
   onCustomThemesChange,
 } from "./customThemes";
 import { SurfaceLayer } from "./SurfaceLayer";
-import { resolveShape, resolveShapePref, type ShapeId, type ShapePref } from "./shape";
+import {
+  resolveShape,
+  resolveShapePref,
+  type ShapeId,
+  type ShapeMaterial,
+  type ShapePref,
+} from "./shape";
 import { getBuiltinTheme, getDefaultTheme } from "./themes";
 import type { Theme } from "./types";
 
@@ -50,8 +62,8 @@ type ThemeProviderState = {
   shapePref: ShapePref;
   /** How round every corner is, the value the slider is on. */
   radius: RadiusStop;
-  /** Whether that shape asks for the native material (the `glass` preset). */
-  shapeMaterial: boolean;
+  /** What the shape in force asks the window for: a material, a clear pane, or nothing. */
+  shapeMaterial: ShapeMaterial | null;
   setMode: (mode: ThemePref) => void;
   /** Store a shape, the way the picker does. */
   setShapeId: (id: ShapeId) => void;
@@ -97,10 +109,16 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
   const [previewShapeId, setPreviewShapeId] = useState<ShapeId | null>(null);
   const [shapeId, setShapeIdState] = useState<ShapePref>("auto");
   const [radius, setRadiusState] = useState<RadiusStop>(DEFAULT_RADIUS);
-  // The glass layer's three numbers, hydrated with the rest and followed by key, like the radius.
-  const [glassPaneOpacity, setGlassPaneOpacity] = useState(0.28);
+  // The merged sheet, its own axis: hydrated with the rest and followed by key, like the radius.
+  const [boundless, setBoundlessState] = useState(false);
+  // The two recipes, kept apart: the acrylic pane and the glass pane are tuned on their own, because
+  // what is behind them is not the same (blurred material versus a sharp desktop).
+  const [glassPaneOpacity, setGlassPaneOpacity] = useState(0.3);
   const [glassEdge, setGlassEdge] = useState(0.3);
-  const [glassSheen, setGlassSheen] = useState(0.12);
+  const [glassSheen, setGlassSheen] = useState(0.15);
+  const [acrylicPaneOpacity, setAcrylicPaneOpacity] = useState(0.2);
+  const [acrylicEdge, setAcrylicEdge] = useState(0);
+  const [acrylicSheen, setAcrylicSheen] = useState(0.15);
   const [customThemes, setCustomThemes] = useState<Theme[]>([]);
   const [systemDark, setSystemDark] = useState<boolean>(() =>
     typeof window === "undefined"
@@ -116,9 +134,13 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
       setThemeIdState(p.themeId);
       setShapeIdState(p.shapeId);
       setRadiusState(p.cornerRadius);
+      setBoundlessState(p.boundless);
       setGlassPaneOpacity(p.glassPaneOpacity);
       setGlassEdge(p.glassEdge);
       setGlassSheen(p.glassSheen);
+      setAcrylicPaneOpacity(p.acrylicPaneOpacity);
+      setAcrylicEdge(p.acrylicEdge);
+      setAcrylicSheen(p.acrylicSheen);
       writeFastMode(p.theme);
       writeFastThemeId(p.themeId);
     });
@@ -131,6 +153,8 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
         writeFastThemeId(value);
       } else if (key === "shapeId" && typeof value === "string") {
         setShapeIdState(value as ShapePref);
+      } else if (key === "boundless" && typeof value === "boolean") {
+        setBoundlessState(value);
       } else if (key === "cornerRadius" && typeof value === "string") {
         setRadiusState(radiusOf(value));
       } else if (key === "glassPaneOpacity" && typeof value === "number") {
@@ -139,6 +163,12 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
         setGlassEdge(value);
       } else if (key === "glassSheen" && typeof value === "number") {
         setGlassSheen(value);
+      } else if (key === "acrylicPaneOpacity" && typeof value === "number") {
+        setAcrylicPaneOpacity(value);
+      } else if (key === "acrylicEdge" && typeof value === "number") {
+        setAcrylicEdge(value);
+      } else if (key === "acrylicSheen" && typeof value === "number") {
+        setAcrylicSheen(value);
       }
     });
     return () => {
@@ -212,7 +242,11 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
     applyShape(effectiveShape, {
       themeGlass: Boolean(variant?.glass),
       themeTerminal: variant?.terminal?.background,
-      glass: { paneOpacity: glassPaneOpacity, edge: glassEdge, sheen: glassSheen },
+      // The shape in force decides which recipe is written; a shape with no layer ignores both.
+      glass:
+        effectiveShape === "acrylic"
+          ? { paneOpacity: acrylicPaneOpacity, edge: acrylicEdge, sheen: acrylicSheen }
+          : { paneOpacity: glassPaneOpacity, edge: glassEdge, sheen: glassSheen },
     });
   }, [
     effectiveShape,
@@ -221,7 +255,21 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
     glassPaneOpacity,
     glassEdge,
     glassSheen,
+    acrylicPaneOpacity,
+    acrylicEdge,
+    acrylicSheen,
   ]);
+
+  /**
+   * The merged sheet, on its own axis.
+   *
+   * It has to outlive a shape change: a sheet that is one surface under `glass` is still one surface
+   * when the shape becomes `slab`, and the stylesheet keys the whole layout off this attribute rather
+   * than off a preset.
+   */
+  useEffect(() => {
+    applyBoundless(boundless);
+  }, [boundless]);
 
   /**
    * The radius, applied after the theme and after the shape.

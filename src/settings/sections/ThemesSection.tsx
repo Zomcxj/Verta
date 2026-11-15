@@ -21,6 +21,7 @@ import {
   SESSION_TRANSITIONS,
   type SessionTransitionId,
   setBackgroundBlur,
+  setBoundless,
   setBackgroundImageId,
   setBackgroundKind,
   setBackgroundOpacity,
@@ -28,14 +29,12 @@ import {
   setCornerRadius,
   setSessionTransition,
   setShapeId,
-  setGlassEdge,
-  setGlassPaneOpacity,
-  setGlassSheen,
+  setMaterialParam,
   setWindowVibrancy,
   type ThemePref,
 } from "@/modules/settings/store";
 import {
-  GLASS_DEFAULT_PARAMS,
+  defaultGlassParamsFor,
   listShapes,
   RADIUS_STOPS,
   resolveShapePref,
@@ -209,16 +208,28 @@ export function ThemesSection() {
   const backgroundOpacity = usePreferencesStore((s) => s.backgroundOpacity);
   const backgroundBlur = usePreferencesStore((s) => s.backgroundBlur);
   const windowVibrancy = usePreferencesStore((s) => s.windowVibrancy);
+  const boundless = usePreferencesStore((s) => s.boundless);
   const shapePref = usePreferencesStore((s) => s.shapeId);
   const glassPaneOpacity = usePreferencesStore((s) => s.glassPaneOpacity);
   const glassEdge = usePreferencesStore((s) => s.glassEdge);
   const glassSheen = usePreferencesStore((s) => s.glassSheen);
+  const acrylicPaneOpacity = usePreferencesStore((s) => s.acrylicPaneOpacity);
+  const acrylicEdge = usePreferencesStore((s) => s.acrylicEdge);
+  const acrylicSheen = usePreferencesStore((s) => s.acrylicSheen);
   // A theme may suggest a shape, and `auto` resolves to it; the sliders follow what is drawn, not
   // what is stored, so they appear for a suggested glass shape as well.
   const drawnShape = useMemo(
     () => resolveShapePref(shapePref, activeTheme.shape),
     [shapePref, activeTheme],
   );
+  // The sliders follow the shape in force, and write to its own recipe: the two see-through shapes
+  // are tuned apart, so moving one must not move the other.
+  const materialShape: "acrylic" | "glass" =
+    drawnShape === "acrylic" ? "acrylic" : "glass";
+  const material =
+    materialShape === "acrylic"
+      ? { paneOpacity: acrylicPaneOpacity, edge: acrylicEdge, sheen: acrylicSheen }
+      : { paneOpacity: glassPaneOpacity, edge: glassEdge, sheen: glassSheen };
 
   const [backdrop, setBackdrop] = useState<Backdrop>("none");
   useEffect(() => {
@@ -319,6 +330,19 @@ export function ThemesSection() {
           />
         </SettingRow>
       )}
+
+      {/* Its own row rather than a choice in the picker: the sheet is about the layout, and every
+          shape still draws on it. Below the material switch because both answer "how does the
+          window itself look", before the list of colours starts. */}
+      <SettingRow
+        title={t("settings.boundless.title")}
+        description={t("settings.boundless.description")}
+      >
+        <Switch
+          checked={boundless}
+          onCheckedChange={(v) => void setBoundless(v)}
+        />
+      </SettingRow>
 
       <div className="flex flex-col gap-2">
         <Label>{t("settings.themes.theme")}</Label>
@@ -427,14 +451,14 @@ export function ThemesSection() {
       <div className="flex flex-col gap-2">
         <div className="flex min-w-0 flex-col">
           <Label>{t("settings.shape.title")}</Label>
-          <span className="text-[11px] text-muted-foreground">
-            {t("settings.shape.description")}
-          </span>
         </div>
         {/* Each choice draws itself - the three regions, their borders, their shadow and the
             material - so they can be told apart before being applied. The radius is not part of a
-            shape any more: it is the slider below, which the drawings follow. */}
-        <div className="grid grid-cols-3 gap-1.5">
+            shape any more: it is the slider below, which the drawings follow.
+            One row, not a grid: the seven presets are read as a set, and a wrapped grid put the
+            seventh alone on a line of its own while the two see-through ones - the comparison this
+            axis is about - ended up in different rows. */}
+        <div className="grid grid-cols-7 gap-1">
           {listShapes().map((id) => {
             const selected = shapePref === id;
             return (
@@ -444,7 +468,7 @@ export function ThemesSection() {
                 onClick={() => void setShapeId(id)}
                 aria-pressed={selected}
                 className={cn(
-                  "flex flex-col items-center gap-1 rounded-md border px-1 py-1.5 text-[10.5px] transition-colors",
+                  "flex min-w-0 flex-col items-center gap-1 rounded-md border px-0.5 py-1.5 text-[10.5px] whitespace-nowrap transition-colors",
                   selected
                     ? "border-foreground/60 bg-foreground/[0.04] text-foreground"
                     : "border-border/60 text-muted-foreground hover:border-border hover:text-foreground",
@@ -467,9 +491,10 @@ export function ThemesSection() {
                 type="button"
                 data-glass-reset=""
                 onClick={() => {
-                  void setGlassPaneOpacity(GLASS_DEFAULT_PARAMS.paneOpacity);
-                  void setGlassEdge(GLASS_DEFAULT_PARAMS.edge);
-                  void setGlassSheen(GLASS_DEFAULT_PARAMS.sheen);
+                  const defaults = defaultGlassParamsFor(drawnShape);
+                  void setMaterialParam(materialShape, "paneOpacity", defaults.paneOpacity);
+                  void setMaterialParam(materialShape, "edge", defaults.edge);
+                  void setMaterialParam(materialShape, "sheen", defaults.sheen);
                 }}
                 className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground outline-none transition-colors duration-[var(--dur-base)] hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
               >
@@ -483,28 +508,28 @@ export function ThemesSection() {
               id="pane"
               label={t("settings.shape.glassPaneOpacity")}
               hint={t("settings.shape.glassPaneOpacityHint")}
-              value={glassPaneOpacity}
+              value={material.paneOpacity}
               min={0.02}
               max={0.9}
-              onChange={(value) => void setGlassPaneOpacity(value)}
+              onChange={(value) => void setMaterialParam(materialShape, "paneOpacity", value)}
             />
             <GlassSlider
               id="edge"
               label={t("settings.shape.glassEdge")}
               hint={t("settings.shape.glassEdgeHint")}
-              value={glassEdge}
+              value={material.edge}
               min={0}
               max={0.8}
-              onChange={(value) => void setGlassEdge(value)}
+              onChange={(value) => void setMaterialParam(materialShape, "edge", value)}
             />
             <GlassSlider
               id="sheen"
               label={t("settings.shape.glassSheen")}
               hint={t("settings.shape.glassSheenHint")}
-              value={glassSheen}
+              value={material.sheen}
               min={0}
               max={0.5}
-              onChange={(value) => void setGlassSheen(value)}
+              onChange={(value) => void setMaterialParam(materialShape, "sheen", value)}
             />
           </div>
         ) : null}

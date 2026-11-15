@@ -108,8 +108,8 @@ pub fn window_set_backdrop(
     enabled: bool,
     dark: bool,
     background: Option<String>,
-    // `mica` (default) or `acrylic`. Ignored where the platform has its own
-    // material.
+    // `mica` (default), `acrylic`, or `clear`: see-through with nothing drawn behind the pane.
+    // Ignored where the platform has its own material.
     kind: Option<String>,
 ) -> Result<(), String> {
     let rgb = background
@@ -117,10 +117,12 @@ pub fn window_set_backdrop(
         .and_then(parse_hex_rgb)
         .unwrap_or_else(|| fallback_background(dark));
     let want_acrylic = kind.as_deref() == Some("acrylic");
-    let result = set_backdrop(&window, enabled, dark, rgb, want_acrylic);
+    let want_clear = kind.as_deref() == Some("clear");
+    let result = set_backdrop(&window, enabled, dark, rgb, want_acrylic, want_clear);
     if result.is_ok() {
         ACTIVE_BACKDROP.store(
-            if !enabled {
+            if !enabled || want_clear {
+                // A clear pane has no material to name, which is the same answer as "off".
                 0
             } else if want_acrylic {
                 active_code(Backdrop::Acrylic)
@@ -160,10 +162,11 @@ fn set_backdrop(
     _dark: bool,
     rgb: [u8; 3],
     _acrylic: bool,
+    clear: bool,
 ) -> Result<(), String> {
     use window_vibrancy::{apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial};
 
-    if enabled {
+    if enabled && !clear {
         set_window_see_through(window, true, rgb)?;
         // UnderWindowBackground is the material meant for a whole-window
         // backdrop; Sidebar/HudWindow are for panels drawn on top of content.
@@ -176,7 +179,9 @@ fn set_backdrop(
         .map_err(|e| e.to_string())
     } else {
         clear_vibrancy(window).map_err(|e| e.to_string())?;
-        set_window_see_through(window, false, rgb)
+        // A clear pane is see-through with nothing behind it; only an effect that
+        // was switched off makes the window opaque again.
+        set_window_see_through(window, clear, rgb)
     }
 }
 
@@ -378,6 +383,7 @@ fn set_backdrop(
     dark: bool,
     _rgb: [u8; 3],
     acrylic: bool,
+    clear: bool,
 ) -> Result<(), String> {
     use window_vibrancy::{apply_mica, clear_mica};
 
@@ -385,7 +391,9 @@ fn set_backdrop(
     tune_dwm(hwnd.0);
     let base = fallback_background(dark);
 
-    if !enabled {
+    // The window is transparent from creation (see the note above this function), so a clear pane
+    // asks for nothing to be drawn: taking the material away leaves the desktop visible as it is.
+    if !enabled || clear {
         accent::clear(hwnd.0);
         return clear_mica(window).map_err(|e| e.to_string());
     }
@@ -413,6 +421,7 @@ fn set_backdrop(
     _dark: bool,
     _rgb: [u8; 3],
     _acrylic: bool,
+    _clear: bool,
 ) -> Result<(), String> {
     Ok(())
 }

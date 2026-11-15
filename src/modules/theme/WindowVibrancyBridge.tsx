@@ -13,10 +13,11 @@ export function WindowVibrancyBridge() {
   const hydrated = usePreferencesStore((s) => s.hydrated);
   const { resolvedMode, activeTheme, shapeMaterial } = useTheme();
 
-  // The material is the shape's, not the theme's: `glass` is the preset that asks for the real
-  // desktop blur (Windows: acrylic), and a theme is colours. It turns on by itself, without the
-  // settings switch, because choosing that shape *is* the request.
-  const glass = shapeMaterial;
+  // The material is the shape's, not the theme's: `acrylic` and `glass` are the presets that ask for
+  // a see-through window, and a theme is colours. It turns on by itself, without the settings
+  // switch, because choosing either shape *is* the request. Which of the two it is travels through:
+  // one is drawn by the system, the other is a pane with nothing behind it.
+  const material = shapeMaterial;
 
   useEffect(() => {
     if (!hydrated) return;
@@ -24,9 +25,9 @@ export function WindowVibrancyBridge() {
       enabled,
       resolvedMode === "dark",
       activeTheme.id,
-      glass,
+      material,
     );
-  }, [enabled, hydrated, resolvedMode, activeTheme.id, glass]);
+  }, [enabled, hydrated, resolvedMode, activeTheme.id, material]);
 
   return null;
 }

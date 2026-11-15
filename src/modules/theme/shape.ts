@@ -20,7 +20,22 @@
 
 import type { MessageKey } from "@/modules/i18n";
 
-export type ShapeId = "boundless" | "minimal" | "cloud" | "emboss" | "slab" | "glass";
+export type ShapeId =
+  | "minimal"
+  | "cloud"
+  | "emboss"
+  | "slab"
+  | "acrylic"
+  | "glass";
+
+/**
+ * What a shape asks the window for.
+ *
+ * `acrylic` is a material the system draws: the desktop really shows through, blurred and lightly
+ * tinted, so the pane keeps a frost of its own. `clear` asks for no material at all - the window is
+ * left see-through and the desktop is read as it is, sharp, which is what a pane of glass does.
+ */
+export type ShapeMaterial = "acrylic" | "clear";
 
 /**
  * The default, and what an unknown id resolves to.
@@ -58,25 +73,52 @@ type ShapeValues = {
   /** Attributes beyond `data-shape`: the glass layer, for the one shape that turns it on. */
   attrs?: Readonly<Record<string, string>>;
   /**
-   * Whether the shape asks for the native material (DWM acrylic on Windows).
+   * The material the shape asks for, or nothing.
    *
-   * The one part of a shape CSS cannot draw: the blur happens behind the window, out of reach of the
-   * stylesheet, so it travels as an attribute for the shell to act on rather than as a variable.
+   * The one part of a shape CSS cannot draw: the blur behind an acrylic window happens out of reach
+   * of the stylesheet, so it travels as an attribute for the shell to act on rather than as a
+   * variable. `clear` is the other half of the same switch - still see-through, but with nothing
+   * drawn behind the pane.
    */
-  material?: boolean;
+  material?: ShapeMaterial;
 };
 
 /**
- * The values the `glass` preset ships with, which are also what "restore defaults" writes back.
+ * The values the `acrylic` preset ships with.
  *
- * They live beside the preset rather than in the settings store so the two cannot drift: the sliders
- * reset to what the shape itself draws with, not to a second copy of the numbers.
+ * A thin tint over a material the system draws: the desktop already supplies most of the texture, and
+ * a heavy tint degrades acrylic into a plain translucent panel.
+ */
+export const ACRYLIC_DEFAULT_PARAMS: Readonly<GlassParams> = {
+  paneOpacity: 0.2,
+  edge: 0,
+  sheen: 0.15,
+};
+
+/**
+ * The values the `glass` preset ships with.
+ *
+ * Tuned on a real desktop rather than derived: with nothing blurred behind the pane, a very low
+ * opacity reads as an unreadable sheet over a busy wallpaper, and the numbers the eye settled on are
+ * close to the acrylic recipe's (30% of the pane's own colour, a 0.3 edge, a 0.15 sheen).
  */
 export const GLASS_DEFAULT_PARAMS: Readonly<GlassParams> = {
-  paneOpacity: 0.28,
+  paneOpacity: 0.3,
   edge: 0.3,
-  sheen: 0.12,
+  sheen: 0.15,
 };
+
+/**
+ * The numbers a material shape draws with, which are also what "restore defaults" writes back.
+ *
+ * They live beside the presets rather than in the settings store so the two cannot drift: the sliders
+ * reset to what the shape in force actually draws with, not to a second copy of the numbers.
+ */
+export function defaultGlassParamsFor(id: unknown): GlassParams {
+  return shapeOf(id) === "acrylic"
+    ? { ...ACRYLIC_DEFAULT_PARAMS }
+    : { ...GLASS_DEFAULT_PARAMS };
+}
 
 /**
  * The six presets, in the order they are offered.
@@ -85,15 +127,6 @@ export const GLASS_DEFAULT_PARAMS: Readonly<GlassParams> = {
  * material. Decoration is opt-in here, which is why the default is the one preset that draws nothing.
  */
 const SHAPES: Readonly<Record<ShapeId, ShapeValues>> = {
-  // The three regions of the window - the sidebar, the workspace and the right panel - become one
-  // surface: no border, and no gutter between them either (`globals.css` closes it, and puts the
-  // radius on the merged block's outer frame rather than on each region - two rounded corners meeting
-  // along a seam that no longer exists would leave the frame showing through the notch between them).
-  // The window's own corners stay DWM's, which no shape may touch.
-  boundless: {
-    borderWidth: "0px",
-    borderColor: "transparent",
-  },
   minimal: { borderWidth: "0px", borderColor: "transparent" },
   cloud: {
     // A floating card. The panes step in from the frame for this shape (`globals.css`), which is what
@@ -120,22 +153,33 @@ const SHAPES: Readonly<Record<ShapeId, ShapeValues>> = {
       // on a hairline - measured against 极简, which draws no border at all, the two looked the same,
       // which is what "浮雕 looks like 极简" was reporting. A light has a side, and an edge has
       // thickness; both are paint, so neither costs a compositing layer (`compositingBudget.test.ts`).
+      // Stronger than the first pass: at 18% and 16% the plate read as `slab` with a slightly
+      // different shadow, which is what "浮雕和石板还是差不多" was reporting. A lit edge has to be
+      // visibly brighter than the surface and a dark one visibly darker, so both went up, and the
+      // bottom band got a third line so the edge has thickness rather than a single hairline.
       "--bevel-top":
-        "inset 0 1px 0 oklch(1 0 0 / 0.18), inset 1px 0 0 oklch(1 0 0 / 0.07)",
+        "inset 0 2px 0 oklch(1 0 0 / 0.3), inset 1px 0 0 oklch(1 0 0 / 0.12)",
       "--bevel-bottom":
-        "inset 0 -2px 0 oklch(0 0 0 / 0.16), inset 0 -1px 0 oklch(0 0 0 / 0.34), inset -1px 0 0 oklch(0 0 0 / 0.15)",
+        "inset 0 -3px 0 oklch(0 0 0 / 0.26), inset 0 -2px 0 oklch(0 0 0 / 0.44), inset 0 -1px 0 oklch(0 0 0 / 0.6), inset -1px 0 0 oklch(0 0 0 / 0.24)",
     },
   },
   slab: {
-    // No lit edge, one flat contact shadow and a heavier border: solid rather than raised.
+    // A plate lying on the surface: no lit edge, a heavier border, and the contact shadow ModelHarbor
+    // gives this preset (`has_contact_shadow`) - a dark edge offset toward the bottom-right rather
+    // than a soft blur. A 1px blur at 16% was invisible next to `minimal`, which is what "石板和极简
+    // 变成一样了" was reporting; the offset edge is what says "this is a solid slab sitting on the
+    // window".
     borderWidth: "1px",
-    borderColor: "color-mix(in oklab, var(--border) 60%, var(--foreground))",
-    vars: { "--pane-shadow": "0 1px 2px oklch(0 0 0 / 0.16)" },
+    borderColor: "color-mix(in oklab, var(--border) 45%, var(--foreground))",
+    vars: {
+      "--pane-shadow":
+        "1px 1px 0 oklch(0 0 0 / 0.3), 2px 2px 0 oklch(0 0 0 / 0.16), 0 3px 6px oklch(0 0 0 / 0.22)",
+    },
   },
-  glass: {
+  acrylic: {
     borderWidth: "1px",
     borderColor: "color-mix(in oklab, var(--border) 70%, transparent)",
-    material: true,
+    material: "acrylic",
     // The acrylic recipe, which used to live in the `Acrylic` theme: a thin tint over the material
     // DWM draws behind the window, since the desktop already supplies most of the texture and a
     // heavy tint degrades acrylic into a plain translucent panel.
@@ -147,6 +191,24 @@ const SHAPES: Readonly<Record<ShapeId, ShapeValues>> = {
     // theme did with `terminal.background: "rgba(21, 27, 32, 0)"`.
     vars: {
       "--theme-frame-opacity": "0.24",
+      "--theme-pane-opacity": `${ACRYLIC_DEFAULT_PARAMS.paneOpacity}`,
+      "--theme-glass-edge": `${ACRYLIC_DEFAULT_PARAMS.edge}`,
+      "--theme-glass-sheen": `${ACRYLIC_DEFAULT_PARAMS.sheen}`,
+      "--terminal-background": "transparent",
+    },
+    attrs: { "data-theme-glass": "on" },
+  },
+  glass: {
+    // The same layer as `acrylic` with nothing drawn behind it: the window is left see-through and
+    // the desktop is read sharp, which is the difference between a pane of glass and a sheet of
+    // frosted plastic. Both numbers that carry the pane's own colour sit near zero, and the edge and
+    // sheen are stronger, because with no frost to catch the light they are all that says a surface
+    // is there.
+    borderWidth: "1px",
+    borderColor: "color-mix(in oklab, var(--border) 55%, transparent)",
+    material: "clear",
+    vars: {
+      "--theme-frame-opacity": "0.06",
       "--theme-pane-opacity": `${GLASS_DEFAULT_PARAMS.paneOpacity}`,
       "--theme-glass-edge": `${GLASS_DEFAULT_PARAMS.edge}`,
       "--theme-glass-sheen": `${GLASS_DEFAULT_PARAMS.sheen}`,
@@ -166,11 +228,11 @@ export function listShapes(): readonly ShapeId[] {
  * type checker can catch here.
  */
 export const SHAPE_LABELS: Readonly<Record<ShapeId, MessageKey>> = {
-  boundless: "settings.shape.boundless",
   minimal: "settings.shape.minimal",
   cloud: "settings.shape.cloud",
   emboss: "settings.shape.emboss",
   slab: "settings.shape.slab",
+  acrylic: "settings.shape.acrylic",
   glass: "settings.shape.glass",
 };
 
@@ -247,8 +309,8 @@ export type ResolvedShape = {
   vars: Readonly<Record<string, string>>;
   /** Attributes to write on the document element, which the stylesheet keys off. */
   attrs: Readonly<Record<string, string>>;
-  /** Whether this shape asks for the native material, which the window has to be told about. */
-  material: boolean;
+  /** Whether this shape draws the glass layer, which the window has to be told about. */
+  material: ShapeMaterial | null;
 };
 
 /**
@@ -290,6 +352,6 @@ export function resolveShape(
     vars["--theme-glass-edge"] = `${options.glass.edge}`;
     vars["--theme-glass-sheen"] = `${options.glass.sheen}`;
   }
-  if (shape.material) attrs["data-shape-material"] = "native";
-  return { vars, attrs, material: Boolean(shape.material) };
+  if (shape.material) attrs["data-shape-material"] = shape.material;
+  return { vars, attrs, material: shape.material ?? null };
 }

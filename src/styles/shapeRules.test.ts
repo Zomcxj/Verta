@@ -29,10 +29,11 @@ const ruleWith = (selector: string) =>
   rules.find((rule) => rule.selector === selector);
 
 describe("无界's seam, while it is being dragged", () => {
-  const handle = 'html[data-shape="boundless"] [data-slot="resizable-handle"]';
+  // The merged sheet is its own axis (`data-boundless`), not a shape: it combines with every preset.
+  const handle = 'html[data-boundless] [data-slot="resizable-handle"]';
 
   it("keeps the seam invisible at rest", () => {
-    // The sheet has no seams at rest: that is the shape. It must not be widened to draw the line.
+    // The sheet has no seams at rest: that is the whole of the axis. It must not be widened to draw the line.
     expect(ruleWith(handle)?.body).toContain("width: 0");
   });
 
@@ -92,9 +93,11 @@ describe("浮雕's plate", () => {
     expect(emboss.vars["--bevel-top"]).not.toBe(minimal.vars["--bevel-top"]);
   });
 
-  it("paints a sheen down the pane", () => {
+  it("is its edge and nothing else", () => {
     const rule = ruleWith('html[data-shape="emboss"] .verta-pane');
-    expect(rule?.body).toMatch(/linear-gradient\(\s*to bottom/);
+    // No gradient of its own: a lighter band behind the interface is a backdrop, and it is also what
+    // made the plate read as a card inside the sheet.
+    expect(rule?.body).not.toMatch(/background/);
     expect(rule?.body).toContain("box-shadow: var(--bevel-top), var(--bevel-bottom)");
     // Painted, not composited: no blur, no filter, no backdrop (`compositingBudget.test.ts`).
     expect(rule?.body).not.toMatch(/blur|backdrop/);

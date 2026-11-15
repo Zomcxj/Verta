@@ -32,11 +32,11 @@ describe("builtin theme registry", () => {
   });
 
   it("no longer offers acrylic as a theme, but still resolves it", () => {
-    // The material became the `glass` shape, so acrylic is no longer a thing a theme has to be - it
+    // The material became the `acrylic` shape, so acrylic is no longer a thing a theme has to be - it
     // is colours that suggest that shape. A settings file that still says `themeId: "acrylic"` has to
-    // open as those colours in glass, not silently fall back to the default theme.
+    // open as those colours in acrylic, not silently fall back to the default theme.
     expect(listBuiltinThemes().map((t) => t.id)).not.toContain("acrylic");
-    expect(getBuiltinTheme("acrylic")?.shape).toBe("glass");
+    expect(getBuiltinTheme("acrylic")?.shape).toBe("acrylic");
   });
 
   it("returns undefined for an unknown id", () => {

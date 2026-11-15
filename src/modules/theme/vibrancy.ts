@@ -1,8 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ShapeMaterial } from "./shape";
 
 /**
  * What `window_backdrop_kind` reports the platform can do. The `kind` we then ask
- * for is narrower: `mica` or `acrylic` (see `Backdrop` in
+ * for is narrower: `mica`, `acrylic` or `clear` (see `Backdrop` in
  * `src-tauri/src/modules/vibrancy.rs`).
  */
 export type Backdrop = "vibrancy" | "mica" | "none";
@@ -134,9 +135,9 @@ export function applyVibrancy(
   enabled: boolean,
   dark: boolean,
   themeId = "",
-  acrylic = false,
+  material: ShapeMaterial | null = null,
 ): Promise<void> {
-  queue = queue.then(() => run(enabled, dark, themeId, acrylic));
+  queue = queue.then(() => run(enabled, dark, themeId, material));
   return queue;
 }
 
@@ -144,13 +145,13 @@ async function run(
   enabled: boolean,
   dark: boolean,
   themeId: string,
-  acrylic = false,
+  material: ShapeMaterial | null = null,
 ): Promise<void> {
   const kind = await getBackdropKind();
-  // When a theme asks for glass, use acrylic even without the user's master switch: the
-  // theme itself wants to be see-through, and refusing makes the theme look inert. When
-  // turned off, only the user's master switch counts.
-  const on = kind !== "none" && (enabled || acrylic);
+  // When a shape asks for a see-through window, use it even without the user's master switch: the
+  // shape itself wants to be see-through, and refusing makes it look inert. When turned off, only
+  // the user's master switch counts.
+  const on = kind !== "none" && (enabled || material !== null);
   const root = document.documentElement;
 
   const paintOpaque = () => {
@@ -178,7 +179,7 @@ async function run(
   // to be rebuilt on a mode flip; NSVisualEffectView adapts on its own.
   const key = on
     ? kind === "mica"
-      ? `on:${dark}:${acrylic ? "acrylic" : "mica"}:${enabled ? "user" : "theme"}`
+      ? `on:${dark}:${material ?? "mica"}:${enabled ? "user" : "theme"}`
       : "on"
     : `off:${themeId}:${background ?? dark}`;
   if (key === applied) return;
@@ -189,8 +190,9 @@ async function run(
       dark,
       background,
       // On Windows only acrylic really shows the desktop (Mica just samples the wallpaper
-      // and is essentially opaque).
-      kind: acrylic ? "acrylic" : "mica",
+      // and is essentially opaque). `clear` asks for neither: the window stays see-through
+      // and the desktop is read as it is.
+      kind: material ?? "mica",
     });
     applied = key;
   } catch {

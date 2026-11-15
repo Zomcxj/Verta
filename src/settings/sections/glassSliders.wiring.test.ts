@@ -32,8 +32,18 @@ describe("the glass sliders", () => {
   });
 
   it("resets to the preset's own numbers, not to a copy of them", () => {
-    expect(section).toContain("setGlassPaneOpacity(GLASS_DEFAULT_PARAMS.paneOpacity)");
-    expect(section).toContain("setGlassEdge(GLASS_DEFAULT_PARAMS.edge)");
-    expect(section).toContain("setGlassSheen(GLASS_DEFAULT_PARAMS.sheen)");
+    // Which preset is in force decides the numbers, so the reset asks the shape axis rather than
+    // keeping a second copy of either recipe here - and it writes to that preset's own recipe.
+    expect(section).toContain("const defaults = defaultGlassParamsFor(drawnShape);");
+    expect(section).toContain('setMaterialParam(materialShape, "paneOpacity", defaults.paneOpacity)');
+    expect(section).toContain('setMaterialParam(materialShape, "edge", defaults.edge)');
+    expect(section).toContain('setMaterialParam(materialShape, "sheen", defaults.sheen)');
+  });
+
+  it("keeps the two see-through recipes apart", () => {
+    // One shared set of numbers meant tuning the clear pane silently retuned the frosted one.
+    expect(section).toContain('drawnShape === "acrylic" ? "acrylic" : "glass"');
+    expect(section).toContain("acrylicPaneOpacity");
+    expect(section).toContain("glassPaneOpacity");
   });
 });

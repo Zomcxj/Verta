@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACRYLIC_DEFAULT_PARAMS,
   DEFAULT_SHAPE_ID,
+  defaultGlassParamsFor,
   GLASS_DEFAULT_PARAMS,
   isShapeId,
   isShapePref,
@@ -13,31 +15,18 @@ import {
 } from "./shape";
 
 describe("the shape axis", () => {
-  it("offers five presets, in the order they are drawn", () => {
+  it("offers six presets, in the order they are drawn", () => {
     expect(listShapes()).toEqual([
-      "boundless",
       "minimal",
       "cloud",
       "emboss",
       "slab",
+      "acrylic",
       "glass",
     ]);
     // Decoration is opt-in: the default paints nothing.
     expect(DEFAULT_SHAPE_ID).toBe("minimal");
     expect(resolveShape(DEFAULT_SHAPE_ID)).toEqual(resolveShape("minimal"));
-  });
-
-  it("merges the three regions into one sheet", () => {
-    // No border and no gutter (the stylesheet closes that, and its rounding lands on the merged block
-    // - see `globals.css`); the radius is no longer this axis's business.
-    expect(resolveShape("boundless")).toEqual({
-      vars: {
-        "--pane-border-width": "0px",
-        "--pane-border-color": "transparent",
-      },
-      attrs: { "data-shape": "boundless" },
-      material: false,
-    });
   });
 
   it("draws nothing at all when nothing has been chosen", () => {
@@ -47,7 +36,7 @@ describe("the shape axis", () => {
         "--pane-border-color": "transparent",
       },
       attrs: { "data-shape": "minimal" },
-      material: false,
+      material: null,
     });
   });
 
@@ -60,7 +49,11 @@ describe("the shape axis", () => {
       expect(vars["--pane-border-color"]).toBeTruthy();
       for (const name of Object.keys(vars)) expect(name.startsWith("--")).toBe(true);
       for (const value of Object.values(vars)) expect(value.length).toBeGreaterThan(0);
-      expect(material).toBe(id === "glass");
+      // Two shapes are see-through, and each says which way: a material the system draws, or a pane
+      // with nothing behind it. Every other shape asks for neither.
+      const asked =
+        id === "acrylic" ? "acrylic" : id === "glass" ? "clear" : null;
+      expect(material).toBe(asked);
     }
     expect(resolveShape("cloud").vars["--card-shadow"]).toBeDefined();
     expect(resolveShape("emboss").vars["--bevel-top"]).toBeDefined();
@@ -70,23 +63,45 @@ describe("the shape axis", () => {
     expect(resolveShape("slab").vars["--bevel-top"]).toBeUndefined();
   });
 
-  it("keeps the material and its glass layer on the one preset that asks for them", () => {
-    // Acrylic is native DWM material behind the window, out of the stylesheet's reach - and it is the
-    // `glass` shape's, not a theme's: this is the axis the material moved onto.
+  it("keeps the material and its glass layer on the two presets that ask for them", () => {
+    // Both are see-through, and they differ in what is behind the pane: `acrylic` asks DWM for the
+    // material (blurred, tinted), `glass` asks for nothing at all, so the desktop is read sharp.
+    const acrylic = resolveShape("acrylic");
+    expect(acrylic.attrs).toEqual({
+      "data-shape": "acrylic",
+      "data-shape-material": "acrylic",
+      // The recipe travels with the shape, because a material behind opaque panes is invisible.
+      "data-theme-glass": "on",
+    });
+    expect(acrylic.vars["--theme-frame-opacity"]).toBe("0.24");
+    expect(acrylic.vars["--theme-pane-opacity"]).toBe(
+      `${ACRYLIC_DEFAULT_PARAMS.paneOpacity}`,
+    );
+
     const glass = resolveShape("glass");
     expect(glass.attrs).toEqual({
       "data-shape": "glass",
-      "data-shape-material": "native",
-      // Acrylic's own recipe travels with it, because a material behind opaque panes is invisible.
+      "data-shape-material": "clear",
       "data-theme-glass": "on",
     });
-    expect(glass.vars["--theme-frame-opacity"]).toBe("0.24");
-    expect(glass.vars["--theme-pane-opacity"]).toBe("0.28");
-    // And the terminal stops painting the theme's colour: a solid rectangle in a translucent window
-    // is the one place acrylic looked broken.
-    expect(glass.vars["--terminal-background"]).toBe("transparent");
+    expect(glass.vars["--theme-frame-opacity"]).toBe("0.06");
+    expect(glass.vars["--theme-pane-opacity"]).toBe(
+      `${GLASS_DEFAULT_PARAMS.paneOpacity}`,
+    );
+    // The clear pane keeps at least as much of its own colour as the frosted one: with nothing
+    // blurred behind it, a thinner tint reads as an unreadable sheet over a busy wallpaper rather
+    // than as glass.
+    expect(GLASS_DEFAULT_PARAMS.paneOpacity).toBeGreaterThanOrEqual(
+      ACRYLIC_DEFAULT_PARAMS.paneOpacity,
+    );
+
+    // Both stop the terminal painting the theme's colour: a solid rectangle in a see-through window
+    // is the one place either material looked broken.
+    for (const id of ["acrylic", "glass"] as const) {
+      expect(resolveShape(id).vars["--terminal-background"]).toBe("transparent");
+    }
     for (const id of listShapes()) {
-      if (id === "glass") continue;
+      if (id === "acrylic" || id === "glass") continue;
       expect(resolveShape(id).attrs["data-shape-material"]).toBeUndefined();
       expect(resolveShape(id).vars["--theme-frame-opacity"]).toBeUndefined();
       expect(resolveShape(id).vars["--terminal-background"]).toBeUndefined();
@@ -94,16 +109,20 @@ describe("the shape axis", () => {
   });
 
   it("resets to the numbers the preset itself draws with", () => {
-    // "Restore defaults" must write what `glass` ships with, not a second copy of the numbers kept
-    // somewhere else, so the constant and the preset are checked against each other.
-    const glass = resolveShape("glass");
-    expect(glass.vars["--theme-pane-opacity"]).toBe(
-      `${GLASS_DEFAULT_PARAMS.paneOpacity}`,
-    );
-    expect(glass.vars["--theme-glass-edge"]).toBe(`${GLASS_DEFAULT_PARAMS.edge}`);
-    expect(glass.vars["--theme-glass-sheen"]).toBe(
-      `${GLASS_DEFAULT_PARAMS.sheen}`,
-    );
+    // "Restore defaults" must write what the shape in force ships with, not a second copy of the
+    // numbers kept somewhere else, so the constants and the presets are checked against each other.
+    for (const [id, params] of [
+      ["acrylic", ACRYLIC_DEFAULT_PARAMS],
+      ["glass", GLASS_DEFAULT_PARAMS],
+    ] as const) {
+      const { vars } = resolveShape(id);
+      expect(vars["--theme-pane-opacity"]).toBe(`${params.paneOpacity}`);
+      expect(vars["--theme-glass-edge"]).toBe(`${params.edge}`);
+      expect(vars["--theme-glass-sheen"]).toBe(`${params.sheen}`);
+      expect(defaultGlassParamsFor(id)).toEqual(params);
+    }
+    // A shape with no layer answers the glass recipe, which is the one the sliders started from.
+    expect(defaultGlassParamsFor("slab")).toEqual(GLASS_DEFAULT_PARAMS);
   });
 
   it("lets the user's three numbers replace a material shape's recipe", () => {
@@ -128,6 +147,7 @@ describe("the shape axis", () => {
 
   it("knows which shapes the sliders belong to", () => {
     expect(shapeUsesGlass("glass")).toBe(true);
+    expect(shapeUsesGlass("acrylic")).toBe(true);
     expect(shapeUsesGlass("slab")).toBe(false);
     expect(shapeUsesGlass(SHAPE_AUTO)).toBe(false);
   });
@@ -151,7 +171,7 @@ describe("the shape axis", () => {
   it("leaves a theme's own glass alone when the theme has one", () => {
     // A theme that describes its glass - a custom one can - is not overruled by the shape's recipe.
     const themed = resolveShape("glass", { themeGlass: true });
-    expect(themed.material).toBe(true);
+    expect(themed.material).toBe("clear");
     expect(themed.vars["--theme-frame-opacity"]).toBeUndefined();
     expect(themed.vars["--theme-pane-opacity"]).toBeUndefined();
     expect(themed.attrs["data-theme-glass"]).toBeUndefined();
