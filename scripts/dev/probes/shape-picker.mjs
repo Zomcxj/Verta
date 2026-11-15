@@ -94,6 +94,9 @@ const readShell = async (page) =>
         windowRadius: style.getPropertyValue("--window-radius").trim(),
         // What the shell says when the native material is really on.
         vibrancy: document.documentElement.getAttribute("data-vibrancy"),
+        // Which of the two see-through presets is in force: a material the system draws, or a pane
+        // with nothing behind it.
+        material: document.documentElement.getAttribute("data-shape-material"),
         terminal: style.getPropertyValue("--terminal-background").trim(),
       });
     })()`),
@@ -125,8 +128,24 @@ let main = null;
 let settings = null;
 let rid = null;
 let original;
+// What the user had chosen, read before this run presses anything. The `finally` block puts this
+// back; reading it there instead would only restore whatever the last press wrote.
+let shapeWas;
 try {
   main = await connect(mainTarget(await targets()) ?? fail("no main window"));
+  rid = await main.evaluate(
+    `window.__TAURI_INTERNALS__.invoke("plugin:store|load", { path: ${JSON.stringify(STORE)} }).then((r) => (typeof r === "object" && r !== null ? (r.rid ?? r) : r)).catch(() => null)`,
+  );
+  if (rid !== null && rid !== undefined) {
+    const storedAtStart = await main.evaluate(
+      `window.__TAURI_INTERNALS__.invoke("plugin:store|get", { rid: ${JSON.stringify(rid)}, key: ${JSON.stringify(PREF_KEY)} }).catch(() => null)`,
+    );
+    shapeWas = Array.isArray(storedAtStart)
+      ? storedAtStart[1]
+        ? storedAtStart[0]
+        : undefined
+      : storedAtStart;
+  }
 
   // ---- What the picker offers ----
   await main.evaluate(`window.__TAURI_INTERNALS__.invoke("open_settings_window", { tab: "themes" })`);
@@ -174,7 +193,7 @@ try {
   if (options.length !== 6) {
     fail(`the picker offers ${options.length} choices (${options.map((o) => o.label).join("/")}), not the six`);
   }
-  if (options[0].label !== "无界") fail(`the first choice is ${options[0].label}, not the boundless one`);
+  if (options[0].label !== "极简") fail(`the first choice is ${options[0].label}, not the minimal one`);
   // Each choice draws the three regions its own way: without that the borderless pair would be the
   // same picture, since the radius is no longer theirs to show.
   for (const option of options) {
@@ -182,13 +201,10 @@ try {
       fail(`the ${option.label} choice draws ${option.regions} regions, not the three of the shell`);
     }
   }
-  const mergedGaps = options.filter((o) => o.gap === "0");
-  if (mergedGaps.length !== 1 || mergedGaps[0].label !== "无界") {
-    fail(`exactly one choice may close the gutters: ${JSON.stringify(options.map((o) => `${o.label} ${o.gap}`))}`);
-  }
-  const blocks = options.filter((o) => o.block);
-  if (blocks.length !== 1 || blocks[0].label !== "无界") {
-    fail(`exactly one choice rounds a merged block: ${JSON.stringify(blocks.map((o) => o.label))}`);
+  // The merged sheet is no longer a choice here: it is its own switch, next to the material one, and
+  // every drawing in this picker keeps its gutters.
+  if (options.some((o) => o.gap === "0")) {
+    fail(`a choice closes the gutters, which is the switch's job now: ${JSON.stringify(options.map((o) => `${o.label} ${o.gap}`))}`);
   }
   const minimalOption = options.find((o) => o.label === "极简");
   if (minimalOption.border !== "0px") {
@@ -232,11 +248,9 @@ try {
       const grid = [...document.querySelectorAll("div.grid")].find((node) =>
         node.querySelector("[data-shape-icon]"),
       );
-      const block = grid?.querySelector('[data-shape-icon="boundless"]');
       const panes = grid?.querySelector('[data-shape-icon="minimal"]');
       const middle = panes ? panes.querySelectorAll("[data-region]")[1] : null;
       return JSON.stringify({
-        block: block ? getComputedStyle(block).borderTopLeftRadius : null,
         // The workspace pane, not the first one: the narrow panes stop getting rounder near the top
         // of the range on purpose, so they cannot draw as pills.
         region: middle ? getComputedStyle(middle).borderTopLeftRadius : null,
@@ -255,13 +269,6 @@ try {
     }
   }
   // The drawings are the ones that move: same picture, different corners, as the slider travels.
-  const radii = ["0", "0.5rem", "1rem"].map((stop) =>
-    Number.parseFloat(report.radius[stop].block),
-  );
-  if (!(radii[0] < radii[1] && radii[1] < radii[2])) {
-    fail(`the merged drawing does not follow the radius axis: ${JSON.stringify(report.radius)}`);
-  }
-  if (radii[0] !== 0) fail(`the drawing is still round at a radius of zero: ${report.radius["0"].block}`);
   // And the regions of the other shapes follow it too: that is the same variable reaching them.
   const regionRadii = ["0", "0.5rem", "1rem"].map((stop) =>
     Number.parseFloat(report.radius[stop].region),
@@ -289,6 +296,29 @@ try {
   report.settingsAfterGlass = await readShell(settings);
   if (afterGlass.borderWidth !== "1px") {
     fail(`glass did not reach the document: ${JSON.stringify(afterGlass)}`);
+  }
+  // A pane of glass has nothing blurred behind it: the marker says so, and the terminal stops
+  // painting a base colour that would sit as a solid rectangle in a see-through window.
+  if (afterGlass.material !== "clear") {
+    fail(`玻璃 is not the clear pane: ${JSON.stringify(afterGlass)}`);
+  }
+  if (afterGlass.terminal !== "transparent") {
+    fail(`玻璃 left the terminal painting a base colour: ${JSON.stringify(afterGlass.terminal)}`);
+  }
+
+  // ---- The frosted one, which is what this preset used to be ----
+  if (!(await pressShape(settings, "亚克力"))) fail("the acrylic choice is not pressable");
+  if (!(await waitForShape(main, "acrylic"))) {
+    fail(`pressing 亚克力 left the main window at ${JSON.stringify((await readShell(main)).shape)}`);
+  }
+  let afterAcrylic = await readShell(main);
+  for (let attempt = 0; attempt < 30 && afterAcrylic.material !== "acrylic"; attempt += 1) {
+    await sleep(200);
+    afterAcrylic = await readShell(main);
+  }
+  report.afterAcrylic = afterAcrylic;
+  if (afterAcrylic.material !== "acrylic") {
+    fail(`亚克力 is not the material shape: ${JSON.stringify(afterAcrylic)}`);
   }
   // The Settings window draws panes of its own and follows the same axis.
   if (report.settingsAfterGlass.shape !== "glass") {
@@ -429,7 +459,14 @@ try {
   if (shapeRows.icons !== 6) {
     fail(`the palette's shape page draws ${shapeRows.icons} shapes, not the six: ${JSON.stringify(shapeRows.labels)}`);
   }
-  for (const id of ["boundless", "minimal", "cloud", "emboss", "slab", "glass"]) {
+  for (const id of [
+    "minimal",
+    "cloud",
+    "emboss",
+    "slab",
+    "acrylic",
+    "glass",
+  ]) {
     if (!shapeRows.drawn.includes(id)) {
       fail(`the palette's shape page is missing ${id}: ${JSON.stringify(shapeRows)}`);
     }
@@ -515,7 +552,7 @@ try {
 
   report.ok = true;
   console.log(
-    `PASS: 形态选择器有 ${options.length} 项、每项都画出三块区域与自己的描边（只有无界合缝并给整块上圆角，${options.map((o) => `${o.label}${o.gap}`).join("/")}）；圆角滑块 7 挡、显示 ${report.radius["0.5rem"].control.label} 时停在 ${report.radius["0.5rem"].control.now}、图标圆角随挡位 ${radii.join("→")}；设置窗口点「玻璃」主窗口变 ${report.afterGlass.shape}（材质 ${report.afterGlass.vibrancy}），点「极简」主窗口回到 ${report.afterMinimal.shape} 且窗口外框仍 ${report.afterMinimal.windowRadius}；命令面板「切换形态」列出同样 ${report.palette.shapes.icons} 项，悬停云朵主窗口预览成 ${report.palette.preview}（Esc 后回到 ${report.palette.afterEscape.shape}、页面退回命令列表），点云朵后 shapeId 落成 ${report.palette.committed}。`,
+    `PASS: 形态选择器有 ${options.length} 项、每项都画出三块区域与自己的描边（合缝已不是形态，而是材质开关下面那个独立开关；${options.map((o) => `${o.label}${o.gap}`).join("/")}）；圆角滑块 7 挡、显示 ${report.radius["0.5rem"].control.label} 时停在 ${report.radius["0.5rem"].control.now}、图标圆角随挡位 ${radii.join("→")}；设置窗口点「玻璃」主窗口变 ${report.afterGlass.shape}（材质 ${report.afterGlass.material}，vibrancy ${report.afterGlass.vibrancy}）、点「亚克力」变 ${report.afterAcrylic.shape}（材质 ${report.afterAcrylic.material}），点「极简」主窗口回到 ${report.afterMinimal.shape} 且窗口外框仍 ${report.afterMinimal.windowRadius}；命令面板「切换形态」列出同样 ${report.palette.shapes.icons} 项，悬停云朵主窗口预览成 ${report.palette.preview}（Esc 后回到 ${report.palette.afterEscape.shape}、页面退回命令列表），点云朵后 shapeId 落成 ${report.palette.committed}。`,
   );
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {
@@ -534,10 +571,9 @@ try {
       );
       rid = opened;
       if (rid !== null && rid !== undefined) {
-        const stored = await main.evaluate(
-          `window.__TAURI_INTERNALS__.invoke("plugin:store|get", { rid: ${JSON.stringify(rid)}, key: ${JSON.stringify(PREF_KEY)} }).catch(() => null)`,
-        );
-        original = Array.isArray(stored) ? (stored[1] ? stored[0] : undefined) : stored;
+        // The value read before this run pressed anything, not the one it left behind: `cloud` is
+        // what the last step of this probe chooses, and restoring that is restoring nothing.
+        original = shapeWas;
         if (original === undefined) {
           await main.evaluate(
             `window.__TAURI_INTERNALS__.invoke("plugin:store|delete", { rid: ${JSON.stringify(rid)}, key: ${JSON.stringify(PREF_KEY)} }).catch(() => null)`,

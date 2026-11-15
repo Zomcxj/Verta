@@ -19,6 +19,7 @@
 const port = process.argv.find((a) => a.startsWith("--port="))?.slice(7) ?? "9222";
 const STORE = "verta-settings.json";
 const PREF_KEY = "shapeId";
+const BOUNDLESS_KEY = "boundless";
 const EVENT = "verta://prefs-changed";
 
 const report = {};
@@ -35,12 +36,12 @@ const fail = (message) => {
  * borderless ones would be indistinguishable.
  */
 const SHAPES = {
-  boundless: { border: "0px", visible: "one sheet: no seams and no gutters" },
   minimal: { border: "0px", visible: "nothing at all" },
   cloud: { border: "1px", visible: "panes stepped in from the frame with a soft shadow" },
   emboss: { border: "1px", visible: "two inset edges" },
   slab: { border: "1px", visible: "a contact shadow and a heavier border" },
-  glass: { border: "1px", visible: "the native material, a translucent layer, a clear terminal" },
+  acrylic: { border: "1px", visible: "the native acrylic material behind a translucent layer" },
+  glass: { border: "1px", visible: "a see-through pane with nothing drawn behind it" },
 };
 const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
 const page =
@@ -121,6 +122,7 @@ const readShell = async () =>
       const paneStyle = pane ? getComputedStyle(pane) : null;
       return JSON.stringify({
         shape: root.getAttribute("data-shape"),
+        boundless: root.getAttribute("data-boundless"),
         material: root.getAttribute("data-shape-material"),
         radius: style.getPropertyValue("--radius").trim(),
         paneRadius: style.getPropertyValue("--pane-radius").trim(),
@@ -183,13 +185,37 @@ const chooseShape = async (value) => {
   return readShell();
 };
 
+/** The merged sheet, written the way the switch writes it: the store, then the event. */
+const setBoundless = async (value) => {
+  await invoke("plugin:store|set", { rid, key: BOUNDLESS_KEY, value });
+  await invoke("plugin:event|emit", {
+    event: EVENT,
+    payload: { key: BOUNDLESS_KEY, value },
+  });
+  await sleep(250);
+  return readShell();
+};
+
 let original;
+let boundlessWas;
 try {
   await openStore();
   const stored = await invoke("plugin:store|get", { rid, key: PREF_KEY });
   // The plugin answers a `get` with `[value, exists]`, so "was anything stored" is the second element
   // and `null` alone would not tell an absent key from a key holding null.
   original = Array.isArray(stored) ? (stored[1] ? stored[0] : undefined) : stored;
+  // The sheet is the user's, and this probe measures shapes: it starts from the unmerged shell and
+  // puts the switch back the way it found it.
+  const storedBoundless = await invoke("plugin:store|get", {
+    rid,
+    key: BOUNDLESS_KEY,
+  });
+  boundlessWas = Array.isArray(storedBoundless)
+    ? storedBoundless[1]
+      ? storedBoundless[0]
+      : undefined
+    : storedBoundless;
+  if (boundlessWas === true) await setBoundless(false);
   report.storedBefore = original ?? null;
 
   // The user's own material switch outranks every shape: with it on, the desktop material is on for
@@ -215,61 +241,25 @@ try {
   // ---- Each shape moves the geometry, and only the geometry it owns ----
   report.shapes = {};
   let plain = null;
-  for (const id of ["boundless", "minimal", "cloud", "emboss", "slab", "glass"]) {
+  for (const id of ["minimal", "cloud", "emboss", "slab", "acrylic", "glass"]) {
     const shell = await chooseShape(id);
     report.shapes[id] = shell;
     if (shell.shape !== id) {
       fail(`choosing ${id} left the document at ${JSON.stringify(shell.shape)}`);
     }
     const expected = SHAPES[id];
-    // 无界 has no interior edges, so the sidebar's rail loses its band and its hairline; every other
-    // shape keeps both, because there the sidebar is a card that the rail has to sit inside.
+    // With the sheet off (this probe turns it off before measuring), the sidebar is a card, so its
+    // rail keeps the band and the hairline it draws for itself.
     const rail = shell.rail;
     if (rail) {
       const transparent = (colour) =>
         colour === "transparent" || colour === "rgba(0, 0, 0, 0)";
-      if (id === "boundless") {
-        if (!transparent(rail.background) || !transparent(rail.borderTop)) {
-          fail(`boundless left the sidebar rail's band on: ${JSON.stringify(rail)}`);
-        }
-      } else if (transparent(rail.background)) {
+      if (transparent(rail.background)) {
         fail(`${id} drew no band under the sidebar rail: ${JSON.stringify(rail)}`);
-      }
-    }
-    if (id === "boundless") {
-      // One sheet: no gutter anywhere between the regions, and the handles give up their width -
-      // their `::after` hit area is what keeps them draggable, so a zero-width handle still works.
-      const inner = (side) => shell.gutters.find((g) => g.side === side);
-      const sideways = [
-        ["sidebar", inner("sidebar")?.right],
-        ["workspace", inner("workspace")?.left],
-        ["workspace", inner("workspace")?.right],
-        ["right", inner("right")?.left],
-      ].filter(([, value]) => value !== "0px");
-      if (shell.gutters.length !== 3) {
-        fail(`the shell named ${shell.gutters.length} regions, not the three`);
-      }
-      if (sideways.length > 0) {
-        fail(
-          `boundless left a gutter: ${sideways.map(([side, value]) => `${side} ${value}`).join(", ")}`,
-        );
-      }
-      if (shell.handles.length === 0) fail("no resize handle was found to measure");
-      for (const handle of shell.handles) {
-        if (handle.width !== "0px") fail(`boundless left a ${handle.width} handle between the panes`);
-        if (!/^\d+(\.\d+)?px$/.test(handle.hitArea) || Number.parseFloat(handle.hitArea) < 3) {
-          fail(`a zero-width handle lost its hit area (${handle.hitArea}) - it would not be draggable`);
-        }
       }
     }
     if (id === "minimal") {
       plain = shell;
-      // `minimal` is not merged, so the gutters have to be back for the comparison to mean anything.
-      const gutter = shell.gutters.find((g) => g.side === "sidebar");
-      if (gutter?.right === "0px") fail("leaving the merged shape did not reopen the gutters");
-      if (!shell.handles.every((handle) => handle.width !== "0px")) {
-        fail(`a handle is still ${shell.handles.map((h) => h.width).join("/")} wide after boundless`);
-      }
       // Decoration is opt-in: the default paints no border at all. The inset highlight that is left
       // in `--pane-shadow` is the theme's own chrome, not something the shape adds.
       if (shell.paneBorder !== "0px") fail(`the default still draws a ${shell.paneBorder} border`);
@@ -294,17 +284,14 @@ try {
         `${id}: --window-radius moved from ${baseline.windowRadius} to ${shell.windowRadius}; the window's corners are DWM's`,
       );
     }
-    if (id === "glass" && shell.material !== "native") {
-      fail("glass did not ask for the native material");
+    const wantMaterial =
+      id === "glass" ? "clear" : id === "acrylic" ? "acrylic" : null;
+    if (shell.material !== wantMaterial) {
+      fail(`${id} asked the window for ${JSON.stringify(shell.material)}, not ${JSON.stringify(wantMaterial)}`);
     }
-    if (id !== "glass" && shell.material !== null) {
-      fail(`the material attribute survived into ${id}`);
-    }
-
     // ---- And what each shape changes besides its radius ----
     if (
       id !== "minimal" &&
-      id !== "boundless" &&
       shell.paneBorderColor === plain.paneBorderColor
     ) {
       // Half a pixel is drawn as one, so the colour is what tells the thinner presets apart.
@@ -361,6 +348,59 @@ try {
     }
   }
 
+  // ---- The merged sheet is a switch of its own, not a preset ----
+  //
+  // Its whole point is that it combines: with it on, the shape in force keeps drawing (border,
+  // shadow, material) and only the seams between the three regions go away.
+  const shapeBefore = (await readShell()).shape;
+  const merged = await setBoundless(true);
+  report.merged = merged;
+  if (merged.boundless !== "on") {
+    fail(`the switch did not merge the shell: ${JSON.stringify(merged.boundless)}`);
+  }
+  if (merged.shape !== shapeBefore) {
+    fail(`merging the shell changed the shape from ${shapeBefore} to ${merged.shape}`);
+  }
+  const inner = (side) => merged.gutters.find((g) => g.side === side);
+  const sideways = [
+    ["sidebar", inner("sidebar")?.right],
+    ["workspace", inner("workspace")?.left],
+    ["workspace", inner("workspace")?.right],
+    ["right", inner("right")?.left],
+  ].filter(([, value]) => value !== "0px");
+  if (merged.gutters.length !== 3) {
+    fail(`the shell named ${merged.gutters.length} regions, not the three`);
+  }
+  if (sideways.length > 0) {
+    fail(
+      `the sheet left a gutter: ${sideways.map(([side, value]) => `${side} ${value}`).join(", ")}`,
+    );
+  }
+  if (merged.handles.length === 0) fail("no resize handle was found to measure");
+  for (const handle of merged.handles) {
+    if (handle.width !== "0px") fail(`the sheet left a ${handle.width} handle between the panes`);
+    if (!/^\d+(\.\d+)?px$/.test(handle.hitArea) || Number.parseFloat(handle.hitArea) < 3) {
+      fail(`a zero-width handle lost its hit area (${handle.hitArea}) - it would not be draggable`);
+    }
+  }
+  // Inside one sheet a strip with an edge reads as pasted on, so the rail drops its band.
+  const mergedRail = merged.rail;
+  if (mergedRail) {
+    const transparent = (colour) =>
+      colour === "transparent" || colour === "rgba(0, 0, 0, 0)";
+    if (!transparent(mergedRail.background) || !transparent(mergedRail.borderTop)) {
+      fail(`the sheet left the sidebar rail's band on: ${JSON.stringify(mergedRail)}`);
+    }
+  }
+
+  const unmerged = await setBoundless(false);
+  if (unmerged.boundless !== null) {
+    fail(`switching the sheet off left ${JSON.stringify(unmerged.boundless)} on the document`);
+  }
+  if (unmerged.gutters.find((g) => g.side === "sidebar")?.right === "0px") {
+    fail("switching the sheet off did not reopen the gutters");
+  }
+
   // ---- Back to what was there before this run (and the same happens in `finally`) ----
   if (original === undefined) {
     await invoke("plugin:store|delete", { rid, key: PREF_KEY });
@@ -385,7 +425,7 @@ try {
     .map((id) => `${id} ${report.shapes[id].borderWidth}`)
     .join("  ");
   console.log(
-    `PASS: 形态轴真的作用在外壳上（描边宽度）——${summary}；默认（极简）不画边框；无界把左侧「会话/文件」那条的底色与上边线一并去掉（其余形态保留）；无界把三块合成一块（三处内缝 0、两个手柄 0px 但保留 ${report.shapes.boundless.handles[0]?.hitArea} 命中区）；--window-radius 全程 ${baseline.windowRadius}；glass 带 data-shape-material=native 且终端透明；跑完已还原。`,
+    `PASS: 形态轴真的作用在外壳上（描边宽度）——${summary}；默认（极简）不画边框；「无界」现在是独立开关：打开后三块合成一块（三处内缝 0、两个手柄 0px 但保留 ${report.merged?.handles[0]?.hitArea} 命中区）、左侧「会话/文件」那条的底色与上边线一并去掉，且形态本身不变（仍是 ${report.merged?.shape}），关掉后内缝回来；--window-radius 全程 ${baseline.windowRadius}；玻璃要 clear、亚克力要 acrylic，两者的终端都透明；跑完已还原。`,
   );
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {
@@ -408,6 +448,7 @@ try {
       } else {
         await chooseShape(original);
       }
+      if (boundlessWas === true) await setBoundless(true);
     }
   } catch {
     // The window may already be gone; the file state is reported above either way.

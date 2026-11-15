@@ -15,6 +15,52 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-15</strong></summary>
 
+**The trend's "all" is read at three scales, and the strip is dragged**
+
+- `src/usage/tokens.ts`: the chart's steps stay 7 days, 30 days and 90 days, and `all` gains a grouping: one column per day (180 at most), per week (52, starting on a Monday) or per calendar month (12). The three fixed windows are days and nothing else, because a weekly column of seven days is one bar. `bucketKeyOf` and `bucketSequence` decide which column a day belongs to and in what order the columns are drawn; the per-model totals are still accumulated once and summed into the column the day falls in, so the three scales cannot disagree about a number.
+- `src/usage/UsageApp.tsx`, `src/modules/i18n/messages.ts`: the grouping chips appear only under `all` (按天 / 按周 / 按月), and `all` opens on the day grouping.
+- `src/usage/TrendChart.tsx`: the wheel is gone. A 180-day strip that does not fit is panned by pressing it and dragging sideways, which is the gesture the chart itself suggests; the pointer is captured so the drag survives leaving the plot, and the cursor is a grab that closes into a fist while it is held. A wheel over a chart reads as "zoom", and this window has no zoom.
+- `src/usage/tokens.test.ts`: the day sequence starts at the first day with data for `all` (180 empty columns before the history begins would read as half a year of nothing), the two fixed windows keep their empty days, and the week and month groupings are checked to sum to the same history the day grouping does.
+
+**无界 is its own axis, and every shape draws on it**
+
+- `src/modules/theme/shape.ts`, `ShapeIcon.tsx`: `boundless` stops being a preset. Merging the sidebar, the workspace and the right panel is a statement about the layout, not about borders, so as a preset it threw away the shape the reader had chosen; the picker now offers six, and none of the drawings closes its gutters.
+- `src/modules/settings/store.ts`, `ThemeProvider.tsx`, `applyTheme.ts`: a `boundless` preference (a switch beside the material one) and `applyBoundless`, which writes `data-boundless` on the document element. A settings file that still says `shapeId: "boundless"` reads as the switch being on rather than as a lost sheet, since the shape id falls back to the default.
+- `src/styles/globals.css`: the thirteen rules that spelled `html[data-shape="boundless"]` now spell `html[data-boundless]`, so the merged layout applies over `glass`, `slab` or any other preset. Inside the sheet the only lines that go are the vertical ones: a pane's border, the 1px ring the glass layer paints round each pane, and the left/right insets of the emboss bevel, which is why `emboss` gets its own override rather than losing its shadow. Horizontal light stays - three panes side by side put their top highlights on the same line, and that is what makes the sheet read as one lit surface - and so do the drop shadows, which fall under the sheet rather than between two panes. `cloud`'s inset is a gap rather than a line, so `padding-inline` goes to zero under the sheet while its distance from the window's own edge stays.
+- `src/settings/sections/ThemesSection.tsx`, `src/modules/i18n/messages.ts`: the switch is a row of its own under the material switch, labelled 无界 / Boundless, and the shape section no longer carries a paragraph of description above the picker: the six drawings say what the six presets are.
+
+**The usage window's mask waits for the window**
+
+- `src/usage/main.tsx`, `src-tauri/src/lib.rs`: the main window's scrim is raised by the page after it has shown itself, instead of by Rust the moment the webview is built. The old order dimmed the window behind a frame that had not painted yet, which is the "the mask appears first" that was reported. Showing first also means a window that fails to appear leaves the one behind it undimmed.
+
+**The pie answers the pointer**
+
+- `src/usage/SharePie.tsx`: the slice under the pointer swells and the rest step back, and the card that names it is the surface the session list already floats over a row (`verta-compact-card verta-float verta-float-mask`), so two answers about a thing look alike. The browser's own `<title>` is gone: it arrived late, could not highlight anything, and could not be read against the ring.
+
+**Each see-through shape keeps its own recipe**
+
+- `src/modules/settings/store.ts`, `ThemeProvider.tsx`, `src/settings/sections/ThemesSection.tsx`: the three numbers became six. They used to be one shared set, so tuning the clear pane retuned the frosted one silently; `acrylicPaneOpacity` / `acrylicEdge` / `acrylicSheen` now hold the frosted recipe (28% / 0.3 / 0.12, unchanged) and the glass keys hold the clear one (30% / 0.3 / 0.15, measured on a desktop). The sliders follow the shape in force and write to that shape's own keys (`setMaterialParam`), and "restore defaults" writes the recipe of the shape in force.
+
+**The chart writes dates one way**
+
+- `src/usage/tokens.ts`, `TrendChart.tsx`: a day column is `YYMMDD` (`261017`), a week is the span it covers (`261017-261023`), a month is `YYMM` (`2610`). The axis still shortens a day to `M/D` under the bar; the hover card carries the full string, so a week reads as a week rather than as its Monday.
+
+**Acrylic is a shape, and glass is the one with nothing behind it**
+
+- `src/modules/theme/shape.ts`: the preset called `glass` was drawing DWM's acrylic, which is a frosted material rather than a clear pane, so it is renamed to `acrylic` and a new `glass` takes the name. The two differ in what is behind the pane and nothing else: `acrylic` asks the system for the material (blurred and faintly tinted), `glass` asks for nothing at all, so the desktop is read sharp. That is a shape's own recipe each: the acrylic pane keeps 28% of its colour, the clear one 10%, and the edge and sheen are stronger on the clear one because with no frost to catch the light they are all that says a surface is there.
+- `src-tauri/src/modules/vibrancy.rs`: `window_set_backdrop` takes `kind: "clear"`, which clears the material and leaves the window see-through - the window is transparent from creation, so asking for nothing is all a clear pane needs. `set_backdrop` gains the flag on all three platform arms: on macOS a clear pane stays see-through without the effect view, and only an effect that was switched off makes the window opaque again.
+- `src/modules/theme/vibrancy.ts`, `WindowVibrancyBridge.tsx`, `ThemeProvider.tsx`: the material travels as `"acrylic" | "clear" | null` rather than a boolean, since two shapes now want a see-through window for different reasons. The applied-effect key includes which one, so switching between them rebuilds the backdrop instead of being skipped as unchanged.
+- `src/modules/theme/themes/acrylic.ts`: the built-in theme suggests the `acrylic` shape, which is what it always meant.
+- `src/modules/theme/ShapeIcon.tsx`, `src/modules/i18n/messages.ts`: both see-through presets draw the sheen in the picker, `settings.shape.acrylic` (亚克力 / Acrylic) is added, and the slider hint says the numbers apply to both rather than to one.
+- `src/settings/sections/ThemesSection.tsx`: "restore defaults" writes the recipe of the shape in force (`defaultGlassParamsFor`), because the two recipes are different and a single copy of the numbers would reset one of them to the other's values.
+
+**The usage window opens on the last read**
+
+- `src/usage/usageCache.ts` (new): the last payload is kept in `verta-usage-cache.json` beside the other stores. Reading every agent store takes seconds (around 10 s warm, up to 26 s cold on this machine), and the window used to spend them on "读取中…" over numbers it had already read a minute earlier. `usableCache` is the gate: an object without a `days` array, the offset and a token total is dropped, so a file from another build costs one slow open instead of drawing a half-filled window.
+- `src/usage/UsageApp.tsx`: the stored answer is painted before the read starts, and the live one replaces it when it lands. A live answer that arrives first is not overwritten by the cache one. The header now shows the time of the read the numbers came from while a newer read is in flight, instead of hiding it until that read finishes, and `data-usage-updated-at` carries `cache` or `live` so the two paints can be told apart.
+- `docs/usage.md`: a section on the first paint, and what the stored copy is not (a source of truth).
+- `scripts/dev/probes/usage-window.mjs`: waits for the live paint before measuring, since the numbers are on screen before this run has read anything, and records which paint it saw first.
+
 **Opening the app starts the sessions it restored, and the cover has thirty seconds**
 
 - `src/modules/tabs/lib/useTabs.ts`: warming a restored tab is what makes it spawn anything at all, because `selectLiveTerminals` never mounts a cold one, and that warming used to happen only on a tab's first activation. Every restored session tab is now warmed at launch instead. Such a tab is going to run an agent either way, and the agent takes seconds to paint its own screen (measured on this machine: 4.4 to 5.9 s for opencode, 6.6 to 13.9 s for pi), so starting it at launch means the pane is already live when the tab is opened rather than covered for that long. A plain terminal still stays cold until it is asked for, since nothing is waiting on it.

@@ -168,6 +168,15 @@ export type Preferences = {
    * to `soft` is what keeps "picked soft on purpose" apart from "never picked anything".
    */
   shapeId: ShapePref;
+  /**
+   * Whether the three regions are drawn as one sheet (`无界`).
+   *
+   * Its own axis, not a shape: merging the sidebar, the workspace and the right panel into one
+   * surface is about the layout, and every shape - borders, shadows, the material - still applies to
+   * that surface. It used to be the preset named `boundless`, which meant choosing it threw away the
+   * shape you had.
+   */
+  boundless: boolean;
   /** How round every corner is. Its own axis, so it is not part of the shape. */
   cornerRadius: RadiusStop;
   /**
@@ -181,6 +190,16 @@ export type Preferences = {
   glassPaneOpacity: number;
   glassEdge: number;
   glassSheen: number;
+  /**
+   * The acrylic pane's own three numbers.
+   *
+   * Two see-through shapes, two recipes: the frosted one was tuned first and stays as it was, while
+   * the clear one needed more of its own colour because nothing behind it is blurred. One shared set
+   * would have meant tuning one shape silently retuned the other.
+   */
+  acrylicPaneOpacity: number;
+  acrylicEdge: number;
+  acrylicSheen: number;
   editorTheme: EditorThemePref;
   editorFontSize: number;
   vimMode: boolean;
@@ -294,10 +313,14 @@ const KEY_BG_OPACITY = "backgroundOpacity";
 const KEY_BG_BLUR = "backgroundBlur";
 const KEY_WINDOW_VIBRANCY = "windowVibrancy";
 const KEY_SHAPE_ID = "shapeId";
+const KEY_BOUNDLESS = "boundless";
 const KEY_CORNER_RADIUS = "cornerRadius";
 const KEY_GLASS_PANE_OPACITY = "glassPaneOpacity";
 const KEY_GLASS_EDGE = "glassEdge";
 const KEY_GLASS_SHEEN = "glassSheen";
+const KEY_ACRYLIC_PANE_OPACITY = "acrylicPaneOpacity";
+const KEY_ACRYLIC_EDGE = "acrylicEdge";
+const KEY_ACRYLIC_SHEEN = "acrylicSheen";
 
 /** A stored glass number, held to the range its slider offers. */
 function clampGlass(value: unknown, min: number, max: number, fallback: number) {
@@ -390,11 +413,17 @@ export const DEFAULT_PREFERENCES: Preferences = {
   // always wins; only an absent key falls back to this.
   windowVibrancy: false,
   shapeId: SHAPE_AUTO,
+  boundless: false,
   cornerRadius: DEFAULT_RADIUS,
-  // The values the Glass preset has always shipped with.
-  glassPaneOpacity: 0.28,
+  // The values the Glass preset ships with, tuned on a real desktop: with nothing blurred behind the
+  // pane, too little of the pane's own colour reads as an unreadable sheet over a busy wallpaper.
+  glassPaneOpacity: 0.3,
   glassEdge: 0.3,
-  glassSheen: 0.12,
+  glassSheen: 0.15,
+  // The frosted pane's recipe, unchanged: it sits over a blurred backdrop, so it keeps less colour.
+  acrylicPaneOpacity: 0.2,
+  acrylicEdge: 0,
+  acrylicSheen: 0.15,
   vimMode: false,
   editorWordWrap: false,
   editorWordWrapColumn: EDITOR_WORD_WRAP_COLUMN_DEFAULT,
@@ -491,6 +520,11 @@ export async function loadPreferences(): Promise<Preferences> {
     // falls back: a settings file can be edited by hand. An absent key stays `auto`, which is not
     // the same as the shape named `soft`.
     shapeId: shapePrefOf(get<string>(KEY_SHAPE_ID)),
+    // `boundless` used to be one of the shapes, so a settings file from before it became its own
+    // axis says so through the shape id: read as the switch being on rather than as a lost sheet.
+    boundless:
+      get<boolean>(KEY_BOUNDLESS) ??
+      get<string>(KEY_SHAPE_ID) === "boundless",
     // A stop this build does not know (an older or newer settings file) answers the default rather
     // than leaving the app without corners.
     cornerRadius: radiusOf(get<string>(KEY_CORNER_RADIUS)),
@@ -511,6 +545,24 @@ export async function loadPreferences(): Promise<Preferences> {
       0,
       0.5,
       DEFAULT_PREFERENCES.glassSheen,
+    ),
+    acrylicPaneOpacity: clampGlass(
+      get<number>(KEY_ACRYLIC_PANE_OPACITY),
+      0.02,
+      0.9,
+      DEFAULT_PREFERENCES.acrylicPaneOpacity,
+    ),
+    acrylicEdge: clampGlass(
+      get<number>(KEY_ACRYLIC_EDGE),
+      0,
+      0.8,
+      DEFAULT_PREFERENCES.acrylicEdge,
+    ),
+    acrylicSheen: clampGlass(
+      get<number>(KEY_ACRYLIC_SHEEN),
+      0,
+      0.5,
+      DEFAULT_PREFERENCES.acrylicSheen,
     ),
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
     editorWordWrap:
@@ -701,6 +753,10 @@ export async function setWindowVibrancy(value: boolean): Promise<void> {
   await writePref(KEY_WINDOW_VIBRANCY, value);
 }
 
+export async function setBoundless(value: boolean): Promise<void> {
+  await writePref(KEY_BOUNDLESS, value);
+}
+
 export async function setShapeId(value: ShapePref): Promise<void> {
   await writePref(KEY_SHAPE_ID, value === SHAPE_AUTO ? SHAPE_AUTO : shapeOf(value));
 }
@@ -709,25 +765,34 @@ export async function setCornerRadius(value: RadiusStop): Promise<void> {
   await writePref(KEY_CORNER_RADIUS, radiusOf(value));
 }
 
-export async function setGlassPaneOpacity(value: number): Promise<void> {
-  await writePref(
-    KEY_GLASS_PANE_OPACITY,
-    clampGlass(value, 0.02, 0.9, DEFAULT_PREFERENCES.glassPaneOpacity),
-  );
-}
+/** Which of a shape's three numbers a slider is holding. */
+export type MaterialParam = "paneOpacity" | "edge" | "sheen";
+export type MaterialShape = "acrylic" | "glass";
 
-export async function setGlassEdge(value: number): Promise<void> {
-  await writePref(
-    KEY_GLASS_EDGE,
-    clampGlass(value, 0, 0.8, DEFAULT_PREFERENCES.glassEdge),
-  );
-}
-
-export async function setGlassSheen(value: number): Promise<void> {
-  await writePref(
-    KEY_GLASS_SHEEN,
-    clampGlass(value, 0, 0.5, DEFAULT_PREFERENCES.glassSheen),
-  );
+/**
+ * Writes one of the two recipes' numbers.
+ *
+ * Keyed by the shape rather than by the field: the acrylic pane and the glass pane are tuned
+ * separately, and a shared key would have meant that moving one slider retuned the other shape.
+ */
+export async function setMaterialParam(
+  shape: MaterialShape,
+  param: MaterialParam,
+  value: number,
+): Promise<void> {
+  const [key, min, max, fallback] =
+    shape === "acrylic"
+      ? param === "paneOpacity"
+        ? [KEY_ACRYLIC_PANE_OPACITY, 0.02, 0.9, DEFAULT_PREFERENCES.acrylicPaneOpacity]
+        : param === "edge"
+          ? [KEY_ACRYLIC_EDGE, 0, 0.8, DEFAULT_PREFERENCES.acrylicEdge]
+          : [KEY_ACRYLIC_SHEEN, 0, 0.5, DEFAULT_PREFERENCES.acrylicSheen]
+      : param === "paneOpacity"
+        ? [KEY_GLASS_PANE_OPACITY, 0.02, 0.9, DEFAULT_PREFERENCES.glassPaneOpacity]
+        : param === "edge"
+          ? [KEY_GLASS_EDGE, 0, 0.8, DEFAULT_PREFERENCES.glassEdge]
+          : [KEY_GLASS_SHEEN, 0, 0.5, DEFAULT_PREFERENCES.glassSheen];
+  await writePref(key as string, clampGlass(value, min as number, max as number, fallback as number));
 }
 
 export async function setVimMode(value: boolean): Promise<void> {
@@ -1024,10 +1089,14 @@ export const PREF_KEY_TO_FIELD: Record<string, PrefKey> = {
   [KEY_BG_BLUR]: "backgroundBlur",
   [KEY_WINDOW_VIBRANCY]: "windowVibrancy",
   [KEY_SHAPE_ID]: "shapeId",
+  [KEY_BOUNDLESS]: "boundless",
   [KEY_CORNER_RADIUS]: "cornerRadius",
   [KEY_GLASS_PANE_OPACITY]: "glassPaneOpacity",
   [KEY_GLASS_EDGE]: "glassEdge",
   [KEY_GLASS_SHEEN]: "glassSheen",
+  [KEY_ACRYLIC_PANE_OPACITY]: "acrylicPaneOpacity",
+  [KEY_ACRYLIC_EDGE]: "acrylicEdge",
+  [KEY_ACRYLIC_SHEEN]: "acrylicSheen",
   [KEY_EDITOR_THEME]: "editorTheme",
   [KEY_SESSION_TRANSITION]: "sessionTransition",
   [KEY_EDITOR_FONT_SIZE]: "editorFontSize",

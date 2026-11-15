@@ -37,6 +37,21 @@ from the one the numbers claim to answer, and on this machine cache reads are 76
 it, and a test or a probe can ask for one class on its own. The window passes one constant
 (`USAGE_SCOPE`).
 
+## The window opens on the last read
+
+Reading every store takes seconds - around 10 s warm and up to 26 s cold on this machine - so an
+empty window with a reading label over it spends the wait hiding an answer the window already had a minute
+earlier. The last payload is therefore kept in `verta-usage-cache.json` beside the other stores
+(`src/usage/usageCache.ts`) and painted first; the live read replaces it when it lands.
+
+What is on screen is dated rather than assumed fresh: the header always shows the time of the read
+the numbers came from, and adds the reading label while a newer one is in flight. `data-usage-updated-at`
+carries `cache` or `live`, which is how a probe tells the two paints apart.
+
+The cache is not a source of truth. `usableCache` drops anything that does not look like a payload
+this build understands (a `days` array, the offset, a token total), so a file written by an older
+build costs one slow open instead of drawing a half-filled window over tables it cannot fill.
+
 ## A model is a model, not a provider and a model
 
 The six agents do not agree on how to spell a model. The same id arrives as `glm-5.3-flash` from one
