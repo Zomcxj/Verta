@@ -186,7 +186,7 @@ const AGENT_UI_POLL_MS = 120;
  * displayed. Lifting there shows the user a line typed on their behalf, so the cover stays up
  * instead - but not forever: an agent that never takes over must still hand the pane back.
  */
-const AGENT_UI_HARD_CAP_MS = 45000;
+const AGENT_UI_HARD_CAP_MS = 30000;
 /** Fallback: never cover the terminal forever when the wait is inconclusive.
  *
  * This is a separate timer from the wait above, so it has to outlast it: at 8.5s it lifted the

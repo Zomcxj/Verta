@@ -15,6 +15,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-15</strong></summary>
 
+**Opening the app starts the sessions it restored, and the cover has thirty seconds**
+
+- `src/modules/tabs/lib/useTabs.ts`: warming a restored tab is what makes it spawn anything at all, because `selectLiveTerminals` never mounts a cold one, and that warming used to happen only on a tab's first activation. Every restored session tab is now warmed at launch instead. Such a tab is going to run an agent either way, and the agent takes seconds to paint its own screen (measured on this machine: 4.4 to 5.9 s for opencode, 6.6 to 13.9 s for pi), so starting it at launch means the pane is already live when the tab is opened rather than covered for that long. A plain terminal still stays cold until it is asked for, since nothing is waiting on it.
+- `src/app/App.tsx`: the session cover's hard cap drops from 45 s to 30 s, which still sits above every opening measured here. `SESSION_OPENING_FALLBACK_MS` is derived from it and follows.
+
 **The usage window counts one thing, and the chart scrolls**
 
 - `src/usage/UsageApp.tsx`: the two cache switches are removed from the header, and the scope is one module constant with both classes counted. A share of the total that silently drops most of what an agent spent answers a different question from the one the numbers claim to answer. `TokenScope` stays in the data layer, where a test or a probe can still ask for one class on its own; `scripts/dev/probes/usage-window.mjs` now asserts that the header holds no switch and that the scope is fixed.

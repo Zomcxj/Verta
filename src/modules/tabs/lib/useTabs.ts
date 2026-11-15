@@ -703,13 +703,28 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     activeIdRef.current = activeId;
   }, [activeId]);
 
-  // Activating a cold tab warms it: one choke point for every activation path.
+  // Warming is what makes a restored tab spawn anything at all: `selectLiveTerminals` never mounts
+  // a cold one. Two kinds are warmed here.
+  //
+  // The active tab, always: that is the pane the user is looking at.
+  //
+  // And every restored session tab, at launch rather than at its first activation. Such a tab is
+  // going to run an agent either way, and the agent takes seconds to paint its own screen (measured
+  // here: 4.4 to 5.9 s for opencode, 6.6 to 13.9 s for pi). Starting it now means it is already up
+  // when the tab is opened, instead of the user watching a covered pane for that long. A plain
+  // terminal stays cold until it is asked for, because nothing is waiting on it.
   useEffect(() => {
     if (!booted) return;
     setTabs((curr) => {
-      const t = curr.find((x) => x.id === activeId);
-      if (!t?.cold) return curr;
-      return curr.map((x) => (x.id === activeId ? { ...x, cold: false } : x));
+      let changed = false;
+      const next = curr.map((x) => {
+        if (!x.cold) return x;
+        const resumes = x.kind === "terminal" && x.pendingResume === true;
+        if (x.id !== activeId && !resumes) return x;
+        changed = true;
+        return { ...x, cold: false };
+      });
+      return changed ? next : curr;
     });
   }, [activeId, booted]);
 
