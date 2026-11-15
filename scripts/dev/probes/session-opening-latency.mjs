@@ -2,9 +2,13 @@
 //
 // The complaint: every so often the transition layer lingers a moment longer than it should before
 // the terminal appears ("会话加载过渡层末尾偶尔多停一会儿才进入"). The cover lifts when the agent's own
-// screen has been painted (`waitForAgentUi`), its last resort is a 45 s timer, and until now nothing
+// screen has been painted (`waitForAgentUi`), its last resort is a 30 s timer, and until now nothing
 // recorded which of those happened or how long it took on a release build - so "occasionally a
 // moment longer" could be one missed frame or a wait that ran to its cap, with no way to tell.
+//
+// Since a restored session is warmed at launch rather than at its tab's first activation, a cover
+// measured here belongs to a session opened from the list; that path still starts the agent at the
+// moment of the click, so the number is the agent's own start-up, not the wait's.
 //
 // This is a measurement, not a verdict on the rule: it opens a session, samples the layer's
 // presence in the DOM while the app's own record (`sessionOpenings` in `terminalDebugStats`) holds
