@@ -13,6 +13,30 @@ fine as plain text. **The newest day is `open` by default**; when a new day star
 swap in the new date, and drop the `open` from the day before.
 
 <details open>
+<summary><strong>2026-11-15</strong></summary>
+
+**The usage window counts one thing, and the chart scrolls**
+
+- `src/usage/UsageApp.tsx`: the two cache switches are removed from the header, and the scope is one module constant with both classes counted. A share of the total that silently drops most of what an agent spent answers a different question from the one the numbers claim to answer. `TokenScope` stays in the data layer, where a test or a probe can still ask for one class on its own; `scripts/dev/probes/usage-window.mjs` now asserts that the header holds no switch and that the scope is fixed.
+- `src/usage/tokens.ts`: the chart's steps are 7, 30, 90, 180 days and everything; a year of days in an 880px card is a bar 2.4px wide, which reads as a texture and leaves every bucket a block of colour nobody can point at.
+- `src/usage/TrendChart.tsx`: the plot no longer compresses. A day is at least 7px wide, and when the days need more room than the card has, the plot inside a scroller grows and the card scrolls, with the y scale outside the scroller so it stays put and the scroll position pinned to the newest day. The gesture is the wheel: a mouse's vertical delta and a trackpad's horizontal one both move it sideways, through a listener added by hand because React's wheel handler is passive and cannot prevent the page from scrolling, and the gesture is handed back to the page at either end so the chart never traps a scroll.
+- `src/modules/i18n/messages.ts`: `usage.chart180` replaces `usage.chart365`, and `usage.cacheRead` and `usage.cacheWrite` are removed with the switches they labelled.
+
+**The chart's axis is the tallest day, not a round number above it**
+
+- `src/usage/axis.ts` (new), `TrendChart.tsx`: the y axis is the tallest day rounded up to two significant digits, so the tallest bar reaches at least 90% of the axis. The old maximum was a 1/2/5 step times five, chosen so the labels divide evenly, and it could leave the tallest day at 52% of the plot - a range that looks half as tall as it is. Two significant digits is what makes the bound reachable: five steps that cover 130 need a step of 26 to 28, and no round step sits in that window, while rounding the maximum itself has no such gap. The tick labels are derived from that maximum, so the top label and the tallest bar agree.
+- `src/usage/axis.test.ts` (new): the bound swept across 16 decades (worst fill 0.926, so the 90% line is tight rather than slack), the rounding up, the floating-point epsilon that keeps a value already on the grid from being pushed past it, and the empty case.
+
+**Both usage tables say how many requests each row took**
+
+- `src/usage/UsageTable.tsx`: a request column beside the token ones, in the agent table and the model table alike. A total answers what something cost; it does not answer how many times it was asked, and a model that is expensive per call reads exactly like one called a thousand times a day. The number was already on every row - one usage event is one answer the agent paid for - so this is a column, not a measurement: `row.events`, sortable like the rest, printed in the interface's own number format. The cell carries `data-usage-row-requests` and the row `data-usage-row-events`, so a probe can check that the rows and the summary are counting the same events.
+- `src/usage/UsageApp.tsx`, `src/modules/i18n/messages.ts`: both call sites pass `usage.colRequests` (请求 / Requests).
+- `scripts/dev/probes/usage-window.mjs`: every row has to print a request count, and the agent rows' events may not exceed the summary's own count - the two are the same events, so a difference means one of them is counting something else.
+- `src/usage/usageTable.wiring.test.ts` (new): the column exists in both tables, reads the row's own event count, sorts with the numbers, and formats like its neighbours.
+
+</details>
+
+<details>
 <summary><strong>2026-11-14</strong></summary>
 
 **Six agents, read back together**

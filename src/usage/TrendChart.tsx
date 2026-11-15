@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { axisMax, axisTicks } from "./axis";
 import { useSeriesColors } from "./seriesColors";
 import {
   compactTokens,
@@ -16,6 +17,14 @@ const PAD_BOTTOM = 20;
 /** Bars leave a gap so two neighbouring days never read as one block. */
 const BAR_GAP = 0.15;
 const LINE_WIDTH = 2;
+/**
+ * The narrowest a day may be drawn before the plot starts scrolling.
+ *
+ * 180 days in the card's ~820px is 4.5px a day: a bar a hair wide, a stack of segments no one can
+ * read, and x labels that collide. At 7px the bar and its gap are still separate things, and the
+ * card scrolls to the days it cannot show.
+ */
+const MIN_PITCH = 7;
 
 type Props = {
   trend: Trend;
@@ -23,16 +32,6 @@ type Props = {
   /** `M/D` labels already come from the data; this only truncates for narrow windows. */
   peakLabel: string;
 };
-
-/** A round maximum, so the y labels divide into whole steps instead of 1,234,567. */
-function niceMax(value: number): number {
-  if (value <= 0) return 1;
-  const rough = value / 5;
-  const power = 10 ** Math.floor(Math.log10(rough));
-  const step =
-    [1, 2, 5, 10].find((candidate) => candidate * power >= rough) ?? 10;
-  return step * power * 5;
-}
 
 /** Catmull-Rom through the points, as cubic segments; only y is smoothed, x stays the day. */
 function smoothPath(points: { x: number; y: number }[]): string {
@@ -55,6 +54,7 @@ function smoothPath(points: { x: number; y: number }[]): string {
 
 export function TrendChart({ trend, kind, peakLabel }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
   const [hover, setHover] = useState<{
     index: number;
@@ -62,6 +62,43 @@ export function TrendChart({ trend, kind, peakLabel }: Props) {
     y: number;
   } | null>(null);
   const colors = useSeriesColors(trend.series.length);
+
+  // Pinned to the newest day: a range that scrolls should open on today, not on a year-old Monday.
+  // Keyed on the data rather than on the width, so resizing the window does not yank the reader back
+  // to the right edge while they are reading an older week.
+  useEffect(() => {
+    const element = scrollerRef.current;
+    if (!element || trend.columns.length === 0) return;
+    element.scrollLeft = element.scrollWidth;
+  }, [trend]);
+
+  // The plot scrolls on the wheel.
+  //
+  // A thin scrollbar was the only way to move a 180-day chart, and on this platform it is drawn as a
+  // hairline that most people never find. A wheel over the plot moves it sideways: the vertical
+  // delta is used because that is what a mouse sends, while a trackpad's horizontal gesture arrives
+  // as `deltaX` and is used as it comes. A listener is added by hand because React's synthetic wheel
+  // handler is passive, where `preventDefault` does nothing; and the gesture is left to the page once
+  // an end is reached, so the chart never traps a scroll.
+  useEffect(() => {
+    const element = scrollerRef.current;
+    if (!element) return;
+    const onWheel = (event: WheelEvent) => {
+      const span = element.scrollWidth - element.clientWidth;
+      if (span <= 0) return;
+      const delta =
+        Math.abs(event.deltaX) > Math.abs(event.deltaY)
+          ? event.deltaX
+          : event.deltaY;
+      const next = element.scrollLeft + delta;
+      if (next < 0 || next > span) return;
+      event.preventDefault();
+      element.scrollLeft = next;
+    };
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => element.removeEventListener("wheel", onWheel);
+  }, []);
+
 
   useEffect(() => {
     const element = wrapRef.current;
@@ -73,11 +110,15 @@ export function TrendChart({ trend, kind, peakLabel }: Props) {
     return () => observer.disconnect();
   }, []);
 
-  const plotWidth = Math.max(40, width - PAD_LEFT - PAD_RIGHT);
+  const available = Math.max(40, width - PAD_LEFT - PAD_RIGHT);
+  // Days get MIN_PITCH each; the card is what scrolls when there are more of them than fit.
+  const plotWidth = Math.max(available, trend.columns.length * MIN_PITCH);
   const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
   const columns = trend.columns;
+  // The axis is the tallest day, rounded up to two significant digits: a scale with headroom draws
+  // every bar shorter than it is, and the tallest one is the number the chart exists to show.
   const max = useMemo(
-    () => niceMax(Math.max(...columns.map((column) => column.total), 0)),
+    () => axisMax(Math.max(...columns.map((column) => column.total), 0)),
     [columns],
   );
   const step = columns.length > 0 ? plotWidth / columns.length : plotWidth;
@@ -88,12 +129,12 @@ export function TrendChart({ trend, kind, peakLabel }: Props) {
 
   const yOf = (value: number) =>
     PAD_TOP + plotHeight - (value / max) * plotHeight;
-  const tickValues = [0, 0.25, 0.5, 0.75, 1].map((fraction) => max * fraction);
+  const tickValues = axisTicks(max);
 
   // Four or five x labels, evenly spaced, always including the first and the last day.
   const labelEvery = Math.max(1, Math.ceil(columns.length / 6));
   const linePoints = columns.map((column, index) => ({
-    x: PAD_LEFT + index * step + step / 2,
+    x: index * step + step / 2,
     y: yOf(column.total),
   }));
 
@@ -111,26 +152,33 @@ export function TrendChart({ trend, kind, peakLabel }: Props) {
 
   return (
     <div ref={wrapRef} className="relative w-full select-none">
-      <svg
-        width={width}
-        height={HEIGHT}
-        role="img"
-        aria-label={peakLabel}
-        className="overflow-visible"
-      >
-        {tickValues.map((value) => (
-          <text
-            key={value}
-            x={PAD_LEFT - 6}
-            y={yOf(value) + 3}
-            textAnchor="end"
-            fontSize={9.5}
-            fill="var(--muted-foreground)"
+      <div className="flex">
+        {/* Outside the scroller: the scale stays put while the days move under it. */}
+        <svg width={PAD_LEFT} height={HEIGHT} aria-hidden="true" className="shrink-0">
+          {tickValues.map((value) => (
+            <text
+              key={value}
+              x={PAD_LEFT - 6}
+              y={yOf(value) + 3}
+              textAnchor="end"
+              fontSize={9.5}
+              fill="var(--muted-foreground)"
+            >
+              {compactTokens(value)}
+            </text>
+          ))}
+        </svg>
+        <div
+          ref={scrollerRef}
+          className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:thin]"
+        >
+          <svg
+            width={plotWidth + PAD_RIGHT}
+            height={HEIGHT}
+            role="img"
+            aria-label={peakLabel}
+            className="block overflow-visible"
           >
-            {compactTokens(value)}
-          </text>
-        ))}
-
         {kind === "bars" ? (
           columns.map((column, index) => {
             let base = 0;
@@ -145,7 +193,7 @@ export function TrendChart({ trend, kind, peakLabel }: Props) {
                   return (
                     <rect
                       key={trend.series[seriesIndex]?.key ?? seriesIndex}
-                      x={PAD_LEFT + index * step + (step - barWidth) / 2}
+                      x={index * step + (step - barWidth) / 2}
                       y={yTop}
                       width={barWidth}
                       height={height}
@@ -190,7 +238,7 @@ export function TrendChart({ trend, kind, peakLabel }: Props) {
           index % labelEvery === 0 || index === columns.length - 1 ? (
             <text
               key={`label-${column.day}`}
-              x={PAD_LEFT + index * step + step / 2}
+              x={index * step + step / 2}
               y={HEIGHT - 6}
               textAnchor="middle"
               fontSize={9.5}
@@ -204,30 +252,34 @@ export function TrendChart({ trend, kind, peakLabel }: Props) {
         {/* The whole plot is the hover target, so the pointer never has to land on a 2px bar. */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: a hover readout over an SVG plot; every value it shows is also in the legend, the summary and the two tables, so it is an extra rather than the only way in. */}
         <rect
-          x={PAD_LEFT}
+          x={0}
           y={PAD_TOP}
           width={plotWidth}
           height={plotHeight}
           fill="transparent"
           onMouseMove={(event) => {
-            const box =
+            const plot =
               event.currentTarget.ownerSVGElement?.getBoundingClientRect();
-            if (!box) return;
-            const x = event.clientX - box.left;
+            const outer = wrapRef.current?.getBoundingClientRect();
+            if (!plot || !outer) return;
             const index = Math.min(
               columns.length - 1,
-              Math.max(0, Math.floor((x - PAD_LEFT) / step)),
+              Math.max(0, Math.floor((event.clientX - plot.left) / step)),
             );
             if (index < 0) return;
+            // The tooltip is placed against the card, not the plot: the plot moves with the
+            // scroll, its own coordinates do not.
             setHover({
               index,
-              x: event.clientX - box.left,
-              y: event.clientY - box.top,
+              x: event.clientX - outer.left,
+              y: event.clientY - outer.top,
             });
           }}
           onMouseLeave={() => setHover(null)}
         />
-      </svg>
+          </svg>
+        </div>
+      </div>
 
       {hover !== null && hoveredColumn ? (
         <div

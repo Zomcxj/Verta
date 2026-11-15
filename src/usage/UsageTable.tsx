@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/modules/i18n";
 import { useMemo, useState } from "react";
 import { compactTokens, percentText, type UsageRow } from "./tokens";
 
@@ -8,6 +9,7 @@ export type SortKey =
   | "input"
   | "output"
   | "cacheRead"
+  | "requests"
   | "share";
 
 type Props = {
@@ -20,6 +22,7 @@ type Props = {
     input: string;
     output: string;
     cacheRead: string;
+    requests: string;
     share: string;
   };
   rows: UsageRow[];
@@ -35,7 +38,10 @@ type Props = {
   colorOf?: (row: UsageRow) => string;
 };
 
-const NUM_COLUMNS = "62px 62px 62px 62px 48px";
+// Five numeric columns plus the request count. The count is narrower than a token column: it is a
+// number of messages, which reaches five digits only for a whole month of heavy use, while a token
+// column has to hold `3120 M`.
+const NUM_COLUMNS = "62px 62px 62px 62px 52px 48px";
 
 /** Which way a newly chosen column sorts: names read up, numbers read down. */
 function defaultDescending(key: SortKey): boolean {
@@ -54,6 +60,8 @@ function sortValue(row: UsageRow, key: SortKey): string | number {
       return row.parts.output;
     case "cacheRead":
       return row.parts.cacheRead;
+    case "requests":
+      return row.events;
     case "share":
       return row.share;
   }
@@ -71,6 +79,7 @@ export function UsageTable({
   iconOf,
   colorOf,
 }: Props) {
+  const language = useLanguage();
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
     key: "total",
     desc: true,
@@ -125,6 +134,7 @@ export function UsageTable({
         {header(labels.input, "input", "text-right")}
         {header(labels.output, "output", "text-right")}
         {header(labels.cacheRead, "cacheRead", "text-right")}
+        {header(labels.requests, "requests", "text-right")}
         {header(labels.share, "share", "text-right")}
       </div>
 
@@ -143,6 +153,7 @@ export function UsageTable({
               type="button"
               data-usage-row={row.key}
               data-usage-row-tokens={row.tokens}
+              data-usage-row-events={row.events}
               onClick={() => onPick?.(row)}
               className={cn(
                 "grid w-full items-center gap-1 rounded-sm border-0 bg-transparent px-0.5 py-[3px] text-left transition-colors duration-100 outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
@@ -187,6 +198,14 @@ export function UsageTable({
               </span>
               <span className="text-right tabular-nums text-muted-foreground">
                 {compactTokens(row.parts.cacheRead)}
+              </span>
+              {/* How many requests the row's tokens came from: a model that is expensive per call
+                  and one that is called a thousand times a day look the same in a total. */}
+              <span
+                data-usage-row-requests
+                className="text-right tabular-nums text-muted-foreground"
+              >
+                {row.events.toLocaleString(language)}
               </span>
               <span className="text-right tabular-nums text-muted-foreground">
                 {percentText(

@@ -1,4 +1,3 @@
-import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -53,7 +52,7 @@ const CHART_RANGE_KEYS = {
   7: "usage.chart7",
   30: "usage.chart30",
   90: "usage.chart90",
-  365: "usage.chart365",
+  180: "usage.chart180",
   0: "usage.chartAll",
 } as const;
 
@@ -77,6 +76,14 @@ const HEATMAP_WEEKS = 53;
 // models sit between it and half a percent, and 5 was never the interesting end of the range: by
 // the time a row is worth 5%, folding it away hides a model the reader came for.
 const FOLD_STEPS = [0.1, 0.5, 0.8, 1, 2] as const;
+/**
+ * What the window counts, fixed.
+ *
+ * Cache reads and writes are part of the total, and there is no switch to take them out: a share
+ * that drops most of what an agent spent answers a different question. `TokenScope` stays in the
+ * data layer, where a test or a probe can still ask for one class on its own.
+ */
+const USAGE_SCOPE: TokenScope = { cacheRead: true, cacheWrite: true };
 const FOLD_DEFAULT = 0.01;
 
 const TOOLS = [
@@ -95,13 +102,10 @@ export function UsageApp(): JSX.Element {
   const language = useLanguage();
   const [range, setRange] = useState<UsageRange>("month");
   const [foldBelow, setFoldBelow] = useState(FOLD_DEFAULT);
+  const scope = USAGE_SCOPE;
   const [chartRange, setChartRange] = useState<ChartRange>(30);
   const [chartKind, setChartKind] = useState<"bars" | "line">("bars");
   const [tool, setTool] = useState<string | null>(null);
-  const [scope, setScope] = useState<TokenScope>({
-    cacheRead: true,
-    cacheWrite: true,
-  });
   const [payload, setPayload] = useState<UsagePayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
@@ -414,26 +418,6 @@ export function UsageApp(): JSX.Element {
             })}
           </span>
         ) : null}
-        <div className="ml-auto flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <Switch
-              checked={scope.cacheRead}
-              onCheckedChange={(cacheRead) =>
-                setScope((current) => ({ ...current, cacheRead }))
-              }
-            />
-            {t("usage.cacheRead")}
-          </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <Switch
-              checked={scope.cacheWrite}
-              onCheckedChange={(cacheWrite) =>
-                setScope((current) => ({ ...current, cacheWrite }))
-              }
-            />
-            {t("usage.cacheWrite")}
-          </div>
-        </div>
       </div>
 
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-3 [-ms-overflow-style:none] [scrollbar-width:thin]">
@@ -578,6 +562,7 @@ export function UsageApp(): JSX.Element {
                         input: t("usage.colInput"),
                         output: t("usage.colOutput"),
                         cacheRead: t("usage.colCacheRead"),
+                        requests: t("usage.colRequests"),
                         share: t("usage.colShare"),
                       }}
                       rows={view.byTool}
@@ -639,6 +624,7 @@ export function UsageApp(): JSX.Element {
                         input: t("usage.colInput"),
                         output: t("usage.colOutput"),
                         cacheRead: t("usage.colCacheRead"),
+                        requests: t("usage.colRequests"),
                         share: t("usage.colShare"),
                       }}
                       rows={view.byModel}

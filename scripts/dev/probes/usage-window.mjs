@@ -146,14 +146,28 @@ const dom = async () =>
           (sum, el) => sum + number(el.getAttribute("data-usage-row-tokens")),
           0,
         );
+      const eventsOf = (rows) =>
+        rows.reduce(
+          (sum, el) => sum + number(el.getAttribute("data-usage-row-events")),
+          0,
+        );
+      /** What a row says in its own request column, which is the number a person reads. */
+      const shownRequests = (rows) =>
+        rows.map((el) =>
+          (el.querySelector("[data-usage-row-requests]")?.textContent ?? "").trim(),
+        );
       const agentRows = tableRows("agent");
       const modelRows = tableRows("models");
       return JSON.stringify({
         total: number(document.querySelector("[data-usage-total]")?.getAttribute("data-usage-total")),
         agentRows: agentRows.length,
         agentSum: sumOf(agentRows),
+        agentEvents: eventsOf(agentRows),
+        agentRequests: shownRequests(agentRows),
         modelRows: modelRows.length,
         modelSum: sumOf(modelRows),
+        modelEvents: eventsOf(modelRows),
+        modelRequests: shownRequests(modelRows),
         heatCells: heat.length,
         heatPainted: heat.filter((el) => number(el.getAttribute("data-usage-heat-level")) > 0).length,
         heatTokens: heat.reduce((sum, el) => sum + number(el.getAttribute("data-usage-heat-tokens")), 0),
@@ -213,6 +227,20 @@ if (Math.abs(toolSum - shown.tokens) > 0.5) {
 report.modelRows = first.modelRows;
 if (Math.abs(first.modelSum - shown.tokens) > 0.5) {
   problems.push(`模型各行之和 ${first.modelSum} != 总计 ${shown.tokens}`);
+}
+// The request count is a column of the same rows: every row has to say one, and the rows have to add
+// up to the summary's own count - the two are the same events, so a difference means one of them is
+// counting something else.
+const requestsMissing = [...first.agentRequests, ...first.modelRequests].filter(
+  (text) => !/^[0-9][0-9,]*$/.test(text),
+);
+if (requestsMissing.length > 0) {
+  problems.push(`有 ${requestsMissing.length} 行没有请求次数：${requestsMissing.slice(0, 3).join(" | ")}`);
+}
+// Rows are dropped for cells worth nothing under the scope, so the rows' request count can only be
+// at or below the summary's; above it means one of the two is counting a different thing.
+if (first.agentEvents > shown.events) {
+  problems.push(`Agent 各行请求之和 ${first.agentEvents} 超过总数 ${shown.events}`);
 }
 if (Math.abs(first.agentSum - shown.tokens) > 0.5) {
   problems.push(`Agent 各行之和 ${first.agentSum} != 总计 ${shown.tokens}`);
@@ -285,7 +313,9 @@ if (ranged) {
   if (afterRange.tokens > shown.tokens) problems.push("「今日」比整段还多");
 }
 
-// Back to the month, then switch a cache switch: the difference must be exactly the cache part.
+// Back to the month. The cache switches are gone from the header: the window counts cache reads
+// and writes, always, and a switch that silently dropped most of what an agent spent would answer a
+// different question from the one the numbers claim to answer.
 await usage.evaluate(`(() => {
   const chip = document.querySelector('[data-usage-chip="month"]');
   chip?.click();
@@ -295,39 +325,18 @@ await usage.waitFor(
   `window.__vertaUsage() && window.__vertaUsage().range === "month"`,
   5_000,
 );
-const beforeToggle = await read();
-const switchStart = Date.now();
-await usage.evaluate(`(() => {
-  const switches = [...document.querySelectorAll("[role=switch]")];
-  switches[0]?.click();
-  return switches.length;
-})()`);
-const toggled = await usage.waitFor(
-  `window.__vertaUsage().scope.cacheRead === false`,
-  5_000,
+const switchCount = await usage.evaluate(
+  `document.querySelectorAll("[role=switch]").length`,
 );
-const toggleMs = Date.now() - switchStart;
-const afterToggle = await read();
-report.toggle = { ms: toggleMs, painted: toggled, before: beforeToggle.tokens, after: afterToggle.tokens };
-if (!toggled) problems.push("关掉「含缓存读」后 5 秒内没有重画");
-if (toggled) {
-  const dropped = beforeToggle.tokens - afterToggle.tokens;
-  if (dropped <= 0) {
-    problems.push("关掉缓存读总数没有变小，这段范围里应该是有缓存读的");
-  }
-  if (toggleMs > 1_500) problems.push(`切开关用了 ${toggleMs}ms，像是在重新读盘`);
+report.switches = switchCount;
+if (switchCount !== 0) {
+  problems.push(`头部还有 ${switchCount} 个开关，缓存读写应当是固定口径`);
 }
-
-await usage.evaluate(`(() => {
-  const switches = [...document.querySelectorAll("[role=switch]")];
-  switches[0]?.click();
-  return true;
+const fixedScope = await usage.evaluate(`(() => {
+  const scope = window.__vertaUsage().scope;
+  return scope.cacheRead === true && scope.cacheWrite === true;
 })()`);
-const restored = await usage.waitFor(
-  `Math.abs(window.__vertaUsage().tokens - ${beforeToggle.tokens}) < 1`,
-  5_000,
-);
-if (!restored) problems.push("把「含缓存读」开回来，总数没有回到原来的值");
+if (!fixedScope) problems.push("口径不是「缓存读写都计入」");
 
 // Fold the model tail at the widest step: fewer rows, the same tokens, and one row that holds the
 // rest. The sum is the point - a fold that loses or duplicates a model would show up here.

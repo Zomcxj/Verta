@@ -73,7 +73,15 @@ export const USAGE_RANGES: readonly UsageRange[] = [
 ];
 
 /** The trend chart's own ranges, in days; `0` is everything. */
-export const CHART_RANGES = [7, 30, 90, 365, 0] as const;
+/**
+ * The trend chart's steps, in days, with `0` for everything.
+ *
+ * A year of days in an 880px window is a bar 2.4px wide, which reads as a texture rather than as a
+ * chart, and every bucket below it is a block of colour nobody can point at. 180 days is the most
+ * that stays legible at the chart's minimum bar pitch; `all` is the same history scrolled, not
+ * squeezed.
+ */
+export const CHART_RANGES = [7, 30, 90, 180, 0] as const;
 export type ChartRange = (typeof CHART_RANGES)[number];
 
 export const EMPTY_PARTS: UsageParts = {
