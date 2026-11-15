@@ -19,6 +19,7 @@ import {
   swapLeafInDirection,
 } from "@/modules/terminal/lib/panes";
 import { disposeSession } from "@/modules/terminal/lib/terminalSessionApi";
+import { warmTargets } from "./warmTargets";
 import {
   useCallback,
   useEffect,
@@ -704,27 +705,14 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   }, [activeId]);
 
   // Warming is what makes a restored tab spawn anything at all: `selectLiveTerminals` never mounts
-  // a cold one. Two kinds are warmed here.
-  //
-  // The active tab, always: that is the pane the user is looking at.
-  //
-  // And every restored session tab, at launch rather than at its first activation. Such a tab is
-  // going to run an agent either way, and the agent takes seconds to paint its own screen (measured
-  // here: 4.4 to 5.9 s for opencode, 6.6 to 13.9 s for pi). Starting it now means it is already up
-  // when the tab is opened, instead of the user watching a covered pane for that long. A plain
-  // terminal stays cold until it is asked for, because nothing is waiting on it.
+  // a cold one. See `warmTargets` for which ones qualify and why a plain terminal is not among
+  // them.
   useEffect(() => {
     if (!booted) return;
     setTabs((curr) => {
-      let changed = false;
-      const next = curr.map((x) => {
-        if (!x.cold) return x;
-        const resumes = x.kind === "terminal" && x.pendingResume === true;
-        if (x.id !== activeId && !resumes) return x;
-        changed = true;
-        return { ...x, cold: false };
-      });
-      return changed ? next : curr;
+      const warm = new Set(warmTargets(curr, activeId).map((tab) => tab.id));
+      if (warm.size === 0) return curr;
+      return curr.map((x) => (warm.has(x.id) ? { ...x, cold: false } : x));
     });
   }, [activeId, booted]);
 
