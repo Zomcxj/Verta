@@ -172,13 +172,15 @@ try {
       await evaluate(`(() => {
         const dialog = document.querySelector("[data-session-info]");
         if (!dialog) return JSON.stringify({ open: false });
-        const children = [...dialog.querySelectorAll("[data-session-info-child]")];
-        const declared = dialog.querySelector("[data-session-info-children]");
+        const children = [...dialog.querySelectorAll("[data-session-facts-child]")];
+        // The label span inside the children block, not the block itself: the block also holds the
+        // rows, and their text carries numbers of its own.
+        const declared = dialog.querySelector("[data-session-facts-children] > span");
         return JSON.stringify({
           open: true,
-          id: dialog.querySelector("[data-session-info-id]")?.textContent.trim() ?? null,
-          tool: dialog.querySelector("[data-session-info-tool]")?.textContent.trim() ?? null,
-          stats: dialog.querySelector("[data-session-info-stats]")?.textContent.trim() ?? null,
+          id: dialog.querySelector("[data-session-facts-id]")?.textContent.trim() ?? null,
+          tool: dialog.querySelector("[data-session-facts-tool]")?.textContent.trim() ?? null,
+          stats: dialog.querySelector("[data-session-facts-stats]")?.textContent.trim() ?? null,
           children: children.length,
           childrenLabel: declared ? declared.textContent.trim() : null,
         });
