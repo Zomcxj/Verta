@@ -97,6 +97,10 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
   const [previewShapeId, setPreviewShapeId] = useState<ShapeId | null>(null);
   const [shapeId, setShapeIdState] = useState<ShapePref>("auto");
   const [radius, setRadiusState] = useState<RadiusStop>(DEFAULT_RADIUS);
+  // The glass layer's three numbers, hydrated with the rest and followed by key, like the radius.
+  const [glassPaneOpacity, setGlassPaneOpacity] = useState(0.28);
+  const [glassEdge, setGlassEdge] = useState(0.3);
+  const [glassSheen, setGlassSheen] = useState(0.12);
   const [customThemes, setCustomThemes] = useState<Theme[]>([]);
   const [systemDark, setSystemDark] = useState<boolean>(() =>
     typeof window === "undefined"
@@ -112,6 +116,9 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
       setThemeIdState(p.themeId);
       setShapeIdState(p.shapeId);
       setRadiusState(p.cornerRadius);
+      setGlassPaneOpacity(p.glassPaneOpacity);
+      setGlassEdge(p.glassEdge);
+      setGlassSheen(p.glassSheen);
       writeFastMode(p.theme);
       writeFastThemeId(p.themeId);
     });
@@ -126,6 +133,12 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
         setShapeIdState(value as ShapePref);
       } else if (key === "cornerRadius" && typeof value === "string") {
         setRadiusState(radiusOf(value));
+      } else if (key === "glassPaneOpacity" && typeof value === "number") {
+        setGlassPaneOpacity(value);
+      } else if (key === "glassEdge" && typeof value === "number") {
+        setGlassEdge(value);
+      } else if (key === "glassSheen" && typeof value === "number") {
+        setGlassSheen(value);
       }
     });
     return () => {
@@ -199,8 +212,16 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
     applyShape(effectiveShape, {
       themeGlass: Boolean(variant?.glass),
       themeTerminal: variant?.terminal?.background,
+      glass: { paneOpacity: glassPaneOpacity, edge: glassEdge, sheen: glassSheen },
     });
-  }, [effectiveShape, activeTheme, resolvedMode]);
+  }, [
+    effectiveShape,
+    activeTheme,
+    resolvedMode,
+    glassPaneOpacity,
+    glassEdge,
+    glassSheen,
+  ]);
 
   /**
    * The radius, applied after the theme and after the shape.

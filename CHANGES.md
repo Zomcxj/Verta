@@ -34,6 +34,14 @@ swap in the new date, and drop the `open` from the day before.
 - `scripts/dev/probes/usage-window.mjs`: every row has to print a request count, and the agent rows' events may not exceed the summary's own count - the two are the same events, so a difference means one of them is counting something else.
 - `src/usage/usageTable.wiring.test.ts` (new): the column exists in both tables, reads the row's own event count, sorts with the numbers, and formats like its neighbours.
 
+**The glass layer's three numbers are adjustable**
+
+- `src/modules/settings/store.ts`: three preferences for the glass layer - pane opacity, edge light and sheen - with the values the `glass` preset has always shipped with, clamped on load and followed by key.
+- `src/modules/theme/shape.ts`: the preset's three numbers become `GLASS_DEFAULT_PARAMS`, and `resolveShape` takes the user's numbers over the preset's recipe when the shape draws the material. A theme that carries its own glass still wins, because a theme file that describes its glass is a more specific statement than a global preference. `shapeUsesGlass` answers which shapes the sliders belong to, so a settings screen can offer them only where they do something.
+- `src/modules/theme/ThemeProvider.tsx`, `applyTheme.ts`: the three numbers are hydrated with the rest of the preferences, followed by key, and passed to the shape resolver. Every attribute a shape writes is cleared before the next one writes, for the same reason its variables are: a recipe left behind is a shape that cannot be left.
+- `src/settings/sections/ThemesSection.tsx`: the three sliders appear under the shape picker for a material shape, each showing its value as a percentage, with a "restore defaults" that writes `GLASS_DEFAULT_PARAMS` back rather than a second copy of the numbers. A slider writes on commit, not while it moves, and follows the store when the store changes underneath it - which is what makes the reset button move the thumbs.
+- `src/settings/sections/glassSliders.wiring.test.ts` (new), `src/modules/theme/shape.test.ts`: the reset contract (the preset and the constant agree), and that a mount cannot write a preference. Measured on the first build of these controls: a controlled slider that wrote on every change also wrote once as it appeared, and the pane's opacity was 2%, the slider's minimum, with nobody touching it.
+
 </details>
 
 <details>

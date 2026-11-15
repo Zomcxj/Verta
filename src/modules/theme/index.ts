@@ -19,6 +19,7 @@ export {
 } from "./appearance";
 export {
   DEFAULT_SHAPE_ID,
+  GLASS_DEFAULT_PARAMS,
   isShapeId,
   isShapePref,
   listShapes,
@@ -27,6 +28,8 @@ export {
   SHAPE_AUTO,
   SHAPE_LABELS,
   shapeOf,
+  shapeUsesGlass,
+  type GlassParams,
   type ResolvedShape,
   type ShapeId,
   type ShapeOptions,

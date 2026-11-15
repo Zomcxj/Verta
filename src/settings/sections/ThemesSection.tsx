@@ -28,15 +28,21 @@ import {
   setCornerRadius,
   setSessionTransition,
   setShapeId,
+  setGlassEdge,
+  setGlassPaneOpacity,
+  setGlassSheen,
   setWindowVibrancy,
   type ThemePref,
 } from "@/modules/settings/store";
 import {
+  GLASS_DEFAULT_PARAMS,
   listShapes,
   RADIUS_STOPS,
+  resolveShapePref,
   radiusStopIndex,
   SHAPE_LABELS,
   ShapeIcon,
+  shapeUsesGlass,
   useTheme,
 } from "@/modules/theme";
 import {
@@ -101,6 +107,69 @@ const SESSION_TRANSITION_LABELS = {
   none: "settings.themes.transition.none",
 } as const;
 
+/**
+ * One glass number.
+ *
+ * The three are the same control with a different range, so they are one function rather than three
+ * copies: the value is shown as a percentage because that is how a material is described ("a quarter
+ * of the pane's own colour"), and the slider is continuous because the stops of a material are not
+ * names the way the radius stops are.
+ */
+function GlassSlider({
+  id,
+  label,
+  hint,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  // The thumb follows the pointer locally and the preference is written when the gesture ends.
+  //
+  // Writing on every move put a disk write on every percent, and a controlled slider that writes on
+  // mount wrote its own minimum over the stored value: the pane's opacity was 2% after the sliders
+  // appeared, with nobody touching them. The store stays the truth - `value` wins whenever it
+  // changes, which is what makes the reset button move the thumbs.
+  const [draft, setDraft] = useState(value);
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[11px] text-muted-foreground">{label}</span>
+        <span
+          data-glass-value={id}
+          className="tabular-nums text-[11px] text-muted-foreground"
+        >
+          {Math.round(draft * 100)}%
+        </span>
+      </div>
+      <Slider
+        className="py-1.5"
+        value={[draft]}
+        min={min}
+        max={max}
+        step={0.01}
+        onValueChange={(next) => setDraft(next[0] ?? draft)}
+        onValueCommit={(next) => {
+          const settled = next[0];
+          if (typeof settled === "number" && settled !== value) onChange(settled);
+        }}
+      />
+      <span className="text-[10px] text-muted-foreground">{hint}</span>
+    </div>
+  );
+}
+
 export function ThemesSection() {
   const t = useT();
   const language = useLanguage();
@@ -112,6 +181,7 @@ export function ThemesSection() {
     mode,
     setMode,
     radius,
+    activeTheme,
   } = useTheme();
   const builtinThemes = listBuiltinThemes();
   const themes = useMemo(
@@ -140,6 +210,15 @@ export function ThemesSection() {
   const backgroundBlur = usePreferencesStore((s) => s.backgroundBlur);
   const windowVibrancy = usePreferencesStore((s) => s.windowVibrancy);
   const shapePref = usePreferencesStore((s) => s.shapeId);
+  const glassPaneOpacity = usePreferencesStore((s) => s.glassPaneOpacity);
+  const glassEdge = usePreferencesStore((s) => s.glassEdge);
+  const glassSheen = usePreferencesStore((s) => s.glassSheen);
+  // A theme may suggest a shape, and `auto` resolves to it; the sliders follow what is drawn, not
+  // what is stored, so they appear for a suggested glass shape as well.
+  const drawnShape = useMemo(
+    () => resolveShapePref(shapePref, activeTheme.shape),
+    [shapePref, activeTheme],
+  );
 
   const [backdrop, setBackdrop] = useState<Backdrop>("none");
   useEffect(() => {
@@ -377,6 +456,58 @@ export function ThemesSection() {
             );
           })}
         </div>
+
+        {/* The material's three numbers. Shown only for the shapes that draw the layer, because a
+            slider that changes nothing is a control that lies. */}
+        {shapeUsesGlass(drawnShape) ? (
+          <div className="flex flex-col gap-2 rounded-md border border-border/60 px-2.5 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <Label>{t("settings.shape.glassParams")}</Label>
+              <button
+                type="button"
+                data-glass-reset=""
+                onClick={() => {
+                  void setGlassPaneOpacity(GLASS_DEFAULT_PARAMS.paneOpacity);
+                  void setGlassEdge(GLASS_DEFAULT_PARAMS.edge);
+                  void setGlassSheen(GLASS_DEFAULT_PARAMS.sheen);
+                }}
+                className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground outline-none transition-colors duration-[var(--dur-base)] hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                {t("settings.shape.glassReset")}
+              </button>
+            </div>
+            <span className="text-[10px] text-muted-foreground">
+              {t("settings.shape.glassParamsHint")}
+            </span>
+            <GlassSlider
+              id="pane"
+              label={t("settings.shape.glassPaneOpacity")}
+              hint={t("settings.shape.glassPaneOpacityHint")}
+              value={glassPaneOpacity}
+              min={0.02}
+              max={0.9}
+              onChange={(value) => void setGlassPaneOpacity(value)}
+            />
+            <GlassSlider
+              id="edge"
+              label={t("settings.shape.glassEdge")}
+              hint={t("settings.shape.glassEdgeHint")}
+              value={glassEdge}
+              min={0}
+              max={0.8}
+              onChange={(value) => void setGlassEdge(value)}
+            />
+            <GlassSlider
+              id="sheen"
+              label={t("settings.shape.glassSheen")}
+              hint={t("settings.shape.glassSheenHint")}
+              value={glassSheen}
+              min={0}
+              max={0.5}
+              onChange={(value) => void setGlassSheen(value)}
+            />
+          </div>
+        ) : null}
 
         {/* One slider for every corner in the app, in stops rather than a continuous range: a gear
             lever, not a dial. The dots are the stops, so the control says where it can land. */}

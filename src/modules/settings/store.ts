@@ -170,6 +170,17 @@ export type Preferences = {
   shapeId: ShapePref;
   /** How round every corner is. Its own axis, so it is not part of the shape. */
   cornerRadius: RadiusStop;
+  /**
+   * How the glass layer is tuned.
+   *
+   * They belong to the material rather than to one shape: a theme that carries its own glass recipe
+   * overrides them, and any shape that draws the material reads them. Kept when the shape changes,
+   * because a user who turned the panes down does not want them back at full opacity by switching to
+   * a shape with no glass at all and returning.
+   */
+  glassPaneOpacity: number;
+  glassEdge: number;
+  glassSheen: number;
   editorTheme: EditorThemePref;
   editorFontSize: number;
   vimMode: boolean;
@@ -284,6 +295,16 @@ const KEY_BG_BLUR = "backgroundBlur";
 const KEY_WINDOW_VIBRANCY = "windowVibrancy";
 const KEY_SHAPE_ID = "shapeId";
 const KEY_CORNER_RADIUS = "cornerRadius";
+const KEY_GLASS_PANE_OPACITY = "glassPaneOpacity";
+const KEY_GLASS_EDGE = "glassEdge";
+const KEY_GLASS_SHEEN = "glassSheen";
+
+/** A stored glass number, held to the range its slider offers. */
+function clampGlass(value: unknown, min: number, max: number, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.min(max, Math.max(min, value))
+    : fallback;
+}
 const KEY_EDITOR_THEME = "editorTheme";
 const KEY_SESSION_TRANSITION = "sessionTransition";
 const KEY_EDITOR_FONT_SIZE = "editorFontSize";
@@ -370,6 +391,10 @@ export const DEFAULT_PREFERENCES: Preferences = {
   windowVibrancy: false,
   shapeId: SHAPE_AUTO,
   cornerRadius: DEFAULT_RADIUS,
+  // The values the Glass preset has always shipped with.
+  glassPaneOpacity: 0.28,
+  glassEdge: 0.3,
+  glassSheen: 0.12,
   vimMode: false,
   editorWordWrap: false,
   editorWordWrapColumn: EDITOR_WORD_WRAP_COLUMN_DEFAULT,
@@ -469,6 +494,24 @@ export async function loadPreferences(): Promise<Preferences> {
     // A stop this build does not know (an older or newer settings file) answers the default rather
     // than leaving the app without corners.
     cornerRadius: radiusOf(get<string>(KEY_CORNER_RADIUS)),
+    glassPaneOpacity: clampGlass(
+      get<number>(KEY_GLASS_PANE_OPACITY),
+      0.02,
+      0.9,
+      DEFAULT_PREFERENCES.glassPaneOpacity,
+    ),
+    glassEdge: clampGlass(
+      get<number>(KEY_GLASS_EDGE),
+      0,
+      0.8,
+      DEFAULT_PREFERENCES.glassEdge,
+    ),
+    glassSheen: clampGlass(
+      get<number>(KEY_GLASS_SHEEN),
+      0,
+      0.5,
+      DEFAULT_PREFERENCES.glassSheen,
+    ),
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
     editorWordWrap:
       get<boolean>(KEY_EDITOR_WORD_WRAP) ?? DEFAULT_PREFERENCES.editorWordWrap,
@@ -664,6 +707,27 @@ export async function setShapeId(value: ShapePref): Promise<void> {
 
 export async function setCornerRadius(value: RadiusStop): Promise<void> {
   await writePref(KEY_CORNER_RADIUS, radiusOf(value));
+}
+
+export async function setGlassPaneOpacity(value: number): Promise<void> {
+  await writePref(
+    KEY_GLASS_PANE_OPACITY,
+    clampGlass(value, 0.02, 0.9, DEFAULT_PREFERENCES.glassPaneOpacity),
+  );
+}
+
+export async function setGlassEdge(value: number): Promise<void> {
+  await writePref(
+    KEY_GLASS_EDGE,
+    clampGlass(value, 0, 0.8, DEFAULT_PREFERENCES.glassEdge),
+  );
+}
+
+export async function setGlassSheen(value: number): Promise<void> {
+  await writePref(
+    KEY_GLASS_SHEEN,
+    clampGlass(value, 0, 0.5, DEFAULT_PREFERENCES.glassSheen),
+  );
 }
 
 export async function setVimMode(value: boolean): Promise<void> {
@@ -961,6 +1025,9 @@ export const PREF_KEY_TO_FIELD: Record<string, PrefKey> = {
   [KEY_WINDOW_VIBRANCY]: "windowVibrancy",
   [KEY_SHAPE_ID]: "shapeId",
   [KEY_CORNER_RADIUS]: "cornerRadius",
+  [KEY_GLASS_PANE_OPACITY]: "glassPaneOpacity",
+  [KEY_GLASS_EDGE]: "glassEdge",
+  [KEY_GLASS_SHEEN]: "glassSheen",
   [KEY_EDITOR_THEME]: "editorTheme",
   [KEY_SESSION_TRANSITION]: "sessionTransition",
   [KEY_EDITOR_FONT_SIZE]: "editorFontSize",

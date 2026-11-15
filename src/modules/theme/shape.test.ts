@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SHAPE_ID,
+  GLASS_DEFAULT_PARAMS,
   isShapeId,
   isShapePref,
   listShapes,
@@ -8,6 +9,7 @@ import {
   resolveShapePref,
   SHAPE_AUTO,
   shapeOf,
+  shapeUsesGlass,
 } from "./shape";
 
 describe("the shape axis", () => {
@@ -89,6 +91,45 @@ describe("the shape axis", () => {
       expect(resolveShape(id).vars["--theme-frame-opacity"]).toBeUndefined();
       expect(resolveShape(id).vars["--terminal-background"]).toBeUndefined();
     }
+  });
+
+  it("resets to the numbers the preset itself draws with", () => {
+    // "Restore defaults" must write what `glass` ships with, not a second copy of the numbers kept
+    // somewhere else, so the constant and the preset are checked against each other.
+    const glass = resolveShape("glass");
+    expect(glass.vars["--theme-pane-opacity"]).toBe(
+      `${GLASS_DEFAULT_PARAMS.paneOpacity}`,
+    );
+    expect(glass.vars["--theme-glass-edge"]).toBe(`${GLASS_DEFAULT_PARAMS.edge}`);
+    expect(glass.vars["--theme-glass-sheen"]).toBe(
+      `${GLASS_DEFAULT_PARAMS.sheen}`,
+    );
+  });
+
+  it("lets the user's three numbers replace a material shape's recipe", () => {
+    const tuned = resolveShape("glass", {
+      glass: { paneOpacity: 0.12, edge: 0.7, sheen: 0.3 },
+    });
+    expect(tuned.vars["--theme-pane-opacity"]).toBe("0.12");
+    expect(tuned.vars["--theme-glass-edge"]).toBe("0.7");
+    expect(tuned.vars["--theme-glass-sheen"]).toBe("0.3");
+    // A shape with no material ignores them: there is no layer for them to describe.
+    const slab = resolveShape("slab", {
+      glass: { paneOpacity: 0.12, edge: 0.7, sheen: 0.3 },
+    });
+    expect(slab.vars["--theme-pane-opacity"]).toBeUndefined();
+    // And a theme that carries its own glass is not overruled by the sliders.
+    const themed = resolveShape("glass", {
+      themeGlass: true,
+      glass: { paneOpacity: 0.12, edge: 0.7, sheen: 0.3 },
+    });
+    expect(themed.vars["--theme-pane-opacity"]).toBeUndefined();
+  });
+
+  it("knows which shapes the sliders belong to", () => {
+    expect(shapeUsesGlass("glass")).toBe(true);
+    expect(shapeUsesGlass("slab")).toBe(false);
+    expect(shapeUsesGlass(SHAPE_AUTO)).toBe(false);
   });
 
   it("puts the theme's terminal colour back when the material goes away", () => {

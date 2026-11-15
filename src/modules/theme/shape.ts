@@ -67,6 +67,18 @@ type ShapeValues = {
 };
 
 /**
+ * The values the `glass` preset ships with, which are also what "restore defaults" writes back.
+ *
+ * They live beside the preset rather than in the settings store so the two cannot drift: the sliders
+ * reset to what the shape itself draws with, not to a second copy of the numbers.
+ */
+export const GLASS_DEFAULT_PARAMS: Readonly<GlassParams> = {
+  paneOpacity: 0.28,
+  edge: 0.3,
+  sheen: 0.12,
+};
+
+/**
  * The six presets, in the order they are offered.
  *
  * `minimal` is what the shell looks like when nobody has chosen anything: no border, no shadow, no
@@ -135,9 +147,9 @@ const SHAPES: Readonly<Record<ShapeId, ShapeValues>> = {
     // theme did with `terminal.background: "rgba(21, 27, 32, 0)"`.
     vars: {
       "--theme-frame-opacity": "0.24",
-      "--theme-pane-opacity": "0.28",
-      "--theme-glass-edge": "0.3",
-      "--theme-glass-sheen": "0.12",
+      "--theme-pane-opacity": `${GLASS_DEFAULT_PARAMS.paneOpacity}`,
+      "--theme-glass-edge": `${GLASS_DEFAULT_PARAMS.edge}`,
+      "--theme-glass-sheen": `${GLASS_DEFAULT_PARAMS.sheen}`,
       "--terminal-background": "transparent",
     },
     attrs: { "data-theme-glass": "on" },
@@ -207,7 +219,28 @@ export type ShapeOptions = {
    * restore the colour the theme asked for rather than leaving the terminal see-through.
    */
   themeTerminal?: string;
+  /**
+   * The user's own numbers for the glass layer.
+   *
+   * The two material shapes ship a recipe each, but the recipe is the one part of a shape that people
+   * want to tune: how much colour the pane keeps, how bright the edge is, how strong the sheen. Left
+   * out, the shape's own values stand (a probe or an icon asks for none); given, they win, except when
+   * the theme carries its own glass.
+   */
+  glass?: GlassParams;
 };
+
+/** The three numbers the glass layer is tuned with. */
+export type GlassParams = {
+  paneOpacity: number;
+  edge: number;
+  sheen: number;
+};
+
+/** Which shapes draw the glass layer, so a settings screen knows when to offer the sliders. */
+export function shapeUsesGlass(id: unknown): boolean {
+  return Boolean(SHAPES[shapeOf(id)].material);
+}
 
 export type ResolvedShape = {
   /** CSS variables to write on the document element. */
@@ -249,6 +282,13 @@ export function resolveShape(
   for (const [name, value] of Object.entries(shape.attrs ?? {})) {
     if (options.themeGlass && name === "data-theme-glass") continue;
     attrs[name] = value;
+  }
+  // The theme's own glass wins over the sliders, for the same reason it wins over the shape's recipe:
+  // a theme file that describes its glass is a more specific statement than a global preference.
+  if (options.glass && shape.material && !options.themeGlass) {
+    vars["--theme-pane-opacity"] = `${options.glass.paneOpacity}`;
+    vars["--theme-glass-edge"] = `${options.glass.edge}`;
+    vars["--theme-glass-sheen"] = `${options.glass.sheen}`;
   }
   if (shape.material) attrs["data-shape-material"] = "native";
   return { vars, attrs, material: Boolean(shape.material) };

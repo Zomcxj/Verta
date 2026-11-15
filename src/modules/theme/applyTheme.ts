@@ -149,7 +149,9 @@ export function applyShape(
   for (const [name, value] of Object.entries(vars)) {
     root.style.setProperty(name, value);
   }
-  // The material is an attribute, not a variable: the blur happens behind the window.
+  // The material is an attribute, not a variable: the blur happens behind the window. Every attribute
+  // a shape writes is cleared first, for the same reason its variables are: a recipe left behind is a
+  // shape that cannot be left.
   root.removeAttribute("data-shape-material");
   if (!options.themeGlass) root.removeAttribute("data-theme-glass");
   for (const [name, value] of Object.entries(attrs)) root.setAttribute(name, value);
