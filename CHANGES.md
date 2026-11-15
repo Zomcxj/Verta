@@ -61,6 +61,14 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/launcher/components/sessionHoverCard.wiring.test.ts` (new), `sessionRowDensity.test.ts`, `sessionInfoDialog.wiring.test.ts`: which rows draw the card, that a rename is the only thing it steps aside for, that the card and the dialog draw the same block, which facts each of them asks for, and the cap on a list that cannot scroll.
 - Measured on the built app (208 rows, manage view): one card per hover in both densities and with the row ticked and unticked, saying the id, the directory and the usage, plus the parent on a subagent's row; `pnpm check-types`, `biome lint` and the full suite clean.
 
+**The documentation is split into a docs/ set**
+
+- `VERTA.md`: 466 lines to 116. It is loaded as agent memory on every task, so its length is a cost paid on every task, and it had become two documents in one - agent memory and the architecture record, 285 of those lines about the terminal. It now states the project, the quality bar, the conventions, the two wasm identifiers that must not be renamed, and a map of where the detail lives.
+- `docs/` (new): an index and seven documents, one per subsystem. `README.md` is the index; `architecture.md`, `terminal-rendering.md`, `ui-conventions.md`, `platform-and-bundle.md`, `session-list.md`, `usage.md` and `testing.md` are the documents. The terminal section moved out verbatim, so nothing was lost in the move.
+- `CONTRIBUTING.md`, `SECURITY.md` (new): how a change gets in, and what this application is trusted with. `CLAUDE.md` is deleted; `AGENTS.md` stays the local, untracked working agreement.
+- `README.md`: a documentation section that points at `docs/README.md` and at the documents a reader is most likely to want, in the shape the reference projects use.
+- `src/app/docsSet.test.ts` (new): every link resolves, every `docs/*.md` is reachable from `VERTA.md`, `README.md` or the index, every probe the docs name exists, the docs are English (quoted data excepted) and free of en and em dashes, and `VERTA.md` stays under 200 lines.
+
 </details>
 
 <details>

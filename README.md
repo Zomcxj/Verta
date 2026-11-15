@@ -52,9 +52,17 @@ Verta 是一个终端优先的桌面工作台，围绕「本机已经在用的�
 - 远程仓库标签页列出账号可访问的仓库，走本机已登录的 `gh`。
 - 每个仓库的 Releases 在软件内看（版本列表、正文、附件），附件下载显示真实字节进度，落到你选的目录；失败或取消不会留下半截文件，也不会动已存在的同名文件。
 
+### 用量
+
+- 单独一个窗口，统计本机六个 agent 自己写在磁盘上的用量：合计、输入 / 输出 / 缓存读 / 缓存写、请求次数。
+- 模型与 agent 各一张表，可按任意列排序；模型表可把低于某个占比的行折叠成一行，折完仍然对得上总数。
+- 趋势图 7 / 30 / 90 / 180 天与全部；一天至少 7px 宽，装不下就横向滑动，滚轮也能横扫，y 轴刻度固定在滚动区外。
+- 只读：不改任何会话文件，也不上传任何东西。
+
 ### 界面
 
 - 中文与 English 两种语言，默认跟随系统，只翻译界面可见文案。
+- 六个形态（无边、极简、云、浮雕、板、玻璃），玻璃形态的窗格不透明度、边缘光、高光可调，可一键恢复默认。
 
 ## 环境要求
 
@@ -85,6 +93,20 @@ cargo test --lib
 ## 技术栈
 
 Tauri 2、Rust、`portable-pty`、React 19、TypeScript、Vite、ghostty（WebGPU）、CodeMirror 6、Tailwind v4、shadcn/ui、Zustand。
+
+## 文档
+
+- [`docs/`](docs/README.md) - 全部文档的索引，一个子系统一篇
+- [`VERTA.md`](VERTA.md) - 项目、质量门槛、约定、架构地图
+- [`docs/architecture.md`](docs/architecture.md) - 两进程模型、命令面、模块布局、已知坑
+- [`docs/terminal-rendering.md`](docs/terminal-rendering.md) - 终端渲染、资源与预算
+- [`docs/session-list.md`](docs/session-list.md) - 会话列表、悬浮卡与信息对话框、子代理、删除
+- [`docs/usage.md`](docs/usage.md) - 用量窗口：七个读取器、cc-switch 补洞、模型归一、折叠、趋势图
+- [`docs/testing.md`](docs/testing.md) - 门禁、测试分层、探针、已知 flake
+- [`CHANGES.md`](CHANGES.md) - 与上游的差异账本
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) / [`SECURITY.md`](SECURITY.md)
+
+[全部文档](docs/README.md) 有完整清单。
 
 ## 许可
 
