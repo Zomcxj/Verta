@@ -52,6 +52,26 @@ function smoothPath(points: { x: number; y: number }[]): string {
   return path;
 }
 
+/** `M/D` for a six-digit day, and the same inside a week's span; a month stays `YYMM`. */
+function shortDate(label: string): string {
+  if (!/^\d{6}$/.test(label)) return label;
+  return `${Number(label.slice(2, 4))}/${Number(label.slice(4))}`;
+}
+
+/**
+ * Under a bar: a day reads `M/D`, and a week reads where it starts - the axis has room for one
+ * date, and the span is what the hover card is for. A month keeps `YYMM`.
+ */
+function axisLabel(label: string): string {
+  const [first] = label.split("-");
+  return shortDate(first ?? label);
+}
+
+/** In the card: the same, with a week written as the span it covers. */
+function cardDate(label: string): string {
+  return label.split("-").map(shortDate).join("-");
+}
+
 export function TrendChart({ trend, kind, peakLabel }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -72,33 +92,53 @@ export function TrendChart({ trend, kind, peakLabel }: Props) {
     element.scrollLeft = element.scrollWidth;
   }, [trend]);
 
-  // The plot scrolls on the wheel.
+  // The plot is panned by pressing it and dragging sideways.
   //
-  // A thin scrollbar was the only way to move a 180-day chart, and on this platform it is drawn as a
-  // hairline that most people never find. A wheel over the plot moves it sideways: the vertical
-  // delta is used because that is what a mouse sends, while a trackpad's horizontal gesture arrives
-  // as `deltaX` and is used as it comes. A listener is added by hand because React's synthetic wheel
-  // handler is passive, where `preventDefault` does nothing; and the gesture is left to the page once
-  // an end is reached, so the chart never traps a scroll.
+  // A 180-day chart does not fit in the card, and a thin scrollbar is a hairline most people never
+  // find. The wheel used to move it, and it is gone on purpose: over a chart a wheel reads as "zoom",
+  // which this window does not have, and a gesture that means one thing everywhere else is the wrong
+  // way to find the rest of a strip. Dragging is the gesture the chart itself suggests - the days are
+  // a strip, so grab it and move it. The pointer is captured, so the drag survives leaving the plot,
+  // and `data-panning` is what the stylesheet turns into the closed hand.
   useEffect(() => {
     const element = scrollerRef.current;
     if (!element) return;
-    const onWheel = (event: WheelEvent) => {
-      const span = element.scrollWidth - element.clientWidth;
-      if (span <= 0) return;
-      const delta =
-        Math.abs(event.deltaX) > Math.abs(event.deltaY)
-          ? event.deltaX
-          : event.deltaY;
-      const next = element.scrollLeft + delta;
-      if (next < 0 || next > span) return;
+    let startX = 0;
+    let startScroll = 0;
+    let dragging = false;
+    const down = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      if (element.scrollWidth - element.clientWidth <= 0) return;
+      dragging = true;
+      startX = event.clientX;
+      startScroll = element.scrollLeft;
+      element.setPointerCapture(event.pointerId);
+      element.dataset.panning = "on";
       event.preventDefault();
-      element.scrollLeft = next;
     };
-    element.addEventListener("wheel", onWheel, { passive: false });
-    return () => element.removeEventListener("wheel", onWheel);
+    const move = (event: PointerEvent) => {
+      if (!dragging) return;
+      element.scrollLeft = startScroll - (event.clientX - startX);
+    };
+    const up = (event: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      delete element.dataset.panning;
+      if (element.hasPointerCapture(event.pointerId)) {
+        element.releasePointerCapture(event.pointerId);
+      }
+    };
+    element.addEventListener("pointerdown", down);
+    element.addEventListener("pointermove", move);
+    element.addEventListener("pointerup", up);
+    element.addEventListener("pointercancel", up);
+    return () => {
+      element.removeEventListener("pointerdown", down);
+      element.removeEventListener("pointermove", move);
+      element.removeEventListener("pointerup", up);
+      element.removeEventListener("pointercancel", up);
+    };
   }, []);
-
 
   useEffect(() => {
     const element = wrapRef.current;
@@ -170,7 +210,7 @@ export function TrendChart({ trend, kind, peakLabel }: Props) {
         </svg>
         <div
           ref={scrollerRef}
-          className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:thin]"
+          className="min-w-0 flex-1 cursor-grab touch-pan-y overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:thin] data-[panning]:cursor-grabbing data-[panning]:select-none"
         >
           <svg
             width={plotWidth + PAD_RIGHT}
@@ -244,7 +284,7 @@ export function TrendChart({ trend, kind, peakLabel }: Props) {
               fontSize={9.5}
               fill="var(--muted-foreground)"
             >
-              {column.label.slice(5).replace("-", "/").replace(/^0/, "")}
+              {axisLabel(column.label)}
             </text>
           ) : null,
         )}
@@ -293,7 +333,7 @@ export function TrendChart({ trend, kind, peakLabel }: Props) {
           }
         >
           <div className="font-medium text-foreground">
-            {hoveredColumn.label.slice(5).replace("-", "/")}
+            {cardDate(hoveredColumn.label)}
           </div>
           <div className="mt-1 flex flex-col gap-0.5">
             {trend.series.map((entry, index) => {

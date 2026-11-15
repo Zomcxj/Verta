@@ -217,7 +217,7 @@ describe("buildView", () => {
     expect(view.byModel[0]?.provider).toBeNull();
     // The chart agrees: a series is a model too, and its legend carries no provider.
     const trend = buildTrend(split, {
-      range: 7,
+      range: "all",
       tool: null,
       scope: both,
       today,
@@ -421,7 +421,7 @@ describe("buildTrend", () => {
 
   it("folds everything past the first few models into one bucket", () => {
     const trend = buildTrend(many, {
-      range: 7,
+      range: "all",
       tool: null,
       scope: both,
       today: BASE,
@@ -442,26 +442,66 @@ describe("buildTrend", () => {
     expect(seriesTotal).toBe(columnTotal);
   });
 
-  it("draws a day for every day in the window, so a gap is a gap", () => {
+  it("draws a column for every day there is data for, so a gap is a gap", () => {
     const trend = buildTrend(fixture, {
-      range: 7,
+      range: "all",
       tool: null,
       scope: both,
       today,
       otherLabel: "Other",
     });
-    expect(trend.columns).toHaveLength(7);
+    // The strip starts at the first day with data rather than 180 days back: empty columns before
+    // the history begins would read as "nothing happened for half a year".
+    expect(trend.columns).toHaveLength(3);
     expect(trend.columns[trend.columns.length - 1].day).toBe(today);
-    // The four days before the fixture started have no usage at all.
-    expect(
-      trend.columns.slice(0, 4).every((column) => column.total === 0),
-    ).toBe(true);
     expect(trend.peak).toBe(1_132);
   });
 
-  it("starts at the first day that has data when the window is everything", () => {
+  it("groups the same history by week and by month", () => {
+    const dayTotal = buildTrend(fixture, {
+      range: "all",
+      tool: null,
+      scope: both,
+      today,
+      otherLabel: "Other",
+    }).columns.reduce((sum, column) => sum + column.total, 0);
+    const week = buildTrend(fixture, {
+      range: "all",
+      bucket: "week",
+      tool: null,
+      scope: both,
+      today,
+      otherLabel: "Other",
+    });
+    // Every column is a Monday, seven days apart, written as the span it covers, and the totals
+    // still add up to the same history.
+    for (const column of week.columns) {
+      expect((column.day + 3) % 7).toBe(0);
+      expect(column.label).toMatch(/^\d{6}-\d{6}$/);
+    }
+    expect(
+      week.columns.reduce((sum, column) => sum + column.total, 0),
+    ).toBe(dayTotal);
+    const month = buildTrend(fixture, {
+      range: "all",
+      bucket: "month",
+      tool: null,
+      scope: both,
+      today,
+      otherLabel: "Other",
+    });
+    for (const column of month.columns) {
+      // `YYMM`: the same six-digit date the day columns speak, one scale up.
+      expect(column.label).toMatch(/^\d{4}$/);
+    }
+    expect(
+      month.columns.reduce((sum, column) => sum + column.total, 0),
+    ).toBe(dayTotal);
+  });
+
+  it("starts at the first day that has data", () => {
     const trend = buildTrend(fixture, {
-      range: 0,
+      range: "all",
       tool: null,
       scope: both,
       today,

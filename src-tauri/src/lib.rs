@@ -306,7 +306,8 @@ async fn open_usage_window(app: tauri::AppHandle) -> Result<(), String> {
     }
 
     centre_on_main(&app, &window);
-    let _ = app.emit_to("main", USAGE_WINDOW_EVENT, true);
+    // No scrim event here: this window is still blank, and the page raises the scrim itself once it
+    // has painted (`src/usage/main.tsx`). A mask over an empty frame is what the reader noticed.
 
     Ok(())
 }

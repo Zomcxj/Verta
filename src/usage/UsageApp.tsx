@@ -22,11 +22,14 @@ import {
 } from "react";
 import { Heatmap } from "./Heatmap";
 import { SummaryCard } from "./SummaryCard";
+import { loadUsageCache, saveUsageCache } from "./usageCache";
 import {
   buildHeatmap,
   buildTrend,
   buildView,
+  CHART_BUCKETS,
   CHART_RANGES,
+  type ChartBucket,
   type ChartRange,
   dayOf,
   isToolAvailable,
@@ -52,8 +55,13 @@ const CHART_RANGE_KEYS = {
   7: "usage.chart7",
   30: "usage.chart30",
   90: "usage.chart90",
-  180: "usage.chart180",
-  0: "usage.chartAll",
+  all: "usage.chartAll",
+} as const;
+
+const CHART_BUCKET_KEYS = {
+  day: "usage.bucketDay",
+  week: "usage.bucketWeek",
+  month: "usage.bucketMonth",
 } as const;
 
 const HEATMAP_WEEKS = 53;
@@ -102,15 +110,38 @@ export function UsageApp(): JSX.Element {
   const [range, setRange] = useState<UsageRange>("month");
   const [foldBelow, setFoldBelow] = useState(FOLD_DEFAULT);
   const scope = USAGE_SCOPE;
-  const [chartRange, setChartRange] = useState<ChartRange>(30);
+  // The whole history by day: the question is usually "how has this been going", and the three fixed
+  // windows are one click away.
+  const [chartRange, setChartRange] = useState<ChartRange>("all");
+  // Which scale `all` is read at. The fixed windows ignore it, because seven days is seven days.
+  const [chartBucket, setChartBucket] = useState<ChartBucket>("day");
   const [chartKind, setChartKind] = useState<"bars" | "line">("bars");
   const [tool, setTool] = useState<string | null>(null);
   const [payload, setPayload] = useState<UsagePayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Whether what is on screen came from the stored copy rather than from this run. The window dates
+  // it either way; the flag is what says "and it is being read again right now".
+  const [fromCache, setFromCache] = useState(false);
   // Answers can arrive out of order when refresh is pressed twice quickly; only the newest paints.
   const requestRef = useRef(0);
+  const liveLanded = useRef(false);
+
+  // The previous answer, painted before the read starts. It is the whole reason the window is not
+  // blank for the first seconds: the numbers on screen are older, and say so.
+  useEffect(() => {
+    let alive = true;
+    void loadUsageCache().then((cached) => {
+      if (!alive || !cached || liveLanded.current) return;
+      setPayload(cached.payload);
+      setUpdatedAt(cached.at);
+      setFromCache(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const load = useCallback(() => {
     const ticket = ++requestRef.current;
@@ -126,8 +157,13 @@ export function UsageApp(): JSX.Element {
     })
       .then((answer) => {
         if (ticket !== requestRef.current) return;
+        const at = Date.now();
+        liveLanded.current = true;
         setPayload(answer);
-        setUpdatedAt(Date.now());
+        setUpdatedAt(at);
+        setFromCache(false);
+        // Kept for the next open. Fire and forget: the window has already painted.
+        void saveUsageCache(answer, at);
       })
       .catch((reason) => {
         if (ticket !== requestRef.current) return;
@@ -199,13 +235,14 @@ export function UsageApp(): JSX.Element {
       payload
         ? buildTrend(payload, {
             range: chartRange,
+            bucket: chartBucket,
             tool,
             scope,
             today,
             otherLabel: t("usage.other"),
           })
         : null,
-    [payload, chartRange, tool, scope, today, t],
+    [payload, chartRange, chartBucket, tool, scope, today, t],
   );
   const heatmap = useMemo(
     () =>
@@ -407,14 +444,21 @@ export function UsageApp(): JSX.Element {
               })
             : ""}
         </span>
-        {updatedAt && !loading ? (
-          <span className="text-[10px] text-muted-foreground">
+        {updatedAt ? (
+          // Shown while a read is in flight too: the numbers under it are the last read, and the
+          // time is theirs. `data-usage-updated-at` says which source they came from, so a probe can
+          // tell a cached paint from a live one.
+          <span
+            className="text-[10px] text-muted-foreground"
+            data-usage-updated-at={fromCache ? "cache" : "live"}
+          >
             {t("usage.updatedAt", {
               time: new Date(updatedAt).toLocaleTimeString(language, {
                 hour: "2-digit",
                 minute: "2-digit",
               }),
             })}
+            {loading ? ` · ${t("usage.loading")}` : ""}
           </span>
         ) : null}
       </div>
@@ -508,6 +552,17 @@ export function UsageApp(): JSX.Element {
                   (value) => t(CHART_RANGE_KEYS[value]),
                   t("usage.range"),
                 )}
+                {/* The scale `all` is read at. Shown only there: seven days is seven columns, and a
+                    weekly column of seven days would be one bar. */}
+                {chartRange === "all"
+                  ? chips(
+                      CHART_BUCKETS,
+                      chartBucket,
+                      setChartBucket,
+                      (value) => t(CHART_BUCKET_KEYS[value]),
+                      t("usage.bucket"),
+                    )
+                  : null}
                 <div className="ml-auto" />
                 {chips(
                   ["bars", "line"] as const,

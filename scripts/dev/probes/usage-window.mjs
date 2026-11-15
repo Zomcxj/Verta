@@ -102,13 +102,29 @@ const openedInMs = Date.now() - openStarted;
 
 const usage = await connect(usageTarget.webSocketDebuggerUrl);
 
-// The first answer walks every store, so this is deliberately generous: the read is ~10 s warm and
-// ~26 s cold on this machine, and a probe that gives up first would report "no data" for a window
-// that was still working.
+// The window paints the previous read first (see `src/usage/usageCache.ts`), so the numbers are on
+// screen long before this run has read anything. What the probe measures has to be this run's answer:
+// `data-usage-updated-at` says which of the two is showing, and "live" is the one that was just read.
 const painted = await usage.waitFor("window.__vertaUsage && window.__vertaUsage()", 120_000);
 if (!painted) {
   const text = await usage.evaluate(`(document.body.innerText || "").slice(0, 500)`);
   fail(`窗口 120 秒内没有画出数字，屏幕上是：${text}`);
+}
+// Recorded, not required: a window opened on a machine with nothing cached is live already, and one
+// opened a second later starts on the stored copy.
+const firstPaint =
+  (await usage.evaluate(
+    `document.querySelector("[data-usage-updated-at]")?.getAttribute("data-usage-updated-at") ?? "none"`,
+  )) || "none";
+// The first answer walks every store, so this is deliberately generous: the read is ~10 s warm and
+// ~26 s cold on this machine, and a probe that gives up first would report "no data" for a window
+// that was still working.
+const lived = await usage.waitFor(
+  `!!document.querySelector('[data-usage-updated-at="live"]')`,
+  180_000,
+);
+if (!lived) {
+  fail("窗口一直显示上一次读的数字（data-usage-updated-at 停在 cache）");
 }
 
 const read = async () =>
@@ -406,6 +422,10 @@ if (!busiest) {
     }
   }
 }
+
+// Which of the two the window painted first: `cache` means a stored answer was on screen before this
+// run read anything, `live` means the machine had nothing cached (a first open).
+report.firstPaint = firstPaint;
 
 console.log(JSON.stringify(report, null, 2));
 app.close();

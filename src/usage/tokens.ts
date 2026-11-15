@@ -81,8 +81,31 @@ export const USAGE_RANGES: readonly UsageRange[] = [
  * that stays legible at the chart's minimum bar pitch; `all` is the same history scrolled, not
  * squeezed.
  */
-export const CHART_RANGES = [7, 30, 90, 180, 0] as const;
+/** The steps the chart offers: three windows, and `all` for the whole history. */
+export const CHART_RANGES = [7, 30, 90, "all"] as const;
 export type ChartRange = (typeof CHART_RANGES)[number];
+
+/**
+ * How the `all` step groups days: one column per day, per week (Monday) or per calendar month.
+ *
+ * The three fixed windows are days and nothing else - seven columns is seven days, and a weekly
+ * column there would be one bar. `all` is the step that has to choose a scale, so it is the only one
+ * that offers these.
+ */
+export const CHART_BUCKETS = ["day", "week", "month"] as const;
+export type ChartBucket = (typeof CHART_BUCKETS)[number];
+/**
+ * How far back each grouping reaches.
+ *
+ * A day is one column, and 180 of them is the widest strip that still has a bar per day; 52 weeks and
+ * 12 months are the same idea at the other two scales. Beyond that a column is thinner than a bar
+ * anybody can point at, which is what the old "everything" step produced.
+ */
+export const CHART_SPAN_DAYS: Record<ChartBucket, number> = {
+  day: 180,
+  week: 52 * 7,
+  month: 372,
+};
 
 export const EMPTY_PARTS: UsageParts = {
   input: 0,
@@ -552,6 +575,8 @@ export function buildTrend(
   payload: UsagePayload,
   options: {
     range: ChartRange;
+    /** Only `all` reads this; the fixed windows are days. */
+    bucket?: ChartBucket;
     tool: string | null;
     scope: TokenScope;
     today: number;
@@ -559,8 +584,11 @@ export function buildTrend(
   },
 ): Trend {
   const { range, tool, scope, today, otherLabel } = options;
-  const start = range === 0 ? Number.NEGATIVE_INFINITY : today - range + 1;
-  const byDay = new Map<number, Map<string, number>>();
+  const bucket: ChartBucket =
+    range === "all" ? (options.bucket ?? "day") : "day";
+  const start = today - (range === "all" ? CHART_SPAN_DAYS[bucket] : range) + 1;
+  // Keyed by the column the day falls in, so one loop feeds all three groupings.
+  const byBucket = new Map<number, Map<string, number>>();
   const totals = new Map<string, { model: string | null; total: number }>();
   /** model key -> how many tokens each spelling of its name carried, as in the table. */
   const spellings = new Map<string, Map<string, number>>();
@@ -569,7 +597,7 @@ export function buildTrend(
     const cells =
       tool === null ? day.cells : day.cells.filter((c) => c.tool === tool);
     if (cells.length === 0) continue;
-    const bucket = byDay.get(day.day) ?? new Map<string, number>();
+    const perModel = new Map<string, number>();
     for (const cell of cells) {
       // A series is a model, not a model and the provider it ran through: the legend is a list of
       // model names, and "glm-5.3-flash - workbuddy" beside "GLM-5.3-Flash" was the same model
@@ -578,7 +606,7 @@ export function buildTrend(
       const key = identity.key;
       const value = countTokens(cell.parts, scope);
       if (value <= 0) continue;
-      bucket.set(key, (bucket.get(key) ?? 0) + value);
+      perModel.set(key, (perModel.get(key) ?? 0) + value);
       const entry = totals.get(key) ?? { model: identity.name, total: 0 };
       entry.total += value;
       totals.set(key, entry);
@@ -588,7 +616,12 @@ export function buildTrend(
         spellings.set(key, votes);
       }
     }
-    byDay.set(day.day, bucket);
+    const column = bucketKeyOf(bucket, day.day);
+    const merged = byBucket.get(column) ?? new Map<string, number>();
+    for (const [model, value] of perModel) {
+      merged.set(model, (merged.get(model) ?? 0) + value);
+    }
+    byBucket.set(column, merged);
   }
 
   // A cell with no model id is not a series of its own; it is what the folded bucket is for.
@@ -604,26 +637,33 @@ export function buildTrend(
   const foldedKeys = new Set(folded.map(([key]) => key));
   const hasOther = folded.length > 0 || unnamedTotal !== undefined;
 
-  // The full day sequence, so a gap in the history is a gap in the chart rather than two days
-  // drawn next to each other as if nothing happened in between.
-  const first = range === 0 ? minDay(payload.days) : start;
+  // The full bucket sequence, so a gap in the history is a gap in the chart rather than two columns
+  // drawn next to each other as if nothing happened in between. The strip starts at the first day
+  // there is anything to show for, not at the far end of the span: 180 empty columns before the
+  // history begins would read as "nothing happened for half a year".
+  const firstWithData =
+    payload.days.length > 0 ? payload.days[0].day : null;
+  // Only `all` starts at the first day with data: a seven-day window that opens four empty columns
+  // is telling the reader something true about this week.
+  const from =
+    range === "all" && firstWithData !== null
+      ? Math.max(start, firstWithData)
+      : start;
   const columns: TrendColumn[] = [];
-  if (first !== null && first <= today) {
-    for (let day = Math.max(first, start); day <= today; day += 1) {
-      const bucket = byDay.get(day);
-      const values = kept.map(([key]) => bucket?.get(key) ?? 0);
-      if (hasOther) {
-        let other = unnamedTotal ? (bucket?.get("") ?? 0) : 0;
-        for (const key of foldedKeys) other += bucket?.get(key) ?? 0;
-        values.push(other);
-      }
-      columns.push({
-        day,
-        label: labelOfDay(day),
-        values,
-        total: values.reduce((sum, value) => sum + value, 0),
-      });
+  for (const [key, label] of bucketSequence(bucket, from, today)) {
+    const perModel = byBucket.get(key);
+    const values = kept.map(([modelKey]) => perModel?.get(modelKey) ?? 0);
+    if (hasOther) {
+      let other = unnamedTotal ? (perModel?.get("") ?? 0) : 0;
+      for (const foldedKey of foldedKeys) other += perModel?.get(foldedKey) ?? 0;
+      values.push(other);
     }
+    columns.push({
+      day: key,
+      label,
+      values,
+      total: values.reduce((sum, value) => sum + value, 0),
+    });
   }
 
   const series: TrendSeries[] = kept.map(([key, entry], index) => {
@@ -664,8 +704,58 @@ export function buildTrend(
   };
 }
 
-function minDay(days: UsageDay[]): number | null {
-  return days.length > 0 ? days[0].day : null;
+/** The column a day belongs to, as the number the columns are keyed by. */
+function bucketKeyOf(bucket: ChartBucket, day: number): number {
+  if (bucket === "day") return day;
+  // Epoch day 0 was a Thursday, so `(day + 3) % 7` is 0 on a Monday.
+  if (bucket === "week") return day - ((day + 3) % 7);
+  const { year, month } = dateOfDay(day);
+  return year * 12 + (month - 1);
+}
+
+/**
+ * `YYMMDD`, the one date format the chart speaks: 2026-10-17 is `261017`.
+ *
+ * Short enough to sit under a bar and unambiguous inside a window that is at most 180 days wide, and
+ * the same shape a week's range is written with (`261017-261023`).
+ */
+export function compactDay(label: string): string {
+  const [year, month, day] = label.split("-");
+  if (year === undefined || month === undefined || day === undefined) return label;
+  return `${year.slice(2)}${month}${day}`;
+}
+
+/** Every column from `start` to `today`, oldest first, with the label the chart draws. */
+function bucketSequence(
+  bucket: ChartBucket,
+  start: number,
+  today: number,
+): [number, string][] {
+  const out: [number, string][] = [];
+  if (bucket === "day") {
+    for (let day = start; day <= today; day += 1) {
+      out.push([day, compactDay(labelOfDay(day))]);
+    }
+    return out;
+  }
+  if (bucket === "week") {
+    // A week is a span, so it is written as one: the Monday it starts on and the Sunday it ends on.
+    for (let monday = bucketKeyOf("week", start); monday <= today; monday += 7) {
+      out.push([
+        monday,
+        `${compactDay(labelOfDay(monday))}-${compactDay(labelOfDay(monday + 6))}`,
+      ]);
+    }
+    return out;
+  }
+  const first = dateOfDay(start);
+  const last = bucketKeyOf("month", today);
+  for (let index = first.year * 12 + (first.month - 1); index <= last; index += 1) {
+    const year = Math.floor(index / 12);
+    const month = `${(index % 12) + 1}`.padStart(2, "0");
+    out.push([index, `${`${year}`.slice(2)}${month}`]);
+  }
+  return out;
 }
 
 /** `YYYY-MM-DD` for a day index, the inverse of `dayOf` (the index is already offset-shifted). */
