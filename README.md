@@ -101,7 +101,7 @@ Tauri 2、Rust、`portable-pty`、React 19、TypeScript、Vite、ghostty（WebGP
 - [`docs/architecture.md`](docs/architecture.md) - 两进程模型、命令面、模块布局、已知坑
 - [`docs/terminal-rendering.md`](docs/terminal-rendering.md) - 终端渲染、资源与预算
 - [`docs/session-list.md`](docs/session-list.md) - 会话列表、悬浮卡与信息对话框、子代理、删除
-- [`docs/usage.md`](docs/usage.md) - 用量窗口：七个读取器、cc-switch 补洞、模型归一、折叠、趋势图
+- [`docs/usage.md`](docs/usage.md) - 用量窗口：六个读取器、模型归一、折叠、趋势图
 - [`docs/testing.md`](docs/testing.md) - 门禁、测试分层、探针、已知 flake
 - [`CHANGES.md`](CHANGES.md) - 与上游的差异账本
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) / [`SECURITY.md`](SECURITY.md)

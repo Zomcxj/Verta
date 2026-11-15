@@ -9,7 +9,7 @@ and a store that cannot be read is reported rather than shown as empty.
 
 ## Where the numbers come from
 
-Seven readers, one report. Each one owns the shape of one tool's data:
+Six readers, one report. Each one owns the shape of one tool's data:
 
 | Reader | Store | Notes |
 |---|---|---|
@@ -19,7 +19,6 @@ Seven readers, one report. Each one owns the shape of one tool's data:
 | `zcode.rs` | zcode's store | usage only |
 | `workbuddy.rs` | workbuddy's jsonl tree | usage only |
 | `dsh.rs` | dsh's jsonl tree | usage only |
-| `ccswitch.rs` | `~/.cc-switch/cc-switch.db`, `usage_daily_rollups` | a second-hand ledger; see below |
 
 `usage_events_at` merges them in a fixed order and sorts the whole report by time once, at the end:
 a day bucket built from a half-ordered report would be wrong in a way no reader could see.
@@ -27,22 +26,6 @@ a day bucket built from a half-ordered report would be wrong in a way no reader 
 A cell is `(tool, provider, model, day)` with the token classes split. `events` is the number of
 messages, and it is what the request column in both tables shows: one usage event is one answer the
 agent paid for.
-
-## cc-switch fills holes, and only holes
-
-The rollup is built from the same transcripts the direct readers see, so a day it covers is already
-counted. Importing a covered day would count those tokens twice, and no arithmetic on two daily
-totals can tell which part overlaps.
-
-So a day is filled whole or not filled at all: `usage_events_at` collects every `(tool, day)` the
-direct readers answered, hands that set to the cc-switch reader, and the reader skips a row whose day
-is in it. This is why cc-switch is merged last rather than beside the others.
-
-On this machine that is what keeps 78 days of Claude Code history (2026-04-06 to 2026-08-30) from
-reading as a gap: the transcripts are gone, the rollup remembers them.
-
-A tool the rollup covers but this app does not read (codex) is left out. Inventing a seventh agent
-from a foreign ledger would be worse than not showing it.
 
 ## One scope, no switch
 

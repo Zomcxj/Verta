@@ -20,7 +20,7 @@ the map of everything else.
 | Document | What it answers |
 |---|---|
 | [session-list.md](session-list.md) | The session list: where the rows come from, opening one, subagents, the hover card and the info dialog, delete, the watcher. |
-| [usage.md](usage.md) | The usage window: the seven readers, the cc-switch hole-filling rule, model identity, folding, the trend chart and its axis. |
+| [usage.md](usage.md) | The usage window: the six readers, model identity, folding, the trend chart and its axis. |
 
 ## Working on it
 

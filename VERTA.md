@@ -76,8 +76,8 @@ pixel, and the only thing between them is `invoke()`.
   rules, what the installer carries.
 - [docs/session-list.md](docs/session-list.md) - the session list, the hover card and the info dialog,
   subagents, delete.
-- [docs/usage.md](docs/usage.md) - the usage window: the seven readers, the cc-switch hole-filling
-  rule, model identity, folding, the trend chart and its axis.
+- [docs/usage.md](docs/usage.md) - the usage window: the six readers, model identity, folding, the
+  trend chart and its axis.
 
 ## No built-in agent
 

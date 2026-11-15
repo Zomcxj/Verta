@@ -86,13 +86,6 @@ swap in the new date, and drop the `open` from the day before.
 - `src-tauri/src/modules/agent_sessions/usage.rs`: extracts dsh's usage. The classes are exclusive (a real record: 306 input + 265 output + 9,088 cache read = 9,659, equal to `totalTokens`), so `inputTokens` is the uncached prompt and no class is reclassified, unlike the OpenAI-shaped counts of zcode and workbuddy.
 - Result: 35 logs, 8,853 model calls, 1,542,015,436 tokens, equal to an independent read of the same files.
 
-**Days without transcripts, from cc-switch's ledger**
-
-- `src-tauri/src/modules/agent_sessions/ccswitch.rs` (new): cc-switch stores `~/.cc-switch/cc-switch.db`, whose `usage_daily_rollups` table holds one row per day, agent, provider and model, the four dimensions the report already uses. Its 68 Claude Code days recorded under `_session` are the case that matters: `~/.claude/projects` holds three recent sessions, while the rollup still covers 2026-04-06 to 2026-08-30 from transcripts that no longer exist.
-- The ledger fills only days for which the direct readers have no events, and a day is filled whole or not at all. It is built from the same transcripts (`provider_id` is `_session` for every local row), so importing a covered day would count its tokens twice, and two daily totals cannot be separated afterwards. What it adds: 1,036,265,651 Claude Code tokens across the missing months, plus 24 opencode days and 8 pi days whose session files are no longer in the local databases.
-- Rows are attributed only to the six agents this application reads: `codex` rows are excluded and a row without tokens is dropped. `input_token_semantics` (0 or 2) does not change the arithmetic, because both shapes keep the cache separate (a real row: 122,342 input beside 7,638,348 cache reads), so nothing is reclassified. A provider id that is a UUID or cc-switch's `_session` marker is dropped instead of printed under every model.
-- `src-tauri/src/modules/agent_sessions/mod.rs`: the ledger is merged last, because only the other readers can establish which days are covered. The commands take the window's `offset_minutes`: a dated row becomes an instant only through a time zone, each day landing at its own local midnight.
-
 **The usage window: one read, and every view is a sum over it**
 
 - `src-tauri/src/modules/agent_sessions/mod.rs`: the usage command reads all six stores once and returns the days. Ranges (today, this week, this month, all), the two cache switches and the agent filter are sums over that result and never read a store again. The payload also carries `availableTools`, the agents with a store on disk; installed is deliberately not the same as having usage, since filtering an installed agent with nothing in range is a normal operation.
@@ -168,7 +161,7 @@ swap in the new date, and drop the `open` from the day before.
 - `src/styles/globals.css`: the theme's surface, glass, vibrancy frame, borderless rounded frame and body background name the usage window's root as well as the settings window's. Every one of those rules had been written against a single root id, so a second child window drew as an opaque slab while the main window was see-through.
 - `src-tauri/src/modules/agent_sessions/opencode.rs`: the step query asks SQL for `step-finish` parts only. That table also holds every text and tool-output blob, 378 MB on this machine against 3.4 MB of step parts, and pulling all of it into Rust to parse made the read roughly 10 s instead of roughly 1 s. `json_valid` is a `CASE` guard rather than an `AND` term, because SQLite does not promise the order in which `AND` terms are evaluated and one malformed row would otherwise fail the query.
 - Read back on the release build: 22,592 events, 3,363,262,139 tokens, 68 days and 51 provider/model pairs across the three tools (opencode 2,496,669,946, pi 866,522,959, claude 69,234); this month is three days and 175,953,872 tokens, 89.9 percent of them cache reads, and the same month under today is 15,470,282. Switching range takes 16 ms and switching a cache switch 17 ms, and the numbers after each agree with a direct call to the command. Probe: `scripts/dev/probes/usage-window.mjs`.
-- Export to the ccswitch and tokenmonitor formats is not implemented, because it requires a sample of each format.
+- Export to the tokenmonitor format is not implemented, because it requires a sample of the format.
 
 **The usage readers: three stores, one ordered stream of events**
 
@@ -1310,7 +1303,7 @@ The paper is still one sheet in the sense that matters: one editable surface, so
 
 **A probe for what a launch opens with**
 
-- `scripts/dev/probes/start-with-one-tab.mjs` (new): counts the tabs the window drew and reads the place the active one landed. `--title=<name>` requires the single tab's name, and `--where` types `pwd` as real key presses and prints the last lines of the interface's own readable copy of the terminal. Measured on the installed build, one launch at a time: three tabs on disk (the last one active, in another directory) and the window drew one, on the desktop; a folder argument still landed there (`/c/Users/cxj/Desktop/agent2api`); and with the default environment set to WSL, the same single tab landed on `/home/cxj`.
+- `scripts/dev/probes/start-with-one-tab.mjs` (new): counts the tabs the window drew and reads the place the active one landed. `--title=<name>` requires the single tab's name, and `--where` types `pwd` as real key presses and prints the last lines of the interface's own readable copy of the terminal. Measured on the installed build, one launch at a time: three tabs on disk (the last one active, in another directory) and the window drew one, on the desktop; a folder argument still landed there; and with the default environment set to WSL, the same single tab landed on `/home/cxj`.
 
 **A launch starts with one tab of its own**
 

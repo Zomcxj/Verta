@@ -62,8 +62,7 @@ const HEATMAP_WEEKS = 53;
  * The agents this window reads. A store that is absent simply has no rows.
  *
  * The three terminal agents keep sessions as well (opencode, pi, Claude Code); the three IDE agents
- * (zcode, workbuddy, dsh) are usage only, which is all they record. Claude Code's history here also
- * carries the days its transcripts no longer exist for, through the cc-switch ledger.
+ * (zcode, workbuddy, dsh) are usage only, which is all they record.
  */
 /**
  * The shares the model table can fold at, in percent.
