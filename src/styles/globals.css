@@ -313,6 +313,35 @@ html[data-boundless] [data-slot="resizable-handle"][aria-orientation="horizontal
   );
 }
 
+/* A seam is the gap between two regions, so it is there only while both of them are.
+ *
+ * Each one is drawn in three pieces - the separator's width, and a half on the wrapper of either side -
+ * and a closed side panel used to leave its two behind: with both of them closed the window's margin
+ * measured 8px open and 16px closed, and the workspace kept a gap to a region that was not on screen
+ * ("不是无界时 隐藏两个侧边组件 边缘的间距变宽了 隐藏时把中间组件的间隔也保留了"). 无界 says the same
+ * thing above, for every seam at once: the sheet has none at rest.
+ *
+ * `data-edge-*` is what answers "the region past this seam is gone" - the workspace owns the window's own
+ * end exactly when the region on that side is not there (`useShellEdges`). The separator keeps the 16px
+ * hit area it already carries (`::after`), so a zero-width one is still draggable to bring the region
+ * back: the trick the sheet uses for all of its seams. */
+html:has([data-shell="workspace"][data-edge-left]) [data-seam="sidebar"],
+html:has([data-shell="workspace"][data-edge-right]) [data-seam="right"] {
+  width: 0;
+}
+html:has([data-shell="workspace"][data-edge-left]) [data-shell="sidebar"],
+html:has([data-shell="workspace"][data-edge-right]) [data-shell="right"] {
+  /* The closed region's own half. Without it a collapsed panel's border box is still its padding, so
+   * "closed" has two meanings: 0 to the layout and 4px to anything reading the box. */
+  padding-inline: 0;
+}
+html:has([data-shell="workspace"][data-edge-left]) [data-shell="workspace"] {
+  padding-inline-start: 0;
+}
+html:has([data-shell="workspace"][data-edge-right]) [data-shell="workspace"] {
+  padding-inline-end: 0;
+}
+
 /* 云朵 floats: its panes step in from the frame so the soft shadow this shape carries has somewhere
  * to fall. Without the step-in the shadow was clipped by the panel box and the shape looked like 极简
  * with a fainter border.

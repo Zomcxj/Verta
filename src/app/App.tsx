@@ -2105,7 +2105,12 @@ export default function App() {
                   </div>
                 </div>
               </ResizablePanel>
-              <ResizableHandle className="w-1 rounded-full bg-transparent transition-colors duration-[var(--dur-fast)] after:w-4 hover:bg-border" />
+              {/* The seam this separator closes, by the region on its left/right: with that region gone the
+                  stylesheet takes the separator's width away (see the seam rules in `globals.css`). */}
+              <ResizableHandle
+                data-seam="sidebar"
+                className="w-1 rounded-full bg-transparent transition-colors duration-[var(--dur-fast)] after:w-4 hover:bg-border"
+              />
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
                 {/* Both seams share the same padding (0.5 each) so sidebar↔terminal
                     and terminal↔Git look equally wide; the window's own margin is the
@@ -2160,7 +2165,11 @@ export default function App() {
                   </div>
                 </div>
               </ResizablePanel>
-              <ResizableHandle className="w-1 rounded-full bg-transparent transition-colors duration-[var(--dur-fast)] after:w-4 hover:bg-border" />
+              {/* As above, mirrored: this seam belongs to the Git panel's side of the row. */}
+              <ResizableHandle
+                data-seam="right"
+                className="w-1 rounded-full bg-transparent transition-colors duration-[var(--dur-fast)] after:w-4 hover:bg-border"
+              />
               <ResizablePanel
                 id="gitPanel"
                 panelRef={rightPanelRef}

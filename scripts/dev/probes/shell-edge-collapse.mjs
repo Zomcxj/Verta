@@ -10,6 +10,10 @@
 // Usage:
 //   WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 ./src-tauri/target/release/verta.exe &
 //   node scripts/dev/probes/shell-edge-collapse.mjs [--port=9222]
+//
+// The dev server is accepted too (`pnpm tauri dev`, whose page is on `localhost:1420`): the layout this
+// checks is the same one, and a bug that only shows with 无界 off is easiest to catch where the shape and
+// the axis can be switched without a rebuild.
 const port = process.argv.find((a) => a.startsWith("--port="))?.slice(7) ?? "9222";
 
 const report = {};
@@ -19,7 +23,11 @@ const fail = (message) => {
 };
 
 const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-const page = targets.find((t) => t.type === "page" && t.url === "http://tauri.localhost/");
+const page = targets.find(
+  (t) =>
+    t.type === "page" &&
+    (t.url === "http://tauri.localhost/" || t.url.endsWith("1420/")),
+);
 if (!page) fail("no page target: is the app running with --remote-debugging-port?");
 const socket = new WebSocket(page.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => {
@@ -356,5 +364,16 @@ try {
   console.error(JSON.stringify(report, null, 2));
   process.exitCode = 1;
 } finally {
+  // The layout this run borrowed is the layout it returns, including when it stopped halfway: a panel left
+  // closed is a panel somebody has to find and open again, and the run that failed says nothing about
+  // wanting it that way.
+  try {
+    await ensureOpen("侧栏|sidebar", "sidebar");
+    await ensureOpen("Git 面板|Git panel", "right");
+  } catch (error) {
+    console.error(
+      `the layout could not be put back: ${String(error?.message ?? error)}`,
+    );
+  }
   socket.close();
 }

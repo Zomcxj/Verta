@@ -165,10 +165,14 @@ describe("built startup graph", () => {
         // VERTA_BENCH is explicitly off: a shipped build must not contain the app-lab driver.
         env: { ...process.env, NODE_ENV: "production", VERTA_BENCH: "" },
         stdio: "pipe",
-        timeout: 240_000,
+        // Ten minutes, not four. The build is the thing that varies here, not the graph this reads:
+        // measured on the development machine, a cold `vite build` with the agent harness running
+        // alongside it went past 240s and the first assertion to run was `ETIMEDOUT`. A budget that
+        // its own build cannot fit inside is a flaky gate, not a strict one.
+        timeout: 600_000,
       },
     );
-  }, 300_000);
+  }, 660_000);
 
   afterAll(() => {
     if (outDir) rmSync(outDir, { recursive: true, force: true });

@@ -19,7 +19,11 @@ const hook = readFileSync(
 
 describe("the shell's outer edge", () => {
   it("is marked from the regions' layout, not from the persisted flags", () => {
-    expect(hook).toMatch(/getBoundingClientRect\(\)\.width > 0\.5/);
+    // The panel the row hands the region, not the wrapper inside it. A wrapper carries the seam padding,
+    // so a closed panel's wrapper still measures those 2-4px and read as open: the closed region kept its
+    // edge, the middle one never took it, and the seam in between stayed.
+    expect(hook).toMatch(/closest<HTMLElement>\('\[data-slot="resizable-panel"\]'\)/);
+    expect(hook).toMatch(/getBoundingClientRect\(\)\.width \?\? 0\) > 0\.5/);
     expect(hook).toMatch(/shellEdges\(\{/);
     // The flags are still what a fresh window starts from - they are just not the answer afterwards.
     expect(app).not.toMatch(/sidebar: !sidebarCollapsed/);

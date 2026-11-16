@@ -32,13 +32,33 @@ export function useShellEdges(row: HTMLElement | null): void {
       workspace: row.querySelector<HTMLElement>('[data-shell="workspace"]'),
       right: row.querySelector<HTMLElement>('[data-shell="right"]'),
     };
+    /**
+     * The box the row gave each region, which is not the wrapper's.
+     *
+     * A wrapper carries the seam padding, so a collapsed region still measures those 2-4px and reads as
+     * open - and it did: with both side panels closed the observer kept reporting the sidebar as present,
+     * so `workspace` never took the window's own edge ("隐藏两个侧边组件 边缘的间距变宽了", the same
+     * leftover seam as the 4px the layout kept). The panel's box is the layout's answer and is 0 whatever
+     * the wrapper is padded with, so that is what is measured.
+     */
+    const boxes = {
+      sidebar:
+        regions.sidebar?.closest<HTMLElement>('[data-slot="resizable-panel"]') ??
+        regions.sidebar,
+      workspace:
+        regions.workspace?.closest<HTMLElement>('[data-slot="resizable-panel"]') ??
+        regions.workspace,
+      right:
+        regions.right?.closest<HTMLElement>('[data-slot="resizable-panel"]') ??
+        regions.right,
+    };
     const apply = () => {
       const { sidebar, workspace, right } = regions;
       if (!sidebar || !workspace || !right) return;
-      // Border-box widths: a collapsed panel is 0, and a wrapper's seam padding cannot make it look open.
+      // Border-box widths: a collapsed panel is 0, whatever the wrapper around it is padded with.
       const edges = shellEdges({
-        sidebar: sidebar.getBoundingClientRect().width > 0.5,
-        right: right.getBoundingClientRect().width > 0.5,
+        sidebar: (boxes.sidebar?.getBoundingClientRect().width ?? 0) > 0.5,
+        right: (boxes.right?.getBoundingClientRect().width ?? 0) > 0.5,
       });
       for (const [name, node] of Object.entries(regions)) {
         const edge = edges[name as keyof typeof regions];
@@ -48,8 +68,11 @@ export function useShellEdges(row: HTMLElement | null): void {
     };
     apply();
     if (typeof ResizeObserver === "undefined") return;
+    // The panels are observed, not the wrappers: the stylesheet answers these attributes by closing the
+    // seam a collapsed region left behind (`globals.css`), which changes the wrapper's own box - and a
+    // wrapper that reported that back would put a second callback behind every one of these.
     const observer = new ResizeObserver(apply);
-    for (const node of Object.values(regions)) {
+    for (const node of Object.values(boxes)) {
       if (node) observer.observe(node);
     }
     return () => observer.disconnect();
