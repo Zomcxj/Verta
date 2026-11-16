@@ -593,9 +593,30 @@ html[data-theme-glass] .verta-float.verta-float-mask {
   opacity: var(--theme-surface-opacity, 1);
   mix-blend-mode: var(--theme-surface-blend, normal);
 }
-html:not([data-theme-surface]) [data-theme-surface-layer],
-html:not([data-theme-surface]) [data-theme-surface-fill] {
+html:not([data-theme-surface]):not([data-shape-surface]) [data-theme-surface-layer],
+html:not([data-theme-surface]):not([data-shape-surface]) [data-theme-surface-fill] {
   display: none;
+}
+/* A shape can ask for the same layer (碳纤维's weave). Its own variables, painted by the element that
+ * sits under the UI: a theme that carries a surface and a shape that carries one are two statements,
+ * and neither may clear the other's variables - when both are set, the shape's drawing is the one that
+ * shows, because that is the axis the user changed most recently.
+ *
+ * This one rule reaches all three windows. The `-1` layer is mounted by the `ThemeProvider` every
+ * window has, the attribute is on each window's own documentElement, and a fixed layer covers each
+ * window's viewport - so the child windows need nothing of their own. They cannot use their `body`
+ * anyway: `html[data-chrome="borderless"] body` is `transparent !important` on Windows, which cancels
+ * a body background outright (measured: the weave never appeared in the settings or the usage window
+ * while the rule was on the body).
+ *
+ * The other layer is not painted: it is `z-index: 0` and portalled after `#root`, so a fabric on it
+ * paints over the panes and the terminal. Both painted is a striped, unreadable workspace. */
+[data-shape-surface] [data-theme-surface-layer] {
+  background-color: var(--shape-surface-background, transparent);
+  background-image: var(--shape-surface-image, none);
+  background-repeat: var(--shape-surface-repeat, no-repeat);
+  background-size: var(--shape-surface-size, cover);
+  background-position: center;
 }
 /* The child windows (settings, usage) are their own documents: the body there is the
  * whole screen, so it takes the theme's surface directly instead of layering a portal
@@ -610,13 +631,16 @@ html:not([data-theme-surface]) [data-theme-surface-fill] {
   background-size: var(--theme-surface-size, cover);
   background-position: center;
 }
-/* The fill layer is for the main window only; a child window has no #root, and its
- * body already carries the surface. */
+/* The fill layer is for the main window only; a child window has no #root, and the layer that sits
+ * under the UI already covers its whole viewport. */
 :root:has(:is(#settings-root, #usage-root)) [data-theme-surface-fill] {
   display: none;
 }
 /* Those roots would otherwise paint a solid colour over the surface. */
-:root:has(:is(#settings-root, #usage-root))[data-theme-surface]
+:root:has(:is(#settings-root, #usage-root)):is(
+    [data-theme-surface],
+    [data-shape-surface]
+  )
   :is(#settings-root, #usage-root) {
   background: transparent;
 }
@@ -626,7 +650,10 @@ html:not([data-theme-surface]) [data-theme-surface-fill] {
  * settings page just as it does through the main window's gutters -- and with
  * vibrancy off both go opaque together. A separate 82% here made the settings
  * page's texture weaker than the main window's, i.e. the two did not match. */
-:root:has(:is(#settings-root, #usage-root))[data-theme-surface]
+:root:has(:is(#settings-root, #usage-root)):is(
+    [data-theme-surface],
+    [data-shape-surface]
+  )
   :is(.settings-shell, .usage-shell) {
   background: var(--frame);
 }
@@ -673,7 +700,9 @@ html[data-chrome="borderless"] :is(#settings-root, #usage-root) {
  * and the settings card keep their own backgrounds; only these full-window
  * shells go clear. */
 html[data-theme-surface] #root,
-html[data-theme-surface] :is(#settings-root, #usage-root) {
+html[data-theme-surface] :is(#settings-root, #usage-root),
+html[data-shape-surface] #root,
+html[data-shape-surface] :is(#settings-root, #usage-root) {
   background: transparent;
 }
 html[data-chrome="borderless"] #root {
@@ -686,9 +715,9 @@ html[data-chrome="borderless"] #root {
  * (`#root` takes the frame's colour, the shell takes the pane's tint). Until this
  * existed the root painted an opaque `--background`, so the main window was
  * see-through while the settings window stayed a solid slab, acrylic included. */
-html[data-vibrancy="on"]:not([data-theme-surface])
+html[data-vibrancy="on"]:not([data-theme-surface]):not([data-shape-surface])
   :is(#settings-root, #usage-root),
-html[data-theme-glass]:not([data-theme-surface])
+html[data-theme-glass]:not([data-theme-surface]):not([data-shape-surface])
   :is(#settings-root, #usage-root) {
   background: var(--frame);
 }

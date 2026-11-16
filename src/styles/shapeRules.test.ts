@@ -192,23 +192,35 @@ describe("碳纤维's weave", () => {
     expect(carbon.vars["--theme-surface-image"]).toBeUndefined();
   });
 
-  it("is drawn in the main window and in both child windows", () => {
+  it("is drawn in every window, from the layer under the UI", () => {
     const main = rules.find(
-      (rule) =>
-        rule.selector.includes('[data-shape-surface] [data-theme-surface-layer]') &&
-        rule.selector.includes('[data-theme-surface-fill]'),
+      (rule) => rule.selector.includes("[data-shape-surface] [data-theme-surface-layer]"),
     );
-    expect(main?.body, "no rule paints the shape's surface in the main window").toContain(
+    expect(main?.body, "no rule paints the shape's surface").toContain(
       "var(--shape-surface-image",
     );
-    const children = rules.find(
+    // One rule for all three windows: the layer is mounted by the `ThemeProvider` every window has,
+    // and the attribute is on each window's own documentElement.
+    expect(main?.selector).toContain("[data-shape-surface]");
+    // Not the child windows' `body`: on Windows that element is `transparent !important`, so a body
+    // background never showed (measured, with the weave's rule on the body).
+    const onBody = rules.find(
       (rule) =>
         rule.selector.includes(":has(:is(#settings-root, #usage-root))") &&
-        rule.selector.includes("[data-shape-surface]"),
+        rule.selector.includes("[data-shape-surface]") &&
+        rule.body.includes("var(--shape-surface-image"),
     );
-    expect(children?.body, "no rule paints it in the settings and usage windows").toContain(
-      "var(--shape-surface-image",
+    expect(onBody, "the shape paints a child window's body, which is transparent !important")
+      .toBeUndefined();
+    // Nor the other layer: `z-index: 0`, portalled after `#root`, so a fabric on it covers the panes
+    // and the terminal (measured: the workspace came out striped and its text unreadable).
+    const overContent = rules.find(
+      (rule) =>
+        rule.selector.includes("[data-shape-surface]") &&
+        rule.selector.includes("[data-theme-surface-fill]") &&
+        rule.body.includes("var(--shape-surface-image"),
     );
+    expect(overContent, "the shape paints the layer that sits over the UI").toBeUndefined();
   });
 
   it("draws nothing when neither a theme nor a shape asks for a surface", () => {

@@ -15,12 +15,13 @@ import {
 } from "./shape";
 
 describe("the shape axis", () => {
-  it("offers six presets, in the order they are drawn", () => {
+  it("offers seven presets, in the order they are drawn", () => {
     expect(listShapes()).toEqual([
       "minimal",
       "cloud",
       "emboss",
       "slab",
+      "carbon",
       "acrylic",
       "glass",
     ]);

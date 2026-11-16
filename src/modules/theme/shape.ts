@@ -25,6 +25,7 @@ export type ShapeId =
   | "cloud"
   | "emboss"
   | "slab"
+  | "carbon"
   | "acrylic"
   | "glass";
 
@@ -198,6 +199,40 @@ const SHAPES: Readonly<Record<ShapeId, ShapeValues>> = {
         "var(--slab-offset) var(--slab-offset) 0 oklch(0 0 0 / 0.32), var(--slab-lift) var(--slab-lift) 0 oklch(0 0 0 / 0.16), 0 3px 6px oklch(0 0 0 / 0.22)",
     },
   },
+  carbon: {
+    // The weave, which used to be the `Carbon Fiber` theme's own surface and was taken away with it
+    // when "the shape owns the material, the theme owns the colours" split the two axes. It is paint,
+    // not a bitmap: a pair of crossed repeating gradients, so it costs no resource to ship and no
+    // compositing layer to draw (`compositingBudget.test.ts`).
+    //
+    // Two directions at 135deg and 45deg, one brighter than the other: a single gradient is a set of
+    // parallel lines, which is corduroy, not woven cloth - the crossing is what the eye reads as a
+    // fibre. The colour is mixed from `--foreground` so it follows a light theme as well as a dark one.
+    //
+    // The strength is set by where the fabric is seen, not by what looks right in a swatch: the frame
+    // paints `--frame` over it at 55% while vibrancy is on, so a 7% line arrives at about 3% - measured
+    // on the running app, 8x crops of the window margin were flat black at 7% and at 20%. 35% and 18%
+    // at a 6px pitch read as cloth through that tint, and 50% overshoots into a visible pattern on the
+    // header.
+    //
+    // Its variables are `--shape-surface-*`, not the theme's: a theme that draws a surface of its own
+    // and this shape must not clear one another, and the stylesheet keeps them apart for that reason.
+    borderWidth: "0px",
+    borderColor: "transparent",
+    vars: {
+      // The window still has a floor: the weave is a pattern over the theme's own background, not a
+      // see-through material (that is `亚克力` / `玻璃`).
+      "--shape-surface-background": "var(--background)",
+      "--shape-surface-image":
+        "repeating-linear-gradient(135deg, color-mix(in oklab, var(--foreground) 35%, transparent) 0 1px, transparent 1px 6px), repeating-linear-gradient(45deg, color-mix(in oklab, var(--foreground) 18%, transparent) 0 1px, transparent 1px 6px)",
+      "--shape-surface-size": "6px 6px",
+      "--shape-surface-repeat": "repeat",
+    },
+    // The switch the stylesheet keys the drawing off. An attribute rather than a variable, because a
+    // drawing that is not asked for must not leave a `background-image` behind to be applied by
+    // accident - the same reason the material travels as `data-shape-material`.
+    attrs: { "data-shape-surface": "weave" },
+  },
   acrylic: {
     borderWidth: "1px",
     borderColor: "color-mix(in oklab, var(--border) 70%, transparent)",
@@ -254,6 +289,7 @@ export const SHAPE_LABELS: Readonly<Record<ShapeId, MessageKey>> = {
   cloud: "settings.shape.cloud",
   emboss: "settings.shape.emboss",
   slab: "settings.shape.slab",
+  carbon: "settings.shape.carbon",
   acrylic: "settings.shape.acrylic",
   glass: "settings.shape.glass",
 };

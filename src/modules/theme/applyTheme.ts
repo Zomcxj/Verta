@@ -111,6 +111,12 @@ const SHAPE_VARS: readonly string[] = [
   "--card-shadow",
   "--bevel-top",
   "--bevel-bottom",
+  // The weave a shape paints into the surface layer. Cleared like the rest, so leaving `碳纤维` leaves
+  // no fabric behind.
+  "--shape-surface-image",
+  "--shape-surface-size",
+  "--shape-surface-repeat",
+  "--shape-surface-background",
 ];
 
 /**
@@ -167,6 +173,9 @@ export function applyShape(
   // a shape writes is cleared first, for the same reason its variables are: a recipe left behind is a
   // shape that cannot be left.
   root.removeAttribute("data-shape-material");
+  // The surface switch is a shape's too, and it has to go with it: an attribute left behind is a
+  // drawing the stylesheet still turns on, with the variables that fed it now removed.
+  root.removeAttribute("data-shape-surface");
   if (!options.themeGlass) root.removeAttribute("data-theme-glass");
   for (const [name, value] of Object.entries(attrs)) root.setAttribute(name, value);
 }

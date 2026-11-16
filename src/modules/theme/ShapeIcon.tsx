@@ -60,12 +60,15 @@ const EXTRAS: Partial<
       sheen?: boolean;
       /** Floating: the panes step in from the block's edge so the shadow has somewhere to fall. */
       inset?: boolean;
+      /** A woven surface over the block: the one shape whose material is a pattern. */
+      weave?: boolean;
     }
   >
 > = {
   cloud: { card: true, inset: true },
   emboss: { bevel: true },
   slab: { contact: true },
+  carbon: { weave: true },
   acrylic: { sheen: true },
   glass: { sheen: true },
 };
@@ -77,6 +80,16 @@ const GLASS_FILL = "color-mix(in oklab, var(--foreground) 7%, transparent)";
 /** The frame between two panes, and the block's own outline: the drawing's two greys. */
 const FRAME_FILL = "color-mix(in oklab, var(--foreground) 16%, transparent)";
 const RING = "inset 0 0 0 1px color-mix(in oklab, var(--foreground) 24%, transparent)";
+
+/**
+ * 碳纤维's weave at icon scale.
+ *
+ * The same crossing the surface draws - 135deg and 45deg, one pass brighter than the other - with both
+ * the pitch and the contrast raised for a 30x24 drawing: the real surface is looked at through an 8px
+ * frame, which an icon does not have.
+ */
+const WEAVE =
+  "repeating-linear-gradient(135deg, color-mix(in oklab, var(--foreground) 22%, transparent) 0 1px, transparent 1px 3px), repeating-linear-gradient(45deg, color-mix(in oklab, var(--foreground) 12%, transparent) 0 1px, transparent 1px 3px)";
 
 /**
  * The border each shape gives a pane, as a colour a 24px drawing can show.
@@ -165,6 +178,13 @@ export function ShapeIcon({
           }}
         />
       ))}
+      {extras.weave ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{ borderRadius: "inherit", backgroundImage: WEAVE, backgroundSize: "3px 3px" }}
+        />
+      ) : null}
       {extras.sheen ? (
         <span
           aria-hidden
