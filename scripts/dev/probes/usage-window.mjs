@@ -77,7 +77,9 @@ async function connect(webSocketDebuggerUrl) {
 const targets = async () => (await fetch(`http://127.0.0.1:${port}/json`)).json();
 
 const main = (await targets()).find(
-  (t) => t.type === "page" && t.url === "http://tauri.localhost/",
+  (t) =>
+    t.type === "page" &&
+    (t.url === "http://tauri.localhost/" || t.url.endsWith("1420/")),
 );
 if (!main) fail("没有主窗口的 page 目标：应用带 --remote-debugging-port 起来了吗");
 const app = await connect(main.webSocketDebuggerUrl);
