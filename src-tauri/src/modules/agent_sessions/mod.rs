@@ -16,6 +16,7 @@ pub mod watch;
 mod wsl;
 
 use delete::{DeleteReport, SessionTarget};
+use tauri::Manager;
 use types::AgentSessionsPayload;
 
 /// Which sessions the opencode service says it is running right now.
@@ -314,6 +315,7 @@ pub struct UsagePayload {
 /// a fresh scan each.
 #[tauri::command]
 pub async fn agent_usage_events(
+    app: tauri::AppHandle,
     since_ms: Option<i64>,
     offset_minutes: Option<i32>,
     cache_read: Option<bool>,
@@ -325,61 +327,103 @@ pub async fn agent_usage_events(
         cache_write: cache_write.unwrap_or(true),
     };
     crate::modules::fs::blocking(move || {
-        let read = usage_events(since_ms);
-        let UsageRead { report, available } = read;
+        let UsageRead { report, available } = usage_events(since_ms);
         let folded = report.aggregate(offset);
-        let tokens = folded.totals.counted(scope);
-        let excluded_cache_read = if scope.cache_read {
-            0
-        } else {
-            folded.totals.tokens.cache_read
-        };
-        let excluded_cache_write = if scope.cache_write {
-            0
-        } else {
-            folded.totals.tokens.cache_write
-        };
-        let days = folded
-            .days
-            .iter()
-            .map(|day| {
-                let cells = day
-                    .cells
-                    .iter()
-                    .map(|cell| UsageCellRow {
-                        tool: cell.tool.clone(),
-                        provider: cell.provider.clone(),
-                        model: cell.model.clone(),
-                        parts: cell.totals.tokens,
-                        tokens: cell.totals.counted(scope),
-                        events: cell.totals.events,
-                    })
-                    .collect();
-                UsageDayRow {
-                    day: day.day,
-                    label: usage::day_label(day.day),
-                    parts: day.totals.tokens,
-                    tokens: day.totals.counted(scope),
-                    events: day.totals.events,
-                    cells,
+        let mut days = folded.days;
+        let mut failures = report.failures;
+        // What this machine has already been billed for goes with what it can read now: a session that
+        // was deleted is still usage, and a read that no longer sees it must not erase it
+        // (`archive.rs`). The offset is recorded in the file so a later read knows which day boundary
+        // these keys were bucketed with.
+        match app.path().app_data_dir() {
+            Ok(dir) => {
+                let path = dir.join(archive::ARCHIVE_FILE);
+                let (mut stored, mut notes) = archive::load(&path);
+                stored.offset_minutes = offset;
+                stored.merge_days(&days);
+                if let Err(why) = stored.save(&path) {
+                    notes.push(format!("the usage archive could not be written: {why}"));
                 }
-            })
-            .collect();
-        Ok(UsagePayload {
-            since_ms,
-            offset_minutes: offset,
-            scope,
-            parts: folded.totals.tokens,
-            tokens,
-            events: folded.totals.events,
-            excluded_cache_read,
-            excluded_cache_write,
-            days,
-            failures: report.failures,
-            available_tools: available,
-        })
+                failures.append(&mut notes);
+                days = stored.days();
+            }
+            // No data directory is not a reason to fail the read: the window still has the live scan, and
+            // the note says why the archive's tokens are missing rather than showing a total that
+            // quietly stopped including them.
+            Err(why) => failures.push(format!("the usage archive has no directory: {why}")),
+        }
+        Ok(folded_payload(days, since_ms, offset, scope, failures, available))
     })
     .await
+}
+
+/// The window's payload, from the days the read and the archive settled on.
+///
+/// Every number here is summed from `days`, which is the same list the window draws its rows and its
+/// chart from: a header counted separately could disagree with them, and the two would come apart
+/// exactly when the archive adds a day the live scan no longer has.
+fn folded_payload(
+    days: Vec<usage::DayUsage>,
+    since_ms: Option<i64>,
+    offset: i32,
+    scope: usage::TokenScope,
+    failures: Vec<String>,
+    available: Vec<&'static str>,
+) -> UsagePayload {
+    let mut totals = usage::UsageTotals::default();
+    for day in &days {
+        totals.tokens += day.totals.tokens;
+        totals.events = totals.events.saturating_add(day.totals.events);
+    }
+    let tokens = totals.counted(scope);
+    let excluded_cache_read = if scope.cache_read {
+        0
+    } else {
+        totals.tokens.cache_read
+    };
+    let excluded_cache_write = if scope.cache_write {
+        0
+    } else {
+        totals.tokens.cache_write
+    };
+    let days = days
+        .iter()
+        .map(|day| {
+            let cells = day
+                .cells
+                .iter()
+                .map(|cell| UsageCellRow {
+                    tool: cell.tool.clone(),
+                    provider: cell.provider.clone(),
+                    model: cell.model.clone(),
+                    parts: cell.totals.tokens,
+                    tokens: cell.totals.counted(scope),
+                    events: cell.totals.events,
+                })
+                .collect();
+            UsageDayRow {
+                day: day.day,
+                label: usage::day_label(day.day),
+                parts: day.totals.tokens,
+                tokens: day.totals.counted(scope),
+                events: day.totals.events,
+                cells,
+            }
+        })
+        .collect();
+    UsagePayload {
+        since_ms,
+        offset_minutes: offset,
+        scope,
+        parts: totals.tokens,
+        tokens,
+        events: totals.events,
+        excluded_cache_read,
+        excluded_cache_write,
+        days,
+        failures,
+        available_tools: available,
+    }
 }
 
 /// Rename a session (rename only, no session management).
@@ -602,5 +646,51 @@ mod usage_tests {
         assert!(report.events.is_empty());
         assert!(report.failures.is_empty());
         assert_eq!(report.aggregate(0).totals.events, 0);
+    }
+
+    /// One day with a single opencode cell.
+    fn usage_day(day: i64, tokens: u64) -> usage::DayUsage {
+        let totals = usage::UsageTotals {
+            tokens: usage::UsageTokens {
+                input: tokens,
+                ..Default::default()
+            },
+            events: 1,
+        };
+        usage::DayUsage {
+            day,
+            totals,
+            cells: vec![usage::CellUsage {
+                tool: "opencode".to_string(),
+                provider: Some("p".to_string()),
+                model: Some("m".to_string()),
+                totals,
+            }],
+        }
+    }
+
+    #[test]
+    fn the_payload_sums_the_days_it_returns() {
+        // One day the read had and one only the archive still knows: the header has to be the sum of the
+        // rows the window draws from those same days, or every view disagrees with the number above it.
+        let payload = folded_payload(
+            vec![usage_day(0, 100), usage_day(1, 40)],
+            None,
+            480,
+            usage::TokenScope {
+                cache_read: true,
+                cache_write: true,
+            },
+            vec![],
+            vec!["opencode"],
+        );
+        assert_eq!(payload.tokens, 140);
+        assert_eq!(payload.events, 2);
+        assert_eq!(payload.days.len(), 2);
+        assert_eq!(
+            payload.days.iter().map(|day| day.tokens).sum::<u64>(),
+            payload.tokens,
+        );
+        assert_eq!(payload.days[1].label, usage::day_label(1));
     }
 }
