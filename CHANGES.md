@@ -28,6 +28,12 @@ swap in the new date, and drop the `open` from the day before.
 - `src/app/usageScrim.wiring.test.ts` (new): the click asks for the window and nothing else, the event is the single statement of truth in both directions, the emit stays inside the `then` after `show()`, and the scrim keeps its `instant` mount - the reason waiting for that event paints at all.
 - `scripts/dev/probes/usage-mask-order.mjs` (new): drives the real header button twice (first and second open) and reports one clock for the window's page target, the mask's mount and the page's own first paint. Measured on this machine: target at 16ms and 25ms, mask at 105ms and 68ms - after the window both times, where the click-time raise had it before the window existed.
 
+**A session whose subagents are working reads as running**
+
+- `src/modules/launcher/lib/sessionActivity.ts`: `activeByWindow` folds a subagent's writes into its parent instead of dropping them. The list shows the parent row and hides the children unless it is in managing mode, so the child was a mark nobody could see - while the parent, waiting on its subagents, writes nothing of its own. Measured on this machine: a Claude Code session was three minutes into waiting (its own transcript 3.0 minutes old, past the three-minute window) while three subagents wrote 0.1 to 0.2 minutes ago, and the row said nothing ("claudecode 在 A 终端跑，本项目打开显示有子代理，应该要显示运行"). Claude Code is the tool this shows up in - it reports no running sessions of its own, so the write window is the only signal - but the rule is the same for every tool.
+- `src/modules/launcher/components/LauncherPanel.tsx`: the window is asked about every row rather than the top level only, since the children are what carry the activity while the parent waits.
+- `src/modules/launcher/lib/sessionActivity.test.ts`: a parent with a fresh child is active and the child on its own is not, and a parent whose children went quiet stays idle. Verified on the running app: the row carried `data-agent-state="background"` with the three subagents working, and nothing before the change.
+
 <details open>
 <summary><strong>2026-11-16</strong></summary>
 

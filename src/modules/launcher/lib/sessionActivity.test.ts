@@ -286,9 +286,35 @@ describe("activeByWindow", () => {
     expect(activeByWindow([row("a", now + 5_000)], now, SAME).size).toBe(1);
   });
 
-  it("leaves subagent sessions alone", () => {
+  it("counts a parent as running while its subagents are", () => {
+    // Measured on this machine (2026-11-16): a Claude Code session waiting on three subagents wrote
+    // nothing to its own transcript for minutes while the children wrote every few seconds - and the
+    // parent is the only row this list shows, so the whole of that work read as "not running".
     const now = 1_000_000;
-    expect(activeByWindow([row("child", now, "parent")], now, SAME).size).toBe(0);
+    const active = activeByWindow(
+      [
+        { id: "parent", parentId: null, tool: "claude", lastAtMs: now - 10 * MINUTE },
+        { id: "child", parentId: "parent", tool: "claude", lastAtMs: now - 2_000 },
+      ],
+      now,
+      SAME,
+    );
+    // The parent, not the child: the child has no row of its own while the list is not in managing
+    // mode, and a mark on it would be a mark nobody sees.
+    expect([...active]).toEqual(["parent"]);
+  });
+
+  it("leaves the parent alone when its subagents went quiet too", () => {
+    const now = 1_000_000;
+    const active = activeByWindow(
+      [
+        { id: "parent", parentId: null, tool: "claude", lastAtMs: now - 10 * MINUTE },
+        { id: "child", parentId: "parent", tool: "claude", lastAtMs: now - 10 * MINUTE },
+      ],
+      now,
+      SAME,
+    );
+    expect(active.size).toBe(0);
   });
 
   it("falls back to the session's own update time when it has no conversation time", () => {

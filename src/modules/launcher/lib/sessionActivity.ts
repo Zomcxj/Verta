@@ -153,15 +153,19 @@ export const ACTIVE_WINDOW_BY_TOOL: Readonly<Record<AgentTool, number>> = {
 export const ACTIVE_TICK_MS = 20_000;
 
 /**
- * Sessions written to inside their tool's window, by id.
- * Subagent sessions are left out: they write through their parent, so counting them would put a
- * mark on two rows for one piece of work. A time in the future counts as active - the alternative
- * is a negative age that silently excludes it forever.
+ * Sessions written to inside their tool's window, by id. A subagent's write counts for its parent.
+ *
+ * The subagent has no row of its own while the list is not in managing mode, so a mark on it would
+ * be a mark nobody sees - and the parent is not a substitute for it in the other direction: measured
+ * on this machine, a Claude Code parent waiting on three subagents wrote nothing to its own
+ * transcript for minutes while the children wrote every few seconds, so a window that only looked at
+ * the parent's own file called the whole of that work idle.
  *
  * The two times a row carries can disagree, and the later one is the one that happened last: pi
  * stamps a message with the time its turn *started* and appends it when the turn ends, so its
  * message time can sit minutes behind the file's own last-write time. Reading only the first would
- * call an agent idle in the middle of a turn it was plainly working on.
+ * call an agent idle in the middle of a turn it was plainly working on. A time in the future counts
+ * as active - the alternative is a negative age that silently excludes it forever.
  */
 export function activeByWindow(
   sessions: readonly {
@@ -175,15 +179,18 @@ export function activeByWindow(
   windows: Readonly<Record<AgentTool, number>>,
 ): Set<string> {
   const active = new Set<string>();
+  const parentsWithFreshChild = new Set<string>();
   for (const session of sessions) {
-    if (session.parentId !== null) continue;
     const talked = session.lastAtMs ?? null;
     const touched = session.updatedAtMs ?? null;
     const last = talked === null ? touched : touched === null ? talked : Math.max(talked, touched);
     if (last === null) continue;
     const window = windows[session.tool];
-    if (window !== undefined && now - last < window) active.add(session.id);
+    if (window === undefined || now - last >= window) continue;
+    if (session.parentId === null) active.add(session.id);
+    else parentsWithFreshChild.add(session.parentId);
   }
+  for (const parentId of parentsWithFreshChild) active.add(parentId);
   return active;
 }
 

@@ -482,7 +482,9 @@ export function LauncherPanel({
       backgroundStateById(
         states,
         activeWithService(
-          activeByWindow(topLevel, Date.now(), ACTIVE_WINDOW_BY_TOOL),
+          // Every row, not only the top level: a subagent's write is its parent's work, and the
+          // parent is the row this list shows (`activeByWindow` folds the two).
+          activeByWindow(sessions, Date.now(), ACTIVE_WINDOW_BY_TOOL),
           serviceRunning,
           opencodeIds,
         ),
