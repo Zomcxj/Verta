@@ -548,13 +548,14 @@ export default function App() {
   /**
    * The header's opener for the usage window.
    *
-   * The dim goes up here, not on the event the window sends back: this runs while this window still
-   * has the focus, so the frame that carries the scrim is produced before the usage window takes it
-   * away. The event still decides the truth - it is what brings the layer down when that window
-   * closes - but waiting for it would leave the paint until after the focus was gone.
+   * It only asks for the window. The dim is the window's to raise, once it has shown itself, and only
+   * the event it sends decides either way: this used to dim here, on the click, "while this window
+   * still has the focus" - and since a first open has to build a webview and boot a page first, what
+   * that produced was a mask over a window with nothing on top of it, which is what "点击后先出现蒙版
+   * 再弹窗口" is reporting. Waiting for the event is safe now because the scrim is mounted without a
+   * fade (`instant`): a fading layer is never ticked for a window that has just lost the foreground.
    */
   const openUsageFromHeader = useCallback(() => {
-    setUsageWindowOpen(true);
     void openUsageWindow();
   }, []);
 

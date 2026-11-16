@@ -168,3 +168,51 @@ describe("浮雕's plate", () => {
     expect(right?.body).not.toMatch(/oklch/);
   });
 });
+
+describe("碳纤维's weave", () => {
+  // The texture was the theme's, painted by the theme's surface layer, and "the shape owns the material,
+  // the theme owns the colours" took it away with the theme. It is the shape's now, and it has to reach
+  // the same three places the theme's surface did: the two layers in the main window and the body of the
+  // settings and usage windows (both are their own documents).
+  const carbon = resolveShape("carbon");
+  const image = carbon.vars["--shape-surface-image"] ?? "";
+
+  it("is painted, not a bitmap and not a layer", () => {
+    expect(image).toContain("repeating-linear-gradient");
+    // A bitmap would be a resource to ship and a layer to composite; `compositingBudget.test.ts` allows
+    // neither by default.
+    expect(image).not.toMatch(/url\(/);
+    expect(image).not.toMatch(/blur|backdrop/);
+    expect(carbon.attrs["data-shape-surface"]).toBe("weave");
+  });
+
+  it("asks the surface layer for the drawing rather than the theme's surface", () => {
+    // Its own variables: a theme that carries a surface of its own and this shape must not clear one
+    // another, and neither may be silently dropped when the other is set.
+    expect(carbon.vars["--theme-surface-image"]).toBeUndefined();
+  });
+
+  it("is drawn in the main window and in both child windows", () => {
+    const main = rules.find(
+      (rule) =>
+        rule.selector.includes('[data-shape-surface] [data-theme-surface-layer]') &&
+        rule.selector.includes('[data-theme-surface-fill]'),
+    );
+    expect(main?.body, "no rule paints the shape's surface in the main window").toContain(
+      "var(--shape-surface-image",
+    );
+    const children = rules.find(
+      (rule) =>
+        rule.selector.includes(":has(:is(#settings-root, #usage-root))") &&
+        rule.selector.includes("[data-shape-surface]"),
+    );
+    expect(children?.body, "no rule paints it in the settings and usage windows").toContain(
+      "var(--shape-surface-image",
+    );
+  });
+
+  it("draws nothing when neither a theme nor a shape asks for a surface", () => {
+    const hidden = rules.find((rule) => rule.body.includes("display: none") && rule.selector.includes("data-theme-surface-layer"));
+    expect(hidden?.selector).toContain(":not([data-shape-surface])");
+  });
+});
