@@ -106,35 +106,6 @@ impl Archive {
         }
     }
 
-    /// Replace the imported half: usage another tool archived for sessions this machine no longer has.
-    ///
-    /// Replaced, not added to, so running the import twice leaves the same archive. Two seeded cells of
-    /// one day, tool, provider and model are two sessions' worth of usage and are summed: a seed is a
-    /// contribution, and it never recounts the cell it lands in.
-    pub fn seed(&mut self, days: &[DayUsage]) {
-        let mut seeded: BTreeMap<i64, Vec<ArchiveCell>> = BTreeMap::new();
-        for day in days {
-            let bucket = seeded.entry(day.day).or_default();
-            for cell in &day.cells {
-                let incoming = ArchiveCell {
-                    tool: cell.tool.clone(),
-                    provider: cell.provider.clone(),
-                    model: cell.model.clone(),
-                    parts: cell.totals.tokens,
-                    events: cell.totals.events,
-                };
-                match bucket.iter_mut().find(|held| same_cell(held, &incoming)) {
-                    Some(held) => {
-                        held.parts += incoming.parts;
-                        held.events = held.events.saturating_add(incoming.events);
-                    }
-                    None => bucket.push(incoming),
-                }
-            }
-        }
-        self.seeded = seeded;
-    }
-
     /// The archive as report days, oldest first, each day's totals summed from its cells.
     ///
     /// The imported half is added onto the read half cell by cell: a day only the import knows keeps its
@@ -296,27 +267,45 @@ mod tests {
         assert_eq!(loaded.days(), archive.days());
     }
 
+    /// Put cells into the imported half, the way `scripts/dev/import-token-monitor-archive.py` writes
+    /// them into the file. Test-only: the import is the script's job, and the binary has no reason to
+    /// carry a second writer for it.
+    fn seed(archive: &mut Archive, days: &[DayUsage]) {
+        for day in days {
+            let bucket = archive.seeded.entry(day.day).or_default();
+            for cell in &day.cells {
+                bucket.push(ArchiveCell {
+                    tool: cell.tool.clone(),
+                    provider: cell.provider.clone(),
+                    model: cell.model.clone(),
+                    parts: cell.totals.tokens,
+                    events: cell.totals.events,
+                });
+            }
+        }
+    }
+
     #[test]
     fn a_seeded_cell_adds_to_the_read_cell_on_the_same_day() {
         // A seed is a contribution, not a recount: a read counts the sessions still on disk, and a seed
-        // counts the ones that are gone (`scripts/dev/import-token-monitor-archive.py`). Two cells of the
-        // same day and model therefore add up - the one place "a cell only grows" does not apply.
+        // counts the ones that are gone. Two cells of the same day and model therefore add up - the one
+        // place "a cell only grows" does not apply.
         let mut archive = Archive::default();
         archive.merge_days(&[day(0, "opencode", "m", 100)]);
-        archive.seed(&[day(0, "opencode", "m", 40)]);
+        seed(&mut archive, &[day(0, "opencode", "m", 40)]);
         assert_eq!(archive.days()[0].totals.tokens.total(), 140);
-        // Seeding again replaces the seeded half instead of adding to it, so a second run of the import
-        // is the same archive as the first.
-        archive.seed(&[day(0, "opencode", "m", 40)]);
+        // A second import replaces the half instead of adding to it, which is why running the script
+        // twice writes the same archive.
+        archive.seeded.clear();
+        seed(&mut archive, &[day(0, "opencode", "m", 40)]);
         assert_eq!(archive.days()[0].totals.tokens.total(), 140);
     }
 
     #[test]
-    fn a_seed_keeps_its_own_cells_together() {
-        // Two sessions seeded into the same day and model are two contributions to that cell.
+    fn every_seeded_cell_of_a_day_is_counted() {
+        // Two sessions' worth of usage on one day and model are two contributions to that day.
         let mut archive = Archive::default();
-        archive.seed(&[day(7, "opencode", "m", 30), day(7, "opencode", "m", 12)]);
+        seed(&mut archive, &[day(7, "opencode", "m", 30), day(7, "opencode", "m", 12)]);
         assert_eq!(archive.days()[0].totals.tokens.total(), 42);
-        assert_eq!(archive.days()[0].cells.len(), 1);
     }
 }
