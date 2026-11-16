@@ -30,9 +30,11 @@ use super::stats::{as_u64, days_from_civil};
 /// Adding every field is the event's total.
 ///
 /// `Deserialize` exists for the usage archive (`archive.rs`): a stored cell carries these parts, and an
-/// archive that could only be written would be a cache nobody can read back.
+/// archive that could only be written would be a cache nobody can read back. `default` makes an archive
+/// written by a build that did not have every class yet still readable, which is the whole point of a file
+/// that outlives the process.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct UsageTokens {
     pub input: u64,
     pub output: u64,

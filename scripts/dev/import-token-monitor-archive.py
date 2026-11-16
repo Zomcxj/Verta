@@ -13,8 +13,20 @@ What it does, in order:
   3. spreads each remaining session evenly over the days between its first and last use (Token Monitor
      keeps no per-day breakdown for them: its per-day file only starts 2026-11-10), splitting the token
      classes and the model dimension by the proportions the session itself reports;
-  4. writes the result into Verta's archive as its `seeded` half - kept apart from the half reads write,
-     because a read recounts a cell and a seed contributes to it, and the two are added together.
+  4. writes the result into Verta's archive as its `seeded` half, under the day boundary in use - kept
+     apart from the half reads write, because a read recounts a cell and a seed contributes to it, and the
+     two are added together.
+
+Only sessions that went missing *between* runs are seeded: the file carries the ids this script left to
+the live reads (`skipped`), and a session on that list is counted by them from then on. Without it, a
+session that was alive at the first run and deleted before the second would be added a second time on top
+of the read's own numbers, and only deleting the archive could correct it.
+
+Two known differences from the real readers, both only reachable on older stores: `claude` is looked for
+under `~/.claude` (the app also honours `CLAUDE_CONFIG_DIR`), and `opencode`'s live ids come from
+`session_message.session_id` (the app falls back to the older `part` / `message` tables). On such a store
+the probe would find nothing live and seed everything, so check the per-client numbers below before
+trusting a run.
 
 Two approximations, both deliberate:
   - the day of a session is spread, not observed (see above) - the totals are exact, the daily shape is
@@ -272,8 +284,26 @@ def cells_total(days: dict) -> int:
     )
 
 
+def normalise(archive: dict) -> dict:
+    """Accept a file from before the days were kept per offset and return the current shape.
+
+    Version 1 held one flat `days` (and `seeded`) map, counted on the `offsetMinutes` it recorded; folding
+    that into its own partition is exactly the migration the app does on read, and doing it here means a
+    seed run on an old file does not lose the half the reads wrote.
+    """
+    offset = str(int(archive.get("offsetMinutes") or 0))
+    for section in ("days", "seeded"):
+        value = archive.get(section) or {}
+        flat = bool(value) and all(isinstance(cells, list) for cells in value.values())
+        archive[section] = {offset: value} if flat else value
+    archive["version"] = 2
+    return archive
+
+
 def archive_total(archive: dict) -> int:
-    return cells_total(archive.get("days") or {}) + cells_total(archive.get("seeded") or {})
+    read = sum(cells_total(section or {}) for section in (archive.get("days") or {}).values())
+    seeded = sum(cells_total(section or {}) for section in (archive.get("seeded") or {}).values())
+    return read + seeded
 
 
 def write_archive(path: str, archive: dict) -> None:
@@ -300,6 +330,16 @@ def main() -> int:
         print(f"no Token Monitor archive at {source}", file=sys.stderr)
         return 1
 
+    archive = {"version": 2, "offsetMinutes": args.offset_minutes, "days": {}, "seeded": {}, "skipped": []}
+    if os.path.exists(args.archive):
+        with open(args.archive, encoding="utf-8") as existing:
+            archive = json.load(existing)
+        archive.setdefault("days", {})
+        archive["offsetMinutes"] = args.offset_minutes
+    archive = normalise(archive)
+    previously_skipped = set(str(name).lower() for name in (archive.get("skipped") or []))
+    before = archive_total(archive)
+
     home = os.path.expanduser("~")
     live = live_sessions(home)
 
@@ -308,14 +348,21 @@ def main() -> int:
     con.close()
 
     seeds = []
-    skipped_live = 0
+    skipped_live = 0  # still on disk: the read counts it
+    skipped_counted = 0  # gone now, but a read counted it before it went
     per_tool: dict[str, list[int]] = {}
+    counted_by_reads: set[str] = set()
     for key, entry_json in rows:
         entry = json.loads(entry_json)
         tool = entry.get("client") or key.split(":")[0]
         session_id = str(entry.get("sessionId") or key.split(":", 1)[-1]).lower()
         if session_id in live.get(tool, ""):
             skipped_live += 1
+            counted_by_reads.add(session_id)
+            continue
+        if session_id in previously_skipped:
+            skipped_counted += 1
+            counted_by_reads.add(session_id)
             continue
         cells = session_cells(entry, args.offset_minutes)
         if not cells:
@@ -327,25 +374,22 @@ def main() -> int:
         seeds.extend(cells)
 
     seeded = sum(sum(parts.values()) for _day, _tool, _provider, _model, parts, _events in seeds)
+    seed_count = sum(count for count, _tokens in per_tool.values())
     print(f"Token Monitor archive: {len(rows)} sessions")
-    print(f"  still readable, left alone: {skipped_live}")
-    print(f"  seeded: {len(rows) - skipped_live} sessions / {seeded:,} tokens")
+    print(f"  still on disk, left to the reads: {skipped_live}")
+    if skipped_counted:
+        print(f"  gone but already counted by a read: {skipped_counted}")
+    print(f"  seeded: {seed_count} sessions / {seeded:,} tokens")
     for tool, (count, tokens) in sorted(per_tool.items(), key=lambda item: -item[1][1]):
         print(f"    {tool:<10} {count:>5} sessions  {tokens:>15,} tokens")
 
-    archive = {"version": 1, "offsetMinutes": args.offset_minutes, "days": {}, "seeded": {}}
-    if os.path.exists(args.archive):
-        with open(args.archive, encoding="utf-8") as existing:
-            archive = json.load(existing)
-        archive.setdefault("days", {})
-        archive["offsetMinutes"] = args.offset_minutes
-    before = archive_total(archive)
-    archive["seeded"] = seed_section(seeds)
+    archive.setdefault("seeded", {})[str(args.offset_minutes)] = seed_section(seeds)
+    archive["skipped"] = sorted(previously_skipped | counted_by_reads)
     after = archive_total(archive)
-    seeded_cells = sum(len(cells) for cells in archive["seeded"].values())
+    seeded_cells = sum(len(cells) for cells in archive["seeded"][str(args.offset_minutes)].values())
     print(
         f"archive: {before:,} -> {after:,} tokens ({after - before:+,}); "
-        f"the seeded half is {cells_total(archive['seeded']):,} tokens in {seeded_cells} cells"
+        f"this run's seeded half is {seeded:,} tokens in {seeded_cells} cells"
     )
 
     if args.dry_run:

@@ -306,6 +306,13 @@ pub struct UsagePayload {
     pub available_tools: Vec<&'static str>,
 }
 
+/// One writer to the usage archive at a time.
+///
+/// `agent_usage_events` runs on the blocking pool, so a second ask - a double-click on the window's
+/// refresh, or a probe calling beside it - can be in the same read-merge-write while the first is still
+/// holding the file it read.
+static ARCHIVE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Usage over a range, per day, broken down by tool and model inside each day.
 ///
 /// The read is the expensive part (this machine: a 5.6 GB opencode database plus tens of megabytes
@@ -338,19 +345,27 @@ pub async fn agent_usage_events(
         match app.path().app_data_dir() {
             Ok(dir) => {
                 let path = dir.join(archive::ARCHIVE_FILE);
+                // One writer at a time: this runs on the blocking pool, so a second ask can be in the same
+                // read-merge-write while the first still holds the file it read. The lock covers the
+                // archive only - the scan is the slow part and it writes nothing.
+                let _writing = ARCHIVE_LOCK
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
                 let (mut stored, mut notes) = archive::load(&path);
                 stored.offset_minutes = offset;
-                stored.merge_days(&days);
+                // The offset is part of the day's identity: folding another boundary's days in here is
+                // what made a time-zone change count the same usage twice.
+                stored.merge_days(&days, offset);
                 if let Err(why) = stored.save(&path) {
-                    notes.push(format!("the usage archive could not be written: {why}"));
+                    notes.push(format!("用量归档写不进去：{why}"));
                 }
                 failures.append(&mut notes);
-                days = stored.days();
+                days = stored.days(offset);
             }
             // No data directory is not a reason to fail the read: the window still has the live scan, and
             // the note says why the archive's tokens are missing rather than showing a total that
             // quietly stopped including them.
-            Err(why) => failures.push(format!("the usage archive has no directory: {why}")),
+            Err(why) => failures.push(format!("用量归档没有目录：{why}")),
         }
         Ok(folded_payload(days, since_ms, offset, scope, failures, available))
     })
