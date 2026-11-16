@@ -38,7 +38,18 @@ pub struct Archive {
     pub version: u32,
     pub offset_minutes: i32,
     /// Keyed by `usage::day_of`, so `BTreeMap` is already the order a report wants (oldest first).
+    ///
+    /// This half is what the reads saw, and a read recounts a cell from scratch, so it merges by "the
+    /// larger cell wins".
     pub days: BTreeMap<i64, Vec<ArchiveCell>>,
+    /// The imported half: usage another tool archived for sessions this machine no longer has.
+    ///
+    /// Kept apart from `days` because the two are different kinds of statement - a read says "this is
+    /// what that cell holds", an import says "this much more happened" - and merging a contribution with
+    /// a recount by size would silently drop one of them. `#[serde(default)]` so a file written before
+    /// the seed existed still loads.
+    #[serde(default)]
+    pub seeded: BTreeMap<i64, Vec<ArchiveCell>>,
 }
 
 impl Default for Archive {
@@ -47,6 +58,7 @@ impl Default for Archive {
             version: VERSION,
             offset_minutes: 0,
             days: BTreeMap::new(),
+            seeded: BTreeMap::new(),
         }
     }
 }
@@ -94,9 +106,57 @@ impl Archive {
         }
     }
 
+    /// Replace the imported half: usage another tool archived for sessions this machine no longer has.
+    ///
+    /// Replaced, not added to, so running the import twice leaves the same archive. Two seeded cells of
+    /// one day, tool, provider and model are two sessions' worth of usage and are summed: a seed is a
+    /// contribution, and it never recounts the cell it lands in.
+    pub fn seed(&mut self, days: &[DayUsage]) {
+        let mut seeded: BTreeMap<i64, Vec<ArchiveCell>> = BTreeMap::new();
+        for day in days {
+            let bucket = seeded.entry(day.day).or_default();
+            for cell in &day.cells {
+                let incoming = ArchiveCell {
+                    tool: cell.tool.clone(),
+                    provider: cell.provider.clone(),
+                    model: cell.model.clone(),
+                    parts: cell.totals.tokens,
+                    events: cell.totals.events,
+                };
+                match bucket.iter_mut().find(|held| same_cell(held, &incoming)) {
+                    Some(held) => {
+                        held.parts += incoming.parts;
+                        held.events = held.events.saturating_add(incoming.events);
+                    }
+                    None => bucket.push(incoming),
+                }
+            }
+        }
+        self.seeded = seeded;
+    }
+
     /// The archive as report days, oldest first, each day's totals summed from its cells.
+    ///
+    /// The imported half is added onto the read half cell by cell: a day only the import knows keeps its
+    /// seeded cells, and a day both know adds them together.
     pub fn days(&self) -> Vec<DayUsage> {
-        self.days
+        let mut by_day: BTreeMap<i64, Vec<ArchiveCell>> = BTreeMap::new();
+        for (day, cells) in &self.days {
+            by_day.entry(*day).or_default().extend(cells.iter().cloned());
+        }
+        for (day, cells) in &self.seeded {
+            let bucket = by_day.entry(*day).or_default();
+            for cell in cells {
+                match bucket.iter_mut().find(|held| same_cell(held, cell)) {
+                    Some(held) => {
+                        held.parts += cell.parts;
+                        held.events = held.events.saturating_add(cell.events);
+                    }
+                    None => bucket.push(cell.clone()),
+                }
+            }
+        }
+        by_day
             .iter()
             .map(|(day, cells)| {
                 let mut totals = UsageTotals::default();
@@ -234,5 +294,29 @@ mod tests {
         let (loaded, failures) = load(&path);
         assert!(failures.is_empty());
         assert_eq!(loaded.days(), archive.days());
+    }
+
+    #[test]
+    fn a_seeded_cell_adds_to_the_read_cell_on_the_same_day() {
+        // A seed is a contribution, not a recount: a read counts the sessions still on disk, and a seed
+        // counts the ones that are gone (`scripts/dev/import-token-monitor-archive.py`). Two cells of the
+        // same day and model therefore add up - the one place "a cell only grows" does not apply.
+        let mut archive = Archive::default();
+        archive.merge_days(&[day(0, "opencode", "m", 100)]);
+        archive.seed(&[day(0, "opencode", "m", 40)]);
+        assert_eq!(archive.days()[0].totals.tokens.total(), 140);
+        // Seeding again replaces the seeded half instead of adding to it, so a second run of the import
+        // is the same archive as the first.
+        archive.seed(&[day(0, "opencode", "m", 40)]);
+        assert_eq!(archive.days()[0].totals.tokens.total(), 140);
+    }
+
+    #[test]
+    fn a_seed_keeps_its_own_cells_together() {
+        // Two sessions seeded into the same day and model are two contributions to that cell.
+        let mut archive = Archive::default();
+        archive.seed(&[day(7, "opencode", "m", 30), day(7, "opencode", "m", 12)]);
+        assert_eq!(archive.days()[0].totals.tokens.total(), 42);
+        assert_eq!(archive.days()[0].cells.len(), 1);
     }
 }
