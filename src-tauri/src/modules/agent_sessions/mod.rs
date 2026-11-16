@@ -1,5 +1,6 @@
 pub mod types;
 
+mod archive;
 mod claude;
 mod delete;
 mod dsh;

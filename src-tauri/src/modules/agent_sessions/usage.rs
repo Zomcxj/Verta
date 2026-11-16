@@ -17,7 +17,7 @@
 //! - **what a provider is**: `provider` and `model` are the caller's strings. The tool that wrote
 //!   the record decides how to name them ("anthropic", "opencode"); this module only groups.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::stats::{as_u64, days_from_civil};
 
@@ -28,7 +28,10 @@ use super::stats::{as_u64, days_from_civil};
 /// to. `reasoning` is its own class because opencode counts thinking tokens separately and putting
 /// them in `output` would invent a different number from the one the tool shows its own user.
 /// Adding every field is the event's total.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+///
+/// `Deserialize` exists for the usage archive (`archive.rs`): a stored cell carries these parts, and an
+/// archive that could only be written would be a cache nobody can read back.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageTokens {
     pub input: u64,
