@@ -61,6 +61,33 @@ describe("无界's seam, while it is being dragged", () => {
     expect(selector).toContain('[data-separator="active"]');
   });
 
+  it("keeps 石板's outline on the sheet's own edges", () => {
+    // An outline is not a divider, and on a dark theme it is the only part of the preset that reads:
+    // a dark contact shadow on a background darker than the pane is nothing at all.
+    const sheet = ruleWith('html[data-boundless][data-shape="slab"] .verta-pane');
+    expect(sheet?.body).toContain("border-top-color: var(--pane-border-color)");
+    expect(sheet?.body).toContain("border-bottom-color: var(--pane-border-color)");
+    // The sides are the ends' business, and the sheet has two of them.
+    for (const side of ["left", "right"]) {
+      const edge = ruleWith(
+        `html[data-boundless][data-shape="slab"] [data-shell][data-edge-${side}] .verta-pane`,
+      );
+      expect(edge?.body).toContain(`border-${side}-color: var(--pane-border-color)`);
+    }
+    // And the panes between them stay borderless, or the sheet would have dividers again.
+    expect(sheet?.body).not.toContain("border-left-color");
+    expect(sheet?.body).not.toContain("border-right-color");
+  });
+
+  it("thickens 石板 with the radius", () => {
+    // The offsets are the preset's thickness, and thickness is what a radius implies: `1px 1px` for
+    // every radius made the same slab out of a 4px corner and a 16px one.
+    const slab = resolveShape("slab").vars["--pane-shadow"] ?? "";
+    expect(slab).toContain("var(--slab-offset)");
+    expect(slab).toContain("var(--slab-lift)");
+    expect(resolveShape("slab").vars["--slab-offset"]).toContain("var(--radius)");
+  });
+
   it("turns the stripe for a stacked pair", () => {
     const horizontal = rules.find(
       (rule) =>
@@ -75,9 +102,10 @@ describe("浮雕's plate", () => {
   const plate = resolveShape("emboss").vars;
 
   it("lights one side and shades the other, so it has a direction", () => {
-    // A single line each way is a hairline; a light has a side.
-    expect(plate["--bevel-top"]).toMatch(/inset 1px 0/);
-    expect(plate["--bevel-bottom"]).toMatch(/inset -1px 0/);
+    // A single line each way is a hairline; a light has a side. The verticals are pieces of their own
+    // because 无界 drops exactly those two (see the sheet's rules below).
+    expect(plate["--bevel-left"]).toMatch(/inset 1px 0 0 oklch\(1 0 0/);
+    expect(plate["--bevel-right"]).toMatch(/inset -1px 0 0 oklch\(0 0 0/);
   });
 
   it("gives the bottom edge thickness", () => {
@@ -98,9 +126,45 @@ describe("浮雕's plate", () => {
     // No gradient of its own: a lighter band behind the interface is a backdrop, and it is also what
     // made the plate read as a card inside the sheet.
     expect(rule?.body).not.toMatch(/background/);
-    expect(rule?.body).toContain("box-shadow: var(--bevel-top), var(--bevel-bottom)");
+    for (const side of [
+      "--bevel-top",
+      "--bevel-bottom",
+      "--bevel-left",
+      "--bevel-right",
+      "--bevel-lip",
+    ]) {
+      expect(rule?.body).toContain(`var(${side})`);
+    }
     // Painted, not composited: no blur, no filter, no backdrop (`compositingBudget.test.ts`).
     expect(rule?.body).not.toMatch(/blur|backdrop/);
     expect(rule?.body).not.toMatch(/(?<![-\w])filter:/);
+  });
+
+  it("is read off the shape by the sheet, instead of a copy of it", () => {
+    // The copy that used to be here was a revision behind - the older, weaker bevel - which is exactly
+    // why 浮雕 and 极简 were hard to tell apart under 无界.
+    const sheet = ruleWith('html[data-boundless][data-shape="emboss"] .verta-pane');
+    expect(sheet?.body).toBe(
+      "box-shadow: var(--bevel-top), var(--bevel-bottom), var(--bevel-lip);",
+    );
+    expect(sheet?.body).not.toMatch(/oklch/);
+  });
+
+  it("keeps the sheet's own sides on the panes that own its ends", () => {
+    // Every pane painting a left and right edge is a divider inside a sheet; only the ends may, and
+    // `data-edge-*` is what says which those are (`shellEdges`).
+    const sheet = ruleWith('html[data-boundless][data-shape="emboss"] .verta-pane');
+    expect(sheet?.body).not.toContain("--bevel-left");
+    expect(sheet?.body).not.toContain("--bevel-right");
+    const left = ruleWith(
+      'html[data-boundless][data-shape="emboss"] [data-shell][data-edge-left] .verta-pane',
+    );
+    expect(left?.body).toContain("var(--bevel-left)");
+    expect(left?.body).not.toMatch(/oklch/);
+    const right = ruleWith(
+      'html[data-boundless][data-shape="emboss"] [data-shell][data-edge-right] .verta-pane',
+    );
+    expect(right?.body).toContain("var(--bevel-right)");
+    expect(right?.body).not.toMatch(/oklch/);
   });
 });

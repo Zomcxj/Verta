@@ -247,11 +247,12 @@ html[data-shape="cloud"] .verta-compact-card {
 }
 
 html[data-shape="emboss"] .verta-pane {
-  /* Four-sided and thick at the bottom (see `--bevel-top` / `--bevel-bottom` in
+  /* The four sides of the plate, from the shape's own recipe (see `--bevel-*` in
    * `modules/theme/shape.ts`). No gradient of its own: a plate that paints a lighter band behind the
    * interface is a backdrop, and the shape is the edge - which also keeps the sheet one surface when
    * 无界 is on. */
-  box-shadow: var(--bevel-top), var(--bevel-bottom);
+  box-shadow: var(--bevel-top), var(--bevel-bottom), var(--bevel-left),
+    var(--bevel-right), var(--bevel-lip);
 }
 
 
@@ -470,10 +471,40 @@ html[data-boundless][data-theme-glass] .verta-pane {
     oklch(1 0 0 / calc(var(--theme-glass-edge, 0.12) * 0.45));
 }
 html[data-boundless][data-shape="emboss"] .verta-pane {
-  /* The bevel, minus its two vertical edges: lit along the top, banded along the bottom. */
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.18),
-    inset 0 -2px 0 oklch(0 0 0 / 0.16), inset 0 -1px 0 oklch(0 0 0 / 0.34);
+  /* The same recipe minus its two vertical edges: at every pane they would be a divider inside a sheet
+   * that has none. Read from the shape rather than copied - the copy that used to live here was the
+   * weaker, older pass, which is exactly the difference nobody could see between 浮雕 and 极简. The lip
+   * stays: it falls under the sheet's bottom edge, which is one line for all three regions. */
+  box-shadow: var(--bevel-top), var(--bevel-bottom), var(--bevel-lip);
 }
+/* The sheet's own left and right edges keep their sides: those are the plate's, not a divider, and the
+ * pane that owns each end says so (`data-edge-left` / `data-edge-right`, from `shellEdges`). */
+html[data-boundless][data-shape="emboss"] [data-shell][data-edge-left] .verta-pane {
+  box-shadow: var(--bevel-top), var(--bevel-bottom), var(--bevel-lip),
+    var(--bevel-left);
+}
+html[data-boundless][data-shape="emboss"] [data-shell][data-edge-right] .verta-pane {
+  box-shadow: var(--bevel-top), var(--bevel-bottom), var(--bevel-lip),
+    var(--bevel-right);
+}
+/* 石板 keeps its outline on the sheet's own edges.
+ *
+ * "No line across the sheet" is about *dividers*, and an outline is not one: it is the preset's whole
+ * identity, and it is the only part of 石板 that survives on a theme whose panes are darker than the
+ * frame - a dark contact shadow on a darker background is not a shadow, it is nothing, and the preset
+ * ended up reading exactly like 极简 under 无界. Top and bottom are one line for all three regions;
+ * the sides belong to the panes that own the sheet's ends (`data-edge-*`, from `shellEdges`). */
+html[data-boundless][data-shape="slab"] .verta-pane {
+  border-top-color: var(--pane-border-color);
+  border-bottom-color: var(--pane-border-color);
+}
+html[data-boundless][data-shape="slab"] [data-shell][data-edge-left] .verta-pane {
+  border-left-color: var(--pane-border-color);
+}
+html[data-boundless][data-shape="slab"] [data-shell][data-edge-right] .verta-pane {
+  border-right-color: var(--pane-border-color);
+}
+
 /* The floating card's inset is a gap, and a sheet has none: the three regions meet. `padding-block`
  * stays, because that is the sheet's distance from the window's own edge, not a gap inside it. */
 html[data-boundless] [data-shell] {

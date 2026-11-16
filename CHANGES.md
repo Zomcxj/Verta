@@ -13,6 +13,16 @@ fine as plain text. **The newest day is `open` by default**; when a new day star
 swap in the new date, and drop the `open` from the day before.
 
 <details open>
+<summary><strong>2026-11-16</strong></summary>
+
+**极简, 浮雕 and 石板 are three treatments of one edge, and the sheet reads the shape's own bevel**
+
+- `src/modules/theme/shape.ts`, `src/styles/globals.css`: the three presets were reported as too close ("三者太像"), and part of it was a drift nobody could see. 无界 carried a hand-written copy of 浮雕's bevel that was a revision behind the preset (1px at 18% against the preset's 2px at 30% and three bands below), so under the sheet the lit edge was the weaker, older pass - measured on the running app at 4x before anything was changed. The bevel is now four variables - top, bottom, left, right - plus a lip (`0 2px 0` outside the bottom edge, which is what says the plate is standing on something), and the sheet reads them all, dropping only the two verticals: a line at every pane's edge is a divider inside a sheet that has none. The ends of the sheet keep their sides, decided by `data-edge-left` / `data-edge-right` (`shellEdges`).
+- 石板 keeps its outline on the sheet's own edges. Its contact shadow is a dark shape, and on a theme whose panes are darker than the frame - `carbon-weave` is one - a dark shape on a darker background is nothing at all; with every pane's border transparent under 无界, what was left of the preset was invisible and it read exactly like 极简. An outline is not a divider: it is the preset's identity, so top and bottom are drawn for all three regions and the sides belong to the panes that own the ends.
+- 石板's thickness is read off the radius (`calc(var(--radius) * 0.22)` and `* 0.44`). Thickness is what a radius implies - a block cut 16px deep at the corners is a thicker block than one cut 4px - and a fixed `1px 1px` made the same slab out of every corner stop.
+- `scripts/dev/probes/shape-edge-zoom.mjs`: switches `shapeId` the way the picker does (the store, then the `verta://prefs-changed` event) and writes, for each preset, two 4x crops of a real pane's corners and the same corner at 100%, with the computed border and box-shadow beside them. It changes nothing: the stored shape is written back. On `carbon-weave` with 无界 on, 极简 draws nothing, 浮雕 a lit band along the top, 石板 a crisp outline round the sheet - three treatments apart at 100%, not only under a magnifier.
+
+<details>
 <summary><strong>2026-11-15</strong></summary>
 
 **The trend's "all" is read at three scales, and the strip is dragged**

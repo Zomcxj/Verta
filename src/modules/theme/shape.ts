@@ -157,10 +157,24 @@ const SHAPES: Readonly<Record<ShapeId, ShapeValues>> = {
       // different shadow, which is what "浮雕和石板还是差不多" was reporting. A lit edge has to be
       // visibly brighter than the surface and a dark one visibly darker, so both went up, and the
       // bottom band got a third line so the edge has thickness rather than a single hairline.
-      "--bevel-top":
-        "inset 0 2px 0 oklch(1 0 0 / 0.3), inset 1px 0 0 oklch(1 0 0 / 0.12)",
+      // Four pieces, not two. The horizontal pair is what every pane paints; the vertical pair is what
+      // 无界 has to drop, because a vertical line at each pane's edge is a divider inside a sheet that has
+      // none (see the boundless rules in `globals.css`).
+      //
+      // They used to be two lists with the verticals appended, and the sheet carried a hand-written copy
+      // of the whole recipe - which is what "浮雕和极简差不多" was looking at: under 无界 the copy was the
+      // older, weaker pass (1px at 18%) and had drifted a full revision behind the preset it was supposed
+      // to be showing. Split, the sheet reads the same numbers as the bordered shapes.
+      "--bevel-top": "inset 0 2px 0 oklch(1 0 0 / 0.3)",
       "--bevel-bottom":
-        "inset 0 -3px 0 oklch(0 0 0 / 0.26), inset 0 -2px 0 oklch(0 0 0 / 0.44), inset 0 -1px 0 oklch(0 0 0 / 0.6), inset -1px 0 0 oklch(0 0 0 / 0.24)",
+        "inset 0 -3px 0 oklch(0 0 0 / 0.26), inset 0 -2px 0 oklch(0 0 0 / 0.44), inset 0 -1px 0 oklch(0 0 0 / 0.6)",
+      "--bevel-left": "inset 1px 0 0 oklch(1 0 0 / 0.12)",
+      "--bevel-right": "inset -1px 0 0 oklch(0 0 0 / 0.24)",
+      // The lip: a dark line *outside* the bottom edge, under the bands that are inside it. Without it
+      // the plate is a lit rectangle - the light says where the surface starts, the lip says it is
+      // standing on something. It is the one part of the recipe that is not inset, so it is its own
+      // variable: 无界 keeps it (the sheet's bottom is the plate's bottom too) while the sides stay put.
+      "--bevel-lip": "0 2px 0 oklch(0 0 0 / 0.34)",
     },
   },
   slab: {
@@ -172,8 +186,16 @@ const SHAPES: Readonly<Record<ShapeId, ShapeValues>> = {
     borderWidth: "1px",
     borderColor: "color-mix(in oklab, var(--border) 45%, var(--foreground))",
     vars: {
+      // The offsets are the shape's *thickness*, and thickness is what a radius implies: a block whose
+      // corners are cut 16px deep is a thicker block than one cut 4px, so `1px 1px` for both made the
+      // preset look like the same slab at every radius. They are read off `--radius` instead (the
+      // user's own corner stop, see `radius.ts`), which is the difference between "a rectangle with a
+      // dark edge" and "a solid thing lying on the surface". The blur stays put: it is softness, not
+      // thickness, and one that grew with the radius would read as fog.
+      "--slab-offset": "calc(var(--radius) * 0.22)",
+      "--slab-lift": "calc(var(--radius) * 0.44)",
       "--pane-shadow":
-        "1px 1px 0 oklch(0 0 0 / 0.3), 2px 2px 0 oklch(0 0 0 / 0.16), 0 3px 6px oklch(0 0 0 / 0.22)",
+        "var(--slab-offset) var(--slab-offset) 0 oklch(0 0 0 / 0.32), var(--slab-lift) var(--slab-lift) 0 oklch(0 0 0 / 0.16), 0 3px 6px oklch(0 0 0 / 0.22)",
     },
   },
   acrylic: {
