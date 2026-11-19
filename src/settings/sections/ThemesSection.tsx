@@ -286,8 +286,10 @@ export function ThemesSection() {
         description={t("settings.themes.description")}
       />
 
+      {/* No label: the three buttons name themselves, and the word this used to carry ("外观") is
+          what the preset axis below is called now - a page with two headings reading the same thing
+          is worse than one with none. */}
       <div className="flex flex-col gap-2">
-        <Label>{t("settings.appearance")}</Label>
         <div className="grid grid-cols-3 gap-2">
           {APPEARANCE.map((o) => (
             <button

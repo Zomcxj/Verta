@@ -22,6 +22,20 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 
 const textEncoder = new TextEncoder();
+
+/**
+ * Which paper the window is on, as `pty_open` wants it.
+ *
+ * The class the theme provider puts on `documentElement` is the resolved answer - it is what every
+ * stylesheet keys off - so this reads it rather than the preference: "follow the system" has no mode
+ * of its own, and the window's own element already knows what it resolved to.
+ */
+function windowMode(): "light" | "dark" {
+  // No document under the node tests, and only a window ever opens a shell: "dark" is the answer the
+  // terminal itself starts on, so the value here describes what will be true when it matters.
+  if (typeof document === "undefined") return "dark";
+  return document.documentElement.classList.contains("light") ? "light" : "dark";
+}
 const receivers = new Map<number, PtyOutputReceiver>();
 
 /**
@@ -182,6 +196,10 @@ export async function openPty(
       shell: shell ?? null,
       paneId: paneId ?? null,
       presentation: presentation ?? null,
+      // The paper this shell is about to run on, for the full-screen tools that paint from their own
+      // theme and never read the palette (see `terminalBackground.ts`). Read at open time: a running
+      // shell keeps what it started with, the way every other environment variable here does.
+      themeMode: windowMode(),
     });
   } catch (error) {
     releaseHandlers();

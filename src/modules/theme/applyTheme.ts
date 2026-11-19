@@ -1,11 +1,13 @@
 import { resolveRadius } from "./radius";
 import { resolveShape, type ShapeOptions } from "./shape";
+import { readableNeutrals } from "./terminalInk";
 import type {
   Theme,
   ThemeColors,
   ThemeMode,
   ThemeGlass,
   ThemeSurface,
+  ThemeVariant,
   TerminalPalette,
 } from "./types";
 
@@ -191,7 +193,7 @@ export function applyTheme(theme: Theme, mode: ThemeMode): void {
   const terminal = variant.terminal;
   for (const v of ALL_VARS) root.style.removeProperty(v);
   if (colors) writeColors(root, colors);
-  if (terminal) writeTerminal(root, terminal);
+  if (terminal) writeTerminal(root, terminalOnItsPaper(terminal, variant));
   writeSurface(root, variant.surface);
   writeGlass(root, variant.glass);
   lastApplied = theme.id;
@@ -283,6 +285,30 @@ function writeColors(root: HTMLElement, c: ThemeColors): void {
     const v = c[k];
     if (v) root.style.setProperty(COLOR_VAR[k], v);
   }
+}
+
+/**
+ * The palette as it has to be painted on *this* variant's paper.
+ *
+ * A palette is written for the background its theme was designed on, and a light variant usually only
+ * changes the bright white - so the plain white stays a pale grey on a near-white page (measured on
+ * the running app: `claude` light resolved white to `#cbc8bd` on `#faf9f5`, 1.59:1). The two white
+ * slots are ink on a light background, so they are darkened toward the theme's own foreground until
+ * they can be read; a dark variant comes back untouched, and so does a palette with no ANSI table.
+ */
+function terminalOnItsPaper(
+  terminal: TerminalPalette,
+  variant: ThemeVariant,
+): TerminalPalette {
+  const { ansi } = terminal;
+  if (!ansi) return terminal;
+  const readable = readableNeutrals(ansi, {
+    background: variant.colors?.background ?? terminal.background,
+    ink: terminal.foreground ?? variant.colors?.foreground,
+  });
+  // The same array back means nothing needed changing, which is the dark variant's case.
+  if (readable === ansi) return terminal;
+  return { ...terminal, ansi: readable as typeof ansi };
 }
 
 function writeTerminal(root: HTMLElement, t: TerminalPalette): void {

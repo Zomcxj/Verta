@@ -193,6 +193,47 @@ describe("PTY bridge over the multiplexed stream", () => {
     expect(commands).not.toContain("pty_ack_output");
   });
 
+  it("tells the shell which paper it is on", async () => {
+    // `claude` and `opencode` paint their own 24-bit colours, so the palette never reaches them; both
+    // read `COLORFGBG`, which is written from this argument (see `terminalBackground.ts`). The class on
+    // `documentElement` is the resolved answer, so "follow the system" is answered here too.
+    //
+    // This file runs without a DOM, so the element the bridge reads is stubbed: what is under test is
+    // the wiring, not the browser.
+    const { openPty } = await load();
+    nativeInvoke();
+    const stubClass = (name: string) =>
+      vi.stubGlobal("document", {
+        documentElement: {
+          className: name,
+          classList: { contains: (want: string) => name.split(" ").includes(want) },
+        },
+      });
+
+    // Three opens in one test, so the *last* pty_open is the one to read.
+    const themeModeOfLastOpen = () => {
+      const opens = mocks.invoke.mock.calls.filter(([c]) => c === "pty_open");
+      const last = opens[opens.length - 1]?.[1] as
+        | Record<string, unknown>
+        | undefined;
+      return last?.themeMode;
+    };
+
+    stubClass("light");
+    await openPty(80, 24, { onData: vi.fn() });
+    expect(themeModeOfLastOpen()).toBe("light");
+
+    stubClass("dark");
+    await openPty(80, 24, { onData: vi.fn() });
+    expect(themeModeOfLastOpen()).toBe("dark");
+
+    // Nothing has resolved yet: dark is the value every other default here starts from.
+    stubClass("");
+    await openPty(80, 24, { onData: vi.fn() });
+    expect(themeModeOfLastOpen()).toBe("dark");
+    vi.unstubAllGlobals();
+  });
+
   it("starts the output stream by announcing the terminal on the first poll", async () => {
     const { openPty } = await load();
     nativeInvoke();

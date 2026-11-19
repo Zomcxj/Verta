@@ -56,16 +56,17 @@ pub fn build_command(
     blocks: bool,
     shell: Option<String>,
     control: Option<ShellControlEnv>,
+    theme_mode: Option<String>,
 ) -> Result<CommandBuilder, String> {
     let shell = sanitize_shell_override(shell);
     #[cfg(unix)]
     {
         let _ = workspace;
-        unix::build(cwd, blocks, shell, control)
+        unix::build(cwd, blocks, shell, control, theme_mode)
     }
     #[cfg(windows)]
     {
-        windows::build(cwd, workspace, blocks, shell, control)
+        windows::build(cwd, workspace, blocks, shell, control, theme_mode)
     }
 }
 
@@ -148,10 +149,20 @@ fn apply_common(
     cwd: Option<String>,
     blocks: bool,
     control: Option<&ShellControlEnv>,
+    theme_mode: Option<&str>,
 ) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("VERTA_TERMINAL", "1");
+    // The paper this terminal is on, for the full-screen tools that paint their own colours from
+    // their own theme and therefore never see the palette below: Claude Code and opencode both read
+    // this and both take its last field (`foreground;background`, as colour indexes), so 15 says
+    // light and 0 says dark. The value is the window's current mode, sent by the frontend at open
+    // time - a terminal that is already running keeps what it started with, which is the same rule
+    // every other environment variable here follows.
+    if let Some(mode) = theme_mode {
+        cmd.env("COLORFGBG", if mode == "light" { "0;15" } else { "15;0" });
+    }
     // opencode paints an attached image inside the terminal. It picks how from
     // what it believes the terminal can do, and its reading of this one lands
     // on a bitmap protocol the renderer does not implement: the space for the
@@ -351,10 +362,17 @@ mod unix {
         blocks: bool,
         shell_override: Option<String>,
         control: Option<super::ShellControlEnv>,
+        theme_mode: Option<String>,
     ) -> Result<CommandBuilder, String> {
         let (shell, shell_path) = Shell::resolve(shell_override);
         let mut cmd = CommandBuilder::new(&shell_path);
-        super::apply_common(&mut cmd, cwd, blocks, control.as_ref());
+        super::apply_common(
+            &mut cmd,
+            cwd,
+            blocks,
+            control.as_ref(),
+            theme_mode.as_deref(),
+        );
         apply_shell_init(&mut cmd, &shell, &shell_path);
         Ok(cmd)
     }
@@ -580,9 +598,15 @@ pub(crate) mod windows {
         blocks: bool,
         shell: Option<String>,
         control: Option<super::ShellControlEnv>,
+        theme_mode: Option<String>,
     ) -> Result<CommandBuilder, String> {
         if let WorkspaceEnv::Wsl { distro } = workspace {
-            let _ = (blocks, shell, control);
+            // `theme_mode` is dropped here on purpose: a WSL shell is started through
+            // `wsl.exe -d <distro>`, and nothing in that path carries an environment across the
+            // boundary. Getting it there means `WSLENV` or `--exec env`, which is a change to how a
+            // WSL workspace is launched rather than to this variable - until then a TUI inside WSL
+            // keeps its own default.
+            let _ = (blocks, shell, control, theme_mode);
             return build_wsl(cwd, distro);
         }
         let shell_path = shell
@@ -600,7 +624,13 @@ pub(crate) mod windows {
         let is_bash = shell_name == "bash.exe";
 
         let mut cmd = CommandBuilder::new(&shell_path);
-        super::apply_common(&mut cmd, cwd, blocks, control.as_ref());
+        super::apply_common(
+            &mut cmd,
+            cwd,
+            blocks,
+            control.as_ref(),
+            theme_mode.as_deref(),
+        );
 
         if is_powershell {
             match prepare_ps_profile() {
@@ -1181,6 +1211,32 @@ mod tests {
         }
     }
 
+    /// The paper, for the full-screen tools that never read the palette.
+    ///
+    /// `claude` and `opencode` paint 24-bit colours from their own themes, so `--terminal-ansi-*` cannot
+    /// reach them; both read `COLORFGBG` instead and both take its **last** field. The values here are
+    /// the ones those two rules read the way they want: `claude` 2.1.325 calls `r<=6||r===8` dark,
+    /// `opencode` 2.3.0 calls `e>=7` light.
+    #[test]
+    fn common_env_tells_a_full_screen_tool_which_paper_it_is_on() {
+        let mut light = CommandBuilder::new("shell");
+        apply_common(&mut light, None, false, None, Some("light"));
+        assert_eq!(light.get_env("COLORFGBG"), Some(OsStr::new("0;15")));
+
+        let mut dark = CommandBuilder::new("shell");
+        apply_common(&mut dark, None, false, None, Some("dark"));
+        assert_eq!(dark.get_env("COLORFGBG"), Some(OsStr::new("15;0")));
+    }
+
+    /// A wsl helper and an old caller pass nothing, and a shell must then keep what it inherited rather
+    /// than be handed a guess: the value describes the window, and only the window knows it.
+    #[test]
+    fn common_env_leaves_color_fg_bg_alone_when_nothing_was_said() {
+        let mut command = CommandBuilder::new("shell");
+        apply_common(&mut command, None, false, None, None);
+        assert_eq!(command.get_env("COLORFGBG"), None);
+    }
+
     #[test]
     fn common_env_includes_authenticated_caller_context() {
         let mut command = CommandBuilder::new("shell");
@@ -1191,7 +1247,7 @@ mod tests {
             cli_path: Some("/app/verta-cli".into()),
             cli_bin_dir: Some(std::path::PathBuf::from("/app/bin")),
         };
-        apply_common(&mut command, None, false, Some(&control));
+        apply_common(&mut command, None, false, Some(&control), None);
 
         assert_eq!(
             command.get_env("VERTA_CONTROL_ADDR"),
@@ -1226,7 +1282,7 @@ mod tests {
         let mut command = CommandBuilder::new("shell");
         command.env("PWD", "C:/somewhere/else");
         command.env("OLDPWD", "D:/before");
-        apply_common(&mut command, None, false, None);
+        apply_common(&mut command, None, false, None, None);
 
         #[cfg(windows)]
         {

@@ -12,6 +12,32 @@ Details are collapsed by date: the date itself is the summary of the collapsed b
 fine as plain text. **The newest day is `open` by default**; when a new day starts, copy the previous block,
 swap in the new date, and drop the `open` from the day before.
 
+<details open>
+<summary><strong>2026-11-16</strong></summary>
+
+**A full-screen tool is told which paper it is on**
+
+- `src-tauri/src/modules/pty/shell_init.rs`, `session.rs`, `mod.rs`, `src/modules/terminal/lib/pty-bridge.ts`: every shell is now started with `COLORFGBG`, carrying the window's current mode as `0;15` (light) or `15;0` (dark). Claude Code and opencode paint their own 24-bit colours from their own themes, so the terminal's palette cannot reach them at all - measured, both read this variable instead, and both take its **last** field: `claude` 2.1.325 answers `r<=6||r===8?"dark":"light"`, `opencode` 2.3.0 answers `e>=7` for its light palette. A shell that is already running keeps what it started with, the way every other variable here does; the value is read from `documentElement`'s resolved class, so "follow the system" is answered too. A WSL workspace is left out: that launch goes through `wsl.exe -d <distro>` and carries no environment across the boundary.
+- `src/modules/terminal/lib/terminalBackground.ts`, `.test.ts` (new): the two values and the four properties they have to keep - light is light and dark is dark, the answer is in the field both tools read, and each tool's own rule reads the pair the same way.
+- `src/modules/theme/terminalInk.ts`, `.test.ts` (new), `src/modules/theme/applyTheme.ts`, `src/styles/globals.css`: the 16-colour half of the same report. A palette is written for a dark background, and a light variant usually changes only the bright white, so the plain white stayed a pale grey: measured on the running app with `claude` in light mode, `--terminal-ansi-white` resolved to `#cbc8bd` on `#faf9f5`, 1.59:1, and seven of the seventeen light variants were under 2:1. The two white slots are ink on a light background, so they are blended toward the theme's own foreground until they clear a floor (3:1 and 4.5:1) - a dark palette comes back untouched, a palette that cannot be parsed comes back untouched, and nothing but those two slots is ever changed. The default theme's `:root` fallback is derived from `--foreground` rather than the hard-coded `#cfcfcf` / `#111111` that made it wrong in one mode or the other.
+
+**The preset axis is called 外观 / Appearance, and the light/dark switch keeps no label**
+
+- `src/modules/i18n/messages.ts`, `src/settings/sections/ThemesSection.tsx`: the seven presets were headed 形态 / Shape, which stopped describing them once the material joined the axis - 碳纤维 is a weave and 亚克力 / 玻璃 are materials, not shapes. The heading is 外观 / Appearance now, and the light/dark switch above it gave up that word rather than have two headings reading the same thing on one page: its three buttons name themselves, and its explanation stays. The command palette names the same axis, so 「切换形态…」 and its page follow ("主题列表的形态字样改成外观 同步各个文档"). The search keywords keep 形态 as well, so the older word still finds it.
+- `src/settings/themesWording.wiring.test.ts` (new): the heading in both languages, no heading on the light/dark switch, the hint kept, and the presets still drawn under the new word.
+
+**A session whose subagents are working reads as running**
+
+- `src/modules/launcher/lib/sessionActivity.ts`: `activeByWindow` folds a subagent's writes into its parent instead of dropping them. The list shows the parent row and hides the children unless it is in managing mode, so the child was a mark nobody could see - while the parent, waiting on its subagents, writes nothing of its own. Measured on this machine: a Claude Code session was three minutes into waiting (its own transcript 3.0 minutes old, past the three-minute window) while three subagents wrote 0.1 to 0.2 minutes ago, and the row said nothing ("claudecode 在 A 终端跑，本项目打开显示有子代理，应该要显示运行"). Claude Code is the tool this shows up in - it reports no running sessions of its own, so the write window is the only signal - but the rule is the same for every tool.
+- `src/modules/launcher/components/LauncherPanel.tsx`: the window is asked about every row rather than the top level only, since the children are what carry the activity while the parent waits.
+- `src/modules/launcher/lib/sessionActivity.test.ts`: a parent with a fresh child is active and the child on its own is not, and a parent whose children went quiet stays idle. Verified on the running app: the row carried `data-agent-state="background"` with the three subagents working, and nothing before the change.
+
+**The dim behind the usage window waits for that window**
+
+- `src/app/App.tsx`: the header's opener no longer raises the scrim itself, and the window's own event is the only thing that decides either way. The window is its own webview, so a first open builds it, boots a page and only then calls `show()` - hundreds of milliseconds at best, seconds in dev - and a mask raised on the click was therefore up over nothing ("点击后先出现蒙版再弹窗口"). The click-time raise had been a workaround for a fading layer that the compositor never ticked once the window lost the foreground; the scrim is mounted without a fade, so the workaround is not needed and the report is what is left of it.
+- `src/app/usageScrim.wiring.test.ts` (new): the click asks for the window and nothing else, the event is the single statement of truth in both directions, the emit stays inside the `then` after `show()`, and the scrim keeps its `instant` mount - the reason waiting for that event paints at all.
+- `scripts/dev/probes/usage-mask-order.mjs` (new): drives the real header button twice (first and second open) and reports one clock for the window's page target, the mask's mount and the page's own first paint. Measured on this machine: target at 16ms and 25ms, mask at 105ms and 68ms - after the window both times, where the click-time raise had it before the window existed.
+
 **碳纤维 is a shape: the weave is paint, and every window gets it**
 
 - `src/modules/theme/shape.ts`: a `carbon` preset on the shape axis. The texture used to be the `Carbon Fiber` theme's own surface and went missing when "the shape owns the material, the theme owns the colours" split the two axes ("碳纤维画全屏 和各个窗口 之前不是划过吗"). It is two crossed `repeating-linear-gradient`s - 135deg at 35% of `--foreground`, 45deg at 18%, on a 6px pitch - so it follows a light theme as well as a dark one, ships no bitmap and costs no compositing layer. The strength is set by where the fabric is seen rather than by what looks right in a swatch: the frame paints `--frame` over it at 55% while vibrancy is on, and 7% (and then 20%) arrived at a flat margin, measured in 8x crops of the running window. One gradient alone is parallel lines, which reads as corduroy; the crossing is the fibre. Its variables are `--shape-surface-*` and its switch is `data-shape-surface="weave"`, kept apart from the theme's own surface variables so a theme that draws one and this shape cannot clear each other.
@@ -21,21 +47,6 @@ swap in the new date, and drop the `open` from the day before.
 - `src/modules/theme/applyTheme.ts`: the new variables join the set a shape clears, and `data-shape-surface` is removed with the material - an attribute left behind is a drawing the stylesheet still turns on, with the variables that fed it gone.
 - `src/styles/shapeRules.test.ts`, `src/modules/theme/shape.test.ts`: the truth table for the drawing (paint rather than a bitmap or a blur, its own variables rather than the theme's, both windows, nothing drawn when neither axis asks for a surface) and seven presets instead of six.
 - `scripts/dev/probes/shape-carbon-look.mjs`: switches `shapeId` the way the picker does, then writes a 1x window, a 6x corner and a 6x seam, plus both child windows, with the computed `background-image` of each layer beside them; the stored shape is written back at the end.
-
-**The dim behind the usage window waits for that window**
-
-- `src/app/App.tsx`: the header's opener no longer raises the scrim itself, and the window's own event is the only thing that decides either way. The window is its own webview, so a first open builds it, boots a page and only then calls `show()` - hundreds of milliseconds at best, seconds in dev - and a mask raised on the click was therefore up over nothing ("点击后先出现蒙版再弹窗口"). The click-time raise had been a workaround for a fading layer that the compositor never ticked once the window lost the foreground; the scrim is mounted without a fade, so the workaround is not needed and the report is what is left of it.
-- `src/app/usageScrim.wiring.test.ts` (new): the click asks for the window and nothing else, the event is the single statement of truth in both directions, the emit stays inside the `then` after `show()`, and the scrim keeps its `instant` mount - the reason waiting for that event paints at all.
-- `scripts/dev/probes/usage-mask-order.mjs` (new): drives the real header button twice (first and second open) and reports one clock for the window's page target, the mask's mount and the page's own first paint. Measured on this machine: target at 16ms and 25ms, mask at 105ms and 68ms - after the window both times, where the click-time raise had it before the window existed.
-
-**A session whose subagents are working reads as running**
-
-- `src/modules/launcher/lib/sessionActivity.ts`: `activeByWindow` folds a subagent's writes into its parent instead of dropping them. The list shows the parent row and hides the children unless it is in managing mode, so the child was a mark nobody could see - while the parent, waiting on its subagents, writes nothing of its own. Measured on this machine: a Claude Code session was three minutes into waiting (its own transcript 3.0 minutes old, past the three-minute window) while three subagents wrote 0.1 to 0.2 minutes ago, and the row said nothing ("claudecode 在 A 终端跑，本项目打开显示有子代理，应该要显示运行"). Claude Code is the tool this shows up in - it reports no running sessions of its own, so the write window is the only signal - but the rule is the same for every tool.
-- `src/modules/launcher/components/LauncherPanel.tsx`: the window is asked about every row rather than the top level only, since the children are what carry the activity while the parent waits.
-- `src/modules/launcher/lib/sessionActivity.test.ts`: a parent with a fresh child is active and the child on its own is not, and a parent whose children went quiet stays idle. Verified on the running app: the row carried `data-agent-state="background"` with the three subagents working, and nothing before the change.
-
-<details open>
-<summary><strong>2026-11-16</strong></summary>
 
 **极简, 浮雕 and 石板 are three treatments of one edge, and the sheet reads the shape's own bevel**
 
@@ -60,6 +71,8 @@ swap in the new date, and drop the `open` from the day before.
 - `src-tauri/src/modules/agent_sessions/usage.rs`: `UsageTokens` gained `Deserialize`, so a stored cell can be read back rather than only written.
 - `scripts/dev/import-token-monitor-archive.py`: the one-off seed. It reads Token Monitor's `session-usage-archive.sqlite` and keeps only the sessions this machine can no longer read - 866 opencode, 30 pi, 6 workbuddy, 1 claude - because the ones still on disk are already counted by the read, and spreads each over the days between its first and last use (Token Monitor keeps no per-day breakdown for them: its per-day file only starts 2026-11-10). It writes down the ids it left to the reads (`skipped`), so a session that dies before the next run is not added a second time on top of the read's own numbers; without that record every re-run would double the sessions deleted in between. Measured on this machine: 7,794,496,228 tokens over 162 days, and a second run writes the same archive.
 - `scripts/dev/probes/usage-window.mjs`: accepts the dev server's page as well as the release one, so the archive's numbers can be checked where they land.
+
+</details>
 
 <details>
 <summary><strong>2026-11-15</strong></summary>

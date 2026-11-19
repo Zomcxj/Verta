@@ -210,6 +210,7 @@ pub fn spawn(
     blocks: bool,
     shell: Option<String>,
     control: Option<crate::modules::control::ShellControlEnv>,
+    theme_mode: Option<String>,
 ) -> Result<Arc<Session>, String> {
     spawn_with(
         Host {
@@ -231,7 +232,9 @@ pub fn spawn(
             pixel_width: 0,
             pixel_height: 0,
         },
-        move || shell_init::build_command(cwd, workspace, blocks, shell, control),
+        move || {
+            shell_init::build_command(cwd, workspace, blocks, shell, control, theme_mode)
+        },
     )
 }
 

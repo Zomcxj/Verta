@@ -155,9 +155,18 @@ pub async fn pty_open(
     shell: Option<String>,
     pane_id: Option<u32>,
     presentation: Option<PresentationClass>,
+    // `light` or `dark`: what the window is painted with right now. Only one thing downstream needs
+    // it - `COLORFGBG`, for the full-screen tools that read their own palette - and the frontend is
+    // the only place that knows it, since a theme can be changed in any window. `None` means "not
+    // told", and the shell keeps whatever it inherited.
+    theme_mode: Option<String>,
 ) -> Result<u32, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     let blocks = blocks.unwrap_or(false);
+    let theme_mode = theme_mode
+        .as_deref()
+        .filter(|mode| *mode == "light" || *mode == "dark")
+        .map(str::to_string);
     // A Windows helper cannot execute inside WSL without explicit path and
     // network translation. Do not inject credentials for a broken command.
     let control_env = if workspace.is_wsl() {
@@ -190,6 +199,7 @@ pub async fn pty_open(
             blocks,
             shell,
             control_env,
+            theme_mode,
         )
     })
     .await
