@@ -13,6 +13,20 @@ fine as plain text. **The newest day is `open` by default**; when a new day star
 swap in the new date, and drop the `open` from the day before.
 
 <details open>
+<summary><strong>2026-11-19</strong></summary>
+
+**Ink that its own page cannot show is pulled back into view**
+
+- `src/modules/terminal/ghostty/readableInk.ts`, `.test.ts` (new), `src/modules/terminal/ghostty/webgl/WebGlCellRenderer.ts`: the faint fix above left opencode still grey, and measuring the running app said why - the rest of it was not dimming at all. Its default theme is written for a dark page (`text.base = neutral.200`, `text.muted = neutral.400`, `background.base = neutral.800`), so on Verta's white paper its secondary lines were drawn `#eeeeee`, **1.16:1**, which is a smudge rather than a sentence. A terminal draws what it is handed, but a colour that close to its own background is not text, so a cell below 1.5:1 is pulled toward the page's extreme - black on a light page, white on a dark one - in 2% steps until it clears 4.5:1, the floor faint already uses. Everything above the threshold keeps its value exactly: opencode's body `#808080` (3.95:1) and its accents `#6ba1e6` (2.67:1) and `#ec5b2b` (3.44:1) are untouched, as is any deliberately quiet 1.6:1 shade. The cell's own background is the reference, so a light ink on a dark chip is left where it is legible. Re-measured on the same transcript afterwards: no text line is below 3.95:1, the hint and footer lines sit at 4.81:1, and the neutral pixels in the readable 1.3-5:1 band went from about 7.5k to about 35k. What this does not do is repaint a program's theme - opencode still believes it is on a dark page, and its own theme setting is where that gets fixed.
+- Rejected on the way: answering the colour queries from the TypeScript side. The pinned WASM answers `OSC 10`/`OSC 11` itself, so a second answerer gave one reply per question twice, and the terminal loses that state after a program sends `OSC 111` - both recorded in the project notes rather than patched around here.
+
+**A faint cell is dimmed as far as the paper can pay for, and no further**
+
+- `src/modules/terminal/ghostty/faintInk.ts`, `.test.ts` (new), `src/modules/terminal/ghostty/webgl/WebGlCellRenderer.ts`: `\e[2m` was drawn by mixing the cell's colour halfway into the background - a dark-paper idiom. On a white page that is half of a near-black ink over white, and anything already muted collapses: measured on the running app in light mode, with one sample per line in a terminal, `#1f1e1d` stayed 16.64:1, `\e[2m` came out `#8d8d8d` (3.32:1), and `\e[2m` over `#808080` came out `#c2c2c2` (1.78:1) - which is what opencode's secondary text looked like ("还是白底灰色"). The mix is now stepped back only where the paper cannot pay for it: the faintest alpha that still clears 4.5:1 against that cell's own background, and no dimming at all for an ink that cannot clear 4.5:1 even at full strength. The dark theme does not move - `#f7f7f7` on `#141414` is already 5.06:1 halfway to the page, so it keeps the same 0.50; what does move there is a faint over an already-muted ink (`#808080` on `#141414`: 2.08:1 -> 4.54:1), which is the same complaint in the other mode. Re-measured the same six samples after the change: 3.32 -> 4.23:1, 3.06 -> 4.30:1, 1.78 -> 3.69:1, with the truecolor and ANSI-90 samples untouched. The screenshot figures sit a little under the 4.5 the mix guarantees because a glyph never quite covers a pixel: the same cell in bold measures 4.48:1. The cell's own background is what the floor is judged against, so an inverse or search-match cell is measured against what it actually sits on.
+
+</details>
+
+<details>
 <summary><strong>2026-11-16</strong></summary>
 
 **A full-screen tool is told which paper it is on**

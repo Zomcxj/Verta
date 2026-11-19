@@ -6,6 +6,8 @@
 import type { TerminalDamage } from "@/modules/terminal/backend/contracts";
 import { CellFlags } from "@verta/ghostty-core/protocol";
 import type { Rgb, TerminalCellReader } from "../core/packedCells";
+import { faintAlpha } from "../faintInk";
+import { readableInk } from "../readableInk";
 import type { GhosttyTerminalModelApi } from "../GhosttyTerminalModel";
 import {
   CanvasBackingStore,
@@ -583,11 +585,14 @@ export class WebGlCellRenderer {
               ? frame.model.grapheme(row, column)
               : null;
           const glyph = this.atlas.glyph(codepoint, grapheme, flags);
+          // Ink a program wrote for a page it is not on is rescued first; the dimming below then works
+          // from a colour that can actually be seen. Both are the identity for ordinary cells.
+          const ink = readableInk(foreground, background);
           this.writeGlyph(
             glyphIndex,
             glyph,
-            foreground,
-            ((flags & CellFlags.FAINT) !== 0 ? 0.5 : 1) *
+            ink,
+            ((flags & CellFlags.FAINT) !== 0 ? faintAlpha(ink, background) : 1) *
               ((flags & CellFlags.BLINK) !== 0 ? -1 : 1),
             previousBackground !== background,
             gridWidth,
