@@ -2,6 +2,7 @@ pub mod types;
 
 mod archive;
 mod claude;
+mod claude_status;
 mod delete;
 mod dsh;
 mod image;
@@ -21,37 +22,56 @@ use delete::{DeleteReport, SessionTarget};
 use tauri::Manager;
 use types::AgentSessionsPayload;
 
-/// Which sessions the opencode service says it is running right now.
+/// What each tool's own runtime says it is running right now.
 ///
-/// `None` when the service could not be asked at all - which is the normal case for an opencode
-/// that is not running - and the caller then keeps the write times it already has. An empty list is
-/// a real answer: the service is up and nothing is running.
+/// Per tool, because the two answers do not carry the same authority. opencode's service names every
+/// session it runs and documents that "sessions absent from the result are inactive", so absence
+/// settles a row. Claude Code's registry (`claude_status`) only exists in versions that keep one, so
+/// `None` there means "this machine has no such source" and the caller keeps judging by the write
+/// window it always had.
 ///
-/// The answer is complete rather than a page: the endpoint it reads documents that "sessions absent
-/// from the result are inactive", so a session missing from it can be settled from it.
+/// Each field is `None` when that source could not be asked at all, and an empty list is a real
+/// answer: the source is there and nothing is running.
+#[derive(Debug, Default, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunningSessions {
+    pub opencode: Option<Vec<String>>,
+    pub claude: Option<Vec<String>>,
+}
+
+/// Which sessions are running, per tool.
 ///
-/// This hits the network, so it runs off the main thread: a service that is stopping can hold the
-/// connection for the whole timeout.
+/// This hits the network (opencode's service) and reads the filesystem (Claude Code's registry), so
+/// it runs off the main thread: a service that is stopping can hold the connection for the whole
+/// timeout. A failure of the blocking pool itself reads as "could not ask" for both tools - the
+/// inner `Option` is what the caller acts on, and it decides nothing from an error.
 #[tauri::command]
 pub async fn agent_sessions_running(
     distro: Option<String>,
-) -> Result<Option<Vec<String>>, String> {
-    // The inner value is already an `Option`: `None` means "could not ask", which the caller
-    // treats differently from an empty list. A failure of the blocking pool itself reads the same
-    // as "could not ask", so it is flattened rather than surfaced as an error the list would show.
-    let asked = crate::modules::fs::blocking(move || match distro {
-        None => match dirs::home_dir() {
-            // `running_ids` does the HTTP read itself; the blocking pool is where a network call
-            // that may sit until its timeout belongs, so it is driven to completion here.
-            Some(home) => Ok(tauri::async_runtime::block_on(service_turns::running_ids(
-                &service_turns::service_file_under(&home),
-            ))),
-            None => Ok(None),
-        },
-        Some(distro) => Ok(wsl::running_ids(&distro)),
+) -> Result<RunningSessions, String> {
+    let asked = crate::modules::fs::blocking(move || {
+        let opencode = match distro.as_deref() {
+            None => match dirs::home_dir() {
+                // `running_ids` does the HTTP read itself; the blocking pool is where a network call
+                // that may sit until its timeout belongs, so it is driven to completion here.
+                Some(home) => tauri::async_runtime::block_on(service_turns::running_ids(
+                    &service_turns::service_file_under(&home),
+                )),
+                None => None,
+            },
+            Some(distro) => wsl::running_ids(distro),
+        };
+        // A distro has a registry of its own, inside the distro, and nothing here reads across that
+        // boundary yet: no answer is the honest one, and those rows keep the write window.
+        let claude = match distro {
+            Some(_) => None,
+            None => claude::config_dir()
+                .and_then(|config| claude_status::busy_session_ids(&config)),
+        };
+        Ok(RunningSessions { opencode, claude })
     })
     .await;
-    Ok(asked.ok().flatten())
+    Ok(asked.unwrap_or_default())
 }
 
 /// Reads sqlite and session files, so it runs on the blocking pool: Tauri runs a

@@ -205,23 +205,39 @@ export function activeByWindow(
  * having `updated` rewritten, and the three-minute window drew "后台有 agent 在跑" for it on every
  * look, with no tab open to check it against).
  *
- * Only opencode is settled this way. `pi` has no equivalent service, so its rows keep the write-time
- * window - which is why the caller passes which ids are opencode's rather than expecting this to know.
+ * Claude Code answers the same way from its own runtime registry: a session is busy or it is not,
+ * and a session that is not in the registry is not running - which is what turns a row dark the
+ * moment a turn ends instead of three minutes later (`claude_status` on the Rust side reads it).
  *
- * `running` is `null` when the question could not be asked at all (no opencode running); every
- * session then keeps its write time, so a stopped service cannot empty the list of marks.
+ * Every other tool is left to the write window: `pi` has no equivalent service, so the caller passes
+ * which ids belong to which tool rather than expecting this to know.
+ *
+ * Each tool's field is `null` when that question could not be asked at all (no opencode service, a
+ * Claude Code without a registry). That tool's rows then keep their write time, so a source that is
+ * not there cannot empty the list of marks - and the other tool is unaffected.
  */
+export type RunningByTool = {
+  opencode: ReadonlySet<string> | null;
+  claude: ReadonlySet<string> | null;
+};
+
 export function activeWithService(
   fromWrites: ReadonlySet<string>,
-  running: ReadonlySet<string> | null,
+  running: RunningByTool | null,
   opencodeIds: ReadonlySet<string>,
+  claudeIds: ReadonlySet<string>,
 ): Set<string> {
-  if (running === null) return new Set(fromWrites);
+  const opencode = running?.opencode ?? null;
+  const claude = running?.claude ?? null;
+  // Whether a row's own tool answered for it. A row whose tool said nothing keeps its writes.
+  const settled = (id: string) =>
+    (opencode !== null && opencodeIds.has(id)) ||
+    (claude !== null && claudeIds.has(id));
   const active = new Set<string>();
-  // Only `pi` and anything else the service cannot speak for.
   for (const id of fromWrites) {
-    if (!opencodeIds.has(id)) active.add(id);
+    if (!settled(id)) active.add(id);
   }
-  for (const id of running) active.add(id);
+  for (const id of opencode ?? []) active.add(id);
+  for (const id of claude ?? []) active.add(id);
   return active;
 }

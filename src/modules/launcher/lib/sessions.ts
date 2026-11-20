@@ -24,11 +24,18 @@ import type {
  *
  * `distro` picks whose service: each distro runs its own on its own loopback interface.
  */
-export async function runningAgentSessionIds(
+export type RunningSessions = {
+  /** opencode's service: every session it runs, so absence settles a row. */
+  opencode: string[] | null;
+  /** Claude Code's own runtime registry: only this machine keeps one, so `null` is "no source". */
+  claude: string[] | null;
+};
+
+export async function runningSessionIds(
   distro: string | null,
-): Promise<string[] | null> {
+): Promise<RunningSessions | null> {
   try {
-    return await invoke<string[] | null>("agent_sessions_running", { distro });
+    return await invoke<RunningSessions>("agent_sessions_running", { distro });
   } catch {
     return null;
   }

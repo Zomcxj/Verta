@@ -42,7 +42,8 @@ import {
 import {
   deleteAgentSessions,
   listAgentSessions,
-  runningAgentSessionIds,
+  type RunningSessions,
+  runningSessionIds,
 } from "../lib/sessions";
 import type { AgentSession, AgentTool, SessionTarget } from "../lib/types";
 import { topLevelSessions } from "../lib/visibleSessions";
@@ -59,6 +60,7 @@ import {
   activeByWindow,
   activeWithService,
   backgroundStateById,
+  type RunningByTool,
   sessionStateById,
   waitingFirst,
 } from "../lib/sessionActivity";
@@ -437,25 +439,32 @@ export function LauncherPanel({
    * the one place that already wakes up on a schedule. A source that cannot be asked contributes
    * nothing, and the write times carry the list alone.
    */
-  const [serviceRunning, setServiceRunning] = useState<ReadonlySet<string> | null>(null);
+  const [serviceRunning, setServiceRunning] = useState<RunningByTool | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` is the re-ask trigger; the effect reads nothing from it, and without it the answer would be the one from mount forever
   useEffect(() => {
     if (windowHidden) return;
     let live = true;
     void (async () => {
       const answers = await Promise.all(
-        sources.map((distro) => runningAgentSessionIds(distro)),
+        sources.map((distro) => runningSessionIds(distro)),
       );
       if (!live) return;
-      // `null` from every source means the question could not be asked at all; that is not the
-      // same as "nothing is running", so it is kept distinct.
-      if (answers.every((ids) => ids === null)) {
-        setServiceRunning(null);
-        return;
-      }
-      const ids = new Set<string>();
-      for (const answer of answers) for (const id of answer ?? []) ids.add(id);
-      setServiceRunning(ids);
+      // Merged per tool, because each answer is authority only for its own rows. `null` from every
+      // source for a tool means that question could not be asked at all, which is not the same as
+      // "nothing is running" and stays distinct.
+      const merge = (pick: (answer: RunningSessions) => string[] | null) => {
+        const asked = answers
+          .filter((answer): answer is RunningSessions => answer !== null)
+          .map(pick);
+        if (asked.every((ids) => ids === null)) return null;
+        const ids = new Set<string>();
+        for (const list of asked) for (const id of list ?? []) ids.add(id);
+        return ids;
+      };
+      setServiceRunning({
+        opencode: merge((answer) => answer.opencode),
+        claude: merge((answer) => answer.claude),
+      });
     })();
     return () => {
       live = false;
@@ -464,12 +473,18 @@ export function LauncherPanel({
 
   const topLevel = useMemo(() => topLevelSessions(sessions), [sessions]);
 
-  /** The rows the service can speak for: it only knows opencode. */
+  /** The rows the opencode service can speak for. */
   const opencodeIds = useMemo(
     () =>
       new Set(
         topLevel.filter((s) => s.tool === "opencode").map((s) => s.id),
       ),
+    [topLevel],
+  );
+
+  /** The rows Claude Code's own runtime registry can speak for. */
+  const claudeIds = useMemo(
+    () => new Set(topLevel.filter((s) => s.tool === "claude").map((s) => s.id)),
     [topLevel],
   );
 
@@ -487,10 +502,11 @@ export function LauncherPanel({
           activeByWindow(sessions, Date.now(), ACTIVE_WINDOW_BY_TOOL),
           serviceRunning,
           opencodeIds,
+          claudeIds,
         ),
         topLevel,
       ),
-    [states, topLevel, tick, serviceRunning, opencodeIds],
+    [states, topLevel, tick, serviceRunning, opencodeIds, claudeIds],
   );
   // Managing deliberately shows the subagent sessions this list otherwise hides.
   const listed = managing ? sessions : topLevel;

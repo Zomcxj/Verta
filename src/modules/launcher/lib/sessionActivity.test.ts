@@ -372,37 +372,98 @@ describe("activeByWindow", () => {
 
 describe("activeWithService", () => {
   const opencode = new Set(["a", "b"]);
+  const claude = new Set(["c", "d"]);
+  const none = new Set<string>();
+  /** Only opencode answered; Claude Code's registry is not there. */
+  const service = (ids: Iterable<string> | null) => ({
+    opencode: ids === null ? null : new Set(ids),
+    claude: null,
+  });
 
   it("settles an opencode session from the service, in both directions", () => {
     // The service knows a turn is on while the writes have gone quiet during a long tool call.
-    expect([...activeWithService(new Set(), new Set(["a"]), opencode)]).toEqual(["a"]);
+    expect([
+      ...activeWithService(new Set(), service(["a"]), opencode, claude),
+    ]).toEqual(["a"]);
     // And it knows a session is not running even while its file time keeps moving - measured on
     // this machine (2026-11-03): a session whose turn had ended kept having `updated` rewritten,
     // and the write-time window drew "后台有 agent 在跑" for it forever.
-    expect([...activeWithService(new Set(["b"]), new Set(), opencode)]).toEqual([]);
-    expect([...activeWithService(new Set(["b"]), new Set(["a"]), opencode)]).toEqual(["a"]);
+    expect([
+      ...activeWithService(new Set(["b"]), service(none), opencode, claude),
+    ]).toEqual([]);
+    expect([
+      ...activeWithService(new Set(["b"]), service(["a"]), opencode, claude),
+    ]).toEqual(["a"]);
   });
 
-  it("leaves a session the service cannot speak for to the write times", () => {
+  it("settles a Claude Code session from its own registry, in both directions", () => {
+    // The registry is the same kind of answer: busy is a mark, and a session that is not in it is
+    // not running - which is what takes a row dark the moment a turn ends.
+    expect([
+      ...activeWithService(
+        new Set(),
+        { opencode: null, claude: new Set(["c"]) },
+        opencode,
+        claude,
+      ),
+    ]).toEqual(["c"]);
+    // The transcript was written a minute ago and the turn is over: the row goes dark anyway.
+    expect([
+      ...activeWithService(
+        new Set(["d"]),
+        { opencode: null, claude: none },
+        opencode,
+        claude,
+      ),
+    ]).toEqual([]);
+    // One tool's silence says nothing about the other's rows.
+    expect([
+      ...activeWithService(
+        new Set(["d"]),
+        { opencode: new Set(["a"]), claude: null },
+        opencode,
+        claude,
+      ),
+    ].sort()).toEqual(["a", "d"]);
+  });
+
+  it("leaves a session neither source can speak for to the write times", () => {
     // `pi` has no equivalent service, so its rows keep the window they always had.
     const piId = "ses_pi";
-    expect([...activeWithService(new Set([piId]), new Set(), opencode)]).toEqual([piId]);
-    expect([...activeWithService(new Set([piId]), new Set(["a"]), opencode)].sort()).toEqual([
-      "a",
-      piId,
-    ]);
+    expect([
+      ...activeWithService(new Set([piId]), service(none), opencode, claude),
+    ]).toEqual([piId]);
+    expect([
+      ...activeWithService(
+        new Set([piId]),
+        service(["a"]),
+        opencode,
+        claude,
+      ),
+    ].sort()).toEqual(["a", piId]);
   });
 
-  it("falls back to the write times when the service could not be asked", () => {
+  it("falls back to the write times when a source could not be asked", () => {
     // `null` is "no opencode running", not "nothing is running": a stopped service must not empty
     // the list of marks, and an opencode session then keeps its file time like any other row.
-    expect([...activeWithService(new Set(["b"]), null, opencode)]).toEqual(["b"]);
-    expect(activeWithService(new Set(), null, opencode).size).toBe(0);
+    expect([
+      ...activeWithService(new Set(["b"]), null, opencode, claude),
+    ]).toEqual(["b"]);
+    expect(activeWithService(new Set(), null, opencode, claude).size).toBe(0);
+    // A registry that is not there does the same for Claude Code's rows and only those.
+    expect([
+      ...activeWithService(
+        new Set(["c"]),
+        { opencode: new Set(["a"]), claude: null },
+        opencode,
+        claude,
+      ),
+    ].sort()).toEqual(["a", "c"]);
   });
 
   it("never mutates the set it was given", () => {
     const writes = new Set(["b"]);
-    activeWithService(writes, new Set(["a"]), opencode);
+    activeWithService(writes, service(["a"]), opencode, claude);
     expect([...writes]).toEqual(["b"]);
   });
 });

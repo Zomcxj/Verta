@@ -20,7 +20,7 @@ import {
   collectSessionClaims,
   sessionsRunningNow,
 } from "@/modules/terminal/lib/sessionServicePhase";
-import { runningAgentSessionIds } from "@/modules/launcher";
+import { runningSessionIds } from "@/modules/launcher";
 
 /**
  * Half a second: fast enough that a state dot follows the agent to within a blink,
@@ -154,9 +154,15 @@ export function useAgentStateJudge({ tabs }: { tabs: readonly Tab[] }): void {
       if (claims.length === 0) return;
       inFlight = true;
       try {
-        const ids = await runningAgentSessionIds(null);
+        const answer = await runningSessionIds(null);
         if (stopped) return;
-        const running = ids === null ? null : new Set(ids);
+        // Only the positive answer is used here (a mark is added, never removed), so the two tools
+        // can be folded into one set: an id that both tools somehow used would at worst add a mark
+        // the screen judge was already adding.
+        const running =
+          answer === null
+            ? null
+            : new Set([...(answer.opencode ?? []), ...(answer.claude ?? [])]);
         for (const { ptyId } of sessionsRunningNow(claims, running)) {
           // `working` is the store's own word for work in flight. The agent's name is left to the
           // screen judge, which is the one that sees the agent's chrome.
