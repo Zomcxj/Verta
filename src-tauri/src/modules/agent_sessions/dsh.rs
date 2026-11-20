@@ -19,6 +19,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use super::usage::{OwnedUsageEvent, UsageReadReport};
+use super::usage_cache::FileEvent;
 
 pub(crate) const TOOL: &str = "dsh";
 
@@ -51,15 +52,19 @@ pub(crate) fn usage_roots() -> Vec<PathBuf> {
 /// `since_ms` skips what a range leaves out. A log that cannot be opened or decoded is reported as a
 /// failure rather than quietly skimmed over, because a hole in these numbers would otherwise look
 /// like a day the agent was not used.
-pub(crate) fn usage_events_at(roots: &[PathBuf], since_ms: Option<i64>) -> UsageReadReport {
-    let mut report = UsageReadReport::default();
+pub(crate) fn usage_events_at(
+    roots: &[PathBuf],
+    since_ms: Option<i64>,
+    cache: &mut super::usage_cache::UsageFileCache,
+) -> UsageReadReport {
+    let mut logs = Vec::new();
     for root in roots {
-        for log in session_logs(root) {
-            collect_usage(&log, since_ms, &mut report);
-        }
+        logs.extend(session_logs(root));
     }
-    report.events.sort_by_key(|event| event.at_ms);
-    report
+    // Whole files rather than tails: these logs are zstd frames and their parser carries state
+    // across lines, so there is no byte offset to resume from. The newest log of a session is a
+    // rewritten file, not an appended one, which is what the fingerprint is for.
+    cache.read_whole(TOOL, &logs, since_ms, parse_log)
 }
 
 /// One log per session: the newest one the session directory holds.
@@ -137,16 +142,20 @@ fn log_version(path: &Path) -> Option<u32> {
     number.parse().ok()
 }
 
-/// One log's events. A line that is not an answer, or carries no time, is skipped: no timestamp means
-/// no day to put it in, and counting it in the wrong day is worse than not counting it.
-fn collect_usage(log: &Path, since_ms: Option<i64>, report: &mut UsageReadReport) {
+/// One log's events, and what went wrong reading it. A line that is not an answer, or carries no
+/// time, is skipped: no timestamp means no day to put it in, and counting it in the wrong day is
+/// worse than not counting it.
+///
+/// What was read is returned even when the read broke off: a log that stops being readable half way
+/// contributes everything above the break, and the caller reports the break beside it.
+fn parse_log(log: &Path) -> (Vec<FileEvent>, Option<String>) {
     let file = match std::fs::File::open(log) {
         Ok(file) => file,
         Err(error) => {
-            report
-                .failures
-                .push(format!("无法打开 dsh 会话 {}：{error}", log.display()));
-            return;
+            return (
+                Vec::new(),
+                Some(format!("无法打开 dsh 会话 {}：{error}", log.display())),
+            )
         }
     };
     let reader: Box<dyn BufRead> = if log.extension().and_then(|ext| ext.to_str()) == Some("zstd") {
@@ -155,10 +164,10 @@ fn collect_usage(log: &Path, since_ms: Option<i64>, report: &mut UsageReadReport
         match zstd::stream::read::Decoder::new(file) {
             Ok(decoder) => Box::new(BufReader::new(decoder)),
             Err(error) => {
-                report
-                    .failures
-                    .push(format!("无法解开 dsh 会话 {}：{error}", log.display()));
-                return;
+                return (
+                    Vec::new(),
+                    Some(format!("无法解开 dsh 会话 {}：{error}", log.display())),
+                )
             }
         }
     } else {
@@ -166,6 +175,7 @@ fn collect_usage(log: &Path, since_ms: Option<i64>, report: &mut UsageReadReport
     };
 
     let mut found: Vec<(Option<u64>, OwnedUsageEvent)> = Vec::new();
+    let mut failure = None;
     // A forked session's log starts with the prefix it inherited from its parent, which the parent's
     // own log already counts. dsh ends that prefix with `session/end-seed` carrying
     // `inherited: true`; everything at or before it belongs to the parent. No session on this machine
@@ -183,10 +193,7 @@ fn collect_usage(log: &Path, since_ms: Option<i64>, report: &mut UsageReadReport
             Ok(0) => break,
             Ok(_) => {}
             Err(error) => {
-                report.failures.push(format!(
-                    "读取 dsh 会话 {} 中断：{error}",
-                    log.display()
-                ));
+                failure = Some(format!("读取 dsh 会话 {} 中断：{error}", log.display()));
                 break;
             }
         }
@@ -233,7 +240,7 @@ fn collect_usage(log: &Path, since_ms: Option<i64>, report: &mut UsageReadReport
         let Some(at_ms) = value.get("time").and_then(serde_json::Value::as_i64) else {
             continue;
         };
-        if at_ms <= 0 || since_ms.is_some_and(|since| at_ms < since) {
+        if at_ms <= 0 {
             continue;
         }
         let (provider, model) = match (usage.provider, usage.model) {
@@ -254,7 +261,13 @@ fn collect_usage(log: &Path, since_ms: Option<i64>, report: &mut UsageReadReport
     if let Some(cutoff) = inherited_through {
         found.retain(|(seq, _)| seq.is_none_or(|seq| seq > cutoff));
     }
-    report.events.extend(found.into_iter().map(|(_, event)| event));
+    (
+        found
+            .into_iter()
+            .map(|(_, event)| FileEvent { key: None, event })
+            .collect(),
+        failure,
+    )
 }
 
 #[cfg(test)]
@@ -321,7 +334,7 @@ mod tests {
         }
         write(&log, &bytes);
 
-        let report = usage_events_at(&[root], None);
+        let report = usage_events_at(&[root], None, &mut Default::default());
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 2, "{:?}", report.events);
         assert_eq!(report.events[0].at_ms, 1_791_083_553_999);
@@ -353,7 +366,7 @@ mod tests {
         .join("\n")
             + "\n";
         write(&log, &two_frames(&body, ""));
-        let report = usage_events_at(&[root], None);
+        let report = usage_events_at(&[root], None, &mut Default::default());
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 1, "{:?}", report.events);
         assert_eq!(report.events[0].tokens.total(), 221_154);
@@ -378,7 +391,7 @@ mod tests {
         );
         write(&session.join("session.meta.json"), b"{}");
 
-        let report = usage_events_at(&[root], None);
+        let report = usage_events_at(&[root], None, &mut Default::default());
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 1, "the stale copy is not read too");
         assert_eq!(report.events[0].tokens.total(), 7);
@@ -403,7 +416,7 @@ mod tests {
         );
         write(&log, &bytes);
 
-        let report = usage_events_at(&[root], None);
+        let report = usage_events_at(&[root], None, &mut Default::default());
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 1, "{:?}", report.events);
         assert_eq!(report.events[0].tokens.total(), 9);
@@ -422,7 +435,7 @@ mod tests {
                 &format!("{}\n", answer(2, 1_791_083_600_000, 20, 0, 0)),
             ),
         );
-        let report = usage_events_at(&[root], Some(1_791_083_600_000));
+        let report = usage_events_at(&[root], Some(1_791_083_600_000), &mut Default::default());
         assert_eq!(report.events.len(), 1, "{:?}", report.events);
         assert_eq!(report.events[0].tokens.total(), 20);
         drop(dir);
@@ -431,7 +444,7 @@ mod tests {
     #[test]
     fn a_store_that_is_not_there_has_no_events_and_nothing_to_report() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let report = usage_events_at(&[dir.path().join("nope")], None);
+        let report = usage_events_at(&[dir.path().join("nope")], None, &mut Default::default());
         assert!(report.events.is_empty());
         assert!(report.failures.is_empty());
     }

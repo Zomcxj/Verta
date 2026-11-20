@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -201,11 +202,16 @@ pub(crate) fn session_table(path: &Path) -> Result<String, String> {
 /// The message-row shape also removes the 1,788 orphaned parts this file used to explain away.
 ///
 /// Read per step rather than per session row: a session that ran for a week is a week of days, and
-/// the session row has one number for all of it. `since_ms` is pushed into the query.
+/// the session row has one number for all of it. `since_ms` filters the answer; the live shape reads
+/// the store once and keeps it (`UsageRowCache`), so a range is a pass over what is already read.
 ///
 /// A store with no message tables at all is an opencode older than both shapes: no events, and
 /// nothing to report about it. A store that cannot be opened or queried is a failure.
-pub(crate) fn usage_events_at(path: &Path, since_ms: Option<i64>) -> super::usage::UsageReadReport {
+pub(crate) fn usage_events_at(
+    path: &Path,
+    since_ms: Option<i64>,
+    cache: &mut UsageRowCache,
+) -> super::usage::UsageReadReport {
     let mut report = super::usage::UsageReadReport::default();
     if !path.is_file() {
         return report;
@@ -217,7 +223,7 @@ pub(crate) fn usage_events_at(path: &Path, since_ms: Option<i64>) -> super::usag
             return report;
         }
     };
-    if read_message_tokens(&conn, since_ms, &mut report) {
+    if read_message_tokens(&conn, since_ms, &mut report, cache) {
         report.events.sort_by_key(|event| event.at_ms);
         return report;
     }
@@ -230,24 +236,41 @@ pub(crate) fn usage_events_at(path: &Path, since_ms: Option<i64>) -> super::usag
     report
 }
 
+/// What the last read saw of one opencode store, so the next one reads only what moved.
+///
+/// The message table is the one store a usage read cannot skip by looking at a file: the database is
+/// written whenever opencode runs, so its mtime says nothing, and the read itself is 6.3 s here
+/// (543 MB, 40,559 message rows, of which the assistant ones carry the usage) because every row's
+/// `data` blob - content included - comes into Rust to be parsed. Two numbers make it affordable:
+/// the id/time_updated scan alone is 184 ms, and a message's tokens land when it finishes, which
+/// bumps `time_updated`. So an id whose `time_updated` did not move needs no second look, and only
+/// the rows that did are read in full.
+#[derive(Default)]
+pub(crate) struct UsageRowCache {
+    /// Keyed by `session_message.id`. `None` is a row that was read and holds no usage (an assistant
+    /// message with no tokens yet): remembered so it is not read again until it moves.
+    rows: HashMap<String, (i64, Option<super::usage::OwnedUsageEvent>)>,
+}
+
 /// The shape current opencode writes: one event per assistant message, usage on the message row.
 ///
 /// `session_message.data` is `{time, agent, model:{id, providerID}, content, tokens, cost}` for an
 /// assistant message; a message that never finished (an error, or the one being streamed right now)
 /// has no `tokens` and is not an event yet. Returns whether this store has that shape at all - a
 /// table with no token-bearing row is an older opencode, and the caller falls back to the parts.
+///
+/// `since_ms` filters what the report carries, not what is read: the cache holds the whole store, so
+/// a range query is a pass over what is already there instead of a second scan of the database.
 fn read_message_tokens(
     conn: &Connection,
     since_ms: Option<i64>,
     report: &mut super::usage::UsageReadReport,
+    cache: &mut UsageRowCache,
 ) -> bool {
     let mut statement = match conn.prepare(
-        r"select time_created, data
+        r"select id, time_updated
           from session_message
-          where type = 'assistant'
-            and (?1 is null or time_created >= ?1)
-            and case when json_valid(data)
-                     then json_extract(data, '$.tokens') end is not null",
+          where type = 'assistant'",
     ) {
         Ok(statement) => statement,
         Err(error) => {
@@ -259,8 +282,8 @@ fn read_message_tokens(
             return false;
         }
     };
-    let rows = match statement.query_map(rusqlite::params![since_ms], |row| {
-        Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+    let rows = match statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
     }) {
         Ok(rows) => rows,
         Err(error) => {
@@ -270,27 +293,79 @@ fn read_message_tokens(
             return false;
         }
     };
-    let mut answered = false;
+    let mut live: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut moved: Vec<String> = Vec::new();
     for row in rows {
-        let Ok((at_ms, Some(data))) = row else {
+        let Ok((id, updated)) = row else {
             continue;
         };
-        let Ok(data) = serde_json::from_str::<serde_json::Value>(&data) else {
-            continue;
-        };
-        let Some(usage) = super::usage::opencode_usage_of_row(&data) else {
-            continue;
-        };
+        // A row that moved is read again; one that did not is already in the cache, value and all.
+        match cache.rows.get(&id) {
+            Some((cached, _)) if *cached == updated => {}
+            _ => moved.push(id.clone()),
+        }
+        live.insert(id);
+    }
+    if !moved.is_empty() {
+        // In chunks: one `in (...)` with 35k bound parameters is a query SQLite refuses.
+        for chunk in moved.chunks(500) {
+            if let Err(error) = read_rows(conn, chunk, cache) {
+                report
+                    .failures
+                    .push(format!("无法读取 opencode 消息用量：{error}"));
+                break;
+            }
+        }
+    }
+    // Messages that are gone take their events with them: this is the one store where a deletion is
+    // visible, and keeping the events would keep counting a session the user deleted.
+    cache.rows.retain(|id, _| live.contains(id));
+    let mut answered = false;
+    for (_, event) in cache.rows.values() {
+        let Some(event) = event else { continue };
         answered = true;
-        report.events.push(super::usage::OwnedUsageEvent {
-            at_ms,
-            tool: TOOL,
-            provider: usage.provider,
-            model: usage.model,
-            tokens: usage.tokens,
-        });
+        if since_ms.is_some_and(|since| event.at_ms < since) {
+            continue;
+        }
+        report.events.push(event.clone());
     }
     answered
+}
+
+/// Reads the `data` of the given message ids into the cache: one event each, or `None` for a row
+/// that holds no usage.
+fn read_rows(
+    conn: &Connection,
+    ids: &[String],
+    cache: &mut UsageRowCache,
+) -> Result<(), rusqlite::Error> {
+    let placeholders = std::iter::repeat_n("?", ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "select id, time_updated, time_created, data from session_message where id in ({placeholders})"
+    );
+    let mut statement = conn.prepare(&sql)?;
+    let mut rows = statement.query(rusqlite::params_from_iter(ids))?;
+    while let Some(row) = rows.next()? {
+        let id = row.get::<_, String>(0)?;
+        let updated = row.get::<_, i64>(1)?;
+        let at_ms = row.get::<_, i64>(2)?;
+        let data = row.get::<_, Option<String>>(3)?;
+        let event = data
+            .as_deref()
+            .and_then(|data| serde_json::from_str::<serde_json::Value>(data).ok())
+            .and_then(|data| super::usage::opencode_usage_of_row(&data))
+            .map(|usage| super::usage::OwnedUsageEvent {
+                at_ms,
+                tool: TOOL,
+                provider: usage.provider,
+                model: usage.model,
+                tokens: usage.tokens,
+            });
+        cache.rows.insert(id, (updated, event));
+    }
+    Ok(())
 }
 
 /// The current shape: one event per `step-finish` part, joined to its message for the model.
@@ -767,13 +842,118 @@ mod tests {
         .expect("part");
         drop(conn);
 
-        let report = usage_events_at(&path, None);
+        let report = usage_events_at(&path, None, &mut Default::default());
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 1, "{:?}", report.events);
         assert_eq!(report.events[0].tokens.total(), 126);
         assert_eq!(report.events[0].provider.as_deref(), Some("workbuddy"));
         assert_eq!(report.events[0].model.as_deref(), Some("deepseek-v4.1-flash"));
         assert_eq!(report.events[0].at_ms, 1794500000000);
+        drop(dir);
+    }
+
+    /// Schema and one finished assistant message, for the row-cache tests.
+    fn temp_db_one_message() -> (tempfile::TempDir, std::path::PathBuf) {
+        let (dir, path) = temp_db_parts();
+        let conn = Connection::open(&path).expect("open");
+        conn.execute(
+            "INSERT INTO session_message (id, session_id, type, time_created, time_updated, data)              VALUES ('msg_1', 'ses_1', 'assistant', 1794500000000, 1794500000500, ?1)",
+            rusqlite::params![
+                r#"{"model":{"providerID":"workbuddy","id":"m"},"tokens":{"total":100,"input":100}}"#
+            ],
+        )
+        .expect("message");
+        (dir, path)
+    }
+
+    #[test]
+    fn a_row_is_read_again_only_when_it_moves() {
+        let (dir, path) = temp_db_one_message();
+        let mut cache = UsageRowCache::default();
+        let report = usage_events_at(&path, None, &mut cache);
+        assert_eq!(report.events.len(), 1);
+        assert_eq!(report.events[0].tokens.total(), 100);
+
+        // Rewritten with the same `time_updated`: this is a row that did not move, and the answer
+        // coming back unchanged is what "not read again" means.
+        let conn = Connection::open(&path).expect("open");
+        conn.execute(
+            "UPDATE session_message SET data = ?1 WHERE id = 'msg_1'",
+            rusqlite::params![
+                r#"{"model":{"providerID":"workbuddy","id":"m"},"tokens":{"total":200,"input":200}}"#
+            ],
+        )
+        .expect("rewrite");
+        assert_eq!(
+            usage_events_at(&path, None, &mut cache).events[0]
+                .tokens
+                .total(),
+            100
+        );
+
+        // Finishing a message bumps `time_updated`, and that is what brings the new number in.
+        conn.execute(
+            "UPDATE session_message SET time_updated = 1794500000600 WHERE id = 'msg_1'",
+            [],
+        )
+        .expect("move");
+        assert_eq!(
+            usage_events_at(&path, None, &mut cache).events[0]
+                .tokens
+                .total(),
+            200
+        );
+        drop(conn);
+        drop(dir);
+    }
+
+    #[test]
+    fn a_deleted_message_takes_its_event_with_it() {
+        let (dir, path) = temp_db_one_message();
+        let conn = Connection::open(&path).expect("open");
+        conn.execute(
+            "INSERT INTO session_message (id, session_id, type, time_created, time_updated, data)              VALUES ('msg_2', 'ses_1', 'assistant', 1794500001000, 1794500001000, ?1)",
+            rusqlite::params![
+                r#"{"model":{"providerID":"workbuddy","id":"m"},"tokens":{"total":7,"input":7}}"#
+            ],
+        )
+        .expect("second message");
+        let mut cache = UsageRowCache::default();
+        assert_eq!(usage_events_at(&path, None, &mut cache).events.len(), 2);
+
+        conn.execute("DELETE FROM session_message WHERE id = 'msg_2'", [])
+            .expect("delete");
+        // A cached event whose row is gone must not keep counting a message the user removed.
+        let report = usage_events_at(&path, None, &mut cache);
+        assert_eq!(report.events.len(), 1);
+        assert_eq!(report.events[0].tokens.total(), 100);
+        drop(conn);
+        drop(dir);
+    }
+
+    #[test]
+    fn an_unfinished_message_becomes_an_event_when_its_tokens_land() {
+        let (dir, path) = temp_db_one_message();
+        let conn = Connection::open(&path).expect("open");
+        conn.execute(
+            "INSERT INTO session_message (id, session_id, type, time_created, time_updated, data)              VALUES ('msg_streaming', 'ses_1', 'assistant', 1794500002000, 1794500002000, ?1)",
+            rusqlite::params![r#"{"model":{"providerID":"workbuddy","id":"m"},"content":[]}"#],
+        )
+        .expect("streaming row");
+        let mut cache = UsageRowCache::default();
+        assert_eq!(usage_events_at(&path, None, &mut cache).events.len(), 1);
+
+        conn.execute(
+            "UPDATE session_message SET time_updated = 1794500003000, data = ?1 WHERE id = 'msg_streaming'",
+            rusqlite::params![
+                r#"{"model":{"providerID":"workbuddy","id":"m"},"tokens":{"total":9,"input":9}}"#
+            ],
+        )
+        .expect("finish");
+        let report = usage_events_at(&path, None, &mut cache);
+        assert_eq!(report.events.len(), 2);
+        assert!(report.events.iter().any(|event| event.tokens.total() == 9));
+        drop(conn);
         drop(dir);
     }
 
@@ -819,7 +999,7 @@ mod tests {
         .expect("legacy row");
         drop(conn);
 
-        let report = usage_events_at(&path, None);
+        let report = usage_events_at(&path, None, &mut Default::default());
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 2, "{:?}", report.events);
         assert_eq!(report.events[0].provider.as_deref(), Some("workbuddy"));
@@ -851,7 +1031,7 @@ mod tests {
             r#"{"role":"assistant","providerID":"workbuddy","modelID":"glm-5.3-flash","tokens":{"total":900}}"#,
         );
 
-        let report = usage_events_at(&path, None);
+        let report = usage_events_at(&path, None, &mut Default::default());
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 2, "the user row is not an event");
         assert_eq!(report.events[0].at_ms, 1_794_500_000_000);
@@ -862,7 +1042,7 @@ mod tests {
         // A row that only carries the tool's total is counted, with no breakdown claimed.
         assert_eq!(report.events[1].tokens.unsplit, 900);
 
-        let ranged = usage_events_at(&path, Some(1_794_580_000_000));
+        let ranged = usage_events_at(&path, Some(1_794_580_000_000), &mut Default::default());
         assert_eq!(ranged.events.len(), 1);
         assert_eq!(ranged.events[0].tokens.unsplit, 900);
         drop(dir);
@@ -875,7 +1055,7 @@ mod tests {
         let conn = Connection::open(&path).expect("open");
         conn.execute_batch("DROP TABLE message").expect("drop");
         drop(conn);
-        let report = usage_events_at(&path, None);
+        let report = usage_events_at(&path, None, &mut Default::default());
         assert!(report.events.is_empty());
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         drop(dir);

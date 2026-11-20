@@ -179,6 +179,29 @@ export function UsageApp(): JSX.Element {
     load();
   }, [load]);
 
+  // The stores are read once a minute in the background (`usage_refresh` on the Rust side), and the
+  // read is incremental after the first one. When it finds something new it says so, and the window
+  // reloads rather than showing numbers that quietly stopped being today's.
+  useEffect(() => {
+    let alive = true;
+    let off: (() => void) | undefined;
+    void getCurrentWebviewWindow()
+      .listen("verta://usage-changed", () => {
+        if (alive) load();
+      })
+      .then((unlisten) => {
+        if (alive) off = unlisten;
+        else unlisten();
+      })
+      .catch(() => {
+        // A window that cannot subscribe still has the read on open and the Refresh button.
+      });
+    return () => {
+      alive = false;
+      off?.();
+    };
+  }, [load]);
+
   useEffect(() => {
     const title = t("usage.windowTitle");
     document.title = title;
@@ -405,11 +428,15 @@ export function UsageApp(): JSX.Element {
         </span>
         <div className="ml-1" />
         {chips(
-          USAGE_RANGES,
-          range,
-          setRange,
-          (value) => t(RANGE_KEYS[value]),
-          t("usage.range"),
+          [null, ...TOOLS] as (string | null)[],
+          tool,
+          setTool,
+          (value) => value ?? t("usage.allTools"),
+          t("usage.agent"),
+          // The same marks the session list uses, so "which agent" is read at a glance here too.
+          (value) =>
+            value === null ? null : <AgentIcon agent={value} size={11} />,
+          (value) => !isToolAvailable(payload?.availableTools, value),
         )}
         <div className="ml-auto" />
         <button
@@ -426,15 +453,11 @@ export function UsageApp(): JSX.Element {
 
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/40 px-4 py-1.5">
         {chips(
-          [null, ...TOOLS] as (string | null)[],
-          tool,
-          setTool,
-          (value) => value ?? t("usage.allTools"),
-          t("usage.agent"),
-          // The same marks the session list uses, so "which agent" is read at a glance here too.
-          (value) =>
-            value === null ? null : <AgentIcon agent={value} size={11} />,
-          (value) => !isToolAvailable(payload?.availableTools, value),
+          USAGE_RANGES,
+          range,
+          setRange,
+          (value) => t(RANGE_KEYS[value]),
+          t("usage.range"),
         )}
         <span className="text-[10px] text-muted-foreground">
           {view
@@ -541,63 +564,6 @@ export function UsageApp(): JSX.Element {
                 }}
               />
             </section>
-
-            {card(
-              t("usage.trend"),
-              <>
-                {chips(
-                  CHART_RANGES,
-                  chartRange,
-                  setChartRange,
-                  (value) => t(CHART_RANGE_KEYS[value]),
-                  t("usage.range"),
-                )}
-                {/* The scale `all` is read at. Shown only there: seven days is seven columns, and a
-                    weekly column of seven days would be one bar. */}
-                {chartRange === "all"
-                  ? chips(
-                      CHART_BUCKETS,
-                      chartBucket,
-                      setChartBucket,
-                      (value) => t(CHART_BUCKET_KEYS[value]),
-                      t("usage.bucket"),
-                    )
-                  : null}
-                <div className="ml-auto" />
-                {chips(
-                  ["bars", "line"] as const,
-                  chartKind,
-                  setChartKind,
-                  (value) =>
-                    value === "bars"
-                      ? t("usage.kindBars")
-                      : t("usage.kindLine"),
-                  t("usage.trend"),
-                )}
-              </>,
-              <TrendChart
-                trend={trend}
-                kind={chartKind}
-                peakLabel={t("usage.trend")}
-              />,
-            )}
-
-            {card(
-              t("usage.heatmap"),
-              <span className="text-[9.5px] text-muted-foreground">
-                {t("usage.heatmapWeeks", { count: HEATMAP_WEEKS })}
-              </span>,
-              <Heatmap
-                cells={heatmap.cells}
-                weeks={heatmap.weeks}
-                labels={{
-                  less: t("usage.heatLess"),
-                  more: t("usage.heatMore"),
-                  scale: t("usage.heatScale"),
-                  none: t("usage.heatNone"),
-                }}
-              />,
-            )}
 
             {/* Side by side only when there is room: at this window's width each card would be
                 ~420px, and five numeric columns leave about a hundred for the name, which truncates
@@ -709,6 +675,68 @@ export function UsageApp(): JSX.Element {
                 </div>,
               )}
             </div>
+            {/* The tables come before the trend: the tables answer "what did I use, broken down",
+                which is the question a window is opened for, and the trend is the trend of the same
+                days. The order is also what the controls say - the range below controls the summary
+                and these two, while the trend is read at its own range - so the parts a single
+                control reaches sit together. */}
+            {card(
+              t("usage.trend"),
+              <>
+                {chips(
+                  CHART_RANGES,
+                  chartRange,
+                  setChartRange,
+                  (value) => t(CHART_RANGE_KEYS[value]),
+                  t("usage.range"),
+                )}
+                {/* The scale `all` is read at. Shown only there: seven days is seven columns, and a
+                    weekly column of seven days would be one bar. */}
+                {chartRange === "all"
+                  ? chips(
+                      CHART_BUCKETS,
+                      chartBucket,
+                      setChartBucket,
+                      (value) => t(CHART_BUCKET_KEYS[value]),
+                      t("usage.bucket"),
+                    )
+                  : null}
+                <div className="ml-auto" />
+                {chips(
+                  ["bars", "line"] as const,
+                  chartKind,
+                  setChartKind,
+                  (value) =>
+                    value === "bars"
+                      ? t("usage.kindBars")
+                      : t("usage.kindLine"),
+                  t("usage.trend"),
+                )}
+              </>,
+              <TrendChart
+                trend={trend}
+                kind={chartKind}
+                peakLabel={t("usage.trend")}
+              />,
+            )}
+
+            {card(
+              t("usage.heatmap"),
+              <span className="text-[9.5px] text-muted-foreground">
+                {t("usage.heatmapWeeks", { count: HEATMAP_WEEKS })}
+              </span>,
+              <Heatmap
+                cells={heatmap.cells}
+                weeks={heatmap.weeks}
+                labels={{
+                  less: t("usage.heatLess"),
+                  more: t("usage.heatMore"),
+                  scale: t("usage.heatScale"),
+                  none: t("usage.heatNone"),
+                }}
+              />,
+            )}
+
           </div>
         )}
       </main>

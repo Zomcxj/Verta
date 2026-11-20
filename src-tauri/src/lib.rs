@@ -392,6 +392,10 @@ pub fn run() {
                 }
                 Err(error) => log::warn!("agent session watch not started: {error}"),
             }
+            // The usage read costs 45 s of parsing on a full store, so it is kept warm off the UI
+            // thread: the first read fills the cache in the background and every later one only adds
+            // what was appended since (see `usage_refresh`).
+            agent_sessions::usage_refresh::start(_app.handle().clone());
             if let Some(main) = _app.get_webview_window("main") {
                 let handle = _app.handle().clone();
                 main.on_window_event(move |event| match event {

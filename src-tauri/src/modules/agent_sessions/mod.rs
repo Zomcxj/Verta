@@ -12,6 +12,8 @@ mod zcode;
 mod service_turns;
 pub mod stats;
 pub mod usage;
+mod usage_cache;
+pub mod usage_refresh;
 pub mod watch;
 mod wsl;
 
@@ -130,7 +132,10 @@ pub async fn agent_sessions_delete(targets: Vec<SessionTarget>) -> DeleteReport 
 ///
 /// The window's time zone does not enter here: every reader writes an instant, and the day a token
 /// belongs to is decided once, when the report is summed.
-pub fn usage_events(since_ms: Option<i64>) -> UsageRead {
+pub(crate) fn usage_events(
+    since_ms: Option<i64>,
+    cache: &mut usage_cache::UsageReadCache,
+) -> UsageRead {
     // The single-path stores are bound first: `as_deref` would otherwise borrow a temporary that the
     // struct literal drops before it is read.
     let pi_root = pi::default_root();
@@ -146,7 +151,7 @@ pub fn usage_events(since_ms: Option<i64>) -> UsageRead {
     };
     UsageRead {
         available: available_tools(&stores),
-        report: usage_events_at(stores, since_ms),
+        report: usage_events_at(stores, since_ms, cache),
     }
 }
 
@@ -211,16 +216,34 @@ pub struct UsageStores<'a> {
 }
 
 /// The same, with the stores handed in.
-pub fn usage_events_at(stores: UsageStores<'_>, since_ms: Option<i64>) -> usage::UsageReadReport {
+///
+/// `cache` is what the second read of a minute costs almost nothing: the file readers hand it their
+/// file lists and it answers with the events it already has for the files that did not change. It is
+/// owned by the caller rather than by this function because only the caller lives long enough to keep
+/// it (`usage_refresh` keeps one for the life of the app).
+pub(crate) fn usage_events_at(
+    stores: UsageStores<'_>,
+    since_ms: Option<i64>,
+    cache: &mut usage_cache::UsageReadCache,
+) -> usage::UsageReadReport {
     let mut report = usage::UsageReadReport::default();
     if !stores.claude.is_empty() {
-        merge_usage(&mut report, claude::usage_events_at(stores.claude, since_ms));
+        merge_usage(
+            &mut report,
+            claude::usage_events_at(stores.claude, since_ms, &mut cache.files),
+        );
     }
     if let Some(root) = stores.pi {
-        merge_usage(&mut report, pi::usage_events_at(root, since_ms));
+        merge_usage(
+            &mut report,
+            pi::usage_events_at(root, since_ms, &mut cache.files),
+        );
     }
     if let Some(path) = stores.opencode {
-        merge_usage(&mut report, opencode::usage_events_at(path, since_ms));
+        merge_usage(
+            &mut report,
+            opencode::usage_events_at(path, since_ms, &mut cache.opencode),
+        );
     }
     if let Some(root) = stores.zcode {
         merge_usage(&mut report, zcode::usage_events_at(root, since_ms));
@@ -228,11 +251,14 @@ pub fn usage_events_at(stores: UsageStores<'_>, since_ms: Option<i64>) -> usage:
     if !stores.workbuddy.is_empty() {
         merge_usage(
             &mut report,
-            workbuddy::usage_events_at(stores.workbuddy, since_ms),
+            workbuddy::usage_events_at(stores.workbuddy, since_ms, &mut cache.files),
         );
     }
     if !stores.dsh.is_empty() {
-        merge_usage(&mut report, dsh::usage_events_at(stores.dsh, since_ms));
+        merge_usage(
+            &mut report,
+            dsh::usage_events_at(stores.dsh, since_ms, &mut cache.files),
+        );
     }
     // One order for the whole machine: the window's day buckets are built from this, and two readers
     // that each sorted their own half would leave the report half-ordered.
@@ -334,7 +360,7 @@ pub async fn agent_usage_events(
         cache_write: cache_write.unwrap_or(true),
     };
     crate::modules::fs::blocking(move || {
-        let UsageRead { report, available } = usage_events(since_ms);
+        let UsageRead { report, available } = usage_refresh::read(since_ms);
         let folded = report.aggregate(offset);
         let mut days = folded.days;
         let mut failures = report.failures;
@@ -595,6 +621,7 @@ mod usage_tests {
                 ..UsageStores::default()
             },
             None,
+            &mut usage_cache::UsageReadCache::default(),
         );
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 3);
@@ -631,6 +658,7 @@ mod usage_tests {
                 ..UsageStores::default()
             },
             Some(1794580000000),
+            &mut usage_cache::UsageReadCache::default(),
         );
         assert_eq!(ranged.events.len(), 2);
         assert_eq!(ranged.aggregate(0).totals.tokens.total(), 97);
@@ -657,7 +685,11 @@ mod usage_tests {
 
     #[test]
     fn a_tool_that_is_not_installed_is_skipped_without_a_word() {
-        let report = usage_events_at(UsageStores::default(), None);
+        let report = usage_events_at(
+            UsageStores::default(),
+            None,
+            &mut usage_cache::UsageReadCache::default(),
+        );
         assert!(report.events.is_empty());
         assert!(report.failures.is_empty());
         assert_eq!(report.aggregate(0).totals.events, 0);

@@ -145,77 +145,47 @@ fn run_files(session_dir: &Path) -> Vec<PathBuf> {
 ///
 /// pi keeps no index either, so this walks the same projects and runs the list does (`session_files`)
 /// and reads every assistant message. `since_ms` skips what a window's range leaves out.
-pub(crate) fn usage_events_at(root: &Path, since_ms: Option<i64>) -> super::usage::UsageReadReport {
-    let mut report = super::usage::UsageReadReport::default();
+pub(crate) fn usage_events_at(
+    root: &Path,
+    since_ms: Option<i64>,
+    cache: &mut super::usage_cache::UsageFileCache,
+) -> super::usage::UsageReadReport {
     if !root.is_dir() {
-        return report;
+        return super::usage::UsageReadReport::default();
     }
     let projects = match child_paths(root) {
         Ok(projects) => projects,
         Err(error) => {
+            let mut report = super::usage::UsageReadReport::default();
             report.failures.push(error);
             return report;
         }
     };
+    let mut files = Vec::new();
     for project in projects {
         if !project.is_dir() {
             continue;
         }
         for (file, _) in session_files(&project) {
-            collect_usage(&file, since_ms, &mut report);
+            files.push(file);
         }
     }
-    report.events.sort_by_key(|event| event.at_ms);
-    report
-}
-
-/// One session file's events. A file that cannot be read is reported; a line that is not a usage
-/// record is not.
-fn collect_usage(file: &Path, since_ms: Option<i64>, report: &mut super::usage::UsageReadReport) {
-    let handle = match std::fs::File::open(file) {
-        Ok(handle) => handle,
-        Err(error) => {
-            report
-                .failures
-                .push(format!("无法打开会话文件 {}：{error}", file.display()));
-            return;
-        }
-    };
-    let mut reader = BufReader::new(handle);
-    let mut line = String::new();
-    loop {
-        line.clear();
-        match reader.read_line(&mut line) {
-            Ok(0) => break,
-            Ok(_) => {}
-            Err(error) => {
-                report.failures.push(format!(
-                    "读取会话文件 {} 中断：{error}",
-                    file.display()
-                ));
-                break;
-            }
-        }
-        let Some(value) = parse_line(line.trim_end()) else {
-            continue;
-        };
-        let Some(usage) = super::usage::pi_usage_of_line(&value) else {
-            continue;
-        };
-        let Some(at_ms) = message_stamp(&value) else {
-            continue;
-        };
-        if since_ms.is_some_and(|since| at_ms < since) {
-            continue;
-        }
-        report.events.push(super::usage::OwnedUsageEvent {
-            at_ms,
-            tool: TOOL,
-            provider: usage.provider,
-            model: usage.model,
-            tokens: usage.tokens,
-        });
-    }
+    cache.read_jsonl(TOOL, &files, since_ms, |line| {
+        let value = parse_line(line.trim_end())?;
+        let usage = super::usage::pi_usage_of_line(&value)?;
+        Some(super::usage_cache::FileEvent {
+            // pi repeats a message across a session's runs, but its ids are not the same value
+            // twice: the readers never deduplicated here and the cache does not invent a rule.
+            key: None,
+            event: super::usage::OwnedUsageEvent {
+                at_ms: message_stamp(&value)?,
+                tool: TOOL,
+                provider: usage.provider,
+                model: usage.model,
+                tokens: usage.tokens,
+            },
+        })
+    })
 }
 
 /// The session id inside a transcript's file name: pi writes `<ISO>_<id>.jsonl`.
@@ -1372,7 +1342,7 @@ mod tests {
             .join("\n"),
         );
 
-        let report = usage_events_at(dir.path(), None);
+        let report = usage_events_at(dir.path(), None, &mut Default::default());
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 3, "the user line is not an event");
         assert_eq!(report.events[0].at_ms, 1794500000000);
@@ -1386,7 +1356,7 @@ mod tests {
         assert!(report.events[0].at_ms < report.events[1].at_ms);
         assert!(report.events[1].at_ms < report.events[2].at_ms);
 
-        let ranged = usage_events_at(dir.path(), Some(1794580000000));
+        let ranged = usage_events_at(dir.path(), Some(1794580000000), &mut Default::default());
         assert_eq!(ranged.events.len(), 2);
         assert_eq!(ranged.events[0].tokens.unsplit, 900);
     }

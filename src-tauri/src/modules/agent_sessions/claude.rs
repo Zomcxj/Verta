@@ -37,16 +37,24 @@ pub(crate) fn default_root() -> Option<PathBuf> {
     Some(dirs::home_dir()?.join(".claude/projects"))
 }
 
+/// Claude Code's own configuration directory: `CLAUDE_CONFIG_DIR` when that is set (how a second
+/// profile is configured), otherwise `~/.claude`.
+///
+/// Every store this module and `claude_status` read lives beside it - `projects/`, `transcripts/`
+/// and the runtime registry under `sessions/` - so the answer is computed once, here.
+pub(crate) fn config_dir() -> Option<PathBuf> {
+    std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".claude")))
+}
+
 /// Every directory Claude Code can keep transcripts in, on this machine.
 ///
 /// `CLAUDE_CONFIG_DIR` wins when it is set - that is how a second profile is configured - and
 /// `transcripts/` is read beside `projects/` because both exist in the wild and the second is where
 /// some versions keep a session's own log. Only the directories that exist are returned.
 pub(crate) fn usage_roots() -> Vec<PathBuf> {
-    let config = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|home| home.join(".claude")));
-    let Some(config) = config else {
+    let Some(config) = config_dir() else {
         return Vec::new();
     };
     ["projects", "transcripts"]
@@ -174,20 +182,35 @@ fn agent_files(dir: &Path) -> Vec<PathBuf> {
 pub(crate) fn usage_events_at(
     roots: &[PathBuf],
     since_ms: Option<i64>,
+    cache: &mut super::usage_cache::UsageFileCache,
 ) -> super::usage::UsageReadReport {
-    let mut report = super::usage::UsageReadReport::default();
     let mut files = Vec::new();
     for root in roots {
         walk_jsonl(root, 4, &mut files);
     }
     // A response that was streamed is persisted more than once with the same `message.id`, so the
-    // read remembers what it has already counted.
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for file in files {
-        collect_usage(&file, since_ms, &mut report, &mut seen);
-    }
-    report.events.sort_by_key(|event| event.at_ms);
-    report
+    // read remembers what it has already counted. The key travels with the event and the cache
+    // applies that rule once over every file, in walk order - the same copy wins as when it ran
+    // inside the parse loop, and a cached file's key is still in the running.
+    cache.read_jsonl(TOOL, &files, since_ms, |line| {
+        let value = parse_line(line.trim_end())?;
+        let usage = super::usage::claude_usage_of_line(&value)?;
+        Some(super::usage_cache::FileEvent {
+            key: value
+                .get("message")
+                .and_then(|message| message.get("id"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            // No timestamp, no day to put it in: counted nowhere rather than in the wrong day.
+            event: super::usage::OwnedUsageEvent {
+                at_ms: stamp_of(&value)?,
+                tool: TOOL,
+                provider: usage.provider,
+                model: usage.model,
+                tokens: usage.tokens,
+            },
+        })
+    })
 }
 
 /// Every `.jsonl` under `dir`, `depth` directories deep.
@@ -207,70 +230,6 @@ fn walk_jsonl(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
         } else if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
             out.push(path);
         }
-    }
-}
-
-/// One transcript's events. A file that cannot be read is reported; a line that is not a usage
-/// record is not.
-fn collect_usage(
-    file: &Path,
-    since_ms: Option<i64>,
-    report: &mut super::usage::UsageReadReport,
-    seen: &mut std::collections::HashSet<String>,
-) {
-    let handle = match std::fs::File::open(file) {
-        Ok(handle) => handle,
-        Err(error) => {
-            report
-                .failures
-                .push(format!("无法打开会话文件 {}：{error}", file.display()));
-            return;
-        }
-    };
-    let mut reader = BufReader::new(handle);
-    let mut line = String::new();
-    loop {
-        line.clear();
-        match reader.read_line(&mut line) {
-            Ok(0) => break,
-            Ok(_) => {}
-            Err(error) => {
-                report.failures.push(format!(
-                    "读取会话文件 {} 中断：{error}",
-                    file.display()
-                ));
-                break;
-            }
-        }
-        let Some(value) = parse_line(line.trim_end()) else {
-            continue;
-        };
-        let Some(usage) = super::usage::claude_usage_of_line(&value) else {
-            continue;
-        };
-        if let Some(id) = value
-            .get("message")
-            .and_then(|message| message.get("id"))
-            .and_then(Value::as_str)
-        {
-            if !seen.insert(id.to_string()) {
-                continue;
-            }
-        }
-        // No timestamp, no day to put it in: counted nowhere rather than in the wrong day.
-        let Some(at_ms) = stamp_of(&value) else {
-            continue;
-        };
-        if since_ms.is_some_and(|since| at_ms < since) {
-            continue;
-        }
-        report.events.push(super::usage::OwnedUsageEvent {
-            at_ms,
-            tool: TOOL,
-            provider: usage.provider,
-            model: usage.model,
-            tokens: usage.tokens,
-        });
     }
 }
 
@@ -955,7 +914,7 @@ mod tests {
             r#"{"type":"assistant","timestamp":"2026-11-13T09:00:00.000Z","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":5,"output_tokens":1}}}"#,
         );
 
-        let report = usage_events_at(&[dir.path().to_path_buf()], None);
+        let report = usage_events_at(&[dir.path().to_path_buf()], None, &mut Default::default());
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 2, "the untimed line is not an event");
         assert!(report.events[0].at_ms < report.events[1].at_ms);
@@ -971,7 +930,11 @@ mod tests {
 
         // A range start keeps what is inside it and drops the rest, which is what a window asks for.
         let ranged =
-            usage_events_at(&[dir.path().to_path_buf()], Some(report.events[1].at_ms));
+            usage_events_at(
+                &[dir.path().to_path_buf()],
+                Some(report.events[1].at_ms),
+                &mut Default::default(),
+            );
         assert_eq!(ranged.events.len(), 1);
         assert_eq!(ranged.events[0].model.as_deref(), Some("claude-sonnet-4-5"));
     }
@@ -993,7 +956,7 @@ mod tests {
             .join("
 "),
         );
-        let report = usage_events_at(&[dir.path().to_path_buf()], None);
+        let report = usage_events_at(&[dir.path().to_path_buf()], None, &mut Default::default());
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 2, "{:?}", report.events);
         assert_eq!(
@@ -1017,7 +980,7 @@ mod tests {
             "agent-a1.jsonl",
             r#"{"type":"assistant","timestamp":"2026-11-13T01:05:00.000Z","message":{"id":"m2","model":"m","usage":{"input_tokens":5}}}"#,
         );
-        let report = usage_events_at(&[dir.path().to_path_buf()], None);
+        let report = usage_events_at(&[dir.path().to_path_buf()], None, &mut Default::default());
         assert_eq!(report.events.len(), 2, "{:?}", report.events);
         assert_eq!(
             report.events.iter().map(|event| event.tokens.total()).sum::<u64>(),
@@ -1028,7 +991,7 @@ mod tests {
     #[test]
     fn a_store_that_is_not_there_has_no_events_and_nothing_to_report() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let report = usage_events_at(&[dir.path().join("nope")], None);
+        let report = usage_events_at(&[dir.path().join("nope")], None, &mut Default::default());
         assert!(report.events.is_empty());
         assert!(report.failures.is_empty());
     }

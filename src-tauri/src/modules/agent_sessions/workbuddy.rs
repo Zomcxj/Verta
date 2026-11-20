@@ -30,17 +30,37 @@ pub(crate) fn usage_roots() -> Vec<PathBuf> {
 /// Two levels deep: `<project>/<session>.jsonl`. The directory also holds caches and logs at other
 /// depths (18,000+ files in `~/.workbuddy`), so the walk stops at the session file instead of
 /// scanning the tree. `since_ms` skips what a range leaves out.
-pub(crate) fn usage_events_at(roots: &[PathBuf], since_ms: Option<i64>) -> UsageReadReport {
-    let mut report = UsageReadReport::default();
+pub(crate) fn usage_events_at(
+    roots: &[PathBuf],
+    since_ms: Option<i64>,
+    cache: &mut super::usage_cache::UsageFileCache,
+) -> UsageReadReport {
     let mut files = Vec::new();
     for root in roots {
         walk_jsonl(root, 3, &mut files);
     }
-    for file in files {
-        collect_usage(&file, since_ms, &mut report);
-    }
-    report.events.sort_by_key(|event| event.at_ms);
-    report
+    cache.read_jsonl(TOOL, &files, since_ms, |line| {
+        // Most lines carry no usage at all (reasoning, tool calls, snapshots), and the usage key is
+        // cheap to look for: parsing only the lines that can be an answer keeps a 42 MB project
+        // history quick.
+        if !line.contains("\"usage\"") {
+            return None;
+        }
+        let value = serde_json::from_str::<serde_json::Value>(line.trim_end()).ok()?;
+        let usage = super::usage::workbuddy_usage_of_line(&value)?;
+        Some(super::usage_cache::FileEvent {
+            key: None,
+            event: OwnedUsageEvent {
+                at_ms: value
+                    .get("timestamp")
+                    .and_then(serde_json::Value::as_i64)?,
+                tool: TOOL,
+                provider: usage.provider,
+                model: usage.model,
+                tokens: usage.tokens,
+            },
+        })
+    })
 }
 
 /// Every `.jsonl` under `dir`, `depth` directories deep.
@@ -57,42 +77,6 @@ fn walk_jsonl(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
         } else if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
             out.push(path);
         }
-    }
-}
-
-fn collect_usage(file: &Path, since_ms: Option<i64>, report: &mut UsageReadReport) {
-    let Ok(body) = std::fs::read_to_string(file) else {
-        report
-            .failures
-            .push(format!("无法打开会话文件 {}：读取失败", file.display()));
-        return;
-    };
-    for line in body.lines() {
-        // Most lines carry no usage at all (reasoning, tool calls, snapshots), and the usage key is
-        // cheap to look for: parsing only the lines that can be an answer keeps a 42 MB project
-        // history quick.
-        if !line.contains("\"usage\"") {
-            continue;
-        }
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(line.trim_end()) else {
-            continue;
-        };
-        let Some(usage) = super::usage::workbuddy_usage_of_line(&value) else {
-            continue;
-        };
-        let Some(at_ms) = value.get("timestamp").and_then(serde_json::Value::as_i64) else {
-            continue;
-        };
-        if since_ms.is_some_and(|since| at_ms < since) {
-            continue;
-        }
-        report.events.push(OwnedUsageEvent {
-            at_ms,
-            tool: TOOL,
-            provider: usage.provider,
-            model: usage.model,
-            tokens: usage.tokens,
-        });
     }
 }
 
@@ -122,7 +106,7 @@ mod tests {
             r#"{"type":"function_call","timestamp":1792588400000,"providerData":{"requestModelId":"hy3","usage":{"inputTokens":100,"outputTokens":10,"totalTokens":110}}}"#,
         );
 
-        let report = usage_events_at(&[root], None);
+        let report = usage_events_at(&[root], None, &mut Default::default());
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.events.len(), 2, "{:?}", report.events);
         assert_eq!(report.events[0].tokens.total(), 44_773);
@@ -135,7 +119,7 @@ mod tests {
     #[test]
     fn a_store_that_is_not_there_has_no_events_and_nothing_to_report() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let report = usage_events_at(&[dir.path().join("nope")], None);
+        let report = usage_events_at(&[dir.path().join("nope")], None, &mut Default::default());
         assert!(report.events.is_empty());
         assert!(report.failures.is_empty());
     }
