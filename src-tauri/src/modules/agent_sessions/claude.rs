@@ -16,7 +16,7 @@
 //! rest. There is no `summary` kind, and a `last-prompt` line carries the last prompt written.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -32,6 +32,10 @@ const MAX_TITLE_CHARS: usize = 80;
 /// transcript is never read whole for a list.
 const MAX_PREFIX_LINES: usize = 100_000;
 const MAX_PREFIX_BYTES: u64 = 1024 * 1024;
+/// How much of the end of a transcript is read for the name. Every rename appends its own line, so the
+/// last one written - the name the tool shows - is near the end rather than at the top: measured on a
+/// real 58 MB transcript, the newest name sat 56 MB in, and one appeared roughly every 35-45 KB.
+const MAX_TAIL_BYTES: u64 = 512 * 1024;
 
 pub(crate) fn default_root() -> Option<PathBuf> {
     Some(dirs::home_dir()?.join(".claude/projects"))
@@ -247,7 +251,7 @@ fn child_paths(dir: &Path) -> Result<Vec<PathBuf>, String> {
 /// `parent` is the session this file was found under, when it is one of its runs rather than a session
 /// of its own - which is what a subagent transcript is.
 fn read_session(file: &Path, parent: Option<&str>) -> Result<Option<AgentSession>, String> {
-    let prefix = read_prefix(file)?;
+    let (prefix, truncated) = read_prefix(file)?;
     // A `.jsonl` with not one parseable event in it is not a session that lost its cwd: it is junk, or
     // a file this version of the tool does not write. Skipped silently, so the list is shorter rather
     // than noisy.
@@ -272,11 +276,15 @@ fn read_session(file: &Path, parent: Option<&str>) -> Result<Option<AgentSession
         // un-flattened back into a path: `C--Users-cxj-Desktop` has lost which separators were there.
         return Err(format!("会话 {} 里没有任何一行记录 cwd", file.display()));
     };
-    let title = match parent {
-        Some(_) => subagent_title(file, &prefix).unwrap_or_else(|| id.clone()),
-        None => title_of(&prefix)
-            .or_else(|| last_prompt(&prefix))
-            .unwrap_or_else(|| id.clone()),
+    let title = {
+        // The name is the one thing the beginning of a transcript cannot be trusted for: a rename
+        // appends its own line, and on a long session that line is at the very end. The end is read
+        // only when the prefix stopped short of it, so a small session pays nothing extra.
+        let tail = if truncated { read_tail(file)? } else { String::new() };
+        match parent {
+            Some(_) => subagent_title(file, &prefix, &tail).unwrap_or_else(|| id.clone()),
+            None => title_from(&prefix, &tail).unwrap_or_else(|| id.clone()),
+        }
     };
     Ok(Some(AgentSession {
         tool: TOOL.to_string(),
@@ -306,7 +314,7 @@ fn agent_id(prefix: &str) -> Option<String> {
 ///
 /// The launched description is the name a person recognises ("探索 case-08 优化点"); the transcript's
 /// first user line is the brief, which is long and starts with the same words for every helper of a run.
-fn subagent_title(file: &Path, prefix: &str) -> Option<String> {
+fn subagent_title(file: &Path, prefix: &str, tail: &str) -> Option<String> {
     let meta = file.with_extension("meta.json");
     if let Ok(text) = std::fs::read_to_string(&meta) {
         if let Ok(value) = serde_json::from_str::<Value>(&text) {
@@ -319,7 +327,7 @@ fn subagent_title(file: &Path, prefix: &str) -> Option<String> {
             }
         }
     }
-    title_of(prefix).or_else(|| last_prompt(prefix))
+    title_from(prefix, tail)
 }
 
 /// The session id as the transcript records it.
@@ -335,31 +343,42 @@ fn first_string(prefix: &str, key: &str) -> Option<String> {
         .find_map(|value| value.get(key).and_then(Value::as_str).map(str::to_string))
 }
 
-/// The name the session is filed under, in the order the tools that write it take precedence.
+/// What to call a session, in the order the sources are trusted.
+fn title_from(prefix: &str, tail: &str) -> Option<String> {
+    set_name(tail)
+        .or_else(|| set_name(prefix))
+        .or_else(|| first_human_line(prefix))
+        .or_else(|| last_prompt(prefix))
+}
+
+/// The name the session is filed under, as the tool itself shows it.
 ///
-/// A name the user set wins over anything derived from the conversation, and the first name written
-/// wins over later ones so the list does not change when a session is continued.
-fn title_of(prefix: &str) -> Option<String> {
-    let mut first_human: Option<String> = None;
-    for value in prefix.lines().filter_map(parse_line) {
-        match value.get("type").and_then(Value::as_str) {
-            Some("custom-title") => {
-                if let Some(name) = named(value.get("customTitle")) {
-                    return Some(name);
-                }
-            }
-            Some("agent-name") => {
-                if let Some(name) = named(value.get("agentName")) {
-                    return Some(name);
-                }
-            }
-            Some("user") if first_human.is_none() => {
-                first_human = human_text(&value);
-            }
-            _ => {}
-        }
-    }
-    first_human
+/// A name someone set (`custom-title`) or the tool recorded (`agent-name`) wins over anything derived
+/// from the conversation, and the **last** one written wins: Claude Code re-appends its current name
+/// whenever that name is set, so the final line is the live one. Keeping the first name instead (so a
+/// continued session would not move in the list) was wrong for the same reason it looked safe -
+/// continuing writes the same name again, so nothing moves either way, while a rename was ignored.
+fn set_name(text: &str) -> Option<String> {
+    text.lines()
+        .filter_map(parse_line)
+        .filter(|value| {
+            matches!(
+                value.get("type").and_then(Value::as_str),
+                Some("custom-title" | "agent-name")
+            )
+        })
+        .filter_map(|value| {
+            named(value.get("customTitle")).or_else(|| named(value.get("agentName")))
+        })
+        .next_back()
+}
+
+/// The first thing a person wrote, as a name for a session nobody named.
+fn first_human_line(text: &str) -> Option<String> {
+    text.lines()
+        .filter_map(parse_line)
+        .filter(|value| value.get("type").and_then(Value::as_str) == Some("user"))
+        .find_map(|value| human_text(&value))
 }
 
 /// The last prompt the transcript recorded, as a name of last resort.
@@ -476,18 +495,25 @@ fn parse_line(line: &str) -> Option<Value> {
     serde_json::from_str::<Value>(line).ok()
 }
 
-fn read_prefix(file: &Path) -> Result<String, String> {
+/// The start of a transcript, and whether there is more of it.
+///
+/// The flag is what decides if the end has to be read too: it says a line written later could be
+/// missing from the text, which is exactly the case a name has to be looked for at the end.
+fn read_prefix(file: &Path) -> Result<(String, bool), String> {
     let handle = std::fs::File::open(file)
         .map_err(|e| format!("无法打开会话文件 {}：{e}", file.display()))?;
+    let total = handle.metadata().map(|meta| meta.len()).unwrap_or(0);
     let mut reader = BufReader::new(handle.take(MAX_PREFIX_BYTES));
     let mut prefix = String::new();
     let mut line = String::new();
+    let mut read = 0u64;
     let mut lines = 0;
     while lines < MAX_PREFIX_LINES {
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) => break,
-            Ok(_) => {
+            Ok(bytes) => {
+                read += bytes as u64;
                 prefix.push_str(&line);
                 lines += 1;
             }
@@ -496,7 +522,37 @@ fn read_prefix(file: &Path) -> Result<String, String> {
             Err(error) => return Err(format!("读取会话文件 {} 失败：{error}", file.display())),
         }
     }
-    Ok(prefix)
+    Ok((prefix, read < total))
+}
+
+/// The end of a transcript, at most `MAX_TAIL_BYTES` of it, starting on a line boundary.
+fn read_tail(file: &Path) -> Result<String, String> {
+    let mut handle = std::fs::File::open(file)
+        .map_err(|e| format!("无法打开会话文件 {}：{e}", file.display()))?;
+    let len = handle
+        .metadata()
+        .map_err(|e| format!("无法读取会话文件 {} 的大小：{e}", file.display()))?
+        .len();
+    let start = len.saturating_sub(MAX_TAIL_BYTES);
+    handle
+        .seek(SeekFrom::Start(start))
+        .map_err(|e| format!("无法定位会话文件 {}：{e}", file.display()))?;
+    let mut bytes = Vec::new();
+    handle
+        .take(MAX_TAIL_BYTES)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("读取会话文件 {} 末尾失败：{e}", file.display()))?;
+    // Lossy rather than strict: the window can start inside a multi-byte character, and losing that
+    // one line is nothing next to failing to name the session.
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    if start == 0 {
+        return Ok(text);
+    }
+    // The first line of the window is the tail of a line, and half a JSON object parses as nothing.
+    Ok(match text.find('\n') {
+        Some(end) => text[end + 1..].to_string(),
+        None => String::new(),
+    })
 }
 
 fn modified_ms(file: &Path) -> Option<i64> {
@@ -722,6 +778,35 @@ mod tests {
             "{\"type\":\"system\",\"sessionId\":\"s1\",\"cwd\":\"C:\\\\Users\\\\cxj\",\"timestamp\":\"2026-11-13T01:05:59.276Z\"}\n",
         );
         assert_eq!(list_at(dir2.path()).expect("列").sessions[0].title, "s1");
+    }
+
+    #[test]
+    fn takes_a_name_written_far_past_the_start_of_a_long_transcript() {
+        // Measured on a real transcript of this machine: 58 MB, and `/rename` put the new name
+        // 56 MB in - Claude Code appends `custom-title` again whenever the name is set. Reading a
+        // prefix of the file kept the name from the top, so the list said "daily talk" while
+        // Claude Code itself called the session "some task".
+        let dir = tempfile::tempdir().expect("temp dir");
+        let project = dir.path().join("C--Users-cxj-Desktop-dsh");
+        let path = write_session(&project, "s1", "");
+        let mut body = std::fs::read_to_string(&path).expect("read");
+        let filler = format!(
+            "{{\"type\":\"mode\",\"sessionId\":\"s1\",\"pad\":\"{}\"}}\n",
+            "x".repeat(990)
+        );
+        // Four times the prefix the list reads, so the name below is past everything it saw.
+        for _ in 0..4_200 {
+            body.push_str(&filler);
+        }
+        body.push_str(
+            "{\"type\":\"custom-title\",\"customTitle\":\"some task\",\"sessionId\":\"s1\"}\n",
+        );
+        std::fs::write(&path, body).expect("write");
+        let payload = list_at(dir.path()).expect("列");
+        assert_eq!(
+            payload.sessions[0].title, "some task",
+            "名字以最后一次改名为准"
+        );
     }
 
     #[test]

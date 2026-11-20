@@ -487,51 +487,6 @@ fn folded_payload(
     }
 }
 
-/// Rename a session (rename only, no session management).
-///
-/// Each tool has its own mechanism: opencode updates the `title` column, pi appends a
-/// `session_info` line to the session file (which is what its own `/name` does). The name
-/// is written only to the session's own storage and no other column is touched, so a
-/// rename **never** pushes the session to the top of the list.
-#[tauri::command]
-pub async fn agent_sessions_rename(
-    tool: String,
-    id: String,
-    name: String,
-    distro: Option<String>,
-) -> Result<(), String> {
-    crate::modules::fs::blocking(move || rename_session(&tool, &id, &name, distro.as_deref())).await
-}
-
-fn rename_session(tool: &str, id: &str, name: &str, distro: Option<&str>) -> Result<(), String> {
-    if let Some(distro) = distro {
-        return Err(format!("WSL 会话的改名尚未实现（{distro}）"));
-    }
-    delete::validate_session_id(id)?;
-    let stores = delete::Stores::default_paths();
-    match tool {
-        opencode::TOOL => {
-            let path = stores
-                .opencode
-                .ok_or_else(|| "找不到 opencode 数据库的位置".to_string())?;
-            opencode::rename_at(&path, id, name)
-        }
-        pi::TOOL => {
-            let root = stores
-                .pi
-                .ok_or_else(|| "找不到 pi 会话目录的位置".to_string())?;
-            pi::rename_at(&root, id, name)
-        }
-        // Refused rather than approximated: Claude Code's name is a `custom-title` event inside its
-        // own ledger, and a line this app appended is not something the tool is known to read back. A
-        // name that silently does nothing would be worse than saying it cannot be set here.
-        claude::TOOL => Err(
-            "Claude Code 的会话名由 Claude Code 自己写，这里改不了（可在它内部用 /rename）".to_string(),
-        ),
-        other => Err(format!("不支持的会话工具：{other}")),
-    }
-}
-
 /// Looks up the image a message attached, by the name the terminal printed.
 /// It reads sqlite, so it runs on the blocking pool as well.
 #[tauri::command]

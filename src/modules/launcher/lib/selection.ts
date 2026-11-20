@@ -13,21 +13,6 @@ export function sessionKey(
   return `${session.tool}:${session.distro ?? ""}:${session.id}` as SessionKey;
 }
 
-/**
- * Is this row the one whose name is being edited in place?
- *
- * The two sides of this question used to be written out separately - the panel stored a key, the
- * list compared it against a bare id - and because those are different strings the rename box was
- * never drawn. The menu item closed and nothing happened. Both sides now go through `sessionKey`,
- * and the branded key type means a bare id no longer type-checks as a stored key.
- */
-export function isRenaming(
-  renameKey: SessionKey | null | undefined,
-  session: Pick<AgentSession, "tool" | "id" | "distro">,
-): boolean {
-  return renameKey != null && renameKey === sessionKey(session);
-}
-
 export type SelectionMode = "all" | "none";
 
 export function toggleSelection(

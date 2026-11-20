@@ -68,26 +68,6 @@ export function deleteAgentSessions(
   return invoke<DeleteReport>("agent_sessions_delete", { targets });
 }
 
-/**
- * Rename a session.
- *
- * Only the name changes: opencode rewrites the row in its database and pi appends a
- * `session_info` line. Both tools show the new name the next time sessions are read
- * (the backend takes the last name it sees).
- */
-export function renameAgentSession(session: {
-  tool: AgentTool;
-  id: string;
-  distro: string | null;
-}, name: string): Promise<void> {
-  return invoke("agent_sessions_rename", {
-    tool: session.tool,
-    id: session.id,
-    name,
-    distro: session.distro,
-  });
-}
-
 export type AgentSessionsLoad = {
   sessions: AgentSession[];
   warnings: string[];

@@ -622,86 +622,6 @@ pub(crate) fn exists_at(root: &Path, id: &str) -> Result<bool, String> {
     Ok(locate(root, id).is_ok())
 }
 
-/// Rename a session: append a `session_info` line at the end of the file, exactly
-/// what pi's own `/name` does.
-///
-/// A new line is appended rather than an old one edited, because pi takes the **last**
-/// `session_info` when reading; that also means history is never rewritten (if a name
-/// goes wrong, the old one is still in the file).
-pub(crate) fn rename_at(root: &Path, id: &str, name: &str) -> Result<(), String> {
-    let name = name.trim();
-    if let Some(problem) = name_problem(name) {
-        return Err(problem);
-    }
-    let located = locate(root, id)?;
-    use std::io::Write;
-    let mut handle = std::fs::OpenOptions::new()
-        .append(true)
-        .open(&located.file)
-        .map_err(|e| format!("打开会话文件失败：{e}"))?;
-    let line = serde_json::json!({
-        "type": "session_info",
-        "timestamp": now_iso(),
-        "name": name,
-    });
-    writeln!(handle, "{line}").map_err(|e| format!("写入会话名失败：{e}"))?;
-    handle
-        .sync_all()
-        .map_err(|e| format!("写入会话名失败：{e}"))?;
-    Ok(())
-}
-
-/// Message for an invalid name. The name becomes one line of JSON, so neither empty
-/// nor over-long values may be written.
-pub(crate) fn name_problem(name: &str) -> Option<String> {
-    if name.is_empty() {
-        return Some("会话名不能为空".to_string());
-    }
-    if name.chars().count() > MAX_TITLE_CHARS {
-        return Some(format!("会话名最多 {MAX_TITLE_CHARS} 个字"));
-    }
-    None
-}
-
-/// `2026-10-22T03:04:05.678Z`: the shape pi writes its own timestamps in.
-fn now_iso() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    format_iso(now as i64)
-}
-
-/// Milliseconds → `YYYY-MM-DDThh:mm:ss.sssZ` (UTC; good enough without a dependency).
-fn format_iso(ms: i64) -> String {
-    let secs = ms.div_euclid(1000);
-    let millis = ms.rem_euclid(1000);
-    let days = secs.div_euclid(86_400);
-    let rem = secs.rem_euclid(86_400);
-    let (year, month, day) = civil_from_days(days);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{millis:03}Z",
-        rem / 3_600,
-        (rem % 3_600) / 60,
-        rem % 60
-    )
-}
-
-/// Days since 1970-01-01 → civil date (the inverse of `days_from_civil`).
-fn civil_from_days(days: i64) -> (i64, i64, i64) {
-    let z = days + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    (if month <= 2 { y + 1 } else { y }, month, day)
-}
-
 /// The id a session file declares in its first line, without resolving anything
 /// else, so a session whose header cannot become a full record is still
 /// locatable.
@@ -768,28 +688,17 @@ mod tests {
     }
 
     #[test]
-    fn renaming_appends_a_name_line_that_wins_on_the_next_read() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let project = dir.path().join("--F--x--");
-        let path = write_session(&project, "2026-09-09T05-47-23-952Z_s1", "s1");
-        rename_at(dir.path(), "s1", "  新名字  ").expect("应能改名");
-        // The name read back is the new one, and the old content was not rewritten
-        // (appended, not replaced).
-        let session = read_session(&path, None).expect("read").expect("a session");
-        assert_eq!(session.title, "新名字");
-        let body = std::fs::read_to_string(&path).expect("read file");
-        assert_eq!(body.lines().count(), 2, "第一行还是会话头，新名字追加在后面");
-        assert!(body.lines().nth(1).is_some_and(|line| line.contains("\"session_info\"")));
-        assert_eq!(name_problem(""), Some("会话名不能为空".to_string()));
-        assert!(name_problem(&"好".repeat(MAX_TITLE_CHARS + 1)).is_some());
-        assert!(rename_at(dir.path(), "nope", "x").is_err(), "id 不存在要报错");
-    }
-
-    #[test]
-    fn iso_formatting_round_trips_through_the_parser() {
-        for ms in [0, 1_709_164_800_000, 1_792_065_286_288, 1_800_000_000_123] {
-            let text = format_iso(ms);
-            assert_eq!(iso_ms(&text), Some(ms), "{text}");
+    fn iso_stamps_parse_to_the_millisecond() {
+        // The writer that produced these strings went out with the rename path; the parser is still
+        // what every stamp in a transcript goes through, so the check stays and takes the strings as
+        // literals now.
+        for (text, ms) in [
+            ("1970-01-01T00:00:00.000Z", 0),
+            ("2024-02-29T00:00:00.000Z", 1_709_164_800_000),
+            ("2026-10-15T11:54:46.288Z", 1_792_065_286_288),
+            ("2027-01-15T08:00:00.123Z", 1_800_000_000_123),
+        ] {
+            assert_eq!(iso_ms(text), Some(ms), "{text}");
         }
     }
 

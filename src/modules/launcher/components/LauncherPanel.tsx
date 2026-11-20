@@ -9,11 +9,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { copyToClipboard } from "@/lib/clipboard";
 import { listen } from "@tauri-apps/api/event";
 import { type MessageKey, useT } from "@/modules/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { renameAgentSession } from "../lib/sessions";
 import {
   type ProjectRef,
   type SessionGroupBy,
@@ -33,7 +33,6 @@ import { AGENT_TOOLS } from "../lib/tools";
 import {
   type DeletionSummary,
   deletionSummary,
-  type SessionKey,
   selectedTargets,
   sessionKey,
   toggleSelection,
@@ -115,8 +114,7 @@ function pendingFor(requests: readonly SessionRequest[]): Set<string> {
  * nothing at all is the most unsettling outcome there is.
  */
 function copyText(text: string, copied: string): void {
-  void navigator.clipboard
-    .writeText(text)
+  void copyToClipboard(text)
     .then(() => toast.success(copied))
     .catch((error) => toast.error(String(error)));
 }
@@ -170,8 +168,6 @@ export function LauncherPanel({
     null,
   );
   const [deleting, setDeleting] = useState(false);
-  /** Session being renamed in place (`sessionKey`); null when none. */
-  const [renaming, setRenaming] = useState<SessionKey | null>(null);
   /** Default is one block sorted by time; `tool` splits it into per-agent sections. */
   const groupBy = usePreferencesStore((s) => s.sessionGroupBy);
   const chooseGroupBy = useCallback((mode: SessionGroupBy) => {
@@ -295,25 +291,6 @@ export function LauncherPanel({
   }, [refresh]);
 
   /**
-   * Rename a session. Nothing but the name changes: opencode rewrites the row in
-   * its database and pi appends a `session_info` line, and the backend re-reads
-   * the list afterwards so the UI shows the name as actually stored.
-   */
-  const renameSession = useCallback(
-    async (session: AgentSession, name: string) => {
-      const next = name.trim();
-      if (!next || next === session.title) return;
-      try {
-        await renameAgentSession(session, next);
-        await refresh({ silent: true });
-      } catch (error) {
-        toast.error(String(error));
-      }
-    },
-    [refresh],
-  );
-
-  /**
    * Everything a row's context menu needs, in one object: the rows are memoised, and an object built
    * inline would be a new one on every render, which would re-render every row in the list. The
    * callbacks that go into it are stable for the same reason.
@@ -327,17 +304,10 @@ export function LauncherPanel({
         if (relative) copyText(relative, t("launcher.copied"));
       },
       onCopyId: (session) => copyText(session.id, t("launcher.copied")),
-      onStartRename: (session) => setRenaming(sessionKey(session)),
       onInfo: (session) => setInfoKey(sessionKey(session)),
       canCopyRelative: relativeToRoot(workspaceRoot, "") !== null,
-      renameId: renaming,
-      onRenameSubmit: (session, name) => {
-        setRenaming(null);
-        void renameSession(session, name);
-      },
-      onRenameCancel: () => setRenaming(null),
     }),
-    [onOpenSession, t, workspaceRoot, renaming, renameSession],
+    [onOpenSession, t, workspaceRoot],
   );
 
   const toggleRow = useCallback((session: AgentSession) => {

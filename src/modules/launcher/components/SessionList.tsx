@@ -18,7 +18,7 @@ import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { memo, useCallback, useEffect, useId, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { parentCountKey } from "../lib/sessionInfo";
-import { isRenaming, type SessionKey, sessionKey } from "../lib/selection";
+import { type SessionKey, sessionKey } from "../lib/selection";
 import {
   lastTalkedDayLabel,
   statsOf,
@@ -37,14 +37,10 @@ export type SessionRowActions = {
   onCopyAbsolute: (session: AgentSession) => void;
   onCopyRelative: (session: AgentSession) => void;
   onCopyId: (session: AgentSession) => void;
-  onStartRename: (session: AgentSession) => void;
   /** Open the details dialog for this session. */
   onInfo: (session: AgentSession) => void;
   /** False when no relative path can be computed (no workspace root), greying out that item. */
   canCopyRelative: boolean;
-  renameId: SessionKey | null;
-  onRenameSubmit: (session: AgentSession, name: string) => void;
-  onRenameCancel: () => void;
 };
 
 type Props = {
@@ -57,7 +53,7 @@ type Props = {
   selectable?: boolean;
   selected?: ReadonlySet<string>;
   onToggle?: (session: AgentSession) => void;
-  /** Context menu and in-place rename; omitted means no menu. */
+  /** Context menu; omitted means no menu. */
   actions?: SessionRowActions;
   /** The sessions filed under each one, for the manage view's row badges. */
   subagentsByParent?: ReadonlyMap<string, readonly AgentSession[]>;
@@ -150,18 +146,12 @@ export const SessionList = memo(function SessionList({
   // session it belongs to - is what the card adds, one hover away wherever the list is drawn.
   // Managing included: a tick takes a parent's children along, so "which session is this" is asked
   // most often there, and it is asked by moving the pointer rather than by opening something.
-  //
-  // Renaming is the one exception: the row is a text field with the list's own width, and a card
-  // beside it would cover the rows the field is being typed into.
   const hoveredSession =
     hovered === null
       ? null
       : (sessions.find((session) => sessionKey(session) === hovered.key) ??
         null);
-  const showCard =
-    hovered !== null &&
-    hoveredSession !== null &&
-    !(actions && isRenaming(actions.renameId, hoveredSession));
+  const showCard = hovered !== null && hoveredSession !== null;
   return (
     // Which density was drawn, the way a row carries `data-session-id`: a probe measuring the two
     // modes has to know which one it is looking at, and counting lines is a guess.
@@ -244,7 +234,6 @@ const SessionButton = memo(function SessionButton({
   const t = useT();
   const language = useLanguage();
   const stats = statsOf(session);
-  const renaming = isRenaming(actions?.renameId, session);
   const row = (
     <button
       type="button"
@@ -290,17 +279,9 @@ const SessionButton = memo(function SessionButton({
             size={13}
             className="shrink-0 text-muted-foreground"
           />
-          {renaming && actions ? (
-            <RenameField
-              value={session.title}
-              onSubmit={(name) => actions.onRenameSubmit(session, name)}
-              onCancel={actions.onRenameCancel}
-            />
-          ) : (
-            <span className="truncate text-xs text-foreground">
-              {session.title}
-            </span>
-          )}
+          <span className="truncate text-xs text-foreground">
+            {session.title}
+          </span>
           {/* The running light for this session's agent, in the same colour the tab strip
               would draw: a bar reads as a state from across the window where a dot at this
               row's weight is easy to miss, and it is only drawn where there is an agent. */}
@@ -351,16 +332,16 @@ const SessionButton = memo(function SessionButton({
   // The row carries the context menu; the details card is not here at all. It belongs to the list,
   // because it is one card that moves - a card per row could only ever appear and disappear.
   // The menu is attached in the manage view as well. There the rows are checkboxes, so the reading
-  // items are what is left of it - open and rename would leave the mode the list was put in - but
-  // "what is this session, and what will I lose" is the question the manage view exists to answer,
-  // and it has to be askable from the row itself, including from a subagent's row.
+  // items are what is left of it - open would leave the mode the list was put in - but "what is this
+  // session, and what will I lose" is the question the manage view exists to answer, and it has to be
+  // askable from the row itself, including from a subagent's row.
   const body = actions ? (
     <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
   ) : (
     row
   );
 
-  if (!actions || renaming) return body;
+  if (!actions) return body;
 
   return (
     <ContextMenu>
@@ -389,59 +370,7 @@ const SessionButton = memo(function SessionButton({
         <ContextMenuItem onSelect={() => actions.onInfo(session)}>
           {t("launcher.info")}
         </ContextMenuItem>
-        {selectable ? null : (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem onSelect={() => actions.onStartRename(session)}>
-              {t("launcher.renameSession")}
-            </ContextMenuItem>
-          </>
-        )}
       </ContextMenuContent>
     </ContextMenu>
   );
 });
-
-/** In-place rename: Enter commits, Esc cancels, and blur also commits (the same feel
- * as renaming a file). */
-function RenameField({
-  value,
-  onSubmit,
-  onCancel,
-}: {
-  value: string;
-  onSubmit: (name: string) => void;
-  onCancel: () => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const done = useRef(false);
-  // Select the existing name on entry: renaming usually means changing part of it, not
-  // retyping from scratch.
-  useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, []);
-  return (
-    <input
-      ref={inputRef}
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onClick={(event) => event.stopPropagation()}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key === "Enter") {
-          done.current = true;
-          onSubmit(draft);
-        } else if (event.key === "Escape") {
-          done.current = true;
-          onCancel();
-        }
-      }}
-      onBlur={() => {
-        if (!done.current) onSubmit(draft);
-      }}
-      className="min-w-0 flex-1 rounded border border-border bg-background px-1 py-0 text-xs text-foreground outline-none focus:border-foreground/40"
-    />
-  );
-}

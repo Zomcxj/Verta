@@ -514,23 +514,6 @@ pub(super) fn open_read_only(path: &Path) -> Result<Connection, String> {
     Ok(conn)
 }
 
-/// Renaming writes to the store, so this opens read-write: when opencode is running
-/// concurrently, `busy_timeout` waits a while, and if it never yields (the database stays
-/// locked) the error is reported honestly rather than forced through.
-fn open_rw(path: &Path) -> Result<Connection, String> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(
-        |e| {
-            format!(
-                "无法写入 opencode 数据库 {}：{e}。若 opencode 正在写入，请稍后重试。",
-                path.display()
-            )
-        },
-    )?;
-    conn.busy_timeout(BUSY_TIMEOUT)
-        .map_err(|e| format!("设置 opencode 数据库超时失败：{e}"))?;
-    Ok(conn)
-}
-
 const CLI: &str = "opencode";
 const DELETE_TIMEOUT: Duration = Duration::from_secs(30);
 const DELETE_LIMITS: Limits = Limits {
@@ -630,30 +613,6 @@ pub(crate) fn session_directory(path: &Path, id: &str) -> Result<String, String>
         |row| row.get::<_, String>(0),
     )
     .map_err(|_| format!("opencode 里找不到会话 {id}"))
-}
-
-/// Rename a session.
-///
-/// Only the `title` column changes; nothing else (`time_updated` etc.) is touched: a
-/// rename is not a conversation, so it must not push the session to the top of the list.
-/// opencode itself writes this column from `/rename`.
-pub(crate) fn rename_at(path: &Path, id: &str, name: &str) -> Result<(), String> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err("会话名不能为空".to_string());
-    }
-    let table = session_table(path)?;
-    let conn = open_rw(path)?;
-    let changed = conn
-        .execute(
-            &format!("UPDATE {table} SET title = ?1 WHERE id = ?2"),
-            rusqlite::params![name, id],
-        )
-        .map_err(|e| format!("写入 opencode 会话名失败：{e}"))?;
-    if changed == 0 {
-        return Err(format!("opencode 里找不到会话 {id}"));
-    }
-    Ok(())
 }
 
 pub(crate) fn exists_at(path: &Path, id: &str) -> Result<bool, String> {

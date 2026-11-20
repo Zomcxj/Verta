@@ -63,17 +63,20 @@ const humanText = (event) => {
 
 /** The title the list should show for one transcript. */
 const expectedTitle = (events, id) => {
-  const named = events.find(
-    (event) => event.type === "custom-title" && event.customTitle,
-  );
-  const agentNamed = events.find(
-    (event) => event.type === "agent-name" && event.agentName,
-  );
+  // The last name recorded, not the first: Claude Code re-appends its current name whenever the
+  // name is set, so a rename late in a long session is the line the tool itself shows.
+  const named = events
+    .filter(
+      (event) =>
+        (event.type === "custom-title" && event.customTitle) ||
+        (event.type === "agent-name" && event.agentName),
+    )
+    .at(-1);
   const human = events.map(humanText).find((text) => text !== null);
   const prompts = events.filter(
     (event) => event.type === "last-prompt" && event.lastPrompt,
   );
-  const name = (named?.customTitle ?? agentNamed?.agentName ?? human ?? prompts.at(-1)?.lastPrompt ?? id)
+  const name = (named?.customTitle ?? named?.agentName ?? human ?? prompts.at(-1)?.lastPrompt ?? id)
     .split(/\s+/)
     .filter(Boolean)
     .join(" ");

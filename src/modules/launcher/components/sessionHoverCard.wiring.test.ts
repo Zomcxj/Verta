@@ -48,11 +48,11 @@ describe("the session hover card", () => {
     expect(list).not.toMatch(/showCard =[\s\S]{0,200}?!selectable/);
   });
 
-  it("is the only surface a rename steps aside for", () => {
-    // A row being renamed is a text field; a card beside it would cover the list it is typed into.
-    expect(list).toMatch(
-      /showCard =\s*hovered !== null &&\s*hoveredSession !== null &&\s*!\(actions && isRenaming\(\s*actions\.renameId,\s*hoveredSession,?\s*\)\)/,
-    );
+  it("never steps aside, because a row is never a text field", () => {
+    // The card steps aside for nothing now: renaming happens in the agent's own terminal, so a row
+    // is never a text field and there is no state that has to keep the card away.
+    expect(list).not.toContain("isRenaming");
+    expect(list).toMatch(/const showCard = hovered !== null && hoveredSession !== null;/);
   });
 
   it("reads the session from the same block the dialog draws", () => {

@@ -70,6 +70,21 @@ describe("the session info dialog", () => {
     expect(facts).toMatch(/data-session-facts-child=\{child\.id\}/);
   });
 
+  it("copies the session name from beside the title", () => {
+    // The name is what a session is resumed by and what a person says out loud; the title truncates,
+    // so reading it off the screen and retyping it is the one thing this button saves.
+    //
+    // Written through the Tauri plugin, not `navigator.clipboard`: in this webview that one resolves
+    // and writes nothing, so a button built on it looks like it worked and leaves the old clipboard
+    // in place (measured with a sentinel that survived the write).
+    expect(dialog).toContain("copyToClipboard(session.title)");
+    expect(dialog).not.toContain("navigator.clipboard");
+    expect(dialog).toContain('t("launcher.copySessionName")');
+    // Right of the name: a child of the title row, not part of the heading itself.
+    expect(dialog).toMatch(/<\/DialogTitle>\s*<button[\s\S]{0,120}data-session-copy-name/);
+    expect(dialog).toContain("data-session-copy-name");
+  });
+
   it("hands the dialog the session rather than a copy of its facts", () => {
     // The dialog is opened for one row and draws that row; nothing is snapshotted, so a refresh
     // under it shows the current read. `record` is what makes it the whole record rather than the
