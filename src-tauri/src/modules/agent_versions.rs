@@ -58,6 +58,9 @@ const MAX_REGISTRY_BYTES: usize = 1024 * 1024;
 /// A proxy that accepts a connection and then says nothing is caught here rather than at the read's
 /// own timeout, so the read without it is tried while the user is still looking.
 const CONNECT_TIMEOUT_SECS: u64 = 4;
+/// A proxy on this machine answers a connect immediately; this is only long enough to tell a closed
+/// port from a slow one, because every upgrade pays it once.
+const PROXY_PROBE_TIMEOUT: Duration = Duration::from_millis(800);
 
 /// Runs one tool and hands back what it printed.
 ///
@@ -105,6 +108,151 @@ fn run_tool(
         },
     )
     .map_err(|error| format!("运行 {program} 失败：{error}"))
+}
+
+/// The proxy this machine's package tools were configured with, if any.
+///
+/// Read from the places those tools read: the environment first (npm turns `npm_config_*` into
+/// settings, and git honours `https_proxy`), then npm's own `.npmrc`, last assignment winning - the
+/// same precedence `registry_base` gives the registry.
+fn configured_proxy() -> Option<String> {
+    const VARS: [&str; 8] = [
+        "npm_config_https_proxy",
+        "npm_config_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ];
+    for name in VARS {
+        let Ok(value) = std::env::var(name) else {
+            continue;
+        };
+        let value = value.trim();
+        if !value.is_empty() && !is_off(value) {
+            return Some(value.to_string());
+        }
+    }
+    let home = dirs::home_dir()?;
+    let text = std::fs::read_to_string(home.join(".npmrc")).ok()?;
+    proxy_from_npmrc(&text)
+}
+
+/// npm's way of spelling "no proxy at all".
+fn is_off(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "false" | "null" | "0"
+    )
+}
+
+/// `proxy` / `https-proxy` from an `.npmrc`, the last assignment winning.
+fn proxy_from_npmrc(text: &str) -> Option<String> {
+    let mut found = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        if key != "proxy" && key != "https-proxy" {
+            continue;
+        }
+        let value = value.trim().trim_matches('"');
+        if value.is_empty() || is_off(value) {
+            continue;
+        }
+        found = Some(value.to_string());
+    }
+    found
+}
+
+/// `host:port` from a proxy URL: what a reachability check needs.
+///
+/// Credentials are part of a proxy URL but not of the socket, and a URL that names no port takes the
+/// one its scheme implies.
+fn proxy_authority(url: &str) -> Option<String> {
+    let url = url.trim();
+    if url.is_empty() {
+        return None;
+    }
+    let (scheme, rest) = match url.split_once("://") {
+        Some((scheme, rest)) => (scheme.to_ascii_lowercase(), rest),
+        None => ("http".to_string(), url),
+    };
+    let authority = rest.split(['/', '?']).next()?;
+    let host_port = authority.rsplit_once('@').map_or(authority, |(_, it)| it);
+    if host_port.is_empty() {
+        return None;
+    }
+    let named_port = match host_port.strip_prefix('[') {
+        // An IPv6 literal keeps its own colons: only a `]:` after the bracket is a port.
+        Some(rest) => rest.contains("]:"),
+        None => host_port.matches(':').count() == 1,
+    };
+    if named_port {
+        return Some(host_port.to_string());
+    }
+    let port = match scheme.as_str() {
+        "https" => 443,
+        "socks" | "socks5" | "socks5h" => 1080,
+        _ => 80,
+    };
+    Some(format!("{host_port}:{port}"))
+}
+
+/// Whether something is listening where the proxy is configured.
+///
+/// A TCP connect, not an HTTP call: the question is whether the proxy is *there*. With a client that
+/// is not running the port is simply closed - measured on this machine, `npm view` behind a proxy whose
+/// client was closed took 72 s to answer (npm retries twice, each up to a minute), and 2 s without it.
+fn proxy_reachable(authority: &str) -> bool {
+    use std::net::{TcpStream, ToSocketAddrs};
+    let Ok(addresses) = authority.to_socket_addrs() else {
+        return false;
+    };
+    addresses
+        .into_iter()
+        .any(|address| TcpStream::connect_timeout(&address, PROXY_PROBE_TIMEOUT).is_ok())
+}
+
+/// The environment an upgrade runs with.
+///
+/// `npm install` and `git fetch` take the proxy from their own configuration and neither falls back on
+/// its own, while the check in this module already answers from the direct route when the proxy cannot
+/// be reached - which is why the bell could offer 2.3.2 while the install it offered could not fetch it.
+/// The install now follows the same rule: the proxy is used only when it is actually there, and the
+/// tools are told so in the form each of them reads (`npm_config_*` for npm, the bare variables for
+/// git and anything else that shells out).
+fn upgrade_env(proxy: Option<&str>, reachable: bool) -> Vec<(String, String)> {
+    if proxy.is_none() || reachable {
+        return Vec::new();
+    }
+    const VARS: [&str; 8] = [
+        "npm_config_proxy",
+        "npm_config_https_proxy",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ];
+    VARS.into_iter()
+        .map(|name| {
+            let value = if name.starts_with("npm_config_") {
+                "false".to_string()
+            } else {
+                String::new()
+            };
+            (name.to_string(), value)
+        })
+        .collect()
 }
 
 /// The npm package that publishes opencode.
@@ -1409,7 +1557,24 @@ fn run_upgrade_with(
     let args: Vec<&str> = upgrade.args.iter().map(String::as_str).collect();
     let label = upgrade_label(upgrade);
     log::info!("agent upgrade: {label}");
-    let captured = run_tool(&upgrade.program, &args, timeout, false, &[])?;
+    let proxy = configured_proxy();
+    let reachable = proxy
+        .as_deref()
+        .and_then(proxy_authority)
+        .is_some_and(|authority| proxy_reachable(&authority));
+    let envs = upgrade_env(proxy.as_deref(), reachable);
+    if !envs.is_empty() {
+        // Named, so a success that only happened because the proxy was skipped is still visible.
+        log::info!(
+            "agent upgrade: proxy {} is not listening, running without it: {label}",
+            proxy.as_deref().unwrap_or_default()
+        );
+    }
+    let env_refs: Vec<(&str, &str)> = envs
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    let captured = run_tool(&upgrade.program, &args, timeout, false, &env_refs)?;
     let stdout = String::from_utf8_lossy(&captured.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&captured.stderr).trim().to_string();
     if captured.timed_out {
@@ -1932,6 +2097,85 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn an_upgrade_leaves_the_environment_alone_when_the_proxy_answers() {
+        // The common case: the client is running and this machine needs it. Nothing is overridden,
+        // so the tools use exactly what they were configured with.
+        assert!(upgrade_env(Some("http://127.0.0.1:7890"), true).is_empty());
+        // No proxy configured at all: nothing to disable either.
+        assert!(upgrade_env(None, false).is_empty());
+    }
+
+    #[test]
+    fn an_upgrade_tells_the_tools_to_go_direct_when_the_proxy_is_not_listening() {
+        // npm reads `npm_config_*`, git and everything else that shells out read the bare names, and
+        // both keep waiting on a closed port otherwise: measured here, `npm view` took 72 s behind a
+        // proxy whose client was closed, and 2 s with these overrides.
+        let envs = upgrade_env(Some("http://127.0.0.1:7890"), false);
+        let mapped: std::collections::HashMap<&str, &str> = envs
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect();
+        assert_eq!(mapped.get("npm_config_proxy"), Some(&"false"));
+        assert_eq!(mapped.get("npm_config_https_proxy"), Some(&"false"));
+        for name in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
+            assert_eq!(mapped.get(name), Some(&""), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_proxy_is_read_from_npmrc_last_assignment_winning() {
+        // What this machine's `.npmrc` holds, both keys.
+        let npmrc = "# mirror first
+registry=https://registry.npmmirror.com
+proxy=http://127.0.0.1:7890
+https-proxy=http://127.0.0.1:7890
+";
+        assert_eq!(
+            proxy_from_npmrc(npmrc).as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+        // A later line overrides an earlier one, and a switched-off value is not a proxy.
+        assert_eq!(
+            proxy_from_npmrc("proxy=http://a:1
+proxy=http://b:2
+").as_deref(),
+            Some("http://b:2")
+        );
+        assert_eq!(proxy_from_npmrc("proxy=false
+"), None);
+        assert_eq!(proxy_from_npmrc("registry=https://example.test
+"), None);
+    }
+
+    #[test]
+    fn a_proxy_url_becomes_the_address_a_connect_can_use() {
+        assert_eq!(
+            proxy_authority("http://127.0.0.1:7890").as_deref(),
+            Some("127.0.0.1:7890")
+        );
+        // Credentials are part of the URL, not of the socket.
+        assert_eq!(
+            proxy_authority("http://user:pass@10.0.0.5:3128/").as_deref(),
+            Some("10.0.0.5:3128")
+        );
+        // A URL that names no port takes the one its scheme implies.
+        assert_eq!(
+            proxy_authority("https://proxy.example.test").as_deref(),
+            Some("proxy.example.test:443")
+        );
+        assert_eq!(
+            proxy_authority("127.0.0.1:7890").as_deref(),
+            Some("127.0.0.1:7890")
+        );
+        // An IPv6 literal keeps its own colons, and a bracketed one can still name a port.
+        assert_eq!(
+            proxy_authority("http://[::1]:7890").as_deref(),
+            Some("[::1]:7890")
+        );
+        assert_eq!(proxy_authority("  "), None);
     }
 
     #[test]
