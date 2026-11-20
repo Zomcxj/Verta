@@ -194,25 +194,42 @@ describe("groupByProject", () => {
     expect(groups[0].sessions).toHaveLength(2);
   });
 
-  it("orders the project list first, then unknown folders by name, then no-cwd sessions last", () => {
+  it("orders the sections by their newest session, with no-cwd sessions last", () => {
+    // "项目排序也按照有最新会话的项目排在最上面 按照时间排": the project being worked in is the first
+    // heading. Being on the project list no longer counts for anything here - `registered` is the
+    // oldest of the three folders and still comes last - and the sessions that never said where they
+    // ran stay at the bottom whatever their time.
     const groups = groupByProject(
       [
-        inFolder("z", "F:/work/zeta"),
-        inFolder("a", "F:/work/alpha"),
-        inFolder("reg", "F:/reg/registered"),
-        inFolder("none", ""),
+        inFolder("z", "F:/work/zeta", 300),
+        inFolder("a", "F:/work/alpha", 500),
+        inFolder("reg", "F:/reg/registered", 100),
+        inFolder("none", "", 900),
       ],
       [{ path: "F:/reg/registered", distro: null }],
       null,
       "Other",
     );
     expect(groups.map((g) => g.label)).toEqual([
-      "registered",
       "alpha",
       "zeta",
+      "registered",
       "Other",
     ]);
     expect(groups[3].sessions.map((s) => s.id)).toEqual(["none"]);
+  });
+
+  it("breaks a tie by folder name, so a redraw cannot reshuffle the list", () => {
+    const groups = groupByProject(
+      [
+        inFolder("z", "F:/work/zeta", 100),
+        inFolder("a", "F:/work/alpha", 100),
+      ],
+      [],
+      null,
+      "Other",
+    );
+    expect(groups.map((g) => g.label)).toEqual(["alpha", "zeta"]);
   });
 
   it("does not match this machine's projects against a distro's sessions", () => {

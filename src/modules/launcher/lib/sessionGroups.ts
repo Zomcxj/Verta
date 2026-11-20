@@ -88,10 +88,13 @@ export type ProjectRef = {
  * the project list does not know is its own section, named after its last segment; two
  * folders that share a name stay two sections, because the key is the path.
  *
- * Section order is fixed the way the project list is ordered, then the unknown folders by
- * name, then the sessions with no cwd at all. Sorting by recency here would make the
- * whole list jump on every message written, which is exactly what the source order
- * comment above `groupBySource` is about.
+ * **Sections are ordered by their newest session**, so the project somebody is working in right now
+ * is the first heading; sessions with no cwd at all still come last. This used to follow the project
+ * list's order instead, on the argument that recency makes the list jump whenever a message is
+ * written. That is true and it is the trade that was asked for ("项目排序也按照有最新会话的项目排在
+ * 最上面 按照时间排"): the project being worked in is the one being looked for. **Sources keep their
+ * fixed order** - that half of the old argument still holds, because a build in a distro should not
+ * lift a whole block above this machine's.
  */
 export function groupByProject(
   sessions: readonly AgentSession[],
@@ -107,7 +110,6 @@ export function groupByProject(
     .filter((project) => project.distro === distro)
     .map((project) => normalizeFolderPath(project.path))
     .filter((path) => path !== "");
-  const registeredSet = new Set(registered);
   const deepestFirst = [...registered].sort(
     (left, right) => right.length - left.length,
   );
@@ -124,14 +126,20 @@ export function groupByProject(
     else buckets.set(owner, [session]);
   }
 
-  const ordered: string[] = registered.filter((path) => buckets.has(path));
-  const loose = [...buckets.keys()]
-    .filter((owner) => owner !== "" && !registeredSet.has(owner))
-    .sort((left, right) => {
-      const byName = folderName(left).localeCompare(folderName(right));
-      return byName !== 0 ? byName : left.localeCompare(right);
-    });
-  ordered.push(...loose);
+  const newestIn = (owner: string) =>
+    (buckets.get(owner) ?? []).reduce(
+      (newest, session) => Math.max(newest, session.updatedAtMs),
+      Number.NEGATIVE_INFINITY,
+    );
+  const ordered = [...buckets.keys()].filter((owner) => owner !== "");
+  ordered.sort((left, right) => {
+    const byRecency = newestIn(right) - newestIn(left);
+    if (byRecency !== 0) return byRecency;
+    // Equally recent: name, then path, so a redraw of the same data cannot reshuffle the list and
+    // two projects sharing a folder name still have a fixed order between them.
+    const byName = folderName(left).localeCompare(folderName(right));
+    return byName !== 0 ? byName : left.localeCompare(right);
+  });
   // A session that never said where it ran has no folder to be named after; it goes last
   // rather than under a blank heading, and an empty list still needs one block to draw its
   // own empty state in.
@@ -165,7 +173,7 @@ export type SessionSourceGroup = {
  * work" does not want it to move because a build ran in a container.
  *
  * Inside a source nothing is pinned beyond recency: the agent sections keep their configured
- * order (or the project sections the project list's order), and each section is newest-first.
+ * order (or the project sections their own newest session), and each section is newest-first.
  */
 export function groupBySource(
   sessions: readonly AgentSession[],
