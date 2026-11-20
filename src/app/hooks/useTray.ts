@@ -19,6 +19,9 @@ export function useTray(onQuitRequested: () => void): void {
   useEffect(() => {
     void invoke("tray_set_labels", {
       show: t("tray.show"),
+      // The numbers, from the tray: a glance at what has been used should not need the main window
+      // in front first.
+      usage: t("tray.usage"),
       // The item that exists for the window being out of the way: a shortcut needs the focus, a
       // tray click does not.
       screenshot: t("tray.screenshot"),

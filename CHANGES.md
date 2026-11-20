@@ -15,6 +15,15 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-20</strong></summary>
 
+**Usage is one right-click away in the tray**
+
+- `src-tauri/src/modules/tray.rs`, `src/app/hooks/useTray.ts`, `src/modules/i18n/messages.ts`: the tray menu offered Show main window / Screenshot / Quit, so the usage window was only reachable from inside the app - which means first finding the app ("用量支持托盘右击点击用量展示"). A fourth item, 用量 / Usage, sits under 显示主窗口 and runs the same `open_usage_window` the in-app button runs, so a window that is already open is brought forward (and told to re-read) rather than rebuilt, and the dimensions, the dimming of the main window and the hide-on-close behaviour are all the existing ones.
+- Opened off `tauri::async_runtime::spawn` rather than inline: a menu callback runs on the event loop, and building a webview inside it would block the loop that has to finish the click.
+- The label comes from the message table like the other three, so it follows the interface language, and the menu is rebuilt on a language change with the new item in place.
+- Tests: `every_menu_item_has_an_action_and_nothing_else_does` now covers the fourth id - the guard is aimed at the silent failure, an item that ships without a handler.
+- Verified on this machine (dev window + CDP): with the main window hidden, asking for the window the same way the item does put an 880x720 window on screen 3.4 s later - visible to the OS (`IsWindowVisible` and a rect), while the main window stayed hidden. So the worry that a window owned by a hidden owner would go away with it does not hold. Asking the webview instead is misleading: the page shows itself once it has painted, so an early `is_visible` is `false` on a window that is on its way.
+
+
 **The usage read starts warm on the second launch**
 
 - `src-tauri/src/modules/agent_sessions/usage_cache.rs`, `usage_refresh.rs`, `opencode.rs`: the per-file cache was memory-only, so every launch paid the whole read again - 19.6 s for the first tick on a debug build here, 20-45 s measured on this store - even though almost nothing had changed while the app was closed (the leftover noted in item 11). What one read learned is now written to `%LOCALAPPDATA%\verta\usage-cache.json.zst`, the same per-user directory the control descriptor uses, and read back before the first read of the next launch.

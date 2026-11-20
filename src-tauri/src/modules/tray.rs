@@ -28,6 +28,9 @@ const QUIT_EVENT: &str = "verta:quit-requested";
 /// Ids rather than positions: the menu is rebuilt on every language change, and a handler keyed on
 /// where an item sat would answer the wrong question the first time one was reordered.
 const MENU_SHOW: &str = "show";
+/// The usage window, reachable without the main window in front: the numbers are something to
+/// glance at, and asking for them should not cost a trip through the app first.
+const MENU_USAGE: &str = "usage";
 const MENU_SCREENSHOT: &str = "screenshot";
 const MENU_QUIT: &str = "quit";
 
@@ -35,6 +38,7 @@ const MENU_QUIT: &str = "quit";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TrayAction {
     Show,
+    Usage,
     /// Start a region capture. Reachable while the window is hidden or minimised, which is the
     /// point: the grab reads the screen, so it never needed the app to be in front - only a way to
     /// ask, and a shortcut cannot be typed into a window that does not have the focus.
@@ -49,6 +53,7 @@ enum TrayAction {
 fn action_for(id: &str) -> Option<TrayAction> {
     match id {
         MENU_SHOW => Some(TrayAction::Show),
+        MENU_USAGE => Some(TrayAction::Usage),
         MENU_SCREENSHOT => Some(TrayAction::Screenshot),
         MENU_QUIT => Some(TrayAction::Quit),
         _ => None,
@@ -160,13 +165,18 @@ pub fn tray_focus_main(app: AppHandle) {
 fn build_menu(
     app: &AppHandle,
     show: &str,
+    usage: &str,
     screenshot: &str,
     quit: &str,
 ) -> tauri::Result<Menu<tauri::Wry>> {
     let show_item = MenuItem::with_id(app, MENU_SHOW, show, true, None::<&str>)?;
+    let usage_item = MenuItem::with_id(app, MENU_USAGE, usage, true, None::<&str>)?;
     let screenshot_item = MenuItem::with_id(app, MENU_SCREENSHOT, screenshot, true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, MENU_QUIT, quit, true, None::<&str>)?;
-    Menu::with_items(app, &[&show_item, &screenshot_item, &quit_item])
+    Menu::with_items(
+        app,
+        &[&show_item, &usage_item, &screenshot_item, &quit_item],
+    )
 }
 
 /// Create the tray on the first call, and relabel it on every later one.
@@ -177,10 +187,12 @@ fn build_menu(
 pub fn tray_set_labels(
     app: AppHandle,
     show: String,
+    usage: String,
     screenshot: String,
     quit: String,
 ) -> Result<(), String> {
-    let menu = build_menu(&app, &show, &screenshot, &quit).map_err(|e| e.to_string())?;
+    let menu =
+        build_menu(&app, &show, &usage, &screenshot, &quit).map_err(|e| e.to_string())?;
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         return tray.set_menu(Some(menu)).map_err(|e| e.to_string());
     }
@@ -191,6 +203,17 @@ pub fn tray_set_labels(
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match action_for(event.id.as_ref()) {
             Some(TrayAction::Show) => focus_main(app),
+            // Off the async runtime because opening is a command's own work: a menu callback runs on
+            // the event loop, and building a webview inside it would block the loop that has to
+            // finish the click. The window itself is the usage window the page's own button opens.
+            Some(TrayAction::Usage) => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = crate::open_usage_window(app).await {
+                        log::warn!("tray usage window failed: {error}");
+                    }
+                });
+            }
             // Deliberately without showing the main window first: the picture wanted is the screen
             // behind the app, and bringing the window forward would be a change to what is about to
             // be photographed. The overlay takes the focus on its own.
@@ -237,12 +260,13 @@ mod tests {
         // The failure this guards against is silent: an item added to the menu without an entry
         // here is a click that does nothing, which is reported as "the menu is broken" much later.
         assert_eq!(action_for(MENU_SHOW), Some(TrayAction::Show));
+        assert_eq!(action_for(MENU_USAGE), Some(TrayAction::Usage));
         assert_eq!(action_for(MENU_SCREENSHOT), Some(TrayAction::Screenshot));
         assert_eq!(action_for(MENU_QUIT), Some(TrayAction::Quit));
         assert_eq!(action_for(""), None);
         assert_eq!(action_for("screenshots"), None);
-        // Three ids, three answers: a duplicate would make one of the items unreachable.
-        let ids = [MENU_SHOW, MENU_SCREENSHOT, MENU_QUIT];
+        // Four ids, four answers: a duplicate would make one of the items unreachable.
+        let ids = [MENU_SHOW, MENU_USAGE, MENU_SCREENSHOT, MENU_QUIT];
         let distinct = ids
             .iter()
             .filter(|id| ids.iter().filter(|other| other == id).count() == 1)
