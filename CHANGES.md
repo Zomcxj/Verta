@@ -15,6 +15,14 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-20</strong></summary>
 
+**A window opened from the tray lands on the screen, not where a minimized frame is parked**
+
+- `src-tauri/src/lib.rs`: `centre_on_main` puts every child window (usage, settings) in the middle of the main window's frame, which is right while that frame is on screen and wrong exactly when it is not. Windows answers a minimized window's `outer_position` with the off-screen spot it parks it in (-32000, -32000) and still reports its restored size, so a usage window asked for from the tray while the app was minimized opened where nobody could see it ("主界面最小化时 托盘点击用量屏幕居中显示").
+- The frame is now used only when the main window is not minimized; otherwise the window goes to the middle of the primary monitor's work area, clamped so a window larger than the screen keeps its top-left in view. A main window that is *hidden* (in the tray) still has a real frame, so it still centres on it - that case was verified first and did not need changing.
+- The arithmetic is two small functions over a rect (`middle_of`, `clamp_into`), so it is tested without a window server: a second monitor starting at x=-1920 (a sign error in the position would show), a frame hanging off both corners, and a window wider than the area. The existing source test also pins that the helper looks at `is_minimized()` and has a `primary_monitor()` to fall back on.
+- Verified on this machine (dev window + CDP): with the main window minimized, asking for the usage window the way the item does put it at left 840, top 336, 880x720, whose centre is 1280, 696 - the centre of the 2560x1392 work area, **0 px off**.
+
+
 **Usage is one right-click away in the tray**
 
 - `src-tauri/src/modules/tray.rs`, `src/app/hooks/useTray.ts`, `src/modules/i18n/messages.ts`: the tray menu offered Show main window / Screenshot / Quit, so the usage window was only reachable from inside the app - which means first finding the app ("用量支持托盘右击点击用量展示"). A fourth item, 用量 / Usage, sits under 显示主窗口 and runs the same `open_usage_window` the in-app button runs, so a window that is already open is brought forward (and told to re-read) rather than rebuilt, and the dimensions, the dimming of the main window and the hide-on-close behaviour are all the existing ones.

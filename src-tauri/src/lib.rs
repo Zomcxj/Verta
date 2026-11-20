@@ -110,33 +110,77 @@ const fn settings_always_on_top(is_macos: bool) -> bool {
 /// The result is clamped to the screen so a main window pushed against an edge cannot place the
 /// settings partly off it. Falls back to the screen centre when there is no main window to centre
 /// on, which is the honest answer rather than a guess.
+/// Puts a child window in the middle of the main window's frame, or of the screen when the main
+/// window has no frame on it.
+///
+/// The second case is the one this exists for: the tray menu opens the usage window while the app is
+/// minimized, and Windows answers a minimized window's position with the off-screen spot it parks it
+/// in, so centring on that frame would put the new window somewhere the reader has to go looking
+/// for. "Middle of the screen" is the primary monitor's work area - the same thing
+/// `window.center()` does, without the off-screen frame telling it otherwise.
 fn centre_on_main(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
-    let Some(main) = app.get_webview_window("main") else {
+    let Ok(own) = window.outer_size() else {
         let _ = window.center();
         return;
     };
-    let (Ok(origin), Ok(main_size), Ok(own_size)) = (
-        main.outer_position(),
-        main.outer_size(),
-        window.outer_size(),
-    ) else {
-        let _ = window.center();
-        return;
+    let frame = app.get_webview_window("main").and_then(|main| {
+        // A minimized window still answers with a position and a size; they describe the parked
+        // frame, not a place a window can be seen.
+        if main.is_minimized().unwrap_or(false) {
+            return None;
+        }
+        let origin = main.outer_position().ok()?;
+        let size = main.outer_size().ok()?;
+        Some((origin, size, main.current_monitor().ok().flatten()))
+    });
+    let (x, y) = match frame {
+        Some((origin, main_size, monitor)) => {
+            // Only left/top are set: the size is the one the builder asked for, and setting it here
+            // as well would overwrite a size the user had just resized to.
+            let wanted = (
+                origin.x + (main_size.width as i32 - own.width as i32) / 2,
+                origin.y + (main_size.height as i32 - own.height as i32) / 2,
+            );
+            match monitor {
+                Some(monitor) => clamp_into(monitor.work_area(), own, wanted),
+                None => wanted,
+            }
+        }
+        None => match app.primary_monitor().ok().flatten() {
+            Some(monitor) => middle_of(monitor.work_area(), own),
+            None => {
+                let _ = window.center();
+                return;
+            }
+        },
     };
-    // Only left/top are set: the size is the one the builder asked for, and setting it here as well
-    // would overwrite a size the user had just resized to.
-    let x = origin.x + (main_size.width as i32 - own_size.width as i32) / 2;
-    let y = origin.y + (main_size.height as i32 - own_size.height as i32) / 2;
-    let mut x = x;
-    let mut y = y;
-    if let Ok(Some(monitor)) = main.current_monitor() {
-        let area = monitor.work_area();
-        let max_x = area.position.x + area.size.width as i32 - own_size.width as i32;
-        let max_y = area.position.y + area.size.height as i32 - own_size.height as i32;
-        x = x.clamp(area.position.x, max_x.max(area.position.x));
-        y = y.clamp(area.position.y, max_y.max(area.position.y));
-    }
     let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+/// The corner that centres a window of `own` in `area`, kept inside it.
+fn middle_of(area: &tauri::PhysicalRect<i32, u32>, own: tauri::PhysicalSize<u32>) -> (i32, i32) {
+    clamp_into(
+        area,
+        own,
+        (
+            area.position.x + (area.size.width as i32 - own.width as i32) / 2,
+            area.position.y + (area.size.height as i32 - own.height as i32) / 2,
+        ),
+    )
+}
+
+/// Keeps a window of `own` fully inside `area`, given the corner it would like.
+fn clamp_into(
+    area: &tauri::PhysicalRect<i32, u32>,
+    own: tauri::PhysicalSize<u32>,
+    wanted: (i32, i32),
+) -> (i32, i32) {
+    let max_x = area.position.x + area.size.width as i32 - own.width as i32;
+    let max_y = area.position.y + area.size.height as i32 - own.height as i32;
+    (
+        wanted.0.clamp(area.position.x, max_x.max(area.position.x)),
+        wanted.1.clamp(area.position.y, max_y.max(area.position.y)),
+    )
 }
 
 #[tauri::command]
@@ -695,7 +739,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod launch_target_tests {
-    use super::{resolve_launch_target, settings_always_on_top, LaunchEntry, LaunchTarget};
+    use super::{
+        clamp_into, middle_of, resolve_launch_target, settings_always_on_top, LaunchEntry,
+        LaunchTarget,
+    };
     use std::path::PathBuf;
 
     #[test]
@@ -842,6 +889,36 @@ mod launch_target_tests {
             helper_body.contains("outer_position()"),
             "centre_on_main does not read the main window's position"
         );
+        // A minimized window's frame is parked off screen, so centring on it would put the child
+        // window where nobody can see it: the tray opens the usage window that way.
+        assert!(
+            helper_body.contains("is_minimized()"),
+            "centre_on_main centres on a minimized main window's parked frame"
+        );
+        assert!(
+            helper_body.contains("primary_monitor()"),
+            "centre_on_main has no screen to fall back on when the main window is minimized"
+        );
+    }
+
+    /// Centring maths, without a window server: a work area's middle, and the clamp that keeps a
+    /// window from hanging off it.
+    #[test]
+    fn a_child_window_lands_in_the_middle_of_the_area_and_stays_inside_it() {
+        // A second monitor to the left of the primary one, so a sign error in the position shows up.
+        let area = tauri::PhysicalRect {
+            position: tauri::PhysicalPosition::new(-1920, 0),
+            size: tauri::PhysicalSize::new(1920, 1080),
+        };
+        let own = tauri::PhysicalSize::new(880, 720);
+        // (1920 - 880) / 2 = 520 to the right of the area's left edge; (1080 - 720) / 2 = 180 down.
+        assert_eq!(middle_of(&area, own), (-1400, 180));
+        // A frame that would hang off the top left is pulled in; one past the bottom right is too.
+        assert_eq!(clamp_into(&area, own, (-3000, -50)), (-1920, 0));
+        assert_eq!(clamp_into(&area, own, (-100, 2000)), (-880, 360));
+        // A window wider than the area keeps the area's corner rather than a negative offset.
+        let wider = tauri::PhysicalSize::new(2600, 720);
+        assert_eq!(middle_of(&area, wider), (-1920, 180));
     }
 
     /// The settings window asks for 1.3x the height it used to, so a page fits without scrolling.
