@@ -15,9 +15,16 @@
 //! start a second scan of the same bytes, and both would feel slow for the sake of one answer; the
 //! second caller waits for the first and then reads the cache.
 //!
-//! Measured here after the change: the first read of a launch is the full 20 s, and a tick that
-//! nothing happened in is **377-402 ms** (claude 14 ms, pi 8 ms, dsh 14 ms, opencode 258 ms).
+//! The cache is also written to the user's directory on every tick that found something new, and
+//! read back before the first read of the next launch: without that, every launch paid the whole
+//! read again (20-45 s) even though almost nothing had changed while the app was closed.
+//!
+//! Measured here after the change: a tick that nothing happened in is **377-402 ms** (claude 14 ms,
+//! pi 8 ms, dsh 14 ms, opencode 258 ms). The first read of a launch is the full store - 19.6-28.9 s
+//! on this machine, depending on its load - and it is paid once: the next launch restored 70 files
+//! and 36k opencode rows in **627-649 ms** and answered its first tick in **355-832 ms**.
 
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -34,6 +41,15 @@ pub const CHANGED_EVENT: &str = "verta://usage-changed";
 /// Once a minute, which is the requirement and also what the cache makes affordable: one appended
 /// session file is parsed, everything else is a `stat` and a 4 KiB sample.
 const TICK: Duration = Duration::from_secs(60);
+
+/// How often at most the cache is written, on top of "only when a tick found something new".
+///
+/// What a save that is a few minutes behind costs is one appended tail parsed on the next launch -
+/// milliseconds. What writing costs is serializing 16 MiB of events and putting 2.2 MiB on the disk,
+/// on a tick that already has work to do: measured 1639 ms in this (debug) build. So the file is
+/// kept behind on purpose rather than rewritten every minute. The first changed tick always writes,
+/// because that is the one holding the whole cold read.
+const STORE_EVERY: Duration = Duration::from_secs(300);
 
 /// The one cache the whole app reads through.
 ///
@@ -66,10 +82,19 @@ pub fn cached_files() -> usize {
 /// Starts the background read. Never fails: a machine where a tick cannot run still has the
 /// synchronous read `agent_usage_events` does.
 pub fn start(app: AppHandle) {
+    let store = store_path();
     std::thread::Builder::new()
         .name("usage-refresh".to_string())
         .spawn(move || {
+            // Before the first read, so a launch that follows a warm one parses only what moved while
+            // the app was closed instead of the whole store again.
+            if let Some(store) = &store {
+                restore(store);
+            }
             let mut last: Option<u64> = None;
+            // When the file was last written. `None` is "never in this launch", which is also what
+            // makes the first write the announced one.
+            let mut last_store: Option<Instant> = None;
             loop {
                 let started = Instant::now();
                 let read = read(None);
@@ -90,6 +115,16 @@ pub fn start(app: AppHandle) {
                         read.report.failures.len(),
                         spent.as_millis(),
                     );
+                    // Written before the minute is slept away, and the timing above stays the read's
+                    // own: a tick that found nothing new cannot have moved the file, and one a few
+                    // minutes behind is still almost all of the work saved.
+                    if let Some(store) = &store {
+                        let due = last_store.is_none_or(|at| at.elapsed() >= STORE_EVERY);
+                        if due {
+                            persist(store, last_store.is_none());
+                            last_store = Some(Instant::now());
+                        }
+                    }
                     let _ = app.emit(CHANGED_EVENT, ());
                 } else {
                     log::debug!("usage refresh: nothing changed, {} ms", spent.as_millis());
@@ -101,6 +136,66 @@ pub fn start(app: AppHandle) {
         })
         .map(|_| ())
         .unwrap_or_else(|error| log::warn!("usage refresh not started: {error}"));
+}
+
+/// Where the cache is kept between launches: the per-user directory the control descriptor uses too.
+///
+/// A cache, not a document: it can be deleted at any time and the only cost is the next read.
+fn store_path() -> Option<PathBuf> {
+    Some(
+        dirs::cache_dir()?
+            .join("verta")
+            .join(super::usage_cache::STORE_FILE),
+    )
+}
+
+/// Puts the cache read back from disk in place, unless a read has already filled the slot.
+fn restore(path: &Path) {
+    let started = Instant::now();
+    let Some(loaded) = UsageReadCache::load(path) else {
+        return;
+    };
+    let files = loaded.files.len();
+    let rows = loaded.opencode.rows.len();
+    let mut slot = CACHE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    // A window that opened first and already did the cold read answered from a cache of its own;
+    // replacing that would only throw the work away.
+    if slot.is_some() {
+        return;
+    }
+    *slot = Some(loaded);
+    log::info!(
+        "usage cache restored: {files} files, {rows} opencode rows, {} ms",
+        started.elapsed().as_millis()
+    );
+}
+
+/// Writes the cache out for the next launch.
+///
+/// `announce` is the first write of a launch: it is logged at info, so a real run leaves one line
+/// saying what the next launch will find, and the writes after it stay at debug.
+fn persist(path: &Path, announce: bool) {
+    let started = Instant::now();
+    let cache = CACHE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let Some(cache) = cache.as_ref() else {
+        return;
+    };
+    match cache.save(path) {
+        Ok(bytes) => {
+            let kib = bytes / 1024;
+            let millis = started.elapsed().as_millis();
+            if announce {
+                log::info!("usage cache written: {kib} KiB in {millis} ms");
+            } else {
+                log::debug!("usage cache written: {kib} KiB in {millis} ms");
+            }
+        }
+        Err(error) => log::warn!("usage cache not written: {error}"),
+    }
 }
 
 /// What the events add up to, for "did anything change".

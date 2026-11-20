@@ -249,7 +249,10 @@ pub(crate) fn usage_events_at(
 pub(crate) struct UsageRowCache {
     /// Keyed by `session_message.id`. `None` is a row that was read and holds no usage (an assistant
     /// message with no tokens yet): remembered so it is not read again until it moves.
-    rows: HashMap<String, (i64, Option<super::usage::OwnedUsageEvent>)>,
+    ///
+    /// Reachable from `usage_cache`, which writes this between launches: a launch that does not have
+    /// to re-read 35k rows is a launch that does not touch the database until opencode writes to it.
+    pub(crate) rows: HashMap<String, (i64, Option<super::usage::OwnedUsageEvent>)>,
 }
 
 /// The shape current opencode writes: one event per assistant message, usage on the message row.

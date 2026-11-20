@@ -22,10 +22,17 @@
 //! produce, and the duplicate rule still runs once over all of them in the same order: a streamed
 //! answer is persisted several times with one `message.id`, and the first copy counted is the one the
 //! uncached read would have counted too.
+//!
+//! The cache outlives the process (`save`/`load`): kept only in memory, every launch paid the whole
+//! 20-45 s read again. What is written is the same memory - fingerprints, consumed offsets and the
+//! events they produced - and every entry is checked against its file again before it is believed, so
+//! a file that is stale, foreign or corrupt can cost time but cannot change an answer.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 
 use super::usage::{OwnedUsageEvent, UsageReadReport};
 
@@ -314,6 +321,221 @@ impl UsageFileCache {
     }
 }
 
+/// The file the cache is kept in, inside the app's per-user directory.
+///
+/// A cache file is disposable by definition: every entry is checked against the file it describes
+/// before it is believed, so a stale, foreign or corrupt file costs time and never changes an answer.
+pub(crate) const STORE_FILE: &str = "usage-cache.json.zst";
+
+/// The on-disk shape's version. Bumped when a field's meaning changes, so an older file is ignored
+/// rather than misread.
+const STORE_VERSION: u32 = 1;
+
+/// Everything one read remembered, as it is written between launches.
+///
+/// Compressed because it is rewritten every tick that found something new - every minute while a
+/// session is open. Measured on this machine: 62.8k events and 36k opencode rows are 16.0 MiB of
+/// JSON and 2.2 MiB of zstd, so both the write and the read-back stay small.
+#[derive(Serialize, Deserialize)]
+struct StoredCache {
+    version: u32,
+    files: Vec<StoredFile>,
+    opencode: Vec<StoredRow>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredFile {
+    path: PathBuf,
+    scope: String,
+    size: u64,
+    mtime_ns: u64,
+    head: Option<u64>,
+    consumed: u64,
+    tail: Option<u64>,
+    failure: Option<String>,
+    events: Vec<StoredEvent>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredEvent {
+    key: Option<String>,
+    at_ms: i64,
+    tool: String,
+    provider: Option<String>,
+    model: Option<String>,
+    tokens: super::usage::UsageTokens,
+}
+
+/// One opencode row: its id, when it last moved, and what it contributed (`None`: no usage in it).
+#[derive(Serialize, Deserialize)]
+struct StoredRow {
+    id: String,
+    updated: i64,
+    event: Option<StoredEvent>,
+}
+
+/// The tools this build knows. A stored name that is not one of them belongs to another version:
+/// `tool` is a `&'static str` in the domain type, and inventing one would be a lie.
+fn known_tool(name: &str) -> Option<&'static str> {
+    [
+        super::claude::TOOL,
+        super::pi::TOOL,
+        super::opencode::TOOL,
+        super::workbuddy::TOOL,
+        super::dsh::TOOL,
+        super::zcode::TOOL,
+    ]
+    .into_iter()
+    .find(|tool| *tool == name)
+}
+
+impl From<&OwnedUsageEvent> for StoredEvent {
+    fn from(event: &OwnedUsageEvent) -> Self {
+        Self {
+            key: None,
+            at_ms: event.at_ms,
+            tool: event.tool.to_string(),
+            provider: event.provider.clone(),
+            model: event.model.clone(),
+            tokens: event.tokens,
+        }
+    }
+}
+
+impl From<&FileEvent> for StoredEvent {
+    fn from(found: &FileEvent) -> Self {
+        Self {
+            key: found.key.clone(),
+            ..Self::from(&found.event)
+        }
+    }
+}
+
+impl StoredEvent {
+    /// The record this build can still name, with the key it was read under.
+    ///
+    /// `None` when the tool is not one this build has: `tool` is a `&'static str` in the domain type,
+    /// and inventing one would be a lie.
+    fn unpack(self) -> Option<(Option<String>, OwnedUsageEvent)> {
+        Some((
+            self.key,
+            OwnedUsageEvent {
+                at_ms: self.at_ms,
+                tool: known_tool(&self.tool)?,
+                provider: self.provider,
+                model: self.model,
+                tokens: self.tokens,
+            },
+        ))
+    }
+}
+
+impl UsageReadCache {
+    /// Writes what this cache holds, and answers how many bytes went out.
+    ///
+    /// Through a sibling file and a rename: a half-written cache would be read as a corrupt one and
+    /// thrown away, which turns one interrupted write into one slow launch - but a rename is cheap
+    /// and the alternative is a file that parses and lies.
+    pub(crate) fn save(&self, path: &Path) -> Result<u64, String> {
+        let stored = StoredCache {
+            version: STORE_VERSION,
+            files: self
+                .files
+                .files
+                .iter()
+                .map(|(path, entry)| StoredFile {
+                    path: path.clone(),
+                    scope: entry.scope.to_string(),
+                    size: entry.size,
+                    mtime_ns: entry.mtime_ns,
+                    head: entry.head,
+                    consumed: entry.consumed,
+                    tail: entry.tail,
+                    failure: entry.failure.clone(),
+                    events: entry.events.iter().map(StoredEvent::from).collect(),
+                })
+                .collect(),
+            opencode: self
+                .opencode
+                .rows
+                .iter()
+                .map(|(id, (updated, event))| StoredRow {
+                    id: id.clone(),
+                    updated: *updated,
+                    event: event.as_ref().map(StoredEvent::from),
+                })
+                .collect(),
+        };
+        let body = serde_json::to_vec(&stored).map_err(|error| error.to_string())?;
+        let packed =
+            zstd::stream::encode_all(body.as_slice(), 1).map_err(|error| error.to_string())?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let temp = path.with_extension("zst.tmp");
+        std::fs::write(&temp, &packed).map_err(|error| error.to_string())?;
+        std::fs::rename(&temp, path).map_err(|error| error.to_string())?;
+        Ok(packed.len() as u64)
+    }
+
+    /// Reads a cache written by `save`. `None` for a missing, corrupt, foreign or older file: every
+    /// one of those means "read the stores again", which is what happens without a file at all.
+    ///
+    /// Entries are taken as they are - the very next read compares each one with its file (`size`,
+    /// `mtime`, head sample) and re-parses anything that does not match, so nothing here has to be
+    /// believed on its own.
+    pub(crate) fn load(path: &Path) -> Option<Self> {
+        let packed = std::fs::read(path).ok()?;
+        let body = zstd::stream::decode_all(packed.as_slice()).ok()?;
+        let stored: StoredCache = serde_json::from_slice(&body).ok()?;
+        if stored.version != STORE_VERSION {
+            return None;
+        }
+        let mut cache = Self::default();
+        'files: for file in stored.files {
+            let Some(scope) = known_tool(&file.scope) else {
+                continue;
+            };
+            // One record this build cannot name drops the whole file entry: keeping the rest would
+            // reuse a fingerprint over a list of events that is missing one, and that file would
+            // never be read again.
+            let mut events = Vec::with_capacity(file.events.len());
+            for stored in file.events {
+                let Some((key, event)) = stored.unpack() else {
+                    continue 'files;
+                };
+                events.push(FileEvent { key, event });
+            }
+            cache.files.files.insert(
+                file.path,
+                CachedFile {
+                    scope,
+                    size: file.size,
+                    mtime_ns: file.mtime_ns,
+                    head: file.head,
+                    consumed: file.consumed,
+                    tail: file.tail,
+                    events,
+                    failure: file.failure,
+                },
+            );
+        }
+        for row in stored.opencode {
+            // The same rule for a row: an event this build cannot name drops the row, because a row
+            // remembered as "no usage" would stay quiet until its `time_updated` moved again.
+            let event = match row.event {
+                None => None,
+                Some(stored) => match stored.unpack() {
+                    Some((_, event)) => Some(event),
+                    None => continue,
+                },
+            };
+            cache.opencode.rows.insert(row.id, (row.updated, event));
+        }
+        Some(cache)
+    }
+}
+
 /// One cached record, deduplicated and filtered into the report.
 ///
 /// The order is the uncached readers' order on purpose: the duplicate rule comes first and the range
@@ -592,5 +814,157 @@ mod tests {
             inputs(&cache.read_whole("dsh", &files, None, read)),
             [10, 20, 30]
         );
+    }
+
+    /// Where a cache is written in these tests: the same name the app uses, in a temp directory.
+    fn store(dir: &Path) -> PathBuf {
+        dir.join(STORE_FILE)
+    }
+
+    fn packed(stored: &StoredCache) -> Vec<u8> {
+        let body = serde_json::to_vec(stored).expect("json");
+        zstd::stream::encode_all(body.as_slice(), 1).expect("pack")
+    }
+
+    #[test]
+    fn a_written_cache_answers_the_next_launch_without_parsing() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("a.jsonl");
+        write(&file, "1 10\n2 20\n");
+        let files = vec![file];
+        let mut cache = UsageReadCache::default();
+        assert_eq!(
+            inputs(&cache.files.read_jsonl("pi", &files, None, parse)),
+            [10, 20]
+        );
+
+        let path = store(dir.path());
+        let bytes = cache.save(&path).expect("save");
+        assert!(bytes > 0, "a save that wrote nothing is not a save");
+
+        let mut loaded = UsageReadCache::load(&path).expect("load");
+        let calls = std::cell::Cell::new(0_u32);
+        let counting = |line: &str| {
+            calls.set(calls.get() + 1);
+            parse(line)
+        };
+        assert_eq!(
+            inputs(&loaded.files.read_jsonl("pi", &files, None, counting)),
+            [10, 20]
+        );
+        assert_eq!(calls.get(), 0, "a restored entry is answered, not parsed");
+    }
+
+    #[test]
+    fn a_restored_entry_still_yields_to_a_file_that_moved() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("a.jsonl");
+        write(&file, "1 10\n2 20\n");
+        let files = vec![file.clone()];
+        let mut cache = UsageReadCache::default();
+        cache.files.read_jsonl("pi", &files, None, parse);
+        let path = store(dir.path());
+        cache.save(&path).expect("save");
+        let mut loaded = UsageReadCache::load(&path).expect("load");
+
+        // The fingerprint is what makes the file safe to keep: a file that grew is resumed from the
+        // offset the entry remembers, and one rewritten is read again from the start.
+        append(&file, "3 30\n");
+        assert_eq!(
+            inputs(&loaded.files.read_jsonl("pi", &files, None, parse)),
+            [10, 20, 30]
+        );
+        write(&file, "9 90\n");
+        assert_eq!(
+            inputs(&loaded.files.read_jsonl("pi", &files, None, parse)),
+            [90]
+        );
+    }
+
+    #[test]
+    fn a_corrupt_or_foreign_file_is_ignored() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = store(dir.path());
+        std::fs::write(&path, b"not zstd at all").expect("write");
+        assert!(UsageReadCache::load(&path).is_none());
+
+        // A file from a newer build: its fields may mean something else, so it is not read.
+        std::fs::write(
+            &path,
+            packed(&StoredCache {
+                version: STORE_VERSION + 1,
+                files: Vec::new(),
+                opencode: Vec::new(),
+            }),
+        )
+        .expect("write");
+        assert!(UsageReadCache::load(&path).is_none());
+
+        assert!(UsageReadCache::load(&dir.path().join("nothing-here")).is_none());
+    }
+
+    #[test]
+    fn an_entry_naming_a_tool_this_build_lacks_is_dropped_whole() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = store(dir.path());
+        let stored = StoredCache {
+            version: STORE_VERSION,
+            files: vec![StoredFile {
+                path: PathBuf::from("a.jsonl"),
+                scope: "pi".to_string(),
+                size: 4,
+                mtime_ns: 1,
+                head: Some(2),
+                consumed: 4,
+                tail: Some(3),
+                failure: None,
+                events: vec![StoredEvent {
+                    key: None,
+                    at_ms: 1,
+                    tool: "a-tool-from-another-build".to_string(),
+                    provider: None,
+                    model: None,
+                    tokens: UsageTokens::ZERO,
+                }],
+            }],
+            opencode: Vec::new(),
+        };
+        std::fs::write(&path, packed(&stored)).expect("write");
+
+        // Keeping the entry would reuse its fingerprint over a list missing one event, and the file
+        // would never be read again.
+        let loaded = UsageReadCache::load(&path).expect("load");
+        assert_eq!(loaded.files.len(), 0);
+    }
+
+    #[test]
+    fn opencode_rows_survive_the_round_trip() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = store(dir.path());
+        let mut cache = UsageReadCache::default();
+        cache
+            .opencode
+            .rows
+            .insert("msg-1".to_string(), (7, Some(event(1_000, 5))));
+        // A row read and found to hold no usage is remembered too, and must come back as such.
+        cache.opencode.rows.insert("msg-2".to_string(), (8, None));
+        cache.save(&path).expect("save");
+
+        let loaded = UsageReadCache::load(&path).expect("load");
+        assert_eq!(loaded.opencode.rows.len(), 2);
+        let (updated, found) = loaded.opencode.rows.get("msg-1").expect("row");
+        assert_eq!(*updated, 7);
+        assert_eq!(found.as_ref().expect("event").tokens.input, 5);
+        assert!(loaded.opencode.rows.get("msg-2").expect("row").1.is_none());
+    }
+
+    #[test]
+    fn a_save_creates_the_directory_it_writes_into() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("deep").join("er").join(STORE_FILE);
+        UsageReadCache::default().save(&path).expect("save");
+        assert!(path.exists());
+        // Written through a sibling and a rename, so no temp file is left behind.
+        assert!(!path.with_extension("zst.tmp").exists());
     }
 }
