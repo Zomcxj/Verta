@@ -14,7 +14,16 @@ import {
 import { Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { vim } from "@replit/codemirror-vim";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+
+import type { DirEntry } from "@/lib/native";
+import { cn } from "@/lib/utils";
+import {
+  folderOf,
+  imageSiblingPaths,
+  nameOf,
+  stepImage,
+} from "./lib/imageSiblings";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import {
   forwardRef,
@@ -953,9 +962,9 @@ export const EditorPane = memo(
  * at, and a picture bigger than the pane drags with the left button.
  */
 function ImagePreview({
-  src,
+  src: initialSrc,
   path,
-  name,
+  name: initialName,
 }: {
   src: string;
   path: string;
@@ -967,9 +976,67 @@ function ImagePreview({
   const [zoom, setZoom] = useState(1);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
-  const [failed, setFailed] = useState(false);
+  // Which picture failed, rather than a flag: a swapped picture is a fresh look, and the
+  // previous one's failure must not be drawn over it.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const viewport = useRef<HTMLDivElement | null>(null);
   const picture = useRef<HTMLImageElement | null>(null);
+  const root = useRef<HTMLDivElement | null>(null);
+  // The folder's other pictures, and where this one sits among them. The tab keeps the file it was
+  // opened with - moving is this viewer's own business, the way a photo window pages through a
+  // folder without renaming anything.
+  const [siblings, setSiblings] = useState<readonly string[]>([]);
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    let live = true;
+    setSiblings([]);
+    setIndex(0);
+    const folder = folderOf(path);
+    void invoke<DirEntry[]>("fs_read_dir", { path: folder, showHidden: false })
+      .then((entries) => {
+        if (!live) return;
+        const paths = imageSiblingPaths(entries, folder);
+        setSiblings(paths);
+        const at = paths.indexOf(path);
+        setIndex(at < 0 ? 0 : at);
+      })
+      .catch(() => {
+        // A folder that cannot be listed leaves the one picture and no arrows, which is what a file
+        // outside any workspace looks like.
+      });
+    return () => {
+      live = false;
+    };
+  }, [path]);
+
+  const shown = siblings[index] ?? path;
+  const name = siblings.length > 0 ? nameOf(shown) : initialName;
+  const src = siblings.length > 0 ? convertFileSrc(shown) : initialSrc;
+  const move = useCallback(
+    (delta: number) => setIndex((was) => stepImage(was, delta, siblings.length)),
+    [siblings.length],
+  );
+
+  /**
+   * The arrow keys, while this pane is the one on screen.
+   *
+   * Every open tab keeps its editor mounted (the hidden ones are `aria-hidden` and transparent), so a
+   * listener that did not check would page a folder behind the tab being looked at. One check at
+   * press time: a pane inside an `aria-hidden` ancestor is not the one in front.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      const node = root.current;
+      if (!node || node.closest('[aria-hidden="true"]')) return;
+      if (siblings.length < 2) return;
+      event.preventDefault();
+      move(event.key === "ArrowLeft" ? -1 : 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [siblings.length, move]);
 
   /** The room the picture has. Zero is not a room: a pane that has not been laid out is not a fit. */
   const rememberRoom = useCallback((room: { w: number; h: number }) => {
@@ -1055,6 +1122,8 @@ function ImagePreview({
         }
       : null;
 
+  const failed = failedSrc === src;
+
   if (failed) {
     return (
       <div className="flex flex-col items-center gap-1 text-center">
@@ -1070,6 +1139,15 @@ function ImagePreview({
     <div className="flex h-full min-h-0 w-full flex-col items-center gap-2">
       <div className="flex w-full shrink-0 items-center gap-2 px-1 text-[11px] text-muted-foreground">
         <span className="truncate text-foreground">{name}</span>
+        {siblings.length > 1 ? (
+          // Where in the folder this one is: two arrows alone do not say how many are left.
+          <span className="shrink-0 tabular-nums">
+            {t("editor.image.position", {
+              index: index + 1,
+              count: siblings.length,
+            })}
+          </span>
+        ) : null}
         {size && (
           <span className="shrink-0 tabular-nums">
             {size.w} x {size.h}
@@ -1095,6 +1173,25 @@ function ImagePreview({
           `safe` in both axes (plain centring puts the leading edge of an overflowing picture
           outside the scrollable range, so its left could never be reached) and drags by moving the
           scroll offsets rather than by transforming the picture. */}
+      <div ref={root} className="relative flex min-h-0 w-full flex-1">
+        {siblings.length > 1 ? (
+          <>
+            <ImageArrow
+              label={t("editor.image.previous")}
+              glyph="‹"
+              side="left"
+              disabled={index <= 0}
+              onClick={() => move(-1)}
+            />
+            <ImageArrow
+              label={t("editor.image.next")}
+              glyph="›"
+              side="right"
+              disabled={index >= siblings.length - 1}
+              onClick={() => move(1)}
+            />
+          </>
+        ) : null}
       <PanZoomSurface
         viewportRef={viewport}
         zoom={zoom}
@@ -1107,7 +1204,7 @@ function ImagePreview({
           alt={name}
           decoding="async"
           onLoad={(event) => readNaturalSize(event.currentTarget)}
-          onError={() => setFailed(true)}
+          onError={() => setFailedSrc(src)}
           className={
             // `max-w-none` in both stops, because the base layer caps every image at its container's
             // width. The size is the picture's own (see `drawn`), so leaving the cap on would clamp
@@ -1124,6 +1221,43 @@ function ImagePreview({
           }}
         />
       </PanZoomSurface>
+      </div>
     </div>
+  );
+}
+
+/**
+ * One of the viewer's two arrows: over the picture's edge, spent at the folder's end.
+ *
+ * A button rather than a click on the picture's edge, because the picture is draggable and a drag that
+ * started as a click would page the folder instead.
+ */
+function ImageArrow({
+  label,
+  glyph,
+  side,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  glyph: string;
+  side: "left" | "right";
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "absolute top-1/2 z-10 -translate-y-1/2 cursor-pointer rounded-full border border-border/70 bg-background/90 px-2 py-1 text-[18px] leading-none text-muted-foreground shadow-sm outline-none transition-colors duration-[var(--dur-base)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-default disabled:opacity-25",
+        side === "left" ? "left-2" : "right-2",
+      )}
+    >
+      {glyph}
+    </button>
   );
 }

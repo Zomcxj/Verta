@@ -13,7 +13,41 @@ fine as plain text. **The newest day is `open` by default**; when a new day star
 swap in the new date, and drop the `open` from the day before.
 
 <details open>
+<summary><strong>2026-11-20</strong></summary>
+
+**A picture opened as a file pages through its folder, like a photo viewer**
+
+- `src/modules/editor/EditorPane.tsx`, `src/modules/editor/lib/imageSiblings.ts` (new), `src/modules/i18n/messages.ts`: a picture opened as a file was one picture - looking at the next screenshot meant going back to the explorer for it. The folder is the collection now, the way a photo window treats it ("类似 windows 自带的照片查看器"): two arrows over the picture's edges and the two arrow keys move between the folder's images, oldest-to-newest by the folder's own natural order (`clip-2` before `clip-10`), with "3 of 12" beside the file name. The ends are ends - an arrow past the first or last picture is drawn disabled rather than wrapping - and a folder with one picture shows one picture and no arrows at all.
+- The listing is the window's existing `fs_read_dir` (natural-sorted, numbers in order), filtered to what a webview can actually draw (`imageFormats`) and joined with the separator the opened path already uses, so a `D:\` path and a `D:/` path both name their neighbours correctly. A symlink to a picture counts; a subfolder, a `.tiff` and a `.txt` do not.
+- The tab keeps the file it was opened with: the arrows move the viewer, not the document, which is what a viewer is. The arrow keys are ignored while the pane is behind another tab (the hidden panes are `aria-hidden` and stay mounted), and a picture that fails to load no longer keeps its failure over the next one.
+- Tests: eight for the folder logic (what counts as a page, the listing's order kept, both separators, folder/name splitting, the ends) and a wiring test that pins the listing command, the keys, the disabled ends and the hidden-pane check.
+
+</details>
+
+<details>
 <summary><strong>2026-11-19</strong></summary>
+
+**Usage is read once a minute in the background, and costs almost nothing after the first time**
+
+- `src-tauri/src/modules/agent_sessions/usage_cache.rs`, `usage_refresh.rs` (new), `mod.rs`, `claude.rs`, `pi.rs`, `workbuddy.rs`, `dsh.rs`, `opencode.rs`, `src/usage/UsageApp.tsx`: `agent_usage_events` parsed every byte of every transcript on every call - measured on this machine 142 files and 227 MB, 45 s with the app running and 20 s in a bare process - so a window paid for it on open and nothing kept the numbers fresh ("用量在后台要每分钟更新一次 单独线程 不卡界面"). A read now keeps what it produced per file and per database row, and a tick reads only what moved.
+- Two layers for the files, because one is not enough: a file whose `size`, `mtime` and first 4 KiB are unchanged cannot have new events, and a file that only grew is resumed from the byte offset the last read reached (checked against a 64 KiB sample of the bytes before it, so a rewrite that kept the length is still a full re-read). The offset is what makes the one session being talked to cheap: it is appended to every few seconds, and re-reading it whole would be 67.8 MB per tick. `mtime` alone was not enough either: measured here, Windows kept the same mtime across two writes a millisecond apart.
+- The duplicate rule is unchanged: a streamed answer persisted several times carries one `message.id`, and the first copy in walk order is counted, now over cached and freshly parsed files alike. `since_ms` filters the answer instead of the read, so a range query is a pass over what is already parsed.
+- opencode is the one store the file trick cannot help with: the database is rewritten whenever opencode runs, and the read was 6.3 s (543 MB, 40,559 message rows) because every row's `data` blob came into Rust. It now scans `id, time_updated` (184 ms) and re-reads only the rows that moved - a message's tokens land when it finishes, and finishing bumps `time_updated`. A deleted row takes its event with it, which was previously invisible to a cache keyed on anything else.
+- `usage_refresh` owns the cache and one thread: a read at start-up fills it, a tick every 60 s reads again and emits `verta://usage-changed` when what it found differs, and a window that is open re-reads. Reads are serialized, so a window opening mid-tick waits for that read instead of starting a second scan of the same bytes.
+- Measured on this machine, same stores, one process: claude 1,944 -> 14 ms, pi 2,140 -> 8 ms, dsh 6,191 -> 14 ms, opencode 5,439 -> 258 ms. End to end a tick is **377-402 ms** against 45 s before; the first read after start-up is still the full one, on the background thread.
+- Not done here: zcode's database has the same shape of problem and the same reader pattern, but there is no store for it on this machine to measure or test against, so it keeps its full scan.
+
+**Sessions are grouped by project in the order the projects were last used**
+
+- `src/modules/launcher/lib/sessionGroups.ts`: the project sections followed the project *list*'s order, then unknown folders by name, then the rows with no cwd. They now follow each section's newest session, so the project somebody is working in right now is the first heading ("会话中项目排序也按照有最新会话的项目排在最上面 按照时间排"). Ties fall back to folder name and then path, so a redraw of the same data cannot reshuffle the list, and the rows with no cwd stay last whatever their time. This is the trade the old comment argued against - any project with one message written jumps to the top - and it is the one that was asked for. The source order (this machine, then each distro) is unchanged.
+- `src/modules/launcher/lib/sessionGroups.test.ts`: the order test now pins recency (a registered project with the oldest session comes last), and a tie test pins the name fallback.
+
+**An upgrade checks that the proxy is there before it uses it**
+
+- `src-tauri/src/modules/agent_versions.rs`: the bell offered opencode 2.3.2 and pi's newest, and clicking either did nothing for over a minute and then failed ("点击后过一会好像没成功"). The *check* has always answered from the direct route when the proxy could not be reached - `Http` retries a request that could not be sent without it - but the install is a child process (`opencode upgrade`, `pi update --extensions`, and the `npm install`s they spawn), and npm and git each take the proxy from their own configuration and never fall back. Measured on this machine with the client closed: `npm view @opencode/cli version` took **72 s** behind `proxy=http://127.0.0.1:7890` (npm retries twice, each up to a minute) and **2 s** with `npm_config_proxy=false`, while the registry itself answered directly in under a second. So the bell could say "2.3.2 available" and the button it offers could not fetch it.
+- The upgrade now probes the configured proxy with a TCP connect (800 ms, once per run) and, when nothing is listening, tells the tools to go direct: `npm_config_proxy` / `npm_config_https_proxy` set to `false` for npm, and the bare `HTTP_PROXY` / `HTTPS_PROXY` / `http_proxy` / `https_proxy` / `ALL_PROXY` / `all_proxy` emptied for git and anything else that shells out. A proxy that answers keeps the environment exactly as it was, and a machine with no proxy configured gets no overrides at all. The skip is logged with the address it skipped, so a success that only happened because of it is still visible.
+- The proxy is read from where those tools read it: `npm_config_https_proxy` / `npm_config_proxy`, then `HTTPS_PROXY` / `https_proxy` / `HTTP_PROXY` / `http_proxy` / `ALL_PROXY` / `all_proxy`, then npm's `.npmrc` (`proxy` / `https-proxy`, last assignment winning) - the same place and precedence `registry_base` already uses for the registry.
+- Four tests: the `.npmrc` read (last assignment wins, `false` is not a proxy), the URL-to-`host:port` conversion (credentials stripped, scheme's default port, IPv6 literal keeps its colons), no overrides when the proxy answers or is absent, and the exact override set when it is not there.
 
 **Ink that its own page cannot show is pulled back into view**
 
