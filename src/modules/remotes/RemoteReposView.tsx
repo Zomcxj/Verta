@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { SortHeader } from "@/components/ui/sort-header";
 import { ownershipLabelKey } from "@/lib/ownership";
+import { copyToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import {
   native,
@@ -361,8 +362,7 @@ export function RemoteReposView({ active }: Props) {
   const copy = useCallback((value: string) => {
     // Clipboard is best-effort: stay silent when permission is missing rather
     // than reporting a failed copy as a list error.
-    void navigator.clipboard
-      .writeText(value)
+    void copyToClipboard(value)
       .then(() => toast.message(t("remotes.action.copied")))
       .catch(() => {});
   }, [t]);

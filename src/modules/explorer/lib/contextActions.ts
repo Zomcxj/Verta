@@ -1,8 +1,13 @@
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { copyToClipboard as writeClipboard } from "@/lib/clipboard";
 
+/**
+ * Copy a path or a name, best-effort: a caller that cannot copy says nothing rather than turning a
+ * successful operation into an error.
+ */
 export async function copyToClipboard(text: string): Promise<void> {
   try {
-    await navigator.clipboard.writeText(text);
+    await writeClipboard(text);
   } catch {
     // Best-effort; ignore in environments without clipboard permission.
   }

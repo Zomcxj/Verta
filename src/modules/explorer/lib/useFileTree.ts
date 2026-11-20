@@ -12,6 +12,7 @@ import {
   useWorkspaceEnvStore,
   workspaceScopeKey,
 } from "@/modules/workspace";
+import { copyToClipboard } from "@/lib/clipboard";
 import { useT } from "@/modules/i18n";
 import type { MessageKey } from "@/modules/i18n/messages";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -63,7 +64,7 @@ function reportWriteFailure(
         // The label turns into the confirmation: the toast is the answer, and a second one
         // stacked under it for "copied" would cover the thing that was just copied.
         toast.success(t("explorer.toast.copied"));
-        void navigator.clipboard.writeText(message).catch(() => {});
+        void copyToClipboard(message).catch(() => {});
       },
     },
   });

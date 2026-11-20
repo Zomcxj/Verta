@@ -15,6 +15,11 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-20</strong></summary>
 
+**Every copy button copies now**
+
+- `src/lib/clipboard.ts`, and the call sites it replaced: the clipboard finding is the app's, not one button's, so `navigator.clipboard` is gone from every copy that reaches the OS - the updater's install command, a chat code block, the LSP install dialog and the status pill's command, a commit graph's sha, the explorer's path copy and the toast action that copies a failed write's message, a remote repo row, the auth dialog's scope command, a project row's path - and the terminal's write path now shares the one helper (its read path kept the two branches it already had).
+- Two of them guarded with `if (!navigator?.clipboard?.writeText) return`. That was never false in this webview, so the guard only hid the failure: the button was drawn, the click went nowhere and said nothing. Nothing guards now; a failed write rejects and each site answers it the way it already did.
+
 **A session is named by its own tool, and the name is copied rather than set**
 
 - `src/modules/launcher/components/SessionList.tsx`, `LauncherPanel.tsx`, `lib/sessions.ts`, `lib/selection.ts`, `src-tauri/src/modules/agent_sessions/{mod,opencode,pi}.rs`, `src-tauri/src/lib.rs`: the context menu's 改会话名 item is gone, with everything behind it - the in-place field, the pending-rename state, the `renameAgentSession` call and the `agent_sessions_rename` command (opencode's `title` update and pi's appended `session_info` line, plus the read-write database open that only that command used).

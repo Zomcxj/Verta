@@ -6,6 +6,7 @@ import {
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { copyToClipboard as writeClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import {
   native,
@@ -519,7 +520,7 @@ export function GitHistoryPane({
 
   const copyToClipboard = useCallback(async (value: string) => {
     try {
-      await navigator.clipboard.writeText(value);
+      await writeClipboard(value);
     } catch {
       /* noop */
     }

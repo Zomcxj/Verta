@@ -6,6 +6,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { copyToClipboard } from "@/lib/clipboard";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -280,8 +281,7 @@ export function AuthDialog({ open, onOpenChange }: Props) {
                       size="sm"
                       className="h-6 px-1.5 text-[11px]"
                       onClick={() => {
-                        void navigator.clipboard
-                          .writeText(DELETE_SCOPE_COMMAND)
+                        void copyToClipboard(DELETE_SCOPE_COMMAND)
                           .then(() => toast.message(t("remotes.action.copied")))
                           .catch(() => {});
                       }}

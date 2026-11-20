@@ -3,6 +3,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { copyToClipboard } from "@/lib/clipboard";
 import { useT } from "@/modules/i18n";
 import { setLspActivation } from "@/modules/settings/store";
 import {
@@ -146,7 +147,7 @@ function InstallPill({ preset }: { preset: LspPreset }) {
 
   const copy = () => {
     if (!install) return;
-    void navigator.clipboard.writeText(install.command).then(() => {
+    void copyToClipboard(install.command).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });

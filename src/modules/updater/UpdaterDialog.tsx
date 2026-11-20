@@ -1,3 +1,4 @@
+import { copyToClipboard } from "@/lib/clipboard";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -61,9 +62,8 @@ export const UpdaterDialog = memo(function UpdaterDialog() {
   const ready = status.kind === "ready";
 
   const copyCommand = async () => {
-    if (!navigator?.clipboard?.writeText) return;
     try {
-      await navigator.clipboard.writeText(activeCommand);
+      await copyToClipboard(activeCommand);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {

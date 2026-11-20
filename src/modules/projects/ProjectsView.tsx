@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { SortHeader } from "@/components/ui/sort-header";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { copyToClipboard } from "@/lib/clipboard";
 import { useLanguage, useT, type MessageKey } from "@/modules/i18n";
 import {
   AGENT_TOOLS,
@@ -1079,8 +1080,7 @@ function ProjectRowView({
   const pullBlocked = pullBlocker(row.status);
 
   const copyPath = () => {
-    void navigator.clipboard
-      .writeText(row.path)
+    void copyToClipboard(row.path)
       .then(() => toast.success(t("projects.action.copied")))
       .catch((e) => toast.error(String(e)));
   };

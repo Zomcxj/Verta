@@ -3,6 +3,7 @@
 import { useT } from "@/modules/i18n";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { copyToClipboard } from "@/lib/clipboard";
 import {
   ArrowRight01Icon,
   CheckmarkCircle01Icon,
@@ -321,9 +322,8 @@ function CopyButton({ text }: { text: string }) {
   useEffect(() => () => window.clearTimeout(tRef.current), []);
 
   const onCopy = async () => {
-    if (!navigator?.clipboard?.writeText) return;
     try {
-      await navigator.clipboard.writeText(text);
+      await copyToClipboard(text);
       setCopied(true);
       tRef.current = window.setTimeout(() => setCopied(false), 1500);
     } catch {
