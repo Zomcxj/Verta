@@ -107,7 +107,9 @@ const TOOLS = [
 export function UsageApp(): JSX.Element {
   const t = useT();
   const language = useLanguage();
-  const [range, setRange] = useState<UsageRange>("month");
+  // Opens on 今日: the window is opened to answer "what has this cost me right now", and a month of
+  // history paints a number that is not the one being asked for. The wider windows are one click away.
+  const [range, setRange] = useState<UsageRange>("today");
   const [foldBelow, setFoldBelow] = useState(FOLD_DEFAULT);
   const scope = USAGE_SCOPE;
   // The whole history by day: the question is usually "how has this been going", and the three fixed
@@ -116,6 +118,7 @@ export function UsageApp(): JSX.Element {
   // Which scale `all` is read at. The fixed windows ignore it, because seven days is seven days.
   const [chartBucket, setChartBucket] = useState<ChartBucket>("day");
   const [chartKind, setChartKind] = useState<"bars" | "line">("bars");
+  // `null` is the 全部 chip: every agent the window knows, which is the state it opens in.
   const [tool, setTool] = useState<string | null>(null);
   const [payload, setPayload] = useState<UsagePayload | null>(null);
   const [loading, setLoading] = useState(false);
