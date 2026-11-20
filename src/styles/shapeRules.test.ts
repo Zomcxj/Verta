@@ -73,10 +73,19 @@ describe("无界's seam, while it is being dragged", () => {
         `html[data-boundless][data-shape="slab"] [data-shell][data-edge-${side}] .verta-pane`,
       );
       expect(edge?.body).toContain(`border-${side}-color: var(--pane-border-color)`);
+      // The ends keep the width that colour needs; a colour with no width draws nothing.
+      expect(edge?.body).toContain(
+        `border-${side}-width: var(--pane-border-width)`,
+      );
     }
     // And the panes between them stay borderless, or the sheet would have dividers again.
     expect(sheet?.body).not.toContain("border-left-color");
     expect(sheet?.body).not.toContain("border-right-color");
+    // Width, not just colour: a transparent border paints its own width with the pane's background,
+    // so the 2px it took at a seam was a band of the pane between the sheet and the terminal - the
+    // same divider, only thicker.
+    expect(sheet?.body).toContain("border-left-width: 0");
+    expect(sheet?.body).toContain("border-right-width: 0");
   });
 
   it("thickens 石板 with the radius", () => {

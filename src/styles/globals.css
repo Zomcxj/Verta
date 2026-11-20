@@ -342,28 +342,40 @@ html:has([data-shell="workspace"][data-edge-right]) [data-shell="workspace"] {
   padding-inline-end: 0;
 }
 
-/* 云朵 floats: its panes step in from the frame so the soft shadow this shape carries has somewhere
- * to fall. Without the step-in the shadow was clipped by the panel box and the shape looked like 极简
- * with a fainter border.
+/* 云朵 floats on its shadow, and its panes keep 极简's box: not one pixel of content is spent on it, and
+ * nothing repaints a colour (the pane and the terminal keep the theme's, measured).
  *
- * The step-in is padding on the wrappers, not a margin on the panes: a pane is `height: 100%`, so a
- * margin pushed it 8px past the bottom of its box and the panel clipped its bottom edge - the card was
- * cut off rather than inset. Padding shrinks the box the pane fills, which is the same picture with no
- * overflow. */
-html[data-shape="cloud"] [data-shell] {
-  /* 6px above and below, and 4px on the inner edges: measured on screen, that leaves a 9px margin at
-   * the window's edge and a 12px gap between two panes (the resize handle takes 4px of it). Wider than
-   * that and the gutters stop reading as gutters - the panes drift apart instead. */
-  padding-block: 6px;
+ * The shadow is split between two boxes, and that is the whole point: the halves that run *across* the
+ * sheet (top and bottom) are carried by the row, which is one box, so they cannot break where two panes
+ * meet; the halves that run *along* it (left and right) are carried by the panes that own the sheet's own
+ * ends, which are far from any seam. Drawn per pane, the vertical halves met at the seam as a step - the
+ * "截断" - and dropping them for that reason lost the float entirely.
+ *
+ * A pane's shadow also needs help leaving the pane: it sits in a wrapper with inline `overflow: auto` and
+ * a panel that clips, so the sides measured flat - the shadow was cut off at the pane's own edge. Neither
+ * of the two scrolls (the panes are the scrollers), so releasing them costs nothing.
+ */
+/* `[data-panel]` rather than the slot name: the panel's `overflow` is the one thing on this element
+ * another rule already owns (the slide's `transition`), and a selector that names the slot puts this
+ * rule in front of it in every text-based check the stylesheet has. */
+html[data-shape="cloud"] [data-panel],
+html[data-shape="cloud"] [data-panel] > div {
+  overflow: visible !important;
 }
-html[data-shape="cloud"] [data-shell="sidebar"] {
-  padding-right: 4px;
+
+html[data-boundless][data-shape="cloud"] .verta-pane {
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1);
 }
-html[data-shape="cloud"] [data-shell="workspace"] {
-  padding-inline: 4px;
+html[data-boundless][data-shape="cloud"] [data-shell][data-edge-left] .verta-pane {
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), -10px 0 18px -8px oklch(0 0 0 / 0.55);
 }
-html[data-shape="cloud"] [data-shell="right"] {
-  padding-left: 4px;
+html[data-boundless][data-shape="cloud"] [data-shell][data-edge-right] .verta-pane {
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), 10px 0 18px -8px oklch(0 0 0 / 0.55);
+}
+html[data-boundless][data-shape="cloud"] [data-slot="resizable-panel-group"] {
+  /* The row is the sheet, so it says where the sheet's top and bottom edges are - over the header and over
+   * the status bar, in one unbroken band. */
+  box-shadow: 0 -10px 18px -8px oklch(0 0 0 / 0.55), 0 10px 18px -8px oklch(0 0 0 / 0.55);
 }
 
 /* The radius lands on the merged block's outer frame rather than on each region: the three are flush
@@ -516,6 +528,24 @@ html[data-boundless][data-shape="emboss"] [data-shell][data-edge-right] .verta-p
   box-shadow: var(--bevel-top), var(--bevel-bottom), var(--bevel-lip),
     var(--bevel-right);
 }
+/* 石板's cut faces are the block's own thickness. `.verta-pane` reads one shadow list, so the shape's
+ * step and its faces are added here rather than folded together - and under 无界 only the region that
+ * owns the sheet's right edge keeps one, because a cut face on every region is a divider between two. */
+html[data-shape="slab"] .verta-pane {
+  box-shadow: var(--pane-shadow), var(--slab-cut);
+}
+
+/* A transparent border is not free: it still takes a pixel, so a pane's content starts one pixel inside
+ * the sheet's own edge. Where a theme's terminal background is not the pane's colour - this one's is
+ * black on a #2d353b sheet - that pixel is a line down both sides of the terminal, which read as
+ * dividers between 会话 and 终端 and between 终端 and 提交图 ("无界下会话与终端之间 … 终端和提交图之间
+ * 也有"). Under 无界 every preset but 石板 paints its border transparent, so a border that paints
+ * nothing may as well not take the space: with it gone the terminal covers the sheet's edge itself and
+ * the line has nothing to be. 石板 keeps it, because there the border *is* the preset. */
+html[data-boundless]:not([data-shape="slab"]) [data-shell] .verta-pane {
+  border-width: 0;
+}
+
 /* 石板 keeps its outline on the sheet's own edges.
  *
  * "No line across the sheet" is about *dividers*, and an outline is not one: it is the preset's whole
@@ -526,12 +556,29 @@ html[data-boundless][data-shape="emboss"] [data-shell][data-edge-right] .verta-p
 html[data-boundless][data-shape="slab"] .verta-pane {
   border-top-color: var(--pane-border-color);
   border-bottom-color: var(--pane-border-color);
+  /* Not on the seam sides: a border whose colour is transparent paints its own width with the pane's
+   * background, so the 2px it takes there sat between the sheet and the terminal as a band of the pane's
+   * colour - the same line as the other presets, only thicker where the terminal is darker than the pane
+   * ("石板形态看着还有一些"). The sides that face the window keep theirs, below. */
+  border-left-width: 0;
+  border-right-width: 0;
+  /* No cut faces and no sideways step between the regions - a block's thickness is only allowed to fall
+   * straight down here, where the sheet's own bottom edge is. Both of the things that made a line across
+   * the sheet ("石板形态会话和终端组件之间有间隔线") are gone; the step down, the top/bottom outline and
+   * the cut face on the sheet's right edge are what is left of the preset under 无界. */
+  box-shadow: 0 var(--slab-offset) 0 oklch(0 0 0 / 0.4),
+    0 var(--slab-lift) 0 oklch(0 0 0 / 0.2);
 }
 html[data-boundless][data-shape="slab"] [data-shell][data-edge-left] .verta-pane {
   border-left-color: var(--pane-border-color);
+  border-left-width: var(--pane-border-width);
 }
 html[data-boundless][data-shape="slab"] [data-shell][data-edge-right] .verta-pane {
   border-right-color: var(--pane-border-color);
+  border-right-width: var(--pane-border-width);
+  /* The sheet's own right edge is the one cut face it keeps: that is the block's thickness, and the
+   * reader asked for the outline to stay. */
+  box-shadow: var(--pane-shadow), inset -3px 0 0 oklch(0 0 0 / 0.3);
 }
 
 /* The floating card's inset is a gap, and a sheet has none: the three regions meet. `padding-block`

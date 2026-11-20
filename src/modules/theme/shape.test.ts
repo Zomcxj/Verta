@@ -105,6 +105,8 @@ describe("the shape axis", () => {
       if (id === "acrylic" || id === "glass") continue;
       expect(resolveShape(id).attrs["data-shape-material"]).toBeUndefined();
       expect(resolveShape(id).vars["--theme-frame-opacity"]).toBeUndefined();
+      // No opaque preset repaints the pane or the terminal: the shape owns the edges and the shadow,
+      // the theme owns the colours ("云朵还是改了颜色啊").
       expect(resolveShape(id).vars["--terminal-background"]).toBeUndefined();
     }
   });

@@ -15,13 +15,33 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-20</strong></summary>
 
+**The divider under 无界 was a border that painted nothing but still took a pixel**
+
+- `src/styles/globals.css`: the sheet's seams are flat - measured across both of them (`226…235` and `1013…1022`, greyscale) it is one number all the way, for every preset. What was left was a line *inside* each pane: under 无界 every preset but 石板 paints its border transparent, and a transparent border still takes its width, so a pane's content starts one pixel in from the sheet's own edge. That pixel is the pane's colour, and where a theme's terminal background is not the pane's colour - this theme's terminal is `#000000` on a `#2d353b` sheet - it shows as a line down both sides of the terminal, which are exactly the two seams between 会话 and 终端 and between 终端 and 提交图 ("无界下会话与终端之间 … 终端和提交图之间也有").
+- The border is dropped where it paints nothing (`html[data-boundless]:not([data-shape="slab"]) [data-shell] .verta-pane`). Measured afterwards: the pane's box is unchanged (`[230,41,786,869]`) and its content now starts at the same coordinate, so the terminal covers the sheet's edge instead of sitting a pixel inside it. No colour is repainted and no area is taken - the pane's border-box is what the layout was already sizing.
+- 石板 keeps its outline, but only where the outline is an outline: its border is 2px, and at a seam that width was transparent, which paints as the pane's own background - a 2px band of the sheet between the seam and the terminal, the same line one preset later ("石板形态看着还有一些"). The seam sides of the pane lose their width; the sides that face the window keep it, and there the border's colour paints the band. Pinned in `shapeRules.test.ts` - colour *and* width, because a colour with no width draws nothing and a width with no colour draws a band.
+
+**The three plate presets now differ in kind, not in degree**
+
+- `src/modules/theme/shape.ts`, `src/styles/globals.css`, `src/modules/theme/shape.test.ts`: reported as "云朵悬浮效果不够明显，浮雕和石板增加区分度". Measured first, which is what made the cause clear: at the app's own 95% zoom a 1px and a 2px border both land on one device pixel (`getComputedStyle` answers 1.05263px for either), so thickness could not separate 浮雕 from 石板, and both presets were down to 1-3px of line work on a surface whose canvas and panes are three levels apart.
+- The rule the shapes are held to, in the reader's words: **a shape owns the edges and the shadow, never the colours, and it never takes display area**. So no preset repaints a pane or a terminal, and no preset gains a gutter: 云朵's pane box measures the same as 极简's, `[9,41,267,869]`.
+- **云朵** floats on its shadow, and the shadow is one geometry mirrored on four sides ("按照底部的阴影 改其他三边"): `10px` of offset, `18px` of blur, `-8px` of spread, 55% black. It is drawn on two boxes, which is the point - the halves that run *across* the sheet (top and bottom) sit on the row, one box, so they cannot break where two regions meet; the halves that run *along* it (left and right) sit on the panes that own the sheet's ends, which are far from any seam and have the row's own 8px of frame to fall into. Drawn per pane, the vertical halves met at the seam as a step (the "截断"), and dropping them to fix that lost the float altogether.
+- A pane's shadow cannot leave a pane on its own: it sits in a wrapper with inline `overflow: auto` and a panel that clips, so the sides measured flat - cut off at the pane's own edge. Neither of the two scrolls (the panes are the scrollers), so releasing them for this preset costs nothing. What is *not* released is the row, so the shadow stops at the sheet's own frame and never crosses into the header as a band.
+- Nothing here repaints a colour ("云朵还是改了颜色啊", after a lift was tried and removed): the pane and the terminal keep the theme's, the pane's box measures the same as 极简's, and the preset is only edges and shadow. On a black window a shadow has nothing to darken, which is why the 1px hairline on the top edge is at 10%.
+- **浮雕** is the surface raised: three steps of light on the top edge and three of shade on the bottom - a 1px pair at the edge, then 3px and 6px bands. One step of each was a hairline, which is what made it read as 极简. A directional *border* colour was tried and dropped: the merged sheet paints the pane's borders over in 无界, and a per-side copy in the sheet's rules is the drift this file already warns about.
+- **石板** is a block lying on the surface: nothing inside it is lit; a 2px outline; a hard step whose offsets now have a floor (4px / 6px - at the default 10px radius the old numbers were 2.2 and 4.4) with the faint blur under it removed, because a slab's shadow is the block, not fog; and the two cut faces it stands on - 3px of dark along the right and bottom - as their own variable (`--slab-cut`), painted *inside* the pane where they cost no display area. Under 无界 the step falls straight down and the cut face is kept only by the region that owns the sheet's right edge: either of them on every region is a line between two ("石板形态会话和终端组件之间有间隔线", and the same line was reported for 云朵, 浮雕 and 玻璃 - all four are the same rule: a per-pane edge on a sheet that has no seams).
+- 玻璃 and 浮雕 needed nothing beyond that rule: their seams were the same per-pane edge, and the sheet already drops it.
+- Measured afterwards under 无界, the same strips at 1:1 (greyscale, pane 31, frame 36): 云朵 `above 36 36 35 34 33 32 30 29 27 26 25 24`, `below 24 25 26 27 29 29 30 32 32 33 34 35 36`, `left 32 30 29 29 27 26 25 24` and `right 24 25 26 27 29 29 30 32` - the same ramp, darkest against the sheet, mirrored on all four sides - and across the seam between the two regions the row is flat (`31 31 31 ... 31`, no dip at any column, for every preset); 极简 `top 19 19 19 19 | 11` (one step each way, no edge); 浮雕 `top 19 19 19 | 11 | 167 88 80 35 35 28 | 11` and `bottom 11 | 9 7 3 1 | 11` (a 5px lit band, a hard dark edge); 石板 `top 19 19 19 | 146 | 11` and `bottom 11 | 7 6 6 | 146 | 19` (a crisp outline, a flat face, an inner cut).
+- Pictures: `%TEMP%\verta-shapes\*.png` at 1:1, and `%TEMP%\verta-shape-zoom\` for the 4x corner crops.
+- Tests: the preset test keeps its rule that no opaque preset repaints anything, and `compositingBudget` keeps every one of these to paint.
+
+
 **A window opened from the tray lands on the screen, not where a minimized frame is parked**
 
 - `src-tauri/src/lib.rs`: `centre_on_main` puts every child window (usage, settings) in the middle of the main window's frame, which is right while that frame is on screen and wrong exactly when it is not. Windows answers a minimized window's `outer_position` with the off-screen spot it parks it in (-32000, -32000) and still reports its restored size, so a usage window asked for from the tray while the app was minimized opened where nobody could see it ("主界面最小化时 托盘点击用量屏幕居中显示").
 - The frame is now used only when the main window is not minimized; otherwise the window goes to the middle of the primary monitor's work area, clamped so a window larger than the screen keeps its top-left in view. A main window that is *hidden* (in the tray) still has a real frame, so it still centres on it - that case was verified first and did not need changing.
 - The arithmetic is two small functions over a rect (`middle_of`, `clamp_into`), so it is tested without a window server: a second monitor starting at x=-1920 (a sign error in the position would show), a frame hanging off both corners, and a window wider than the area. The existing source test also pins that the helper looks at `is_minimized()` and has a `primary_monitor()` to fall back on.
 - Verified on this machine (dev window + CDP): with the main window minimized, asking for the usage window the way the item does put it at left 840, top 336, 880x720, whose centre is 1280, 696 - the centre of the 2560x1392 work area, **0 px off**.
-
 
 **Usage is one right-click away in the tray**
 
@@ -31,7 +51,6 @@ swap in the new date, and drop the `open` from the day before.
 - Tests: `every_menu_item_has_an_action_and_nothing_else_does` now covers the fourth id - the guard is aimed at the silent failure, an item that ships without a handler.
 - Verified on this machine (dev window + CDP): with the main window hidden, asking for the window the same way the item does put an 880x720 window on screen 3.4 s later - visible to the OS (`IsWindowVisible` and a rect), while the main window stayed hidden. So the worry that a window owned by a hidden owner would go away with it does not hold. Asking the webview instead is misleading: the page shows itself once it has painted, so an early `is_visible` is `false` on a window that is on its way.
 
-
 **The usage read starts warm on the second launch**
 
 - `src-tauri/src/modules/agent_sessions/usage_cache.rs`, `usage_refresh.rs`, `opencode.rs`: the per-file cache was memory-only, so every launch paid the whole read again - 19.6 s for the first tick on a debug build here, 20-45 s measured on this store - even though almost nothing had changed while the app was closed (the leftover noted in item 11). What one read learned is now written to `%LOCALAPPDATA%\verta\usage-cache.json.zst`, the same per-user directory the control descriptor uses, and read back before the first read of the next launch.
@@ -40,7 +59,6 @@ swap in the new date, and drop the `open` from the day before.
 - Measured on this machine, same store, debug build, twice: the cold launch's first tick took 19,636 ms and 28,914 ms, and wrote 2240 KiB in 1639 ms and 1069 ms; the launch after it restored 70 files and 36,159 / 36,239 opencode rows in 649 ms and 627 ms and answered its first tick in **832 ms** and **355 ms** - same event count, 0 failures. (The spread is what else the machine was doing.) The first write of a launch is an info line (`usage cache written: …`), the rest are debug.
 - The check that matters is that the cache cannot change an answer, so it was also run cold and warm against the same stores within minutes of each other: cold (file moved aside) **59,451 events / 56 files / 156,989 ms** - the machine was building vite at the time - and warm **59,426 / 56 / 366 ms**, the 25-event gap being what was appended in between. 0.2% of the time, and the same answer.
 - Tests: six for the store - a restored cache answers without parsing anything, a restored entry still yields to a file that grew or was rewritten, a corrupt / newer-version / missing file is ignored, an entry naming an unknown tool is dropped whole, opencode rows round-trip (including a row remembered as "no usage"), and a save creates its directory and leaves no temp file behind.
-
 
 **A picture opened as a file pages through its folder, like a photo viewer**
 
@@ -3006,3 +3024,4 @@ This round is scan-driven across nine shapes: bare JSX text, string literals and
 - `.gitattributes`: keeps the working tree LF for the frontend lint gate on Windows.
 - `scripts/dev/**`: new screenshot and probe scripts for acceptance (not part of packaging).
 </details>
+

@@ -130,17 +130,27 @@ export function defaultGlassParamsFor(id: unknown): GlassParams {
 const SHAPES: Readonly<Record<ShapeId, ShapeValues>> = {
   minimal: { borderWidth: "0px", borderColor: "transparent" },
   cloud: {
-    // A floating card. The panes step in from the frame for this shape (`globals.css`), which is what
-    // the shadow needs: a pane that meets the header and the status bar flush has nowhere to cast one,
-    // so the shadow used to land outside the panel box and be clipped - and the shape read as `minimal`
-    // with a slightly fainter border, which is not a shape, it is a rounding error.
+    // A floating card, and the one preset whose shadow leaves its own box.
+    //
+    // Two wrong turns are recorded here. The panes used to step in from the frame (6px, then 12px) so the
+    // shadow had somewhere to fall - which took display area for a shape whose point is that the card sits
+    // *on* the window ("显示区域为了悬浮怎么越来越小了"). And the shadow was then tuned tight to fit the
+    // 6px it had, which is not a float either. Now the area is the one 极简 has - the same pane box,
+    // measured - and the wrappers between the pane and the shell stop clipping it (`globals.css`), so the
+    // shadow spills out over the frame instead of being fed from the content.
     borderWidth: "1px",
     borderColor: "color-mix(in oklab, var(--border) 70%, transparent)",
     vars: {
+      // One geometry, mirrored onto all four sides - the same numbers the 无界 sheet uses, so the preset
+      // reads the same whether the panes are separate cards or one sheet. A downward-only shadow was the
+      // first version and it read as a card lying on the frame: the edges with no shadow are the edges the
+      // eye stops at, and a float with three flat sides is a table. The top hairline comes along because
+      // this shape replaces `--pane-shadow`, so it has to bring it.
       "--pane-shadow":
-        "0 10px 24px -10px oklch(0 0 0 / 0.45), 0 2px 6px -2px oklch(0 0 0 / 0.18)",
+        "inset 0 1px 0 oklch(1 0 0 / 0.1), 0 10px 18px -8px oklch(0 0 0 / 0.55), 0 -10px 18px -8px oklch(0 0 0 / 0.55), 10px 0 18px -8px oklch(0 0 0 / 0.55), -10px 0 18px -8px oklch(0 0 0 / 0.55)",
       // Cards inside the panes keep the softer lift they had.
-      "--card-shadow": "0 8px 24px oklch(0 0 0 / 0.08)",
+      "--card-shadow":
+        "0 12px 28px -10px oklch(0 0 0 / 0.3), 0 3px 8px -4px oklch(0 0 0 / 0.16)",
     },
   },
   emboss: {
@@ -166,11 +176,16 @@ const SHAPES: Readonly<Record<ShapeId, ShapeValues>> = {
       // of the whole recipe - which is what "浮雕和极简差不多" was looking at: under 无界 the copy was the
       // older, weaker pass (1px at 18%) and had drifted a full revision behind the preset it was supposed
       // to be showing. Split, the sheet reads the same numbers as the bordered shapes.
-      "--bevel-top": "inset 0 2px 0 oklch(1 0 0 / 0.3)",
+      // Three steps of light and three of shade, because one step of each is a hairline: at 100% zoom a
+      // 1px bright line and a 2px dark band are the same weight as the border they sit inside, which is
+      // what made 浮雕 and 极简 hard to tell apart. The bands are what give the plate a lit face and a
+      // shaded one at a glance; the 1px pair at the very edge is the sharpest of the three.
+      "--bevel-top":
+        "inset 0 1px 0 oklch(1 0 0 / 0.5), inset 0 3px 0 oklch(1 0 0 / 0.24), inset 0 6px 0 oklch(1 0 0 / 0.1)",
       "--bevel-bottom":
-        "inset 0 -3px 0 oklch(0 0 0 / 0.26), inset 0 -2px 0 oklch(0 0 0 / 0.44), inset 0 -1px 0 oklch(0 0 0 / 0.6)",
-      "--bevel-left": "inset 1px 0 0 oklch(1 0 0 / 0.12)",
-      "--bevel-right": "inset -1px 0 0 oklch(0 0 0 / 0.24)",
+        "inset 0 -6px 0 oklch(0 0 0 / 0.16), inset 0 -3px 0 oklch(0 0 0 / 0.34), inset 0 -2px 0 oklch(0 0 0 / 0.5), inset 0 -1px 0 oklch(0 0 0 / 0.68)",
+      "--bevel-left": "inset 1px 0 0 oklch(1 0 0 / 0.18)",
+      "--bevel-right": "inset -1px 0 0 oklch(0 0 0 / 0.3)",
       // The lip: a dark line *outside* the bottom edge, under the bands that are inside it. Without it
       // the plate is a lit rectangle - the light says where the surface starts, the lip says it is
       // standing on something. It is the one part of the recipe that is not inset, so it is its own
@@ -179,24 +194,38 @@ const SHAPES: Readonly<Record<ShapeId, ShapeValues>> = {
     },
   },
   slab: {
-    // A plate lying on the surface: no lit edge, a heavier border, and the contact shadow ModelHarbor
+    // A plate lying on the surface: no lit edge, a heavy border, and the contact shadow ModelHarbor
     // gives this preset (`has_contact_shadow`) - a dark edge offset toward the bottom-right rather
     // than a soft blur. A 1px blur at 16% was invisible next to `minimal`, which is what "石板和极简
     // 变成一样了" was reporting; the offset edge is what says "this is a solid slab sitting on the
     // window".
-    borderWidth: "1px",
+    //
+    // How it stays apart from 浮雕, which is the other "plate" preset: the two are opposites, not
+    // degrees. 浮雕 is the surface itself raised - the light is *inside* the pane (inset bands) and
+    // nothing is cast outside it; 石板 is a separate block *on* the surface - nothing inside it is lit,
+    // and the only thing it paints is outside: the outline and the step. So the border got thicker
+    // (2px, a cut edge rather than a drawn line), the step got its own floor, and the faint blur that
+    // used to sit under the offsets is gone - a slab's shadow is the block, not fog under it.
+    borderWidth: "2px",
     borderColor: "color-mix(in oklab, var(--border) 45%, var(--foreground))",
     vars: {
       // The offsets are the shape's *thickness*, and thickness is what a radius implies: a block whose
       // corners are cut 16px deep is a thicker block than one cut 4px, so `1px 1px` for both made the
       // preset look like the same slab at every radius. They are read off `--radius` instead (the
-      // user's own corner stop, see `radius.ts`), which is the difference between "a rectangle with a
-      // dark edge" and "a solid thing lying on the surface". The blur stays put: it is softness, not
-      // thickness, and one that grew with the radius would read as fog.
-      "--slab-offset": "calc(var(--radius) * 0.22)",
-      "--slab-lift": "calc(var(--radius) * 0.44)",
+      // user's own corner stop, see `radius.ts`), with a floor: at the default 10px radius the old
+      // numbers were a 2px step, which is a line rather than a thickness.
+      "--slab-offset": "max(4px, calc(var(--radius) * 0.4))",
+      "--slab-lift": "max(6px, calc(var(--radius) * 0.6))",
+      // The step is cast outside the pane and needs a gutter to fall in; the *cut faces* are inside it,
+      // where they cost no display area. They are the two edges the light is not on - the mirror of 浮雕,
+      // which lights its top and shades its bottom: this one has no light anywhere and shades the pair it
+      // is standing on. (A border could not carry them: the sheet paints the pane's borders over in 无界,
+      // and a per-side colour copied into the sheet's rules is the drift this file already warns about.)
       "--pane-shadow":
-        "var(--slab-offset) var(--slab-offset) 0 oklch(0 0 0 / 0.32), var(--slab-lift) var(--slab-lift) 0 oklch(0 0 0 / 0.16), 0 3px 6px oklch(0 0 0 / 0.22)",
+        "var(--slab-offset) var(--slab-offset) 0 oklch(0 0 0 / 0.4), var(--slab-lift) var(--slab-lift) 0 oklch(0 0 0 / 0.2), 0 2px 0 oklch(0 0 0 / 0.28)",
+      // Their own variable because 无界 has to drop them from the regions that are not the sheet's right
+      // edge: a cut face on every region is a line between two of them ("石板…会话和终端组件之间有间隔线").
+      "--slab-cut": "inset -3px 0 0 oklch(0 0 0 / 0.3), inset 0 -3px 0 oklch(0 0 0 / 0.42)",
     },
   },
   carbon: {
