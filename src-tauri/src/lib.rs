@@ -399,6 +399,11 @@ pub fn run() {
                 // with the too-tall number written once by an old bug and inherited ever since.
                 // Saving is untouched: the file goes on describing the window as it actually is.
                 .skip_initial_state(SETTINGS_WINDOW)
+                // The usage window is opened on request and nothing else opens it, so a run that
+                // restored its geometry could only bring back a window nobody asked for - which is
+                // what "每次启动 dev 不要打开用量" was. Its plumbing is centred by `centre_on_main`
+                // anyway, so the saved position was only ever used for the size.
+                .skip_initial_state(USAGE_WINDOW)
                 .build(),
         )
         .plugin(tauri_plugin_store::Builder::new().build())

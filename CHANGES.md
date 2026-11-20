@@ -48,6 +48,10 @@ swap in the new date, and drop the `open` from the day before.
 - The arithmetic is two small functions over a rect (`middle_of`, `clamp_into`), so it is tested without a window server: a second monitor starting at x=-1920 (a sign error in the position would show), a frame hanging off both corners, and a window wider than the area. The existing source test also pins that the helper looks at `is_minimized()` and has a `primary_monitor()` to fall back on.
 - Verified on this machine (dev window + CDP): with the main window minimized, asking for the usage window the way the item does put it at left 840, top 336, 880x720, whose centre is 1280, 696 - the centre of the 2560x1392 work area, **0 px off**.
 
+**A dev launch no longer brings back the usage window**
+
+- `src-tauri/src/lib.rs`: the window-state plugin restored every window it had a record for, including the usage window - which is opened on request and by nothing else, so the only thing a restore could do was bring back a window nobody asked for ("每次启动 dev 不要打开用量"). Its state is skipped on launch now, the way the settings window's already was; `centre_on_main` decides where it goes, so the saved position was only ever used for the size.
+
 **Usage is one right-click away in the tray**
 
 - `src-tauri/src/modules/tray.rs`, `src/app/hooks/useTray.ts`, `src/modules/i18n/messages.ts`: the tray menu offered Show main window / Screenshot / Quit, so the usage window was only reachable from inside the app - which means first finding the app ("用量支持托盘右击点击用量展示"). A fourth item, 用量 / Usage, sits under 显示主窗口 and runs the same `open_usage_window` the in-app button runs, so a window that is already open is brought forward (and told to re-read) rather than rebuilt, and the dimensions, the dimming of the main window and the hide-on-close behaviour are all the existing ones.
