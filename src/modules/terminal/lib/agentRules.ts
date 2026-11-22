@@ -29,6 +29,7 @@
 import {
   type AgentRule,
   anyChar,
+  anyOf,
   bottom,
   bottomNonEmptyLines,
   contains,
@@ -298,11 +299,54 @@ const OPENCODE_RULES: readonly AgentRule[] = [
 // claude code
 // ---------------------------------------------------------------------------
 
-/** From herdr's rules; not yet seen here (the tool is not installed). */
+/**
+ * Claude Code's own chrome.
+ *
+ * The first two are herdr's, which was written from a screen this app had never seen. The rest were
+ * measured on this machine (2026-11-20) on a live session, because two states were being drawn
+ * wrongly: a question card showed green, and a main session waiting for its subagents showed orange.
+ *
+ * - the select card replaces the hint line with `Enter to select · ↑/↓ to navigate · Esc to cancel`,
+ *   so neither hint above is on screen while it is open - which is also why a card was read as
+ *   "no agent at all" before this;
+ * - a session waiting for work it started says `* Waiting for 2 background agents to finish` above
+ *   the prompt and counts them in the footer (`3 background tasks · ↓ to manage`).
+ *
+ * The permission-mode footer is the one that is on screen in every state, and it was added because a
+ * session at rest was not identified at all - pi claimed it, and the family changing mid-turn is what
+ * stopped an ended turn from ever being reported as `finished` (reported 2026-11-21 as "绿点没触发
+ * 只触发了蓝点"). Measured on this machine on a session sitting at its prompt with a custom status
+ * line:
+ *
+ *    ◆ deepseek-v4.1-flash • high | CTX ▰▰▰▱ 51% 257k/500k | WorkBuddy | »67.0t/s · ◷ 12h25m
+ *    ⏵⏵ bypass permissions on (shift+tab to cycle)
+ *
+ * Neither `? for shortcuts` nor `esc to interrupt` is on that screen (nothing is running), and the
+ * line above it is the user's own status line, so the mode hint is the only chrome left. Every mode
+ * spells it with the same cycle hint: `⏵⏵ bypass permissions on`, `⏵⏵ accept edits on`,
+ * `⏸ plan mode on`, always followed by `(shift+tab to cycle)`.
+ */
 const CLAUDE_IDENTIFY: readonly Pattern[] = [
   contains("? for shortcuts"),
   contains("esc to interrupt"),
+  contains("enter to select"),
+  contains("esc to cancel"),
+  contains("background tasks"),
+  contains("background agents to finish"),
+  contains("shift+tab to cycle"),
 ];
+
+/**
+ * Claude's rotating frames, which is the shared set minus the two glyphs it also draws as mode
+ * badges: `⏵⏵ bypass permissions on (shift+tab to cycle)`, `⏸ plan mode on (shift+tab to cycle)`.
+ *
+ * A badge is on screen in every state of that mode, resting included, so counting it as a frame read
+ * a sitting session as work and kept the idle rule from ever matching. Measured 2026-11-21 on a
+ * session at its prompt.
+ */
+const CLAUDE_FRAMES: readonly string[] = SPINNER_FRAMES.filter(
+  (frame) => frame !== "⏵" && frame !== "⏸",
+);
 
 const CLAUDE_RULES: readonly AgentRule[] = [
   rule({
@@ -317,7 +361,10 @@ const CLAUDE_RULES: readonly AgentRule[] = [
     state: "blocked",
     priority: 1090,
     region: BOTTOM,
-    allOf: [lineStartsWith("❯ 1.")],
+    // Both carets: the permission card writes `❯ 1.`, the question card measured here writes
+    // `> 1.`. Without the second, a card whose options were drawn with the plain caret fell through
+    // to `claude_idle` and the tab went green with a question on it.
+    allOf: [anyOf(lineStartsWith("❯ 1."), lineStartsWith("> 1."))],
   }),
   rule({
     id: "claude_esc_to_cancel",
@@ -325,6 +372,16 @@ const CLAUDE_RULES: readonly AgentRule[] = [
     priority: 1080,
     region: BOTTOM,
     allOf: [contains("esc to cancel")],
+  }),
+  // The select card's own footer. Separate from the rule above because the two are drawn apart:
+  // a permission card can say `esc to cancel` with no navigation hint, and the question card always
+  // carries `enter to select`. Either way a question is on screen and the session is blocked.
+  rule({
+    id: "claude_select_card",
+    state: "blocked",
+    priority: 1075,
+    region: BOTTOM,
+    allOf: [contains("enter to select")],
   }),
   // A turn that is running says so, and the spinner frames keep moving.
   rule({
@@ -334,13 +391,19 @@ const CLAUDE_RULES: readonly AgentRule[] = [
     region: BOTTOM,
     allOf: [contains("esc to interrupt")],
   }),
+  /**
+   * Claude's own rotating frames: the shared set without the two glyphs it also draws as mode
+   * badges (`⏵⏵ bypass permissions on`, `⏸ plan mode on`). A badge is on screen in every state of
+   * that mode, at rest included, so reading it as a frame made a sitting session `working` and kept
+   * the idle rule from ever matching (measured 2026-11-21).
+   */
   rule({
     id: "claude_spinner",
     state: "working",
     priority: 960,
     region: BOTTOM,
-    allOf: [anyChar(SPINNER_FRAMES)],
-    noneOf: [contains("do you want to proceed?")],
+    allOf: [anyChar(CLAUDE_FRAMES)],
+    noneOf: [contains("do you want to proceed?"), contains("esc to cancel")],
   }),
   // Background work it reports while it waits.
   rule({
@@ -350,13 +413,52 @@ const CLAUDE_RULES: readonly AgentRule[] = [
     region: BOTTOM,
     allOf: [contains("mcp tasks still running")],
   }),
+  /**
+   * The turn is over and the subagents it started are still running.
+   *
+   * Measured on this machine (2026-11-20): the screen reads `* Waiting for 2 background agents to
+   * finish` above an empty prompt, with the footer counting `3 background tasks · ↓ to manage`. That
+   * is `trailing`, not `working` - nothing is being thought about, and the same distinction the
+   * opencode family draws - and it is not `idle` either: a session whose own subagents are still
+   * going has not come to rest. It was orange before, because the wait was read as a turn in flight.
+   *
+   * Below the interrupt rule on purpose, since the higher priority wins: while the main turn still
+   * runs, `esc to interrupt` is on screen and that is the truer answer. Above the spinner rule so
+   * that any glyph still rotating on the waiting screen cannot outvote the wait.
+   */
+  rule({
+    id: "claude_trailing_background",
+    state: "trailing",
+    priority: 965,
+    region: BOTTOM,
+    allOf: [
+      anyOf(contains("background agents to finish"), contains("background tasks")),
+    ],
+    noneOf: [contains("esc to interrupt")],
+  }),
+  /**
+   * At rest: the prompt box is drawn and nothing on the screen is moving.
+   *
+   * Two prompt shapes, because the box is drawn differently before and after the first message. With
+   * no conversation yet it is the hint line and a `> ` marker; once there is one, the mode footer
+   * takes the hint line's place and the marker sits at the end of the box's first rule
+   * (`─────── some task ─❯ `). The second shape was measured 2026-11-21, and without it this rule
+   * never matched a session that had been talked to: the screen fell through to `unknown`, so a turn
+   * that ended there reported nothing.
+   */
   rule({
     id: "claude_idle",
     state: "idle",
     priority: 500,
     region: BOTTOM,
-    allOf: [lineStartsWith(">")],
-    noneOf: [anyChar(SPINNER_FRAMES), contains("esc to cancel")],
+    allOf: [anyOf(lineStartsWith(">"), contains("─❯"))],
+    noneOf: [
+      anyChar(CLAUDE_FRAMES),
+      contains("esc to cancel"),
+      contains("enter to select"),
+      contains("background tasks"),
+      contains("background agents to finish"),
+    ],
   }),
 ];
 
@@ -435,8 +537,30 @@ const CODEX_RULES: readonly AgentRule[] = [
  *
  * Nothing was observed asking for approval of a command: a destructive `rm -f` in the
  * working directory ran without a prompt, so no approval rule is written for one.
+ *
+ * The dashes alone were the whole test, and that was wrong: every box-drawing interface in a
+ * terminal draws them, so a Claude Code session at its prompt was identified as pi (2026-11-21).
+ * What is left is chrome a generic rule cannot draw: the footer counters, the extension's
+ * separator, the model banner, and the two startup lines.
  */
-const PI_IDENTIFY: readonly Pattern[] = [contains("─".repeat(20))];
+const PI_IDENTIFY: readonly Pattern[] = [
+  contains("LSP Inactive"),
+  contains("↳ "),
+  contains("(sensenova)"),
+  contains("Press any key to continue"),
+  contains("Startup is still in progress"),
+  contains("ctrl+o more"),
+  contains("This project is not trusted"),
+];
+
+/**
+ * The two rules pi draws above and below its input, which is what its own idle rule reads.
+ *
+ * Separate from `PI_IDENTIFY` on purpose: identification is what tells two agents apart, and a rule
+ * about one family's screen only needs that family's shape. They were one constant, so tightening
+ * the identification silently tightened the idle rule with it.
+ */
+const PI_RULE_LINES: Pattern = contains("─".repeat(20));
 
 /** The frames pi's own spinner rotates through (seen in the `--no-extensions` capture). */
 const PI_SPINNER_FRAMES: readonly string[] = [
@@ -552,7 +676,7 @@ const PI_RULES: readonly AgentRule[] = [
     state: "idle",
     priority: 500,
     region: BOTTOM,
-    allOf: PI_IDENTIFY,
+    allOf: [PI_RULE_LINES],
     noneOf: [anyChar(PI_WORKING_FRAMES)],
   }),
 ];

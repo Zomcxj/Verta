@@ -78,7 +78,13 @@ export type Pattern =
    */
   | { readonly kind: "anyChar"; readonly chars: readonly string[] }
   /** Some line of the region starts with the text, ignoring case and indent. */
-  | { readonly kind: "lineStartsWith"; readonly prefix: string };
+  | { readonly kind: "lineStartsWith"; readonly prefix: string }
+  /**
+   * Any one of these matches. The wrapper exists so a rule can accept two spellings of the same
+   * chrome without duplicating the rule: Claude Code writes a selected option as `❯ 1.` on its
+   * permission card and as `> 1.` on the question card measured here, and both are one thing.
+   */
+  | { readonly kind: "anyOf"; readonly patterns: readonly Pattern[] };
 
 /**
  * One detection rule.
@@ -169,6 +175,11 @@ export const anyChar = (chars: readonly string[]): Pattern => ({
 export const lineStartsWith = (prefix: string): Pattern => ({
   kind: "lineStartsWith",
   prefix,
+});
+/** Any one of these; see `Pattern` for why the wrapper exists. */
+export const anyOf = (...patterns: readonly Pattern[]): Pattern => ({
+  kind: "anyOf",
+  patterns,
 });
 
 /** What a rule is written from; the flags follow the state unless overridden. */
@@ -282,6 +293,8 @@ export function patternHit(text: string, pattern: Pattern): boolean {
           pattern.prefix.toLowerCase()
         );
       });
+    case "anyOf":
+      return pattern.patterns.some((candidate) => patternHit(text, candidate));
   }
 }
 

@@ -77,6 +77,69 @@ const CLAUDE_WORKING =
   "⠼ Running the tests\n  esc to interrupt\n? for shortcuts";
 const CLAUDE_IDLE = "> \n? for shortcuts";
 
+/**
+ * Claude Code's question card, measured on this machine (2026-11-20) from the reader's screenshot.
+ *
+ * It replaces the hint line: there is no `? for shortcuts` and no `esc to interrupt` on screen while
+ * it is open, and the selected option is written with a plain `>` rather than the `❯` of the
+ * permission card. Both of those are why it was read as `idle` - green, with a question waiting.
+ */
+const CLAUDE_SELECT_CARD = [
+  "这轮子代理回来之后，你想我先做哪件事？",
+  "",
+  "> 1. 等验收结果，先不提交",
+  "    先把 01/02/08 的真实 fps、行数、九页冒烟结果摆给你看，你确认后再提交（commit 需要你批准）。",
+  "  2. 验收过了就直接提交",
+  "    九页全 PASS 且 01/02 ≥30fps 就直接 commit（英文 message）。如有不达标项则先不提交。",
+  "  3. 先死磕 08 的帧率",
+  "  4. 做一轮视觉审核",
+  "  5. Type something.",
+  "  6. Chat about this",
+  "",
+  "Enter to select · ↑/↓ to navigate · Esc to cancel",
+].join("\n");
+
+/**
+ * A main session waiting for the subagents it started, measured on this machine (2026-11-20).
+ *
+ * The turn is over - there is an empty prompt - and two helpers are still going. It was drawn
+ * orange, because the wait was read as a turn in flight.
+ */
+const CLAUDE_TRAILING_SUBAGENTS = [
+  "✻  Waiting for 2 background agents to finish",
+  "",
+  "> ",
+  "  deepseek-v4.1-flash · high · CTX ▰▰▱▱ 18% 51k/500k | ⎇ main ~6 ?3 | deliverables | »67.6t/s · ◷ 12h29m",
+  "  ⏵⏵ bypass permissions on · 3 background tasks · ↓ to manage",
+  "",
+  "● main",
+  "○ general-purpose 中! Trimming blank lines in pelican-toy.html                    52m 18s · ↓ 187.9k tokens",
+  "○ general-purpose 中! Profiling isolated drawSceneWorld stage costs              52m 13s · ↓ 114.2k tokens",
+].join("\n");
+
+/**
+ * A Claude Code session sitting at its prompt, measured on this machine 2026-11-21.
+ *
+ * This is the screen that showed the hole: nothing is running, so `? for shortcuts` and
+ * `esc to interrupt` are both absent, and the line above the prompt is the user's own status line.
+ * The only chrome left is the permission-mode hint, and without it the screen was identified as
+ * `pi` - pi's identification test was "twenty box-drawing dashes", which is exactly the rule Claude
+ * draws under its own prompt box.
+ *
+ * The consequence is not only the wrong icon: when a turn ends, the family changes under the judge
+ * (`esc to interrupt` leaves the screen, the dashes stay), which it reads as a different agent
+ * appearing. That resets the entry and no `finished` is ever reported, so nothing latches and no
+ * finished dot is drawn - reported as "绿点没触发 只触发了蓝点".
+ */
+const CLAUDE_AT_REST = [
+  "  有事随时说。",
+  "✻ Sautéed for 16s · done 11:57 AM",
+  `${"─".repeat(107)} some task ─❯ `,
+  "─".repeat(119),
+  "  ◆ deepseek-v4.1-flash • high | CTX ▰▰▰▰▰▰▱▱▱▱▱▱ 51% 257k/500k | WorkBuddy | »67.0t/s · ◷ 12h25m",
+  "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
+].join("\n");
+
 const CODEX_BLOCKED = "Approve? [y/n]";
 const CODEX_IDLE = "$ \nesc to interrupt";
 
@@ -505,6 +568,73 @@ describe("claude", () => {
   it("does not let the prompt marker turn a question into idle", () => {
     const tail = "  Do you want to proceed?\n  ❯ 1. Yes\n> \n? for shortcuts";
     expect(judge("claude", tail)).toBe("blocked");
+  });
+
+  it("reads the question card as blocked, not idle", () => {
+    // Measured: reported as "有提问目前是绿色" - the card replaces the hint line, so nothing the
+    // rules knew was on screen, and `claude_idle`'s `>` line matched the selected option.
+    expect(judge("claude", CLAUDE_SELECT_CARD)).toBe("blocked");
+    // The card is enough to know the agent is there, which the identify list has to say too.
+    expect(identifyAgent(CLAUDE_SELECT_CARD)?.tool).toBe("claude");
+  });
+
+  it("reads a session waiting for its subagents as trailing, not working", () => {
+    // Measured: "主会话等待 子代理运行是不是算后台任务运行中，目前只橙色" - the turn is over and two
+    // helpers are still going, which is the state opencode's family calls `trailing`.
+    expect(judge("claude", CLAUDE_TRAILING_SUBAGENTS)).toBe("trailing");
+  });
+
+  it("stays identified while at rest, so an ended turn can still be reported", () => {
+    // Measured 2026-11-21: no hint line, a custom status line, and the only marker left is the
+    // permission-mode footer. Without it the family flipped to pi the moment a turn ended - and a
+    // family change is read as a new agent appearing, which swallows the `finished` signal the
+    // finished dot is drawn from ("绿点没触发 只触发了蓝点").
+    expect(identifyAgent(CLAUDE_AT_REST)?.tool).toBe("claude");
+    expect(identifyAgent(CLAUDE_AT_REST)?.tool).not.toBe("pi");
+    // The same session's working screen must identify the same way, or the ending is not a change
+    // of state but a change of agent.
+    expect(identifyAgent(CLAUDE_WORKING)?.tool).toBe("claude");
+  });
+
+  it("is idle at rest, not working: the mode badge is not a spinner", () => {
+    // `⏵⏵` (and `⏸`) are in the shared spinner frames by glyph, and the footer carries one in every
+    // state of that mode, so a session at its prompt was read as work for as long as it sat there.
+    expect(judge("claude", CLAUDE_AT_REST)).toBe("idle");
+  });
+
+  it("reads the same session as captured verbatim, box rule and status line on one row", () => {
+    // The tail as the terminal model reported it, 2026-11-21 12:39, after a turn that had just
+    // ended. The box's bottom rule and the status line share a row here, which is a shape the
+    // fixture above does not draw - the reason this is pinned separately.
+    const captured = [
+      "✻ Crunched for 1m 12s · done 12:21 PM",
+      `${"─".repeat(107)} some task ─❯ `,
+      `${"─".repeat(119)}  ◆ deepseek-v4.1-flash • high | CTX ▰▰▰▰▰▰▱▱▱▱▱▱ 51% 257k/500k | WorkBuddy | »67.0t/s · ◷ 12h39m`,
+      "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
+    ].join("\n");
+    expect(identifyAgent(captured)?.tool).toBe("claude");
+    expect(judge("claude", captured)).toBe("idle");
+  });
+
+  it("keeps a running turn working even when it also counts background tasks", () => {
+    // The interrupt hint outranks the wait: while the main turn runs, that is the truer answer.
+    const running = CLAUDE_TRAILING_SUBAGENTS.replace(
+      "✻  Waiting for 2 background agents to finish",
+      "✻ Fermenting… (12s · ↓ 90 tokens · thinking)",
+    ).replace("⏵⏵ bypass permissions on", "esc to interrupt · ⏵⏵ bypass permissions on");
+    expect(judge("claude", running)).toBe("working");
+  });
+
+  it("goes back to idle once the subagents are gone", () => {
+    const done = CLAUDE_TRAILING_SUBAGENTS.split("\n")
+      .filter(
+        (line) =>
+          !line.includes("Waiting for") &&
+          !line.includes("background tasks") &&
+          !line.startsWith("○ general-purpose"),
+      )
+      .join("\n");
+    expect(judge("claude", done)).toBe("idle");
   });
 });
 
