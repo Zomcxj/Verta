@@ -22,7 +22,10 @@ afterEach(() => {
 function harness() {
   vi.useFakeTimers();
   let documentVisible = true;
-  let onVisibility = () => {};
+  let documentFocused = true;
+  // Keyed by event name: the bridge listens for `visibilitychange` and for `focus`, and a single
+  // slot would have the second one overwrite the first.
+  const on = new Map<string, () => void>();
   let nativeEvent: (event: { payload: unknown }) => void = () => {};
   let initial: (value: unknown) => void = () => {};
   const unlisten = vi.fn();
@@ -37,14 +40,19 @@ function harness() {
       }),
   );
   const removeEventListener = vi.fn();
-  const addEventListener = vi.fn((_name, callback) => {
-    onVisibility = callback;
+  const addEventListener = vi.fn((name: string, callback: () => void) => {
+    on.set(name, callback);
   });
-  vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });
+  vi.stubGlobal("window", {
+    __TAURI_INTERNALS__: {},
+    addEventListener,
+    removeEventListener,
+  });
   vi.stubGlobal("document", {
     get visibilityState() {
       return documentVisible ? "visible" : "hidden";
     },
+    hasFocus: () => documentFocused,
     addEventListener,
     removeEventListener,
   });
@@ -60,7 +68,12 @@ function harness() {
     },
     visible(value: boolean) {
       documentVisible = value;
-      onVisibility();
+      on.get("visibilitychange")?.();
+    },
+    /** The window is now in front, which is what the OS reports as a focus change. */
+    focus(focused = true) {
+      documentFocused = focused;
+      on.get("focus")?.();
     },
     subscribe() {
       const listener = vi.fn();
@@ -78,13 +91,13 @@ describe("window presentation bridge", () => {
     const second = h.subscribe();
     await Promise.resolve();
     expect(bridge.listen).toHaveBeenCalledOnce();
-    expect(h.addEventListener).toHaveBeenCalledOnce();
+    expect(h.addEventListener).toHaveBeenCalledTimes(2);
     first.stop();
     expect(h.unlisten).not.toHaveBeenCalled();
     h.visible(false);
     second.stop();
     expect(h.unlisten).toHaveBeenCalledOnce();
-    expect(h.removeEventListener).toHaveBeenCalledOnce();
+    expect(h.removeEventListener).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -126,6 +139,37 @@ describe("window presentation bridge", () => {
     expect(terminalWindowPresentation().visible).toBe(false);
     h.visible(true);
     expect(terminalWindowPresentation().visible).toBe(true);
+  });
+
+  it("takes the focus of a visible page as the window being shown", async () => {
+    // Reported as "此次启动的dev终端都没打开显示": the stored state said the window was hidden (a hide
+    // whose show nobody reported, which Windows never corrects on its own), and a hidden window's
+    // terminals release their GPU resources, so every pane came up with no canvas at all. Focus
+    // plus a visible page cannot happen while a window sits in the tray.
+    const h = harness();
+    const { listener } = h.subscribe();
+    await Promise.resolve();
+    h.native({ revision: 4, occluded: false, sleeping: false, hidden: true });
+    expect(terminalWindowPresentation().visible).toBe(false);
+
+    h.focus();
+    expect(terminalWindowPresentation().visible).toBe(true);
+    expect(bridge.invoke).toHaveBeenCalledWith("window_set_hidden", {
+      hidden: false,
+    });
+    expect(listener).toHaveBeenLastCalledWith({ visible: true, reclaim: false });
+  });
+
+  it("leaves a window alone while it has no focus, tray or not", async () => {
+    const h = harness();
+    h.subscribe();
+    await Promise.resolve();
+    h.native({ revision: 4, occluded: false, sleeping: false, hidden: true });
+    h.focus(false);
+    expect(terminalWindowPresentation().visible).toBe(false);
+    expect(bridge.invoke).not.toHaveBeenCalledWith("window_set_hidden", {
+      hidden: false,
+    });
   });
 
   it("unsubscribes a native listener that resolves after its consumer closes", async () => {

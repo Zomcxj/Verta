@@ -91,6 +91,25 @@ function connect(): void {
         !native.hidden,
       native.sleeping,
     );
+  /**
+   * A window the page can see and that has the focus is not in the tray, whatever the last report
+   * said.
+   *
+   * The hidden flag is written by whoever hid the window, and on Windows nothing says it came back:
+   * hiding delivers no focus change, and the tray reports the show only when the tray is what showed
+   * it. A window brought back any other way - `show()` from the page, a launcher, the reader
+   * alt-tabbing to it - left the flag standing, and a hidden window's terminals are suspended: every
+   * pane drawn while it stayed that way came up with no canvas at all (reported as "终端都没打开
+   * 显示"). Focus plus a visible page cannot happen while a window is in the tray, so it is the
+   * correction, not a guess.
+   */
+  const reconcileWithFocus = () => {
+    if (!native.hidden) return;
+    if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+    native = { ...native, hidden: false };
+    reportWindowHidden(false);
+    sync();
+  };
   const accept = (value: NativePresentation) => {
     if (
       disposed ||
@@ -108,7 +127,10 @@ function connect(): void {
     // Not part of the visibility policy: only renderers sizing their canvases care.
     setNativeLiveResize(value.liveResize === true);
     sync();
-  };  document.addEventListener("visibilitychange", sync);
+  };
+  document.addEventListener("visibilitychange", sync);
+  // The correction for a hide whose show nobody reported: see `reconcileWithFocus`.
+  window.addEventListener("focus", reconcileWithFocus);
   sync();
   if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
     void getCurrentWindow()
@@ -122,6 +144,9 @@ function connect(): void {
         }
         unlisten = stop;
         accept(await invoke<NativePresentation>("window_presentation_state"));
+        // The stored state is whatever the last writer left: a page that comes up with focus is
+        // showing a window, so it is read once here as well as on every focus.
+        reconcileWithFocus();
       })
       .catch((error: unknown) => {
         if (!disposed)
@@ -134,6 +159,7 @@ function connect(): void {
   disconnect = () => {
     disposed = true;
     document.removeEventListener("visibilitychange", sync);
+    window.removeEventListener("focus", reconcileWithFocus);
     unlisten?.();
   };
 }
