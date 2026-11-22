@@ -106,6 +106,7 @@ import {
   isTerminalSurfaceTarget,
   leafIds,
   leafOutputBytes,
+  leafFrameCount,
   leafScreenTail,
   leafUsesAlternateScreen,
   navigateFocusedBlocks,
@@ -248,8 +249,9 @@ function delay(ms: number): Promise<void> {
 async function paintsWithoutLaunchLine(
   leafId: number,
   command: string,
+  sinceFrame: number,
 ): Promise<boolean> {
-  await whenLeafPaints(leafId);
+  await whenLeafPaints(leafId, 1_500, sinceFrame);
   const after = leafScreenTail(leafId);
   return after === null || !screenShowsLaunchLine(after, command);
 }
@@ -258,6 +260,7 @@ async function waitForAgentUi(
   leafId: number,
   base: number,
   command: string,
+  sinceFrame: number,
 ): Promise<SessionOpeningWait> {
   const hardCap = Date.now() + AGENT_UI_HARD_CAP_MS;
   /** The echo has been seen, so a screen without it means the agent replaced it. */
@@ -323,7 +326,7 @@ async function waitForAgentUi(
     // `coverRuleFor` already refuses when the command is on screen. The paint is awaited and the
     // screen read a second time because the tick read it before the renderer caught up: the frame
     // that lands can be a cleared buffer, and that frame is the one the user would see.
-    if (rule !== null && (await paintsWithoutLaunchLine(leafId, command))) {
+    if (rule !== null && (await paintsWithoutLaunchLine(leafId, command, sinceFrame))) {
       trace?.push(
         rule === "silence"
           ? { t: elapsed, exit: rule, bytes, silentFor }
@@ -1030,6 +1033,7 @@ export default function App() {
         // Snapshot the output counter before writing: later growth is what got
         // painted on screen.
         const baseBytes = leafOutputBytes(leafId);
+        const baseFrame = leafFrameCount(leafId);
         if (!writeToSession(leafId, `${plan.command}\r`)) {
           console.error(`[verta] terminal ${leafId} closed before resume`);
           hideSessionOpening(opening, "write-failed");
@@ -1037,7 +1041,12 @@ export default function App() {
         }
         // Wait for the agent's UI before lifting: lifting early exposes a terminal
         // with the command just typed into it.
-        const wait = await waitForAgentUi(leafId, baseBytes, plan.command);
+        const wait = await waitForAgentUi(
+          leafId,
+          baseBytes,
+          plan.command,
+          baseFrame,
+        );
         hideSessionOpening(opening, "ui-painted", wait);
       })();
     },
@@ -1089,6 +1098,7 @@ export default function App() {
       void (async () => {
         await whenSessionReady(tab.activeLeafId);
         const baseBytes = leafOutputBytes(tab.activeLeafId);
+        const baseFrame = leafFrameCount(tab.activeLeafId);
         if (!writeToSession(tab.activeLeafId, `${plan.command}\r`)) {
           hideSessionOpening(opening, "write-failed");
           clearResumeIntent(tab.id, true);
@@ -1098,6 +1108,7 @@ export default function App() {
           tab.activeLeafId,
           baseBytes,
           plan.command,
+          baseFrame,
         );
         hideSessionOpening(opening, "ui-painted", wait);
         clearResumeIntent(tab.id, false);
@@ -1126,6 +1137,7 @@ export default function App() {
       void (async () => {
         await whenSessionReady(leafId);
         const baseBytes = leafOutputBytes(leafId);
+        const baseFrame = leafFrameCount(leafId);
         if (!writeToSession(leafId, `${command}\r`)) {
           console.error(
             `[verta] terminal ${leafId} closed before starting ${tool}`,
@@ -1133,7 +1145,12 @@ export default function App() {
           hideSessionOpening(opening, "write-failed");
           return;
         }
-        const wait = await waitForAgentUi(leafId, baseBytes, command);
+        const wait = await waitForAgentUi(
+          leafId,
+          baseBytes,
+          command,
+          baseFrame,
+        );
         hideSessionOpening(opening, "ui-painted", wait);
       })();
     },
@@ -1158,6 +1175,7 @@ export default function App() {
       void (async () => {
         await whenSessionReady(leafId);
         const baseBytes = leafOutputBytes(leafId);
+        const baseFrame = leafFrameCount(leafId);
         if (!writeToSession(leafId, `${command}\r`)) {
           console.error(
             `[verta] terminal ${leafId} closed before starting ${tool}`,
@@ -1165,7 +1183,12 @@ export default function App() {
           hideSessionOpening(opening, "write-failed");
           return;
         }
-        const wait = await waitForAgentUi(leafId, baseBytes, command);
+        const wait = await waitForAgentUi(
+          leafId,
+          baseBytes,
+          command,
+          baseFrame,
+        );
         hideSessionOpening(opening, "ui-painted", wait);
       })();
     },

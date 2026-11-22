@@ -70,10 +70,17 @@ export function coverRuleFor(tick: CoverTick): CoverRule {
 
   // An inline agent: a real frame, then quiet, which is what "waiting for input" looks like. The
   // floor keeps a branding flash from ending the wait.
+  //
+  // The screen has to carry something, and that was measured: an agent that clears its buffer before
+  // painting leaves a screen of nothing but line breaks, the bytes are already counted, the quiet is
+  // real, and silence lifted the cover onto a blank pane - reported as "有时候没有加载会话，而是终端
+  // 加载指令". Quiet on an empty screen is not an agent waiting for input; it is an agent that has not
+  // started drawing yet.
   if (
     bytes >= AGENT_UI_INLINE_BYTES &&
     silentFor >= AGENT_UI_SILENCE_MS &&
     elapsed >= AGENT_UI_INLINE_FLOOR_MS &&
+    tick.hasOwnScreen &&
     !showsLaunch
   ) {
     return "silence";

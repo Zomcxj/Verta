@@ -4,6 +4,7 @@ import {
   disposeGhosttySession,
   focusGhosttySession,
   ghosttyFocusedLeaf,
+  ghosttyFrameCount,
   ghosttyLeafHasForegroundProcess,
   ghosttyLeafOutputBytes,
   ghosttyLeafScreenTail,
@@ -183,6 +184,17 @@ export function leafOutputBytes(leafId: number): number {
 }
 
 /**
+ * How many frames this leaf has presented, ever.
+ *
+ * Read before a write and handed to `whenLeafPaints`: a count that has moved means the write is
+ * already on screen, so there is no reason to wait for a frame that a finished screen will never
+ * produce.
+ */
+export function leafFrameCount(leafId: number): number {
+  return ghosttyFrameCount(leafId);
+}
+
+/**
  * The visible screen of a leaf as plain text, or `null` when the leaf has no live
  * terminal. The agent judge reads this to decide what the agent is doing.
  */
@@ -201,7 +213,7 @@ export function leafUsesAlternateScreen(leafId: number): boolean {
 }
 
 /**
- * Resolve once this leaf has presented a frame, or after `timeoutMs`.
+ * Resolve once this leaf has presented a frame newer than `sinceFrame`, or after `timeoutMs`.
  *
  * A presented frame is the renderer's own report that what the pty wrote is on screen.
  * The two do not move together: bytes arrive, and the frame follows on the renderer's
@@ -209,9 +221,23 @@ export function leafUsesAlternateScreen(leafId: number): boolean {
  * that has not been painted since. Waiting on the renderer keeps the two in step for any
  * agent, since it is the renderer that reports this and not the agent's output.
  *
+ * `sinceFrame` is the frame count the caller saw when it wrote. Passing it matters: the
+ * renderer only draws surfaces that are dirty, so a screen that is already finished produces no
+ * further frame and a wait for "the next one" can only end on the timeout. Measured on an idle
+ * session, the next frame arrived 441-605 ms later, and that is the pause reported as "动画最后
+ * 卡一下". A count that has already moved past `sinceFrame` means the write is on screen and
+ * there is nothing to wait for.
+ *
  * The timeout is the caller's protection, not a schedule: it resolves either way.
  */
-export function whenLeafPaints(leafId: number, timeoutMs = 1_500): Promise<void> {
+export function whenLeafPaints(
+  leafId: number,
+  timeoutMs = 1_500,
+  sinceFrame?: number,
+): Promise<void> {
+  if (sinceFrame !== undefined && ghosttyFrameCount(leafId) > sinceFrame) {
+    return Promise.resolve();
+  }
   return new Promise((resolve) => {
     let settled = false;
     const finish = () => {

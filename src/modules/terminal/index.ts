@@ -17,6 +17,7 @@ export {
   leafCommandRunning,
   leafHasForegroundProcess,
   leafIdForPty,
+  leafFrameCount,
   leafOutputBytes,
   leafScreenTail,
   leafUsesAlternateScreen,

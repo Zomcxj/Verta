@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DeferredSizeReports,
   TerminalSizeReports,
   type TerminalPixelGeometry,
 } from "@/modules/terminal/ghostty/terminalSizeReports";
@@ -72,5 +73,72 @@ describe("TerminalSizeReports", () => {
     reports.observe("\u001b[1", geometry);
     reports.reset();
     expect(reports.observe("4t", geometry)).toBeNull();
+  });
+});
+
+describe("DeferredSizeReports", () => {
+  it("answers a query that arrived before the cell size was known", () => {
+    // The measured failure: the program asks once, at startup, and the surface has not measured
+    // itself yet. Dropping that query means the program never asks again, so it draws its picture on
+    // a coarse fixed grid instead of from the terminal's real pixels.
+    const replies: string[] = [];
+    let known: TerminalPixelGeometry | null = null;
+    const reports = new DeferredSizeReports(
+      (reply) => replies.push(reply),
+      () => known,
+    );
+
+    reports.observe("booting[14t");
+    expect(replies).toEqual([]);
+
+    known = geometry;
+    reports.flush();
+    expect(replies).toEqual(["[4;510;850t"]);
+  });
+
+  it("answers at once once the size is known", () => {
+    const replies: string[] = [];
+    const reports = new DeferredSizeReports(
+      (reply) => replies.push(reply),
+      () => geometry,
+    );
+    reports.observe("[16t");
+    expect(replies).toEqual(["[6;17;9t"]);
+  });
+
+  it("does not answer twice for one query", () => {
+    const replies: string[] = [];
+    const reports = new DeferredSizeReports(
+      (reply) => replies.push(reply),
+      () => geometry,
+    );
+    reports.observe("[14t");
+    reports.flush();
+    reports.flush();
+    expect(replies).toHaveLength(1);
+  });
+
+  it("holds a bounded amount while the size stays unknown", () => {
+    const replies: string[] = [];
+    let known: TerminalPixelGeometry | null = null;
+    const reports = new DeferredSizeReports(
+      (reply) => replies.push(reply),
+      () => known,
+    );
+    reports.observe("x".repeat(20_000));
+    known = geometry;
+    reports.observe("[14t");
+    expect(replies).toEqual(["[4;510;850t"]);
+  });
+
+  it("says nothing while the size is still unknown", () => {
+    const replies: string[] = [];
+    const reports = new DeferredSizeReports(
+      (reply) => replies.push(reply),
+      () => null,
+    );
+    reports.observe("[14t");
+    reports.flush();
+    expect(replies).toEqual([]);
   });
 });

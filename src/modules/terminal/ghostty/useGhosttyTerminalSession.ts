@@ -32,7 +32,7 @@ import {
   forgetLeafCommandState,
   noteLeafCommandState,
 } from "./shellCommandState";
-import { TerminalSizeReports } from "./terminalSizeReports";
+import { DeferredSizeReports } from "./terminalSizeReports";
 import {
   measureTerminalFont,
   readTerminalGpuTheme,
@@ -132,6 +132,7 @@ const outputBytes = new Map<number, number>();
 // keeps no state across reads, which is what lets a query be caught when it is
 // split between two of them.
 const byteTextDecoder = new TextDecoder("latin1");
+
 const oscClipboard = new LatestClipboardWrite(writeTerminalClipboard);
 
 /**
@@ -141,6 +142,21 @@ const oscClipboard = new LatestClipboardWrite(writeTerminalClipboard);
  * of its own.
  */
 const frameListeners = new Map<number, Set<() => void>>();
+
+/**
+ * How many frames each leaf has presented, ever.
+ *
+ * A caller that needs to know whether what it just wrote is on screen cannot ask the renderer to
+ * draw: the renderer only draws surfaces that are dirty, so a finished screen produces no further
+ * frame and the wait can only end on its own timeout. Measured on an idle session, the next frame
+ * took 441-605 ms and nothing was coming sooner. Counting frames instead lets a caller compare the
+ * count it saw when it wrote with the count now: if it has moved, the write is on screen.
+ */
+const frameCounts = new Map<number, number>();
+
+export function ghosttyFrameCount(leafId: number): number {
+  return frameCounts.get(leafId) ?? 0;
+}
 
 export function subscribeGhosttyFrame(
   leafId: number,
@@ -424,6 +440,14 @@ export function pasteIntoGhosttySession(leafId: number, text: string): boolean {
 
 export function ghosttySelectionForLeaf(leafId: number): string | null {
   return sessions.get(leafId)?.surface?.getSelection() ?? null;
+}
+
+/** Copy the pane's selection, reporting whether there was one to copy. */
+export function copyGhosttySelection(leafId: number): boolean {
+  const text = ghosttySelectionForLeaf(leafId);
+  if (!text) return false;
+  void writeTerminalClipboard(text).catch(() => {});
+  return true;
 }
 
 export function ghosttyCwdForLeaf(leafId: number): string | null {
@@ -921,6 +945,28 @@ async function initializeSessionGeneration(
     return;
   }
 
+  // A program asks for the terminal's pixel size once, at startup, and decides from the answer how
+  // many cells a picture it draws is worth: opencode asks with `CSI 14 t`, accepts only the reply
+  // `CSI 4;height;width t`, and hands the numbers to its renderer. Without an answer it draws the
+  // picture on a fixed coarse grid - measured as 16 columns by 8 rows whatever the terminal's width
+  // was. The surface measures its cells on the first frame, so a query that arrives before that is
+  // held here and answered as soon as the metrics exist, instead of being dropped.
+  const sizeReports = new DeferredSizeReports(
+    (reply) => session.writer.enqueue(textEncoder.encode(reply)),
+    () => {
+      const cell = session.surface?.cellSize();
+      if (!cell || cell.width <= 0 || cell.height <= 0) return null;
+      const scale = window.devicePixelRatio || 1;
+      return {
+        cols: model.cols,
+        rows: model.rows,
+        cellWidth: cell.width * scale,
+        cellHeight: cell.height * scale,
+        originX: 0,
+        originY: 0,
+      };
+    },
+  );
   const surfaceBaseOptions: GhosttySurfaceBaseOptions = {
     model,
     metrics,
@@ -930,9 +976,18 @@ async function initializeSessionGeneration(
     onResize: (cols: number, rows: number) => {
       session.ptyResize.send(cols, rows);
     },
-    onFirstFrame: () => mark("firstFrameMs"),
+    onFirstFrame: () => {
+      mark("firstFrameMs");
+      // The cells have just been measured, so a size query that arrived before that can be answered
+      // now: the program that asked is waiting and prints nothing until it hears back.
+      sizeReports.flush();
+    },
     onFrame: () => {
       ghosttyBlocks(session.leafId)?.present();
+      frameCounts.set(
+        session.leafId,
+        (frameCounts.get(session.leafId) ?? 0) + 1,
+      );
       for (const listener of frameListeners.get(session.leafId) ?? []) listener();
     },
     onRequestFocus: () => focusGhosttySession(session.leafId),
@@ -1024,20 +1079,8 @@ async function initializeSessionGeneration(
   // live cell metrics and the grid size; keeping quiet instead leaves inline
   // images blank. Metrics are read per query rather than captured once, because
   // a font change or a zoom resizes the cells under a running program.
-  const sizeReports = new TerminalSizeReports();
   const reportTerminalSize = (bytes: Uint8Array): void => {
-    const cell = session.surface?.cellSize();
-    if (!cell || cell.width <= 0 || cell.height <= 0) return;
-    const scale = window.devicePixelRatio || 1;
-    const replies = sizeReports.observe(byteTextDecoder.decode(bytes), {
-      cols: model.cols,
-      rows: model.rows,
-      cellWidth: cell.width * scale,
-      cellHeight: cell.height * scale,
-      originX: 0,
-      originY: 0,
-    });
-    if (replies) session.writer.enqueue(textEncoder.encode(replies));
+    sizeReports.observe(byteTextDecoder.decode(bytes));
   };
   const pty = await openPty(
     startCols,
@@ -1124,12 +1167,7 @@ function createGhosttyInput(
     onText: insertPromptText,
     onPaste: insertPromptText,
     getSelection: () => surface.getSelection(),
-    onCopy: () => {
-      const text = surface.getSelection();
-      if (!text) return false;
-      void writeTerminalClipboard(text).catch(() => {});
-      return true;
-    },
+    onCopy: () => copyGhosttySelection(session.leafId),
   });
 }
 

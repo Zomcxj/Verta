@@ -1175,6 +1175,16 @@ html[data-window-inactive] .verta-float,
 html[data-window-inactive] .verta-float * {
   animation-play-state: running !important;
 }
+/* The opening transition is a float in every way that matters here: it exists only for the few
+ * seconds a session takes to start, it enters from a scaled and dimmed state, and it is the only
+ * thing on screen while it is up. Paused because the window lost the foreground, it froze on
+ * whatever frame it had reached - reported as "失焦动画卡住" - and the pane behind it is blank
+ * until the session paints. It is not a loop that would keep producing frames in a window nobody
+ * is watching, so there is nothing to save by stopping it. */
+html[data-window-inactive] [data-session-opening],
+html[data-window-inactive] [data-session-opening] * {
+  animation-play-state: running !important;
+}
 /* A layer that is on its way out, for the same reason and for layers that are not `verta-float`:
  * Radix unmounts a closing layer when its exit animation ends, and a paused animation never ends, so
  * a window left in the background kept a closed menu, dropdown or dialog painted on screen until it

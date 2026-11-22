@@ -63,6 +63,16 @@ describe("global motion budget", () => {
     expect(css).toMatch(
       /html\[data-window-hidden\] \.verta-state-indicator[^{]*\{[^}]*animation:\s*none\s*!important/,
     );
+    // The opening transition is the same shape of layer as a float and for the same reason: it exists
+    // only for the few seconds a session takes to start, and it enters from a scaled, dimmed state. A
+    // window that loses the foreground while it is up froze it on whatever frame it had reached -
+    // reported as "失焦动画卡住" - so it keeps running while it is merely unfocused.
+    expect(css).toMatch(
+      /html\[data-window-inactive\] \[data-session-opening\][^{]*\{[^}]*animation-play-state:\s*running\s*!important/,
+    );
+    expect(css).toMatch(
+      /html\[data-window-inactive\] \[data-session-opening\] \*[^{]*\{[^}]*animation-play-state:\s*running\s*!important/,
+    );
     // Merely unfocused is not unseen, though: an indicator the user can still glance at keeps
     // moving, which is the whole reason it exists. Everything else in that window stays paused.
     expect(css).toMatch(

@@ -111,3 +111,64 @@ export class TerminalSizeReports {
     this.carry = "";
   }
 }
+
+/**
+ * The same answers, for a session whose cell metrics are not known yet.
+ *
+ * A full-screen program asks for the text area in pixels once, at startup, and from that answer
+ * decides how many cells a picture it draws is worth. opencode asks with `CSI 14 t`, accepts only
+ * `CSI 4;height;width t`, and hands the result to its renderer as the image resolution; without an
+ * answer it draws the picture on a fixed, coarse grid instead. Measured on a picture pasted into a
+ * session: 16 columns by 8 rows, unchanged when the terminal was 152, 53, and 126 columns wide,
+ * while the same program in another terminal drew it several times wider.
+ *
+ * The surface measures its cells on its first frame, which is after the first output arrives, so a
+ * query that lands before that used to be dropped with the metrics still unknown - and nothing asked
+ * again. The output is held (bounded) until the metrics exist, then the queries in it are answered.
+ */
+export class DeferredSizeReports {
+  private held = "";
+  private readonly reports = new TerminalSizeReports();
+
+  constructor(
+    private readonly reply: (bytes: string) => void,
+    private readonly geometry: () => TerminalPixelGeometry | null,
+  ) {}
+
+  observe(chunk: string): void {
+    const known = this.geometry();
+    if (known === null) {
+      // Only the tail can hold a query, and a session that never measures itself must not accumulate
+      // everything it printed.
+      this.held = (this.held + chunk).slice(-MAX_HELD);
+      return;
+    }
+    this.answer(this.held, known);
+    this.held = "";
+    this.answer(chunk, known);
+  }
+
+  /**
+   * Answer whatever was held, now that the metrics may exist.
+   *
+   * A program that asks for the size and then waits produces no further output, so answering only on
+   * the next chunk leaves it waiting for an answer that is already available. The surface calls this
+   * when it has measured itself.
+   */
+  flush(): void {
+    if (this.held === "") return;
+    const known = this.geometry();
+    if (known === null) return;
+    this.answer(this.held, known);
+    this.held = "";
+  }
+
+  private answer(chunk: string, geometry: TerminalPixelGeometry): void {
+    if (chunk === "") return;
+    const replies = this.reports.observe(chunk, geometry);
+    if (replies !== null) this.reply(replies);
+  }
+}
+
+/** Enough for a query and the escape sequences around it; a query itself is five to ten characters. */
+const MAX_HELD = 4096;

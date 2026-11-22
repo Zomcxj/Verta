@@ -116,8 +116,27 @@ describe("each rule fires when the screen is free of the command", () => {
         bytes: AGENT_UI_INLINE_BYTES + 100,
         silentFor: AGENT_UI_SILENCE_MS + 100,
         elapsed: AGENT_UI_INLINE_FLOOR_MS + 100,
+        hasOwnScreen: true,
       }),
     ).toBe("silence");
+  });
+
+  it("does not lift on silence over a screen that has not been painted", () => {
+    // Measured on this machine: an agent cleared its buffer, wrote 19 KB, went quiet, and the screen
+    // held nothing but line breaks. Silence lifted the cover onto a blank pane there, and the agent
+    // painted a moment later - the report was "有时候没有加载会话，而是终端加载指令".
+    expect(
+      coverRuleFor({
+        ...quiet,
+        bytes: AGENT_UI_INLINE_BYTES + 19_000,
+        silentFor: AGENT_UI_SILENCE_MS + 1,
+        elapsed: AGENT_UI_INLINE_FLOOR_MS + 2_100,
+        // The echo was seen, which is the case that was measured: the command had been typed on the
+        // agent's behalf and was on screen before the agent cleared it.
+        echoed: true,
+        hasOwnScreen: false,
+      }),
+    ).toBeNull();
   });
 
   it("does not lift on silence before the floor", () => {

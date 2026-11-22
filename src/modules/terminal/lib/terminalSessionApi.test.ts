@@ -9,6 +9,7 @@ import {
   disposeSession,
   leafCwd,
   leafGridSelection,
+  whenLeafPaints,
   whenSessionReady,
   writeToSession,
 } from "./terminalSessionApi";
@@ -29,6 +30,8 @@ vi.mock("@/modules/terminal/ghostty/useGhosttyTerminalSession", () => ({
   respawnGhosttySession: vi.fn(async () => false),
   submitToGhosttySession: vi.fn(() => false),
   whenGhosttySessionReady: vi.fn(async () => true),
+  subscribeGhosttyFrame: vi.fn(() => () => {}),
+  ghosttyFrameCount: vi.fn(() => 0),
   writeToGhosttySession: vi.fn(() => false),
 }));
 
@@ -94,6 +97,58 @@ describe("terminalSessionApi", () => {
       await ready;
 
       expect(ghosttySession.whenGhosttySessionReady).toHaveBeenCalledWith(11);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lifts at once when a frame has already been presented since the write", async () => {
+    // Measured on an idle session: waiting for the next frame took 441-605 ms, and nothing forces a
+    // frame when the screen is already drawn (the renderer only draws dirty surfaces). The cover
+    // therefore sat on a finished screen until a frame happened to arrive - the "动画最后卡一下".
+    // A frame count newer than the write means the write is already on screen, so there is nothing
+    // to wait for.
+    vi.useFakeTimers();
+    try {
+      vi.mocked(ghosttySession.ghosttyFrameCount).mockReturnValue(7);
+
+      const started = Date.now();
+      await whenLeafPaints(11, 1_500, 6);
+      expect(Date.now() - started).toBe(0);
+      expect(ghosttySession.subscribeGhosttyFrame).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for the next frame when the last one predates the write", async () => {
+    // The frame count has not moved, so the write is not on screen yet: subscribe and let the
+    // renderer report it. No frame is forced here, so the wait ends on its own timeout - which is
+    // the behaviour this test pins, and the reason the count is checked first.
+    vi.useFakeTimers();
+    try {
+      vi.mocked(ghosttySession.ghosttyFrameCount).mockReturnValue(3);
+      const pending = whenLeafPaints(11, 1_500, 3);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(ghosttySession.subscribeGhosttyFrame).toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1_500);
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not wait for a frame nobody will draw", async () => {
+    // The timeout is the protection, not the schedule: an idle session draws nothing, so a wait
+    // that has to fall back must fall back quickly rather than sit on the caller's full budget.
+    vi.useFakeTimers();
+    try {
+      vi.mocked(ghosttySession.ghosttyFrameCount).mockReturnValue(3);
+      const started = Date.now();
+      const pending = whenLeafPaints(11, 1_500, 3);
+      await vi.advanceTimersByTimeAsync(1_500);
+      await pending;
+      expect(Date.now() - started).toBe(1_500);
     } finally {
       vi.useRealTimers();
     }
