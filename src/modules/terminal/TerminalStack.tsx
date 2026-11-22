@@ -19,6 +19,16 @@ type Props = {
    * the reader keeps seeing the pane's own surface (the acrylic, on a glass theme).
    */
   covered?: boolean;
+  /**
+   * Every leaf whose session is starting, whether or not its tab is the one on screen.
+   *
+   * Separate from `covered`, and the difference is the bug: `covered` says "the transition layer is
+   * up in the tab you are looking at", which is false the moment the reader switches away. The panes
+   * it hides are still starting, and their own screens already hold the resume command, so
+   * uncovering them on the way out is what made switching tabs and coming back show a bare terminal
+   * with the command on it. These leaves keep their pixels hidden until their sessions paint.
+   */
+  coveredLeaves?: readonly number[];
   /** Register/unregister handle by leaf id (not tab id). */
   registerHandle: (leafId: number, handle: TerminalPaneHandle | null) => void;
   onSearchReady: (leafId: number, addon: TerminalSearchController) => void;
@@ -38,6 +48,7 @@ export function TerminalStack({
   tabs,
   activeId,
   covered = false,
+  coveredLeaves = [],
   registerHandle,
   onSearchReady,
   onCwd,
@@ -134,6 +145,7 @@ export function TerminalStack({
               tabVisible={tabVisible}
               activeLeafId={t.activeLeafId}
               blocks={t.blocks ?? false}
+              coveredLeaves={coveredLeaves}
               onFocusLeaf={(leafId) => onFocusLeaf(t.id, leafId)}
               getBundle={getBundle}
             />

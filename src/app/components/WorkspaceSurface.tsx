@@ -61,6 +61,20 @@ type Props = {
   sessionOpening: boolean;
   /** Which agent the transition is covering for; `null` when nothing named it. */
   sessionOpeningTool: string | null;
+  /**
+   * Every leaf whose session is starting, whether or not its tab is the one on screen.
+   *
+   * Separate from `sessionOpening` because the two answer different questions. `sessionOpening`
+   * says whether to draw the layer right now (it belongs to one tab and must not hang over someone
+   * else's terminal); this says which panes still have to stay hidden while their sessions start.
+   * A tab switch must lift the layer without uncovering those panes: their command lines are already
+   * on their screens, so revealing them for the frames before the reader comes back is exactly the
+   * flicker the layer exists to prevent.
+   *
+   * A list rather than one leaf: several sessions can be opened one after another, and each covers
+   * its own pane until its own UI is painted.
+   */
+  sessionOpeningLeaves: readonly number[];
 };
 
 /** The two lists behind the projects panel. */
@@ -112,6 +126,7 @@ export function WorkspaceSurface({
   onNotesUpdate,
   sessionOpening,
   sessionOpeningTool,
+  sessionOpeningLeaves,
 }: Props) {
   const t = useT();
   const kind = activeTab?.kind;
@@ -131,6 +146,17 @@ export function WorkspaceSurface({
    */
   const sessionCovered =
     sessionOpening && sessionTransitionEnabled(transitionVariant);
+  /**
+   * The leaf whose pane has to stay hidden while its session starts, whatever tab is on screen.
+   *
+   * This is not `sessionCovered`: that one is "draw the layer", which is false as soon as the reader
+   * switches away. The pane it covers is still starting, and its own screen already holds the resume
+   * command, so uncovering it on the way out is what made switching tabs and coming back show a bare
+   * terminal with the command on it.
+   */
+  const coveredLeaves = sessionTransitionEnabled(transitionVariant)
+    ? sessionOpeningLeaves
+    : [];
   const [projectsSub, setProjectsSub] = useState<ProjectsSub>("projects");
   const hasProjectsTab = tabs.some((tab) => tab.kind === "projects");
   const subStripRef = useRef<HTMLDivElement | null>(null);
@@ -201,6 +227,7 @@ export function WorkspaceSurface({
           tabs={tabs}
           activeId={activeId}
           covered={sessionCovered}
+          coveredLeaves={coveredLeaves}
           registerHandle={registerTerminalHandle}
           onSearchReady={onSearchReady}
           onCwd={onCwd}

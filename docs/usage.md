@@ -37,6 +37,33 @@ from the one the numbers claim to answer, and on this machine cache reads are 76
 it, and a test or a probe can ask for one class on its own. The window passes one constant
 (`USAGE_SCOPE`).
 
+## The background tick, and the snapshot a window borrows
+
+Reading every store takes seconds, and a window that opens has no business paying for it again when
+the app already did a minute ago. `usage_refresh.rs` (Rust) ticks the stores once a minute on its own
+thread, and publishes what it read:
+
+- The tick owns the read. It runs `read(None)`, logs what it cost, writes the cache to disk at most
+  every five minutes, emits `verta://usage-changed` when the report's fingerprint moved, and calls
+  `publish()` on every tick whether anything changed or not - "nothing moved" is itself the newest
+  answer.
+- A window that opens between two ticks answers from that snapshot instead of reading: `snapshot()`
+  hands back the last finished read as a borrowed `Arc` (98k events here; cloning them to fold would
+  give back a good part of what skipping the read saved), and only while it is younger than
+  `SNAPSHOT_MAX_AGE_MS`, which is one and a half ticks. Past that a read is the honest answer.
+- Only a caller that wants everything can use it. The tick reads the whole store, so
+  `agent_usage_events` takes the snapshot only when `since_ms` is `None`; a caller that asked for a
+  range gets its own read.
+- Measured on this machine: the command went from 3.1-3.9 s to 0.35-0.58 s (median 0.42 s over five
+  consecutive reads) once a snapshot existed. The split is the read (2.0 s: 98k events, and the
+  opencode store alone scans 40k message rows for their id and time_updated) against the fold
+  (240-400 ms).
+- The one case it does not cover: a window opened before a launch's first tick has finished has
+  nothing to borrow, so it queues on `READING` behind that tick and then reads for itself. On the
+  packaged build that window is about 2.4-5 s after a launch (cache restored in 265-1252 ms, first
+  tick 1753-3783 ms), while the page cannot take a click until 1.7-2.8 s, so it is narrow. Asking at
+  2.2 s measured 3.5 s to answer; asking after the first tick measured 226 ms.
+
 ## The window opens on the last read
 
 Reading every store takes seconds - around 10 s warm and up to 26 s cold on this machine - so an
@@ -96,6 +123,26 @@ which reads as a texture rather than as a chart.
 Agents and models, with the same columns: total, input, output, cache reads, requests, share. Both
 sort by any column, numbers largest first on the first press, and the request column is the row's own
 event count.
+
+## Today is state, not a value read per render
+
+`today` was `dayOf(Date.now(), offset)` computed in the render body, so it only moved when something
+else re-rendered the window - and across midnight nothing does. The "today" range therefore kept
+filtering to yesterday's day index, and everything written after 00:00 was drawn inside yesterday's
+row. The aggregation was never wrong: every event carries its own timestamp and the day is derived
+from that, on both sides (`day_of` in Rust, `dayOf` here).
+
+It is state kept by a 30 second timer now, and the day it turns asks for a fresh read: the tick that
+would bring the new day's events is up to a minute away, and until it lands the "today" range is empty
+with nothing on screen saying why. A timer that finds the same day does one comparison and nothing
+else.
+
+## The activity heatmap
+
+Below the trend chart, the last 53 weeks as one cell per day, graded by quantile rather than by a
+fixed scale: an agent that was used heavily last month and not at all this one would otherwise be one
+bright square and a year of nothing. The cells are the same day buckets the tables sum, so a square
+cannot disagree with the number beside it.
 
 ## Verifying a change here
 

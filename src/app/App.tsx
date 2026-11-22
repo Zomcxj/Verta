@@ -156,7 +156,13 @@ import {
 } from "react";
 import { CloseDialogs } from "./components/CloseDialogs";
 import { WorkspaceInputBar } from "./components/WorkspaceInputBar";
-import { sessionOpeningVisible } from "./components/sessionOpening";
+import {
+  addSessionOpening,
+  dropSessionOpening,
+  type SessionOpeningStart,
+  sessionOpeningAlive,
+  sessionOpeningOnScreen,
+} from "./components/sessionOpening";
 import {
   noteSessionOpeningLifted,
   noteSessionOpeningShown,
@@ -184,10 +190,19 @@ const BenchBridge = __VERTA_BENCH__
 const AGENT_UI_POLL_MS = 120;
 /**
  * The hard cap on the cover, for the case where the wait ends with the launch command still
- * displayed. Lifting there shows the user a line typed on their behalf, so the cover stays up
- * instead - but not forever: an agent that never takes over must still hand the pane back.
+ * displayed. Every rule in `coverRule.ts` refuses to fire while that line is on screen, so the wait
+ * can legitimately run this long; at the cap it ends anyway and the caller lifts the cover, which is
+ * the one path that can show the user a line typed on their behalf. It stays a cap because an agent
+ * that never takes over must still hand the pane back.
+ *
+ * It was 30 s, and at 30 s it did exactly that: a slow agent was still holding its launch line on
+ * the normal screen, and the cap lifted the cover onto the line every rule had just refused to
+ * expose. The rule the reader set for this (2026-11-22) is that the cover lifts onto the agent's own
+ * screen, never onto the command, so the clock is now only the last resort: a screen that has become
+ * clean lifts through `timeout-no-command` (15 s) on any tick, and this cap exists solely for an
+ * agent that never draws anything at all.
  */
-const AGENT_UI_HARD_CAP_MS = 30000;
+const AGENT_UI_HARD_CAP_MS = 60_000;
 /** Fallback: never cover the terminal forever when the wait is inconclusive.
  *
  * This is a separate timer from the wait above, so it has to outlast it: at 8.5s it lifted the
@@ -901,11 +916,17 @@ export default function App() {
    * spinning over an unrelated terminal until the fallback timer ran out. Each start
    * also takes a token, so a slower earlier start cannot lift a newer one's layer.
    */
-  const [sessionOpening, setSessionOpening] = useState<{
-    leafId: number;
-    /** Which agent is being started, so the transition can show its own mark. */
-    tool: string | null;
-  } | null>(null);
+  /**
+   * Every session that is starting right now, not only the newest.
+   *
+   * Sessions are opened one after another, and each one covers its own pane until its own UI is
+   * painted. A single entry meant the newest start replaced the older ones, so their panes were
+   * uncovered while their sessions were still starting - and their screens already held the resume
+   * command. Reported as "连续点击多个会话，只有最后一个切标签切回加载动画还在，其它的都变成了终端指令".
+   */
+  const [sessionOpenings, setSessionOpenings] = useState<
+    readonly SessionOpeningStart[]
+  >([]);
   /** Set by every start, so a slower earlier start cannot lift a newer one's layer. */
   const sessionOpeningToken = useRef(0);
   const sessionOpeningTimer = useRef<number | null>(null);
@@ -918,23 +939,28 @@ export default function App() {
   const showSessionOpening = useCallback(
     (leafId: number, tool: string | null): number => {
       const token = ++sessionOpeningToken.current;
-      setSessionOpening({ leafId, tool });
+      setSessionOpenings((starts) =>
+        addSessionOpening(starts, leafId, tool, token),
+      );
       noteSessionOpeningShown(token, leafId, tool);
       // The timer is the last resort: a session that never reports its UI up must not
       // cover a terminal indefinitely.
       clearSessionOpeningTimer();
       sessionOpeningTimer.current = window.setTimeout(() => {
         sessionOpeningTimer.current = null;
-        if (token !== sessionOpeningToken.current) return;
         noteSessionOpeningLifted(token, "fallback-timer", null, null);
-        setSessionOpening(null);
+        setSessionOpenings((starts) => dropSessionOpening(starts, leafId));
       }, SESSION_OPENING_FALLBACK_MS);
       return token;
     },
     [clearSessionOpeningTimer],
   );
   /**
-   * Lift the transition layer, but only if this start is still the current one.
+   * Lift this start's cover, and only this one.
+   *
+   * Several sessions can be starting at once, so there is no "current start" to compare against: a
+   * token that is no longer pending is ignored by the record itself (`noteSessionOpeningLifted`),
+   * and the leaf is what decides which entry leaves the list.
    *
    * What ended it and what the wait saw are recorded with the duration, and the leaf's screen is
    * read here, at the instant the cover lifts: that is the frame every rule in `coverRule.ts` is a
@@ -946,7 +972,6 @@ export default function App() {
       lift: SessionOpeningLift = "ui-painted",
       wait: SessionOpeningWait | null = null,
     ) => {
-      if (token !== sessionOpeningToken.current) return;
       const leafId = sessionOpeningLeaf(token);
       noteSessionOpeningLifted(
         token,
@@ -954,10 +979,11 @@ export default function App() {
         wait,
         leafId === null ? null : leafScreenTail(leafId),
       );
-      clearSessionOpeningTimer();
-      setSessionOpening(null);
+      if (leafId !== null) {
+        setSessionOpenings((starts) => dropSessionOpening(starts, leafId));
+      }
     },
-    [clearSessionOpeningTimer],
+    [],
   );
   useEffect(() => clearSessionOpeningTimer, [clearSessionOpeningTimer]);
   /**
@@ -965,20 +991,38 @@ export default function App() {
    * a leaf lives in exactly one tab, and a session start is not tied to what the user is
    * looking at afterwards.
    */
-  const sessionOpeningShown = sessionOpeningVisible(
+  /**
+   * Which start the layer is drawn for: the one belonging to the tab on screen.
+   *
+   * There is one layer because there is one tab on screen. Which start it belongs to follows the
+   * reader, and every other start keeps its own pane hidden through `coveredLeaves`.
+   */
+  const sessionOpeningOnScreenNow = sessionOpeningOnScreen(
+    sessionOpenings,
     tabs,
     activeId,
-    sessionOpening?.leafId ?? null,
   );
   /**
-   * The layer ends with the session it was opened for. Leaving that tab (closing it, or
-   * switching to another one) means the user has moved on, so the animation goes with it
-   * instead of hanging over whatever terminal is on screen by then.
+   * The layer lives as long as the leaf it was opened for.
+   *
+   * Switching to another tab only hides it: `sessionOpeningShown` is what the workspace draws, and
+   * the session keeps starting while the reader is looking elsewhere. Ending the layer on that
+   * switch meant coming back to a plain terminal in the middle of a start - the launch command on
+   * screen, no transition - reported as "加载动画一切标签就没了". Closing the tab is what ends it,
+   * because then there is no pane left to cover.
    */
   useEffect(() => {
-    if (sessionOpening === null || sessionOpeningShown) return;
-    hideSessionOpening(sessionOpeningToken.current, "tab-left");
-  }, [sessionOpening, sessionOpeningShown, hideSessionOpening]);
+    if (sessionOpenings.length === 0) return;
+    // A start whose tab (and pane) is gone has nothing left to cover. Each one is dropped on its own,
+    // so a closed tab cannot take another session's cover with it.
+    const gone = sessionOpenings.filter(
+      (start) => !sessionOpeningAlive(tabs, start.leafId),
+    );
+    if (gone.length === 0) return;
+    for (const start of gone) {
+      hideSessionOpening(start.token, "tab-closed");
+    }
+  }, [sessionOpenings, tabs, hideSessionOpening]);
 
   /**
    * The folder scan, reached through a ref because the hook that provides it is created further
@@ -2173,8 +2217,13 @@ export default function App() {
                         onNewProjectSession={handleNewProjectSession}
                         onProjectsSubChange={renameProjectsPanel}
                         onNotesUpdate={updateTab}
-                        sessionOpening={sessionOpeningShown}
-                        sessionOpeningTool={sessionOpening?.tool ?? null}
+                        sessionOpening={sessionOpeningOnScreenNow !== null}
+                        sessionOpeningTool={
+                          sessionOpeningOnScreenNow?.tool ?? null
+                        }
+                        sessionOpeningLeaves={sessionOpenings.map(
+                          (start) => start.leafId,
+                        )}
                       />
                       <SearchInline ref={searchInlineRef} target={searchTarget} />
                     </div>

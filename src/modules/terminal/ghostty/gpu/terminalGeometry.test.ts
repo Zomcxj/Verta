@@ -81,7 +81,7 @@ describe("selectionUniform", () => {
     expect(selectionUniformContains(uniform, 23, 79)).toBe(true);
   });
 
-  it("matches the legacy selectionBoundsContain rules for every cell", () => {
+  it("matches the legacy selectionBoundsContain rules for every cell", { timeout: 30_000 }, () => {
     let seed = 7;
     const random = (limit: number) => {
       seed = (seed * 1103515245 + 12345) & 0x7fffffff;

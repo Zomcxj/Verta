@@ -21,6 +21,29 @@ identity: an id is unique within a tool, and nothing stops two tools from using 
 point: a local session must not open in a distro shell, and the way that once happened was letting
 the downstream guess the environment instead of passing it.
 
+The command is typed into a terminal on the reader's behalf, so the instant it lands is covered by a
+transition (`SessionOpeningOverlay`, drawn inside the terminal area rather than over the whole
+window). The cover lifts only onto the agent's own screen: every rule in `src/app/coverRule.ts`
+requires that the launch line is not on screen, and the three that can fire before the agent owns the
+alternate screen also require that the screen has something on it at all - silence over a cleared
+buffer once lifted the cover onto a blank pane. The clock is the last resort and sits well past those
+rules (60 s), for an agent that never draws anything.
+
+The layer belongs to its tab, not to the tab on screen. Switching tabs hides it - it must not hang
+over someone else's terminal - but does not end it: the session is still starting, and coming back has
+to show the same transition rather than the launch command it exists to hide. `sessionOpeningAlive`
+answers "is there still a pane to cover", and only closing the tab ends it.
+
+**Several starts can be pending at once, and each one keeps its own entry.** Sessions are opened one
+after another, and every start covers its own pane until its own UI is painted. A single entry meant
+the newest start replaced the older ones, so their panes were uncovered while their sessions were
+still starting - and their screens already held the resume command (reported as "clicking several
+sessions in a row: only the last one still had its transition after a tab switch, the rest showed the
+terminal command"). The list is therefore a list of starts, each carrying its
+own leaf, tool and token; the layer is drawn for whichever one belongs to the tab on screen
+(`sessionOpeningOnScreen`), and the covered panes are named by leaf, not by "the tab I am looking at"
+(`coveredLeaves`), which is what keeps them hidden while the reader is away.
+
 ## Subagents
 
 An agent's subagent sessions are filed under their parent's id. They are hidden from the list by
@@ -67,6 +90,18 @@ confirm. A failure is reported with the tool's own words, never disguised as suc
 `verta://agent-sessions-changed` event, which is what makes a session started in a terminal appear
 without pressing Refresh. The list pauses its own refreshes while a selection flow is open - a row
 that moves under the cursor is how the wrong session gets ticked - and catches up when the flow ends.
+
+## Verifying the opening transition
+
+- `scripts/dev/probes/session-opening-latency.mjs` opens a session and compares two clocks: the
+  layer's presence sampled from the DOM, and the app's own record (`sessionOpenings` in
+  `terminalDebugStats`). Two independent clocks have to agree, or the numbers mean nothing.
+- `scripts/dev/probes/session-opening-tab-switch.mjs` is the one for the tab-switch report: it opens
+  a session, switches to another tab while the cover is up, and switches back. It asserts that the
+  layer does not follow the reader to another tab, that the starting pane's own `opacity` stays 0 the
+  whole time (away and back), and that the layer is up again on return. A pane that is merely
+  `visibility: hidden` would pass a screenshot and still flash the resume command on the way back, so
+  the probe reads the computed opacity.
 
 ## Verifying a change here
 

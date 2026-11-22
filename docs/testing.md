@@ -49,6 +49,15 @@ because the questions that matter here are questions about a rendered window - d
 does the card follow the pointer, does the row still open a session with a card attached, does the
 window's number match the command's answer - and none of those survive being mocked.
 
+### One build at a time
+
+The dev build and the installed build share one identifier (`app.verta`), and Tauri derives every
+per-user path from it: the settings store, the window state, the logs, and above all WebView2's user
+data directory (`%LOCALAPPDATA%\app.verta\EBWebView`). Two processes cannot open that directory at
+once, so whichever starts second dies with `WebView2 error: WindowsError(HRESULT(0x8007139F))` - and
+until it dies both write the same `verta-settings.json`. Close the installed app before starting
+`pnpm tauri dev`; the error is not intermittent, it is what a second instance always gets.
+
 Start the application with the debugging port, then run the probe:
 
 ```bash
@@ -72,6 +81,18 @@ A few conventions that came from getting them wrong:
   surface.
 - **A probe that found nothing has measured nothing.** Failing loudly on "no rows" is the difference
   between a probe and a rubber stamp.
+- **A screenshot of the main window must have no usage window open.** The usage window dims the one
+  behind it (`FloatingScrim`, driven by the `verta:usage-window` event), so a capture taken while it is
+  up has a mask over it. `plugin:window|hide` does not lift that mask - only a `close` does, because
+  the event is emitted from Rust's `CloseRequested` handler. Measured the hard way on the README's own
+  screenshots.
+- **A transparent window's screenshot keeps its alpha.** The app runs with vibrancy, so
+  `Page.captureScreenshot` returns a semi-transparent PNG (measured: alpha about 107 on the main
+  window, 193 on the usage window) that looks washed out on any light page. Flatten it onto the app's
+  own dark base before committing it.
+- **A window that is not in the foreground pauses its animations.** An unfocused window has
+  `html[data-window-inactive]`, which pauses every CSS animation part way through its entrance and
+  suspends the terminals; bring the window forward (`SetForegroundWindow`) before capturing.
 
 ## Known flakes
 

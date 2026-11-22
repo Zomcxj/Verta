@@ -6,8 +6,8 @@ import type { CoverRule } from "./coverRule";
  * The complaint this was written for: every so often the transition layer stays up a moment longer
  * than it should before the terminal appears ("会话加载过渡层末尾偶尔多停一会儿才进入"). The cover lifts
  * when the agent's own screen has been painted (`waitForAgentUi` in `App.tsx`), and its last resort
- * is a 45 s timer, so "a moment longer" could be anything from one missed frame to a session that
- * only ended at the cap. Two facts settle which:
+ * is the cap on that wait, so "a moment longer" could be anything from one missed frame to a session
+ * that only ended at the cap. Two facts settle which:
  *
  * - how long the cover was actually up (shown -> lifted), and by which of the paths that lift it;
  * - what the leaf's screen showed at the instant it lifted, which is the thing every rule in
@@ -37,7 +37,7 @@ export type SessionOpeningWait = {
 export type SessionOpeningLift =
   | "ui-painted"
   | "fallback-timer"
-  | "tab-left"
+  | "tab-closed"
   | "write-failed";
 
 export type SessionOpeningRecord = {

@@ -107,7 +107,8 @@ else is named Verta; do not "finish the rename" by touching these two.
 
 ## Further reading
 
-- [README.md](README.md) - what the app does, how to run it, how to build it.
+- [README.md](README.md) - what the app does, how to run it, how to build it (English).
+- [README.zh-CN.md](README.zh-CN.md) - the same page in Chinese.
 - [CONTRIBUTING.md](CONTRIBUTING.md) - how a change gets in.
 - [SECURITY.md](SECURITY.md) - how to report a vulnerability.
 - [CHANGES.md](CHANGES.md) - every difference from upstream, by date, with the reason.

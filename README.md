@@ -2,116 +2,125 @@
   <img src="public/logo.png" width="144" height="144" alt="Verta" />
   <h1>Verta</h1>
 
-  <p><strong>Windows 优先的桌面工作台：会话、终端、编辑器与 Git 在一个窗口里。</strong></p>
+  <p><strong>A Windows-first desktop workbench: sessions, terminal, editor and Git in one window.</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/platform-Windows-blue" alt="平台" />
-    <img src="https://img.shields.io/badge/license-Apache--2.0-lightgrey" alt="许可" />
+    <a href="./README.zh-CN.md">简体中文</a> | <strong>English</strong>
+  </p>
+
+  <p>
+    <img src="https://img.shields.io/badge/platform-Windows-blue" alt="Platform" />
+    <img src="https://img.shields.io/badge/license-Apache--2.0-lightgrey" alt="License" />
   </p>
 </div>
 
 ---
 
-Verta 是一个终端优先的桌面工作台，围绕「本机已经在用的编码 agent」来做：它不自己实现 agent，而是把你机器上 agent 的真实会话列出来，点一下就在原项目目录里恢复，再把终端、编辑器、Git 收在同一个窗口。基于 Tauri 2 + Rust 与 React 19 构建，渲染核心是 ghostty（WebGPU 自绘）。界面中文与 English 双语，默认跟随系统。
+Verta is a terminal-first desktop workbench built around the coding agents already installed on your machine. It does not implement an agent of its own: it lists the real sessions your agents have on this machine, reopens one in its own project directory with a click, and keeps the terminal, the editor and Git in the same window. Built on Tauri 2 + Rust and React 19, with ghostty as the rendering core (WebGPU, self-drawn). The interface is bilingual, Chinese and English, following the system by default.
 
-## 功能
+| <img src="./docs/images/workspace.png" width="100%"> | <img src="./docs/images/usage.png" width="100%"> |
+|---|---|
 
-### 会话
+## Features
 
-- 列出本机 agent 的真实会话，读的是它们自己的数据。
-- 点一条会话就在它自己的项目目录里恢复。
-- 子代理会话不展示，管理模式下才可见。
-- 多选删除：删除前后端重新核对，删不掉的原因如实显示，失败不会被伪装成成功。
-- 列表随会话文件变化实时更新，不需要手动刷新。
+### Sessions
 
-### Windows 与 WSL 并存
+- Lists the real sessions of the agents on this machine, reading their own data.
+- Opening a session reopens it in its own project directory; a transition covers the moment the resume command lands in the terminal.
+- Subagent sessions are hidden unless the manage view is on.
+- Multi-select delete: the backend re-checks before and after, a session that cannot be deleted says why, and a failure is never disguised as success.
+- The list follows the session files as they change, with no Refresh to press.
 
-- WSL 侧的数据在发行版内查询，因此不受 `/mnt` 上 WAL 锁的限制。
-- WSL 开关默认关闭：关的时候只停 Verta 自己的查询，不碰 WSL 本身；打开后可以选择关闭时执行 `wsl --shutdown`（那会中断 WSL 里正在跑的一切）。
-- 在 WSL 里没有独立数据时，界面如实说明，而不是显示成空列表。
-- 环境由路径推断，终端、文件树与状态查询始终落在同一侧。
+### Windows and WSL together
 
-### 终端
+- WSL-side data is queried inside the distribution, so it is not subject to WAL locks on the `/mnt` mount.
+- The WSL switch is off by default: while off it only stops Verta's own queries and leaves WSL alone; once on, it can run `wsl --shutdown` on close, which interrupts everything running inside WSL.
+- When a distribution has no data of its own, the interface says so instead of drawing an empty list.
+- The environment is inferred from the path, so the terminal, the file tree and the status queries always land on the same side.
 
-- 渲染核心为 ghostty（WebGPU 自绘），支持多标签与多面板拆分布局。
-- agent 运行时，会话上下文里的图片显示为真位图：位图由我们从会话库取出并画在它预留的位置上，点击可看原尺寸大图。
-- 从浏览器或桌面拖文件进来会转成适合 Shell 的安全引用路径。
-- 会话列表与终端并存。
+### Terminal
 
-### 编辑器与预览
+- ghostty is the rendering core (WebGPU, self-drawn), with multiple tabs and split panes.
+- A picture in a session is drawn by the agent itself inside the terminal, as a block mosaic: it scrolls and disappears with the text, and Verta draws no second layer over it.
+- Files dragged in from a browser or the desktop become safely quoted paths for the shell.
+- The session list and the terminal live side by side.
 
-- CodeMirror 6，支持常用语言。
-- 打开图片直接预览：尺寸信息、缩放、透明棋盘格。
-- Markdown 里的本地图片按文档所在目录解析，受工作区白名单约束。
-- 编辑器右侧实时预览。
+### Editor and preview
+
+- CodeMirror 6, with the common languages.
+- Images open in a preview: dimensions, zoom, a transparent checkerboard.
+- Local images in Markdown resolve relative to the document's own directory, under the workspace allow-list.
+- A live preview sits to the right of the editor.
 
 ### Git
 
-- Git 面板在页面右侧，可与项目列表同时查看，右上角有与左上角对称的展开/收起按钮。
-- 项目列表标签页展示项目、分支、状态、未提交数、上游与储藏数，可筛选与排序。
-- 远程仓库标签页列出账号可访问的仓库，走本机已登录的 `gh`。
-- 每个仓库的 Releases 在软件内看（版本列表、正文、附件），附件下载显示真实字节进度，落到你选的目录；失败或取消不会留下半截文件，也不会动已存在的同名文件。
+- The Git panel is on the right of the window and can be read beside the project list; its collapse button mirrors the one at the top left.
+- The projects tab shows project, branch, status, uncommitted count, upstream and stash count, with filtering and sorting.
+- The remotes tab lists the repositories the account can reach, through the locally signed-in `gh`.
+- Each repository's Releases are read inside the app (version list, body, assets); an asset download reports real byte progress and lands in the directory you chose, and a failed or cancelled download leaves no half file and never touches an existing one.
 
-### 用量
+### Usage
 
-- 单独一个窗口，统计本机六个 agent 自己写在磁盘上的用量：合计、输入 / 输出 / 缓存读 / 缓存写、请求次数。
-- 模型与 agent 各一张表，可按任意列排序；模型表可把低于某个占比的行折叠成一行，折完仍然对得上总数。
-- 趋势图 7 / 30 / 90 / 180 天与全部；一天至少 7px 宽，装不下就横向滑动，滚轮也能横扫，y 轴刻度固定在滚动区外。
-- 只读：不改任何会话文件，也不上传任何东西。
+- A window of its own, totalling what the six agents on this machine wrote to disk themselves: the total, input / output / cache read / cache write, and request counts.
+- A background tick reads the stores once a minute, so an opened window borrows the last result instead of waiting for another scan.
+- One table for agents and one for models, each sortable by any column; the model table can fold rows below a share into one line and still add up to the total.
+- Trend chart over 7 / 30 / 90 / 180 days and everything; a day is at least 7px wide, the plot scrolls sideways when it does not fit, the wheel scrolls it too, and the y axis stays outside the scroller.
+- An activity heatmap shows how dense the last year of use was, and midnight moves it to the new day on its own.
+- Read-only: no session file is changed and nothing is uploaded.
 
-### 界面
+### Interface
 
-- 中文与 English 两种语言，默认跟随系统，只翻译界面可见文案。
-- 六个形态（无边、极简、云、浮雕、板、玻璃），玻璃形态的窗格不透明度、边缘光、高光可调，可一键恢复默认。
+- Two languages, Chinese and English, following the system by default; only interface text is translated.
+- Seven shapes (Minimal, Cloud, Emboss, Slab, Carbon fiber, Acrylic, Glass). Acrylic and Glass expose pane opacity, edge light and sheen, each resettable to its default.
 
-## 环境要求
+## Requirements
 
-- Windows 10/11（使用系统 WebView2）
-- Node.js 22 以上、pnpm 11
-- Rust 稳定版工具链（构建 Tauri 后端）
+- Windows 10/11 (uses the system WebView2)
+- Node.js 22 or newer, pnpm 11
+- A stable Rust toolchain (builds the Tauri backend)
 
-## 开发
+## Development
 
 ```bash
 pnpm install
-pnpm tauri dev      # 开发运行
-pnpm tauri build    # 打包
+pnpm tauri dev      # run in development
+pnpm tauri build    # package
 ```
 
-## 门禁
+## Gates
 
 ```bash
 pnpm check-types
 pnpm lint
-pnpm test                                   # 内存紧张时加 --maxWorkers=2
+pnpm test                                   # add --maxWorkers=2 when memory is short
 
 cd src-tauri
-cargo clippy --all-targets -- -D warnings   # 内存紧张时加 -j 2
+cargo clippy --all-targets -- -D warnings   # add -j 2 when memory is short
 cargo test --lib
 ```
 
-## 技术栈
+## Stack
 
-Tauri 2、Rust、`portable-pty`、React 19、TypeScript、Vite、ghostty（WebGPU）、CodeMirror 6、Tailwind v4、shadcn/ui、Zustand。
+Tauri 2, Rust, `portable-pty`, React 19, TypeScript, Vite, ghostty (WebGPU), CodeMirror 6, Tailwind v4, shadcn/ui, Zustand.
 
-## 文档
+## Documentation
 
-- [`docs/`](docs/README.md) - 全部文档的索引，一个子系统一篇
-- [`VERTA.md`](VERTA.md) - 项目、质量门槛、约定、架构地图
-- [`docs/architecture.md`](docs/architecture.md) - 两进程模型、命令面、模块布局、已知坑
-- [`docs/terminal-rendering.md`](docs/terminal-rendering.md) - 终端渲染、资源与预算
-- [`docs/session-list.md`](docs/session-list.md) - 会话列表、悬浮卡与信息对话框、子代理、删除
-- [`docs/usage.md`](docs/usage.md) - 用量窗口：六个读取器、模型归一、折叠、趋势图
-- [`docs/testing.md`](docs/testing.md) - 门禁、测试分层、探针、已知 flake
-- [`CHANGES.md`](CHANGES.md) - 与上游的差异账本
+The documentation is written in English, one file per subsystem.
+
+- [`docs/`](docs/README.md) - the map of all of it
+- [`VERTA.md`](VERTA.md) - the project, the quality bar, the conventions, the architecture map
+- [`architecture.md`](docs/architecture.md) - the two-process model, the command surface, the module layout, the known gotchas
+- [`terminal-rendering.md`](docs/terminal-rendering.md) - terminal rendering, resources and budgets
+- [`session-list.md`](docs/session-list.md) - the session list, the hover card and info dialog, subagents, delete
+- [`usage.md`](docs/usage.md) - the usage window: the six readers, model identity, folding, the trend chart
+- [`testing.md`](docs/testing.md) - the gates, the layers of testing, the probes, the known flakes
+- [`CHANGES.md`](CHANGES.md) - every difference from upstream
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) / [`SECURITY.md`](SECURITY.md)
 
-[全部文档](docs/README.md) 有完整清单。
+## License
 
-## 许可
-
-Apache-2.0，见 `LICENSE`。版权行同时保留本项目与上游项目，具体见文件开头。
+Apache-2.0, see [`LICENSE`](LICENSE). The copyright line keeps both this project and the upstream one; see the top of the file.
 
 ## Acknowledgements
 
-本项目基于 [Terax AI](https://github.com/crynta/terax-ai)（Apache-2.0）二次开发。与上游的差异记录在 `CHANGES.md`。
+This project is a derivative of [Terax AI](https://github.com/crynta/terax-ai) (Apache-2.0). Every difference from upstream is recorded in `CHANGES.md`.

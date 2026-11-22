@@ -28,14 +28,27 @@ type Props = {
   blocks: boolean;
   onFocusLeaf: (leafId: number) => void;
   getBundle: (leafId: number) => LeafBundle;
+  /**
+   * Every leaf whose session is starting, wherever its tab is. Those panes stay hidden until their
+   * sessions paint, so switching tabs and coming back cannot show the resume command underneath.
+   */
+  coveredLeaves?: readonly number[];
 };
 
 export function PaneTreeView(props: Props) {
   const { node } = props;
   if (node.kind === "leaf") {
-    const { tabVisible, activeLeafId, blocks, onFocusLeaf, getBundle } = props;
+    const { tabVisible, activeLeafId, blocks, onFocusLeaf, getBundle, coveredLeaves } = props;
     const focused = node.id === activeLeafId;
     const b = getBundle(node.id);
+    /**
+     * Hidden because this pane's session is starting, not because its tab is in the background.
+     *
+     * The pixels are painted at zero opacity rather than hidden with `visibility`: a pane declares
+     * its own visibility, and hiding it that way also unmounts the renderer's canvas, which leaves
+     * the pane blank at the moment the transition lifts instead of showing the session already there.
+     */
+    const covered = (coveredLeaves ?? []).includes(node.id);
     return (
       // biome-ignore lint/a11y/noStaticElementInteractions: focus sync wrapper for one pane; the mouse capture and focus handler only mirror DOM focus into activeLeafId
       <div
@@ -53,6 +66,7 @@ export function PaneTreeView(props: Props) {
         <TerminalPane
           leafId={node.id}
           visible={tabVisible}
+          covered={covered}
           focused={focused}
           initialCwd={node.cwd}
           workspace={node.workspace}

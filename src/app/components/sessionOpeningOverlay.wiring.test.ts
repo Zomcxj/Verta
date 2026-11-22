@@ -62,9 +62,10 @@ describe("the session-opening layer", () => {
 
 describe("the agent the layer names", () => {
   it("travels with the session-opening state", () => {
-    expect(app).toMatch(/const \[sessionOpening, setSessionOpening\] = useState<\{/);
+    expect(app).toMatch(/const \[sessionOpenings, setSessionOpenings\] = useState</);
     expect(app).toMatch(/tool: string \| null/);
-    expect(app).toMatch(/setSessionOpening\(\{ leafId, tool \}\)/);
+    // Several starts can be pending, so the tool rides on the entry rather than in one state.
+    expect(app).toMatch(/addSessionOpening\(starts, leafId, tool, token\)/);
   });
 
   it("is handed in by every start", () => {
@@ -85,7 +86,7 @@ describe("the agent the layer names", () => {
     expect(surface).toMatch(
       /<SessionOpeningOverlay open=\{sessionOpening\} tool=\{sessionOpeningTool\} \/>/,
     );
-    expect(app).toMatch(/sessionOpening=\{sessionOpeningShown\}/);
-    expect(app).toMatch(/sessionOpeningTool=\{sessionOpening\?\.tool \?\? null\}/);
+    expect(app).toMatch(/sessionOpening=\{sessionOpeningOnScreenNow !== null\}/);
+    expect(app).toMatch(/sessionOpeningOnScreenNow\?\.tool \?\? null/);
   });
 });

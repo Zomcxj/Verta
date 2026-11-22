@@ -34,6 +34,13 @@ export type TerminalPaneProps = {
   leafId: number;
   /** Tab containing this pane is on screen. */
   visible: boolean;
+  /**
+   * This pane's session is starting, so its pixels must stay hidden.
+   *
+   * Not folded into `visible`: that one says whether the tab is on screen, and this one outlives a
+   * tab switch. A pane uncovered while its session starts shows the resume command typed into it.
+   */
+  covered?: boolean;
   /** This leaf is the active pane within its tab and receives auto-focus. */
   focused?: boolean;
   initialCwd?: string;
@@ -64,6 +71,7 @@ const GhosttyTerminalPane = memo(
     {
       leafId,
       visible,
+      covered = false,
       focused = true,
       initialCwd,
       workspace,
@@ -129,6 +137,10 @@ const GhosttyTerminalPane = memo(
         style={{
           visibility: visible ? "visible" : "hidden",
           pointerEvents: visible ? "auto" : "none",
+          // The session is starting: paint, but show nothing. Opacity rather than `visibility`
+          // because this pane's own visibility is declared right above, and hiding it that way
+          // also unmounts the renderer's canvas.
+          ...(covered ? { opacity: 0 } : null),
         }}
         onPointerDownCapture={
           blocks

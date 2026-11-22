@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getBuiltinTheme } from "./themes";
 import type { Theme, ThemeVariant } from "./types";
 
 const removed: string[] = [];
@@ -29,6 +30,19 @@ function variant(partial: Partial<ThemeVariant>): ThemeVariant {
   return partial;
 }
 
+/** WCAG contrast of two hex colours, so the assertions read as the reader's own question. */
+function contrast(a: string, b: string): number {
+  const luminance = (hex: string) => {
+    const raw = hex.trim().replace("#", "");
+    const full = raw.length === 3 ? [...raw].map((c) => c + c).join("") : raw.slice(0, 6);
+    const parts = [0, 2, 4].map((i) => Number.parseInt(full.slice(i, i + 2), 16) / 255);
+    const linear = parts.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  };
+  const [hi, lo] = [luminance(a), luminance(b)].sort((left, right) => right - left);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
 function theme(variants: Theme["variants"], id = "test-theme"): Theme {
   return { id, name: "Test", author: "", description: "", variants };
 }
@@ -44,6 +58,32 @@ describe("theme application", () => {
     removed.length = 0;
     written.clear();
     stubDocument();
+  });
+
+  it("makes a light theme's white slots readable before the terminal sees them", async () => {
+    // Reported as "切到亮色主题后，终端里的白色文字还是白色". The palette is written for a dark background
+    // and only the bright white is usually replaced, so the plain white a prompt and `ls` use stays a
+    // pale grey: claude light resolved it to #cbc8bd on #faf9f5, which is 1.59:1.
+    const { applyTheme } = await loadModule();
+    const claude = getBuiltinTheme("claude");
+    expect(claude).toBeTruthy();
+
+    applyTheme(claude as Theme, "light");
+
+    const background = written.get("--terminal-background") ?? written.get("--background");
+    const white = written.get("--terminal-ansi-white");
+    const brightWhite = written.get("--terminal-ansi-bright-white");
+    expect(background).toBeTruthy();
+    expect(white).toBeTruthy();
+    expect(brightWhite).toBeTruthy();
+    // The palette's own values are #cbc8bd and #3d3a2f on #faf9f5: 1.59:1 and 8.1:1.
+    expect(contrast(white as string, background as string)).toBeGreaterThanOrEqual(3);
+    expect(contrast(brightWhite as string, background as string)).toBeGreaterThanOrEqual(4.5);
+    // The rest of the palette is the theme's own decision and is not touched.
+    expect(written.get("--terminal-ansi-red")).toBe(claude?.variants.light?.terminal?.ansi?.[1]);
+    expect(written.get("--terminal-ansi-white")).not.toBe(
+      claude?.variants.light?.terminal?.ansi?.[7],
+    );
   });
 
   it("writes color and terminal variables for the requested mode", async () => {

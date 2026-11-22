@@ -62,12 +62,12 @@ describe("what a session-opening cover did", () => {
     noteSessionOpeningShown(3, 8, null, 0);
     noteSessionOpeningLifted(3, "fallback-timer", null, null, 45_500);
     noteSessionOpeningShown(4, 9, "claude", 0);
-    noteSessionOpeningLifted(4, "tab-left", null, null, 900);
+    noteSessionOpeningLifted(4, "tab-closed", null, null, 900);
     expect(
       sessionOpeningRecords().map((r) => [r.lift, r.coveredMs, r.rule]),
     ).toEqual([
       ["fallback-timer", 45_500, null],
-      ["tab-left", 900, null],
+      ["tab-closed", 900, null],
     ]);
   });
 
