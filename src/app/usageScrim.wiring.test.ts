@@ -46,14 +46,24 @@ describe("dimming behind the usage window", () => {
     expect(app).toContain("setUsageWindowOpen(event.payload === true)");
   });
 
-  it("raises the mask only after the window has shown itself", () => {
+  it("raises the mask in the same tick as the show, not a round trip later", () => {
+    // Reported as "打开用量的同时出现蒙版 现在蒙版出现慢了": sequencing the two put a whole IPC round trip
+    // between the window appearing and the mask appearing. Both are one call away from Rust, so both
+    // are sent together - the mask is not awaited, because the window is what has to appear.
+    const emit = usage.indexOf('emitTo("main", USAGE_WINDOW_EVENT, true)');
     const show = usage.indexOf(".show()");
-    const emit = usage.indexOf('emitTo("main", "verta:usage-window"');
-    expect(show, "the usage window never shows itself").toBeGreaterThan(-1);
     expect(emit, "the usage window never raises the mask").toBeGreaterThan(-1);
-    expect(show).toBeLessThan(emit);
-    // Inside the `then`, not beside it: a `show` that failed must leave the window behind it undimmed.
-    expect(usage).toContain(".then(() => emitTo(\"main\", \"verta:usage-window\", true))");
+    expect(show, "the usage window never shows itself").toBeGreaterThan(-1);
+    expect(emit).toBeLessThan(show);
+    // And not inside the `show`'s continuation: that is the sequencing that was slow.
+    expect(usage).not.toContain('.then(() => emitTo("main"');
+  });
+
+  it("lowers the mask again when the window failed to appear", () => {
+    // The promise the sequencing was there to keep, kept without the round trip: a window that never
+    // showed must not leave the one behind it dimmed.
+    expect(usage).toContain('emitTo("main", USAGE_WINDOW_EVENT, false)');
+    expect(usage).toContain(".show().catch(");
   });
 
   it("is mounted with no fade, so it paints in a window that has lost the focus", () => {

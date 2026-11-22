@@ -59,6 +59,38 @@ static CACHE: Mutex<Option<UsageReadCache>> = Mutex::new(None);
 /// One read at a time, whoever asked: the background tick, a window, or a probe beside both.
 static READING: Mutex<()> = Mutex::new(());
 
+/// The last read the background tick finished, kept so a window can answer without reading again.
+///
+/// The read is the expensive half of opening the usage window: 2.0 s on this machine (98k events,
+/// and the opencode store alone scans 40k message rows for their id and time_updated before it can
+/// tell that none of them moved). The fold that follows is 240-400 ms. A tick already pays both once
+/// a minute, so a window that opens between two ticks has nothing to learn by paying them again -
+/// measured end to end, the command took 3.1-3.9 s and returned a 75 KiB payload, which is the
+/// "打开用量还要等个几秒" this exists to remove.
+///
+/// What it is not is a second source of truth: it carries the instant it was read and is only used
+/// while it is younger than [`SNAPSHOT_MAX_AGE_MS`]. Past that the window reads, which is also what
+/// happens when the tick has never run.
+static SNAPSHOT: Mutex<Option<Snapshot>> = Mutex::new(None);
+
+struct Snapshot {
+    read: std::sync::Arc<UsageRead>,
+    taken_at: Instant,
+}
+
+/// How old a snapshot may be and still answer a window.
+///
+/// A tick and a half: a window that opens up to ninety seconds after the last tick gets an answer at
+/// most one tick and a half old, which is the cadence the window already promises (it re-reads on
+/// every change event). Beyond that the answer would be older than what the user was told to expect,
+/// and a read is the honest one.
+const SNAPSHOT_MAX_AGE_MS: Duration = Duration::from_secs(TICK.as_secs() * 3 / 2);
+
+/// Whether a snapshot taken this long ago still answers a window. See [`SNAPSHOT_MAX_AGE_MS`].
+fn snapshot_is_usable(age: Duration) -> bool {
+    age <= SNAPSHOT_MAX_AGE_MS
+}
+
 /// The usage stores, read through the shared cache.
 pub fn read(since_ms: Option<i64>) -> UsageRead {
     let _reading = READING
@@ -69,6 +101,34 @@ pub fn read(since_ms: Option<i64>) -> UsageRead {
         .unwrap_or_else(|poison| poison.into_inner());
     let cache = cache.get_or_insert_with(UsageReadCache::default);
     super::usage_events(since_ms, cache)
+}
+
+/// The last finished read, when it is young enough to answer with, and without reading anything.
+///
+/// This is the path a window opening takes. It never blocks on the background tick's own read: it
+/// only looks at what that tick already published, so a window that opens while a tick is running
+/// answers from the previous one instead of queueing behind it - which is the other half of the wait
+/// (the tick itself takes 1.4-8.3 s here).
+pub fn snapshot() -> Option<std::sync::Arc<UsageRead>> {
+    let snapshot = SNAPSHOT
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let snapshot = snapshot.as_ref()?;
+    if !snapshot_is_usable(snapshot.taken_at.elapsed()) {
+        return None;
+    }
+    Some(std::sync::Arc::clone(&snapshot.read))
+}
+
+/// Publishes a finished read for the next window to open. Called by the tick, never by a window.
+fn publish(read: std::sync::Arc<UsageRead>) {
+    let mut slot = SNAPSHOT
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    *slot = Some(Snapshot {
+        read,
+        taken_at: Instant::now(),
+    });
 }
 
 /// How many files the cache remembers, for the "what did that tick cost" log line.
@@ -129,6 +189,10 @@ pub fn start(app: AppHandle) {
                 } else {
                     log::debug!("usage refresh: nothing changed, {} ms", spent.as_millis());
                 }
+                // Published on every tick, changed or not: a window that opens wants the newest
+                // answer, and "nothing moved since the last tick" is itself the newest answer. After
+                // the log lines above, which read the report this hands over.
+                publish(std::sync::Arc::new(read));
                 // What is left of the minute, measured from when the read *started*: a slow tick must
                 // not push the next one a whole minute further out.
                 std::thread::sleep(TICK.saturating_sub(spent));
@@ -303,6 +367,25 @@ mod tests {
             fingerprint_of(&report(), TOOLS),
             fingerprint_of(&report(), &["claude", "pi", "dsh"])
         );
+    }
+
+    #[test]
+    fn a_snapshot_is_reused_while_it_is_younger_than_the_tick() {
+        // The background tick reads every 60 s. A window that opens between two ticks must answer
+        // from what the last one produced: the read itself costs 2 s on this machine (98k events,
+        // 40k opencode message rows scanned for their id and time_updated), and paying it again to
+        // learn what a tick learned seconds ago is the "打开用量还要等个几秒" the reader reported.
+        assert!(snapshot_is_usable(Duration::ZERO));
+        assert!(snapshot_is_usable(TICK));
+        assert!(snapshot_is_usable(TICK + Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn a_snapshot_older_than_a_tick_and_a_half_is_not_reused() {
+        // Past that, the answer would be older than the cadence the window promises, and a fresh
+        // read is the honest one.
+        assert!(!snapshot_is_usable(TICK * 2));
+        assert!(!snapshot_is_usable(Duration::from_secs(600)));
     }
 
     #[test]

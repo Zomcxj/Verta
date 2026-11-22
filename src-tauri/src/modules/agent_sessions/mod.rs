@@ -379,10 +379,32 @@ pub async fn agent_usage_events(
         cache_write: cache_write.unwrap_or(true),
     };
     crate::modules::fs::blocking(move || {
-        let UsageRead { report, available } = usage_refresh::read(since_ms);
-        let folded = report.aggregate(offset);
+        // The background tick already read the stores, so a window that opens between two ticks
+        // answers from what it produced instead of reading again: the read is 2.0 s here and the
+        // fold is 240-400 ms, and paying the read again to learn what a tick learned seconds ago is
+        // the wait this removes. A snapshot that is missing or too old falls through to a read.
+        //
+        // Borrowed rather than cloned: the report holds every event (98k of them here), and copying
+        // that to fold it would give back a good part of what skipping the read saved.
+        //
+        // Only when nothing narrower was asked for: the tick reads everything, so its snapshot
+        // answers a caller that wants everything, and a range still gets its own read.
+        let snapshot = if since_ms.is_none() {
+            usage_refresh::snapshot()
+        } else {
+            None
+        };
+        let fresh: UsageRead;
+        let read: &UsageRead = match &snapshot {
+            Some(read) => read,
+            None => {
+                fresh = usage_refresh::read(since_ms);
+                &fresh
+            }
+        };
+        let folded = read.report.aggregate(offset);
         let mut days = folded.days;
-        let mut failures = report.failures;
+        let mut failures = read.report.failures.clone();
         // What this machine has already been billed for goes with what it can read now: a session that
         // was deleted is still usage, and a read that no longer sees it must not erase it
         // (`archive.rs`). The offset is recorded in the file so a later read knows which day boundary
@@ -412,7 +434,14 @@ pub async fn agent_usage_events(
             // quietly stopped including them.
             Err(why) => failures.push(format!("用量归档没有目录：{why}")),
         }
-        Ok(folded_payload(days, since_ms, offset, scope, failures, available))
+        Ok(folded_payload(
+            days,
+            since_ms,
+            offset,
+            scope,
+            failures,
+            read.available.clone(),
+        ))
     })
     .await
 }

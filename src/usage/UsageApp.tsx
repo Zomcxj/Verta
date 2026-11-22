@@ -215,7 +215,40 @@ export function UsageApp(): JSX.Element {
 
   const offset = payload?.offsetMinutes ?? localOffsetMinutes();
 
-  const today = dayOf(Date.now(), offset);
+  /**
+   * Which day is "today", kept live rather than read once.
+   *
+   * `Date.now()` in the render body is a value that never changes until something else re-renders this
+   * window - and the thing that re-renders it is a payload, which arrives on a tick. Measured across
+   * midnight: the window sat on yesterday's day index, so the 今日 range kept filtering to yesterday and
+   * the increments written after 00:00 were drawn inside yesterday's row. Nothing was wrong with the
+   * aggregation (every event carries its own stamp); the view was asked about the wrong day.
+   *
+   * The day change also costs a read, and only that: the payload on screen belongs to the day that just
+   * ended, and waiting for the next background tick leaves 今日 empty for up to a minute with nothing on
+   * screen explaining why. A timer that finds the same day does one comparison and nothing else.
+   */
+  const [today, setToday] = useState(() => dayOf(Date.now(), offset));
+  /** The day this window last saw, so a timer that found the same day costs one comparison. */
+  const seenDay = useRef(today);
+  useEffect(() => {
+    const sync = () => {
+      const next = dayOf(Date.now(), offset);
+      if (next === seenDay.current) return;
+      seenDay.current = next;
+      setToday(next);
+      // The day turned while the window was open, so the payload on screen is yesterday's: the tick
+      // that would bring today's events is up to a minute away, and until it lands 今日 is empty for
+      // no reason a reader can see. Ask now. A timer that found the same day does nothing at all.
+      load();
+    };
+    // The offset can arrive with the first payload, after the first render: re-read the day then
+    // without treating it as a change of day.
+    seenDay.current = dayOf(Date.now(), offset);
+    setToday(seenDay.current);
+    const timer = window.setInterval(sync, 30_000);
+    return () => window.clearInterval(timer);
+  }, [offset, load]);
 
   const view = useMemo(
     () =>
