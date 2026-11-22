@@ -146,8 +146,24 @@ const SHAPES: Readonly<Record<ShapeId, ShapeValues>> = {
       // first version and it read as a card lying on the frame: the edges with no shadow are the edges the
       // eye stops at, and a float with three flat sides is a table. The top hairline comes along because
       // this shape replaces `--pane-shadow`, so it has to bring it.
+      //
+      // The spread is **positive**, and that is the fix for "云朵形态在圆角阴影上还是不行". It used to be
+      // `-8px`, which shrinks the shadow's own shape: a shadow is the element's box inflated by `spread`
+      // and rounded by the same radius, so a negative spread took 8px off the radius too - on the default
+      // 14px pane radius the shadow was drawn with a 6px corner, and the four corners of a 14px card came
+      // out with a shadow that stopped short of the arc. That is exactly what was reported, and it showed
+      // at the corners only, because the straight edges still had a shadow beside them.
+      //
+      // The rule the preset is held to: the shadow's corner must be at least as round as the pane's. A
+      // positive spread can only make it rounder, so it holds at every radius the axis offers, including
+      // `0` (where a square shadow is right). The blur is what keeps it from reading as a hard rim.
+      //
+      // The ink and the weight are the stylesheet's, not the preset's: one alpha cannot serve both modes
+      // ("阴影过重，亮色下或许突兀" - `oklch(0 0 0 / 0.5)` measured 19/255 next to the card on this dark
+      // theme and 65 on its light variant, where the frame is 225). `--float-shadow-ink` is defined per
+      // mode in `globals.css`, and the sheet under 无界 reads the same variable, so the two cannot drift.
       "--pane-shadow":
-        "inset 0 1px 0 oklch(1 0 0 / 0.1), 0 10px 18px -8px oklch(0 0 0 / 0.55), 0 -10px 18px -8px oklch(0 0 0 / 0.55), 10px 0 18px -8px oklch(0 0 0 / 0.55), -10px 0 18px -8px oklch(0 0 0 / 0.55)",
+        "inset 0 1px 0 oklch(1 0 0 / 0.1), 0 10px 22px 1px var(--float-shadow-ink), 0 -10px 22px 1px var(--float-shadow-ink), 10px 0 22px 1px var(--float-shadow-ink), -10px 0 22px 1px var(--float-shadow-ink)",
       // Cards inside the panes keep the softer lift they had.
       "--card-shadow":
         "0 12px 28px -10px oklch(0 0 0 / 0.3), 0 3px 8px -4px oklch(0 0 0 / 0.16)",

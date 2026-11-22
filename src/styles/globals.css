@@ -342,40 +342,84 @@ html:has([data-shell="workspace"][data-edge-right]) [data-shell="workspace"] {
   padding-inline-end: 0;
 }
 
+/* The ink a shape's outer shadow is cast in, and it is per mode because the frame is.
+ *
+ * 云朵's float used to be `oklch(0 0 0 / 0.5)` in both, which measured 19/255 next to the card on this
+ * theme (frame 54) and 65 on the light variant of the same theme (frame 225): a shadow that is a soft rim
+ * on a dark window is a bruise on a light one - "阴影过重，亮色下或许突兀". The light ink is also a blue-grey
+ * rather than black, which is the difference between a shadow on paper and a smudge on it.
+ *
+ * `html:not(.dark)` rather than a light variable, because the mode is written as a class before the first
+ * paint (`index.html`) and the class is either `dark` or `light`. */
+:root {
+  --float-shadow-ink: oklch(0 0 0 / 0.32);
+}
+html:not(.dark) {
+  --float-shadow-ink: oklch(0.2 0.04 260 / 0.18);
+}
+
+/* The sheet's own box, which is what a shape that draws the sheet's edge has to shadow.
+ *
+ * The window's margin has always been 8px of padding on this row, and that was right while nothing here
+ * cast a shadow: the panes landed in the same place either way. It is wrong the moment a shape covers the
+ * edge, because padding puts the 8px *inside* this element's box: the box that cast the sheet's shadow was
+ * 8px wider than the card on every side. Two things came out of that, and both were reported.
+ *
+ * The corners: the shadow filled the notch between this box's rounded corner and the card's arc inside it,
+ * so the four corners of 云朵 were darker than its edges - "角落多了一层". The seams: the left and right
+ * bands were carried by the panes at the row's ends instead, and a pane's band is cast from *inside* the
+ * sheet, so its blur bled across the seam beside it - "云朵无界有间隔线".
+ *
+ * As a margin the 8px is in the same place and this box *is* the card, so one shadow is cast by one box,
+ * from the sheet's own edge, at the sheet's own radius. `width` is spelled out because the panel library
+ * writes `width: 100%` inline and a flex item that is 100% wide plus a margin overflows. */
+html[data-boundless] [data-slot="resizable-panel-group"] {
+  margin-inline: 0.5rem;
+  width: calc(100% - 1rem) !important;
+  padding-inline: 0;
+}
+
 /* 云朵 floats on its shadow, and its panes keep 极简's box: not one pixel of content is spent on it, and
  * nothing repaints a colour (the pane and the terminal keep the theme's, measured).
  *
- * The shadow is split between two boxes, and that is the whole point: the halves that run *across* the
- * sheet (top and bottom) are carried by the row, which is one box, so they cannot break where two panes
- * meet; the halves that run *along* it (left and right) are carried by the panes that own the sheet's own
- * ends, which are far from any seam. Drawn per pane, the vertical halves met at the seam as a step - the
- * "截断" - and dropping them for that reason lost the float entirely.
+ * Two shapes draw outside the pane's own box - 云朵's float and 石板's step - and both need the wrappers
+ * around a pane to stop clipping. A pane sits in a wrapper with inline `overflow: auto` and a panel that
+ * clips, so a shadow cast by the pane itself is cut off at the pane's border edge; what survives is the
+ * part inside the pane's rounded corner, where the pane's own background does not cover its box, and that
+ * reads as a dark square in each corner. That is "石板有直角阴影". Neither wrapper scrolls (the panes are
+ * the scrollers), so releasing them costs nothing.
  *
- * A pane's shadow also needs help leaving the pane: it sits in a wrapper with inline `overflow: auto` and
- * a panel that clips, so the sides measured flat - the shadow was cut off at the pane's own edge. Neither
- * of the two scrolls (the panes are the scrollers), so releasing them costs nothing.
- */
-/* `[data-panel]` rather than the slot name: the panel's `overflow` is the one thing on this element
+ * `[data-panel]` rather than the slot name: the panel's `overflow` is the one thing on this element
  * another rule already owns (the slide's `transition`), and a selector that names the slot puts this
  * rule in front of it in every text-based check the stylesheet has. */
 html[data-shape="cloud"] [data-panel],
-html[data-shape="cloud"] [data-panel] > div {
+html[data-shape="cloud"] [data-panel] > div,
+html[data-shape="slab"] [data-panel],
+html[data-shape="slab"] [data-panel] > div {
   overflow: visible !important;
 }
 
 html[data-boundless][data-shape="cloud"] .verta-pane {
   box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1);
 }
-html[data-boundless][data-shape="cloud"] [data-shell][data-edge-left] .verta-pane {
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), -10px 0 18px -8px oklch(0 0 0 / 0.55);
-}
-html[data-boundless][data-shape="cloud"] [data-shell][data-edge-right] .verta-pane {
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), 10px 0 18px -8px oklch(0 0 0 / 0.55);
-}
+/* The spread is positive here too, and for the same reason the preset's own recipe changed: a negative
+ * spread shrinks the shadow's corner radius along with its box, so a 14px corner was shadowed by a 6px
+ * arc. See `shape.ts` -> `cloud`. */
 html[data-boundless][data-shape="cloud"] [data-slot="resizable-panel-group"] {
-  /* The row is the sheet, so it says where the sheet's top and bottom edges are - over the header and over
-   * the status bar, in one unbroken band. */
-  box-shadow: 0 -10px 18px -8px oklch(0 0 0 / 0.55), 0 10px 18px -8px oklch(0 0 0 / 0.55);
+  /* One box, four bands, and that is the whole recipe now.
+   *
+   * It used to be split between two boxes: this row carried the top and bottom bands because it is one
+   * box across three panes and they cannot break at a seam, and the panes at the row's ends carried the
+   * left and right ones. Both halves were then shadows of boxes that were not the card - the row was 8px
+   * wider than it, and a pane's band sat *inside* the sheet, so it bled across the seam - and at the
+   * corners the two met as a second, offset arc: "角落多了一层". With the row laid out as the sheet
+   * itself (see the margin rule above) one box can own the whole thing, and it reads the same radius the
+   * panes do, so the shadow's corner cannot disagree with the card's at any radius the axis offers.
+   *
+   * The weight and the ink are `--float-shadow-ink`, the same variable the preset's own recipe reads. */
+  border-radius: var(--pane-radius);
+  box-shadow: 0 -10px 22px 1px var(--float-shadow-ink), 0 10px 22px 1px var(--float-shadow-ink),
+    -10px 0 22px 1px var(--float-shadow-ink), 10px 0 22px 1px var(--float-shadow-ink);
 }
 
 /* The radius lands on the merged block's outer frame rather than on each region: the three are flush
@@ -564,8 +608,24 @@ html[data-boundless][data-shape="slab"] .verta-pane {
   border-right-width: 0;
   /* No cut faces and no sideways step between the regions - a block's thickness is only allowed to fall
    * straight down here, where the sheet's own bottom edge is. Both of the things that made a line across
-   * the sheet ("石板形态会话和终端组件之间有间隔线") are gone; the step down, the top/bottom outline and
-   * the cut face on the sheet's right edge are what is left of the preset under 无界. */
+   * the sheet ("石板形态会话和终端组件之间有间隔线") are gone; the top/bottom outline and the step down are
+   * what is left of the preset under 无界.
+   *
+   * The step is not a pane's any more, it is the sheet's: see the row rule below, which is also where its
+   * corners come from. */
+  box-shadow: none;
+}
+/* The block's thickness, cast by the sheet's own box.
+ *
+ * It used to be cast by every pane, and the two things that were wrong with that are the two that were
+ * reported. A shadow cast by a pane is clipped by the pane's own edge (see the overflow note above), so
+ * what survived inside the pane's rounded corner - the only place the pane's background does not cover
+ * its box - was a dark square: "石板有直角阴影". And the panes at the ends of the row are the ones with
+ * the sheet's radius, so the step met the sheet's four corners with whatever radius that particular pane
+ * carried, which is not the sheet's. One box, one radius: the step now falls from the sheet's own bottom
+ * edge and curves with its corners. */
+html[data-boundless][data-shape="slab"] [data-slot="resizable-panel-group"] {
+  border-radius: var(--pane-radius);
   box-shadow: 0 var(--slab-offset) 0 oklch(0 0 0 / 0.4),
     0 var(--slab-lift) 0 oklch(0 0 0 / 0.2);
 }
@@ -577,8 +637,8 @@ html[data-boundless][data-shape="slab"] [data-shell][data-edge-right] .verta-pan
   border-right-color: var(--pane-border-color);
   border-right-width: var(--pane-border-width);
   /* The sheet's own right edge is the one cut face it keeps: that is the block's thickness, and the
-   * reader asked for the outline to stay. */
-  box-shadow: var(--pane-shadow), inset -3px 0 0 oklch(0 0 0 / 0.3);
+   * reader asked for the outline to stay. The step is the row's now. */
+  box-shadow: inset -3px 0 0 oklch(0 0 0 / 0.3);
 }
 
 /* The floating card's inset is a gap, and a sheet has none: the three regions meet. `padding-block`

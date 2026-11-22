@@ -237,3 +237,106 @@ describe("碳纤维's weave", () => {
     expect(hidden?.selector).toContain(":not([data-shape-surface])");
   });
 });
+describe("云朵's shadow at the sheet's four corners", () => {
+  // Reported three times over: "云朵形态在圆角阴影上还是不行", then "云朵让你改的四个角落 不是分隔处", then
+  // "角落多了一层" with the sheet's own edge in 石板 as the same complaint. All of them are one rule: a
+  // shadow is cast by the box that carries it, and the only box whose corners can be the sheet's corners
+  // is the box that *is* the sheet.
+  const row = ruleWith('html[data-boundless][data-shape="cloud"] [data-slot="resizable-panel-group"]');
+
+  it("gives the box that casts the sheet's shadow the sheet's own radius", () => {
+    expect(row?.body).toContain("border-radius: var(--pane-radius)");
+    expect(row?.body).toContain("box-shadow:");
+  });
+
+  it("casts all four bands from that one box", () => {
+    // Split between the row (top and bottom) and the panes at the row's ends (left and right), the two
+    // halves were shadows of two different boxes: they met at each corner as a second, offset arc -
+    // "角落多了一层" - and a pane's band, being inside the sheet, bled across the seam it sat next to.
+    for (const band of ["0 -10px 22px 1px", "0 10px 22px 1px", "-10px 0 22px 1px", "10px 0 22px 1px"]) {
+      expect(row?.body, band).toContain(band);
+    }
+    // The panes keep the hairline and nothing else: an outer band here is a band from the wrong box.
+    expect(ruleWith('html[data-boundless][data-shape="cloud"] .verta-pane')?.body).toBe(
+      "box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1);",
+    );
+    expect(
+      ruleWith('html[data-boundless][data-shape="cloud"] [data-shell][data-edge-left] .verta-pane'),
+    ).toBeUndefined();
+    expect(
+      ruleWith('html[data-boundless][data-shape="cloud"] [data-shell][data-edge-right] .verta-pane'),
+    ).toBeUndefined();
+  });
+
+  it("takes its weight from the per-mode ink, the same one the preset reads", () => {
+    // "阴影过重，亮色下或许突兀": one fixed alpha cannot serve both modes. The sheet and the preset's own
+    // recipe read one variable, so a change of weight is made once.
+    expect(row?.body).toContain("var(--float-shadow-ink)");
+    expect(row?.body).not.toMatch(/oklch\(0 0 0/);
+    expect(resolveShape("cloud").vars["--pane-shadow"]).toContain("var(--float-shadow-ink)");
+    // Two blocks, one per mode; the sheet has several `:root` blocks, so they are found by what they set.
+    const ink = rules.filter((rule) => rule.body.includes("--float-shadow-ink:"));
+    const dark = ink.find((rule) => rule.selector === ":root");
+    const light = ink.find((rule) => rule.selector === "html:not(.dark)");
+    expect(dark, "no dark ink").toBeDefined();
+    expect(light, "no light ink").toBeDefined();
+    expect(dark?.body).toContain("oklch(0 0 0 /");
+    // Lighter in the light mode, which is the whole point of splitting it.
+    const alpha = (body: string) => Number(body.match(/--float-shadow-ink: [^;]*\/ ([\d.]+)\)/)?.[1]);
+    expect(alpha(light?.body ?? "")).toBeLessThan(alpha(dark?.body ?? ""));
+  });
+
+  it("lays the row out as the sheet, so its corners are the card's corners", () => {
+    // The window's margin used to be padding on this row, which put it *inside* the box: the box casting
+    // the sheet's shadow was 8px wider than the card on every side, and its shadow filled the notch
+    // between its own corner and the card's arc. A margin is the same 8px in the same place, and the box
+    // is the card. `width` is spelled out because the panel library writes `width: 100%` inline.
+    const sheet = ruleWith('html[data-boundless] [data-slot="resizable-panel-group"]');
+    expect(sheet?.body).toContain("margin-inline: 0.5rem");
+    expect(sheet?.body).toContain("width: calc(100% - 1rem) !important");
+    expect(sheet?.body).toContain("padding-inline: 0");
+  });
+
+  it("does not shrink the shadow's corner with a negative spread", () => {
+    // A shadow is the element's box inflated by `spread` and rounded by the same radius, so a negative
+    // spread takes the radius down with it: at the default 14px pane radius, `-8px` drew a 6px corner
+    // and the shadow stopped short of the card's arc at all four corners.
+    const body = row?.body ?? "";
+    expect(body).toContain("box-shadow:");
+    expect(body).not.toMatch(/\d+px\s+\d+px\s+-\d+px/);
+    // And the preset's own recipe, which is what the panes read when the sheet is not merged.
+    const shadow = resolveShape("cloud").vars["--pane-shadow"] ?? "";
+    expect(shadow).not.toMatch(/\d+px\s+\d+px\s+-\d+px/);
+  });
+});
+
+describe("石板's step under 无界", () => {
+  // Reported as "石板有直角阴影". The step is cast outside the pane, and a pane's wrapper clips (inline
+  // `overflow: auto`), so what survived of it was the part inside the pane's rounded corner - where the
+  // pane's own background does not cover its box - and that is a dark square in each corner.
+  it("is cast by the sheet's box, not by each pane", () => {
+    const row = ruleWith('html[data-boundless][data-shape="slab"] [data-slot="resizable-panel-group"]');
+    expect(row?.body).toContain("border-radius: var(--pane-radius)");
+    expect(row?.body).toContain("0 var(--slab-offset) 0");
+    const pane = ruleWith('html[data-boundless][data-shape="slab"] .verta-pane');
+    expect(pane?.body).toContain("box-shadow: none;");
+    expect(pane?.body).not.toContain("--slab-offset");
+    // The one cut face the preset keeps on the sheet's right edge, and nothing of the step's.
+    const right = ruleWith(
+      'html[data-boundless][data-shape="slab"] [data-shell][data-edge-right] .verta-pane',
+    );
+    expect(right?.body).not.toContain("var(--pane-shadow)");
+    expect(right?.body).toContain("inset -3px 0 0");
+  });
+
+  it("may leave the pane it is cast from", () => {
+    // Both shapes that draw outside the pane's box need the wrappers' clipping released, and the rule is
+    // written once for the two of them rather than copied per shape.
+    const release = rules.find(
+      (rule) => rule.body.includes("overflow: visible !important") && rule.selector.includes("data-panel"),
+    );
+    expect(release, "no shape releases the panel's clipping").toBeDefined();
+    expect(release?.selector).toContain('html[data-shape="cloud"]');
+    expect(release?.selector).toContain('html[data-shape="slab"]');
+  });
+});
