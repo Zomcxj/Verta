@@ -649,7 +649,6 @@ pub fn run() {
             agent_sessions::agent_sessions_running,
             agent_sessions::agent_sessions_list,
             agent_sessions::agent_sessions_delete,
-            agent_sessions::agent_sessions_image,
             agent_sessions::agent_usage_events,
             agent_versions::agent_versions_check,
             agent_versions::agent_versions_upgrade,

@@ -53,7 +53,6 @@ const TerminalAccessibleOutput = lazy(
   () => import("./ghostty/TerminalAccessibleOutput"),
 );
 const GhosttyBlockOverlay = lazy(() => import("./ghostty/GhosttyBlockOverlay"));
-const GhosttyImageOverlay = lazy(() => import("./ghostty/GhosttyImageOverlay"));
 
 const GhosttyTerminalPane = memo(
   forwardRef<
@@ -180,7 +179,6 @@ const GhosttyTerminalPane = memo(
       >
         <div ref={containerRef} className="absolute inset-0" />
         <Suspense fallback={null}>
-          <GhosttyImageOverlay leafId={leafId} />
         </Suspense>
         {screenReader && session.model && isModelLive(session.model) && (
           <Suspense fallback={null}>

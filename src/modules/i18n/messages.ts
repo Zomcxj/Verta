@@ -17,9 +17,6 @@ const zh = {
   "term.previous": "上一个",
   "term.next": "下一个",
   "term.runInTerminal": "在当前终端运行",
-  "term.imagePreview": "会话图片",
-  "term.openImage": "查看大图",
-  "term.closeImage": "关闭大图",
 
   "palette.title": "命令面板",
   "palette.description": "运行命令、切换主题，或搜索工作区。",
@@ -1640,9 +1637,6 @@ const en: Record<MessageKey, string> = {
   "term.previous": "Previous",
   "term.next": "Next",
   "term.runInTerminal": "Run in active terminal",
-  "term.imagePreview": "Session image",
-  "term.openImage": "View full size",
-  "term.closeImage": "Close full size",
 
   "palette.title": "Command Palette",
   "palette.description":

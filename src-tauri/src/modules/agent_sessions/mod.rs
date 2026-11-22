@@ -5,7 +5,6 @@ mod claude;
 mod claude_status;
 mod delete;
 mod dsh;
-mod image;
 mod opencode;
 mod pi;
 mod workbuddy;
@@ -487,18 +486,6 @@ fn folded_payload(
     }
 }
 
-/// Looks up the image a message attached, by the name the terminal printed.
-/// It reads sqlite, so it runs on the blocking pool as well.
-#[tauri::command]
-pub async fn agent_sessions_image(
-    name: String,
-    directory: Option<String>,
-    skip: Option<u32>,
-) -> Result<Option<String>, String> {
-    let skip = skip.unwrap_or(0) as usize;
-    crate::modules::fs::blocking(move || image::data_url_by_name(&name, directory.as_deref(), skip))
-        .await
-}
 #[cfg(test)]
 mod tests {
     use super::*;
