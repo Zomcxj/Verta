@@ -1,5 +1,5 @@
 import { terminalReadlineSequence } from "@/modules/terminal/lib/keymap";
-import { readTerminalClipboard } from "@/modules/terminal/lib/terminalClipboard";
+import { pasteableTerminalText } from "@/modules/terminal/lib/terminalClipboard";
 import {
   Key,
   KeyAction,
@@ -170,6 +170,7 @@ export class GhosttyInputController {
     this.proxy = new TerminalInputProxy(options.input, {
       placeholder: options.inputPlaceholder ?? this.isMac,
     });
+    // The native-selection helper is the one place a right-click is answered.
     this.nativeSelection = options.getSelection
       ? new TerminalNativeSelection({
           proxy: this.proxy,
@@ -245,7 +246,9 @@ export class GhosttyInputController {
 
     if (isPasteShortcut(event, this.isMac)) {
       consume(event);
-      void readTerminalClipboard().then((text) => this.paste(text));
+      void pasteableTerminalText().then((text) => {
+        if (text) this.paste(text);
+      });
       return;
     }
     if (isCopyShortcut(event, this.isMac) && this.options.onCopy()) {
@@ -654,18 +657,23 @@ function isCopyShortcut(event: KeyboardEvent, isMac: boolean): boolean {
   );
 }
 
-function isPasteShortcut(event: KeyboardEvent, isMac: boolean): boolean {
+/**
+ * Which key a paste is.
+ *
+ * macOS keeps Cmd+V. Everywhere else it is Ctrl+V, the key a Windows Terminal user presses, and
+ * Ctrl+Shift+V is accepted as well so the older habit keeps working. Ctrl+V used to be forwarded to
+ * the program as `^V` instead, which is right for readline's quoted-insert and wrong for everyone
+ * else: `opencode` and `pi` read the clipboard themselves on that key, while Claude Code binds it to
+ * "attach the clipboard image", so a paste that never happens looks like the app does not support it.
+ */
+export function isPasteShortcut(event: KeyboardEvent, isMac: boolean): boolean {
   if (isMac) {
     return (
       event.metaKey && !event.ctrlKey && !event.altKey && event.code === "KeyV"
     );
   }
   return (
-    event.ctrlKey &&
-    event.shiftKey &&
-    !event.altKey &&
-    !event.metaKey &&
-    event.code === "KeyV"
+    event.ctrlKey && !event.altKey && !event.metaKey && event.code === "KeyV"
   );
 }
 

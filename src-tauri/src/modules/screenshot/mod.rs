@@ -17,7 +17,7 @@
 //! and hands back the selection coordinates.
 
 mod capture;
-mod encode;
+pub(crate) mod encode;
 mod geom;
 mod hotkey;
 

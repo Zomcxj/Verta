@@ -17,6 +17,7 @@ pub mod history;
 pub mod ipc_body;
 pub mod lsp;
 pub mod office;
+pub mod paste;
 pub mod pptx;
 pub mod pptx_color;
 pub mod pptx_theme;

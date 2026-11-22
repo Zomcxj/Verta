@@ -5,8 +5,48 @@ import { describe, expect, it, vi } from "vitest";
 import { FakeElement, FakeTextArea } from "./fakeTextArea";
 import {
   GhosttyInputController,
+  isPasteShortcut,
   terminalMouseModifiers,
 } from "./GhosttyInputController";
+
+/**
+ * Which key a paste is.
+ *
+ * Ctrl+V is the key a Windows Terminal user presses, and it used to be forwarded to the program as
+ * `^V`. `opencode` and `pi` read the clipboard on that key themselves, so they kept working; Claude
+ * Code binds it to "attach the clipboard image", so nothing happened there. Ctrl+Shift+V is still
+ * accepted, because that is what this app asked for until now.
+ */
+describe("isPasteShortcut", () => {
+  it("takes Ctrl+V and Ctrl+Shift+V on Windows and Linux", () => {
+    expect(isPasteShortcut(keyboardEvent({ code: "KeyV", ctrlKey: true }), false)).toBe(true);
+    expect(
+      isPasteShortcut(
+        keyboardEvent({ code: "KeyV", ctrlKey: true, shiftKey: true }),
+        false,
+      ),
+    ).toBe(true);
+  });
+
+  it("leaves Ctrl+C, Ctrl+A and a bare V alone", () => {
+    expect(isPasteShortcut(keyboardEvent({ code: "KeyC", ctrlKey: true }), false)).toBe(false);
+    expect(isPasteShortcut(keyboardEvent({ code: "KeyA", ctrlKey: true }), false)).toBe(false);
+    expect(isPasteShortcut(keyboardEvent({ code: "KeyV" }), false)).toBe(false);
+  });
+
+  it("keeps Alt+V and Win+V for the program and the system", () => {
+    // AltGr arrives as Ctrl+Alt, and Win+V is the system clipboard history.
+    expect(
+      isPasteShortcut(keyboardEvent({ code: "KeyV", ctrlKey: true, altKey: true }), false),
+    ).toBe(false);
+    expect(isPasteShortcut(keyboardEvent({ code: "KeyV", metaKey: true }), false)).toBe(false);
+  });
+
+  it("stays Cmd+V on macOS, where Ctrl+V is a control character", () => {
+    expect(isPasteShortcut(keyboardEvent({ code: "KeyV", metaKey: true }), true)).toBe(true);
+    expect(isPasteShortcut(keyboardEvent({ code: "KeyV", ctrlKey: true }), true)).toBe(false);
+  });
+});
 
 describe("terminalMouseModifiers", () => {
   it("encodes xterm Shift, Alt, and Control bits", () => {

@@ -4,7 +4,7 @@ pub mod modules;
 use modules::app_menu;
 use modules::{
     agent_sessions, agent_versions, control, csv, docx, drag, fonts, fs, git, github, history, lsp,
-    projects, pptx, pty, screenshot, shell, vibrancy, workspace, xlsx,
+    paste, projects, pptx, pty, screenshot, shell, vibrancy, workspace, xlsx,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -672,6 +672,7 @@ pub fn run() {
             screenshot::screenshot_set_global_hotkey,
             screenshot::screenshot_finish,
             screenshot::screenshot_cancel,
+            paste::clipboard_image_path,
             screenshot::screenshot_failed,
             #[cfg(feature = "bench")]
             modules::bench::bench_config,

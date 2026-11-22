@@ -52,6 +52,9 @@ export class TerminalNativeSelection {
   };
 
   private readonly contextMenu = (event: MouseEvent): void => {
+    // A program that tracks the mouse owns its own right click, and one of them acts on it: Claude
+    // Code pastes the clipboard on that button. `Shift` + right click is the reader's way through to
+    // the webview's own text menu, which is what exposes and copies a canvas selection.
     if (this.options.mouseTracking() && !event.shiftKey) {
       event.preventDefault();
       return;
