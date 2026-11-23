@@ -93,7 +93,9 @@ const TERMINAL: TerminalPalette = {
 export const vertaDefault: Theme = {
   id: "verta-default",
   name: "Verta",
-  description: "近黑底配纯白强调色。",
+  // English, like every other theme's description: the Chinese one lives in `themeNames.ts`,
+  // looked up by id, so this is what an English interface shows.
+  description: "Near-black with a pure white accent.",
   // The UI is black, so the editor stays dark too; otherwise the code area would be
   // white inside a black frame.
   editorTheme: { dark: "github-dark", light: "github-dark" },

@@ -9,8 +9,8 @@ import type { MessageKey } from "@/modules/i18n";
  *
  * **Proper names stay untranslated**: Dracula, Nord, Kanagawa, Catppuccin, Solarized,
  * Gruvbox, Everforest, Tokyo Night and Rosé Pine are the color schemes' own names, and
- * a Chinese rendering only makes them harder to recognize; Acrylic / Carbon Fiber are
- * the same (they name a material, not describe one), so the name stays in English and
+ * a Chinese rendering only makes them harder to recognize; Acrylic and Atom One are
+ * the same (one names a material, the other a palette), so the name stays in English and
  * only the description gets translated. Just the descriptive ones (Sage / Tide /
  * Caffeine / Xcode / Claude) have a Chinese form.
  *
@@ -21,21 +21,25 @@ import type { MessageKey } from "@/modules/i18n";
 type Entry = { name?: string; description?: string };
 
 const ZH: Record<string, Entry> = {
-  verta: {
+  // The brand theme keeps its id from when it was the upstream's neutral grey, so the entry
+  // lives under `verta-default`; there is no theme with the id `verta` any more.
+  "verta-default": {
     name: "Verta",
     description: "近黑底配纯白强调色。",
+  },
+  // Upstream's neutral grey, back as an ordinary theme. Its name is a proper name and stays in
+  // English; only the description is translated, the same as Acrylic and Atom One.
+  terax: {
+    name: "Terax",
+    description: "干净的中性灰。",
   },
   acrylic: {
     name: "Acrylic",
     description: "磨砂玻璃，桌面透过来。",
   },
   "carbon-weave": {
-    name: "Carbon Fiber",
-    description: "石墨配银青色，碳纤维的配色。",
-  },
-  "verta-default": {
-    name: "Terax",
-    description: "干净的中性灰，终端用全套颜色。",
+    name: "Atom One",
+    description: "冷调蓝灰的深色，配纸白的浅色。",
   },
   xcode: {
     name: "Xcode",
