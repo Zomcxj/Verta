@@ -30,7 +30,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -560,23 +559,6 @@ export const SourceControlPanel = memo(function SourceControlPanel({
     return scm.status.isDetached ? t("scm.detached") : scm.status.branch;
   }, [fixedTargetPending, scm.status, t]);
 
-  const commitShortcut = IS_MAC ? "⌘↩" : "Ctrl+Enter";
-  const canCommit =
-    scm.stagedEntries.length > 0 &&
-    scm.commitMessage.trim().length > 0 &&
-    !fixedTargetPending &&
-    !scm.actionBusy;
-  const commitDisabledReason = scm.actionBusy
-    ? t("scm.hint.busy")
-    : scm.stagedEntries.length === 0
-      ? t("scm.hint.stageFirst")
-      : scm.commitMessage.trim().length === 0
-        ? t("scm.hint.messageFirst")
-        : null;
-  const commitHint = canCommit
-    ? t("scm.commitWith", { shortcut: commitShortcut })
-    : (commitDisabledReason ??
-      t("scm.commitWith", { shortcut: commitShortcut }));
   const pushHint = scm.pushHint ?? t("scm.pushUnavailable");
   const stagedCount = scm.stagedEntries.length;
   const unstagedCount = scm.unstagedEntries.length;
@@ -640,18 +622,6 @@ export const SourceControlPanel = memo(function SourceControlPanel({
       return { tone: "success", message: scm.actionMessage } as const;
     return null;
   }, [scm.actionError, scm.actionMessage, scm.remoteError]);
-
-  const handleCommitShortcut = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (
-      event.key === "Enter" &&
-      (event.metaKey || event.ctrlKey) &&
-      canCommit
-    ) {
-      event.preventDefault();
-      void scm.commit();
-      return;
-    }
-  };
 
   /**
    * The three header actions, reading the latest summaries through a ref.
@@ -948,48 +918,14 @@ export const SourceControlPanel = memo(function SourceControlPanel({
 
         {panelState === "ready" && scm.status ? (
           <>
-            <div className="relative shrink-0 space-y-2 border-b border-border/40 bg-gradient-to-b from-card/65 to-card/30 px-2.5 pb-2.5 pt-2.5">
-              <div
-                className={cn(
-                  "relative rounded-lg border bg-background/95 shadow-sm transition-colors",
-                  scm.commitMessage.length > 0
-                    ? "border-border/70"
-                    : "border-border/45",
-                  "focus-within:border-primary/45 focus-within:shadow-md focus-within:shadow-primary/5",
-                )}
-              >
-                <Textarea
-                  value={scm.commitMessage}
-                  onChange={(event) => scm.setCommitMessage(event.target.value)}
-                  onKeyDown={handleCommitShortcut}
-                  placeholder={t("scm.commitMessage")}
-                  rows={3}
-                  className={cn(
-                    "min-h-[72px] border-border resize-none rounded-lg bg-transparent px-3 pb-7 pt-2.5 text-[12.5px] leading-snug shadow-none placeholder:text-muted-foreground/65 focus-visible:ring-0 focus:border-0",
-                  )}
-                />
-                <div className="pointer-events-none absolute inset-x-3 bottom-1.5 flex items-center justify-between p-1 gap-2 text-[10px] tabular-nums text-muted-foreground/55">
-                  {scm.commitMessage.length > 0 ? (
-                    <span>
-                      {t("scm.charCount", { count: scm.commitMessage.length })}
-                    </span>
-                  ) : (
-                    <span className="flex gap-2 items-center">
-                      {commitShortcut} <p>{t("scm.commitHintSuffix")}</p>
-                    </span>
-                  )}
-                </div>
-              </div>
-
+            <div className="shrink-0 space-y-2 border-b border-border/40 bg-gradient-to-b from-card/65 to-card/30 px-2.5 pb-2.5 pt-2.5">
               <div className="flex min-w-0 items-center gap-1.5 text-[10.5px] text-muted-foreground">
                 <span
                   className={cn(
                     "size-1.5 shrink-0 rounded-full transition-colors",
-                    canCommit
+                    stagedCount > 0
                       ? "bg-foreground/80"
-                      : stagedCount > 0
-                        ? "bg-muted-foreground/60"
-                        : "bg-muted-foreground/30",
+                      : "bg-muted-foreground/30",
                   )}
                 />
                 <span className="truncate font-medium text-foreground/85">
@@ -1009,7 +945,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
                 </span>
               </div>
 
-              <div className="grid w-full grid-cols-3 gap-1.5">
+              <div className="grid w-full grid-cols-2 gap-1.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -1038,29 +974,6 @@ export const SourceControlPanel = memo(function SourceControlPanel({
                     )}
                   >
                     {stageHint}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="xs"
-                      className="h-7 cursor-pointer text-[11.5px] font-semibold tracking-tight shadow-sm disabled:cursor-not-allowed disabled:shadow-none"
-                      disabled={!canCommit}
-                      onClick={() => void scm.commit()}
-                    >
-                      {scm.actionBusy === "commit"
-                        ? t("scm.committing")
-                        : t("scm.commit")}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent
-                    side="bottom"
-                    className={cn(
-                      SOURCE_CONTROL_TOOLTIP_CLASS,
-                      "text-[10.5px]",
-                    )}
-                  >
-                    {commitHint}
                   </TooltipContent>
                 </Tooltip>
                 <Tooltip>

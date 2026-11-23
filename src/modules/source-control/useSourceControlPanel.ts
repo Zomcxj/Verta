@@ -66,7 +66,6 @@ type SourceControlPanelState = {
   repo: GitRepoInfo | null;
   status: GitStatusSnapshot | null;
   selected: DiffSelection | null;
-  commitMessage: string;
   actionBusy: string | null;
   statusError: string | null;
   actionError: string | null;
@@ -82,7 +81,6 @@ type SourceControlPanelState = {
   stagedEmptyText: string;
   unstagedEmptyText: string;
   pendingDiscard: PendingDiscard | null;
-  setCommitMessage: (value: string) => void;
   refresh: () => Promise<void>;
   selectEntry: (entry: SourceControlEntry) => Promise<void>;
   selectFile: (entry: SourceControlFileEntry) => Promise<void>;
@@ -95,7 +93,6 @@ type SourceControlPanelState = {
   requestDiscardAll: () => void;
   confirmPendingDiscard: () => Promise<void>;
   cancelPendingDiscard: () => void;
-  commit: () => Promise<void>;
   push: () => Promise<void>;
 };
 
@@ -289,7 +286,6 @@ export function useSourceControlPanel(
   const [repo, setRepo] = useState<GitRepoInfo | null>(null);
   const [status, setStatus] = useState<GitStatusSnapshot | null>(null);
   const [selected, setSelected] = useState<DiffSelection | null>(null);
-  const [commitMessage, setCommitMessage] = useState("");
   const [localActionBusy, setLocalActionBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -674,29 +670,6 @@ export function useSourceControlPanel(
   const stagedEmptyText = t("scm.staged.empty");
   const unstagedEmptyText = t("scm.changes.empty");
 
-  const commit = useCallback(async () => {
-    if (!repo || summary.busyAction) return;
-    setLocalActionBusy("commit");
-    setActionMessage(null);
-    setActionError(null);
-    try {
-      const result = await native.gitCommit(repo.repoRoot, commitMessage);
-      setCommitMessage("");
-      setActionMessage(
-        t("scm.commitDone", {
-          sha: result.commitSha.slice(0, 7),
-          summary: result.summary,
-        }),
-      );
-      invalidateRepoDiffs(repo.repoRoot);
-      await summary.refresh({ remote: "never" });
-    } catch (error) {
-      setActionError(normalizeError(error, t("scm.unknownError")));
-    } finally {
-      setLocalActionBusy(null);
-    }
-  }, [commitMessage, repo, summary, t]);
-
   const push = useCallback(async () => {
     if (!repo) return;
     setActionMessage(null);
@@ -743,7 +716,6 @@ export function useSourceControlPanel(
     repo,
     status,
     selected,
-    commitMessage,
     actionBusy: localActionBusy ?? summary.busyAction,
     statusError: summary.localError,
     actionError,
@@ -759,7 +731,6 @@ export function useSourceControlPanel(
     stagedEmptyText,
     unstagedEmptyText,
     pendingDiscard: pendingDiscardView,
-    setCommitMessage,
     refresh,
     selectEntry,
     selectFile,
@@ -772,7 +743,6 @@ export function useSourceControlPanel(
     requestDiscardAll,
     confirmPendingDiscard,
     cancelPendingDiscard,
-    commit,
     push,
   };
 }
