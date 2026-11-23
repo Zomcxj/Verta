@@ -20,9 +20,11 @@ A plugin whose work is a Rust hook rather than an IPC command needs no entry fro
 
 ## Bundle config
 
-- `bundle.targets: "all"` plus per-platform sections in `tauri.conf.json`:
-  - **macOS**: `minimumSystemVersion: 13.0`.
-  - **Linux**: deb depends `libwebkit2gtk-4.1-0`, `libgtk-3-0`; rpm `webkit2gtk4.1`, `gtk3`; AppImage bundles its media framework.
+- **Windows only, and by decision rather than by accident.** `bundle.targets` is `["nsis"]` and the
+  `macOS` / `linux` sections are gone from `tauri.conf.json`: 1.0.0 is published for Windows 10/11 and
+  nothing else, so a bundle for another platform would be a claim nobody tested. The code still
+  builds there (the `#[cfg(target_os)]` arms are kept, and `cargo check` covers them), which is what
+  a later port would start from - but the installer is the only artifact this release produces.
   - **Windows**: NSIS installer in `currentUser` mode (no admin required), WebView2 via `downloadBootstrapper`. Installing a missing WebView2 runtime requires internet access; there is no bundled offline runtime. Packaged and offline-install validation remains in the release-readiness gates.
 - Auto-updater: **not configured yet**. Publishing needs a signing key of this project's own, with `pubkey` and `endpoints` written back into `tauri.conf.json` and `createUpdaterArtifacts` turned on again.
 - `bundle.resources` includes the upstream Ghostty, Restty, ghostty-web, and xterm.js license notices under `licenses/terminal/`. Repository documentation and test-only reference WASM cores are not packaged; the frontend includes only the adapted SIMD and scalar cores.

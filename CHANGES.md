@@ -13,6 +13,15 @@ fine as plain text. **The newest day is `open` by default**; when a new day star
 swap in the new date, and drop the `open` from the day before.
 
 <details open>
+<summary><strong>2026-11-23</strong></summary>
+
+**The product is version 1.0.0**
+
+- `package.json`, `src-tauri/Cargo.toml` (`[package]` and `[workspace.package]`), `src-tauri/tauri.conf.json`: the version was `0.0.1` - the placeholder the fork started with - and is now `1.0.0`, which is the first release the product is offered as. Three files carry it because three tools read it: pnpm, cargo (the two workspace crates inherit from `[workspace.package]`, so their own manifests stay `version.workspace = true`), and the bundler. Everything else derives from those: `Cargo.lock` follows, `env!("CARGO_PKG_VERSION")` carries it into the update check's user agent and the control protocol's `app_version`, and the settings window's About section reads the bundled value. No fourth place to keep in step.
+- `src-tauri/tauri.conf.json`, `docs/platform-and-bundle.md`, `README.md`, `README.zh-CN.md`: `bundle.targets` was `"all"` with macOS and Linux sections beside the Windows one, and the release is Windows only. Targets are `["nsis"]` and both other sections are gone - a bundle for a platform nobody tested is a claim, and the first Linux user would be the test. The code still builds elsewhere (`cargo check` covers the `#[cfg(target_os)]` arms) and that is the starting point a later port would have, not this release. Both READMEs say it in the requirements block, together with the two other things 1.0.0 does not do - no auto-update (the updater has no repository or signing key, so it reports nothing), and an unsigned installer (SmartScreen says "unknown publisher").
+</details>
+
+<details>
 <summary><strong>2026-11-22</strong></summary>
 
 **The opening transition belongs to its tab, not to the tab on screen**

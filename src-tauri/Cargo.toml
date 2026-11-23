@@ -1,6 +1,6 @@
 [package]
 name = "verta"
-version = "0.0.1"
+version = "1.0.0"
 description = "Verta — 桌面工作台：本机 agent 会话、终端、编辑器与 Git"
 license = "Apache-2.0"
 edition = "2021"
@@ -12,7 +12,7 @@ default-members = [".", "crates/verta-cli", "crates/verta-control-protocol"]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.1"
+version = "1.0.0"
 edition = "2021"
 license = "Apache-2.0"
 
