@@ -16,8 +16,12 @@
                 ? "dark"
                 : "light";
           document.documentElement.classList.add(resolved);
+          // Both modes are the brand theme's near-black, so the first paint is too: a grey flash
+          // before the palette lands is exactly what this inline script exists to avoid. The two
+          // arms stay spelled out because the test that keeps this in step with `PREPAINT_BG`
+          // reads them as a ternary.
           document.documentElement.style.backgroundColor =
-            resolved === "dark" ? "#141414" : "#ffffff";
+            resolved === "dark" ? "#0b0b0d" : "#0b0b0d";
         } catch (e) {}
       })();
     </script>

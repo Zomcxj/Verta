@@ -20,7 +20,6 @@ import {
   applyRadius,
   applyShape,
   applyTheme,
-  clearTheme,
 } from "./applyTheme";
 import {
   DEFAULT_RADIUS,
@@ -219,20 +218,18 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
     [effectiveShape],
   );
   useEffect(() => {
-    if (effectiveId === DEFAULT_THEME_ID) {
-      clearTheme();
-      return;
-    }
+    // Every built-in theme carries its own `variants` now, including the default one, so
+    // there is no id to special-case here: the same call paints them all. `clearTheme`
+    // stays exported for the screenshot window, which renders a theme it does not own.
     applyTheme(activeTheme, resolvedMode);
-  }, [effectiveId, activeTheme, resolvedMode]);
+  }, [activeTheme, resolvedMode]);
 
   /**
    * The shape, applied on its own axis.
    *
-   * Its own effect rather than a tail on the theme's: the default theme goes through `clearTheme`
-   * and returns, so a shape hung off that one would never be written for the theme most people use.
-   * It also has to answer a change of mode and a change of theme, because a theme may suggest a shape
-   * and the variant it suggests may have a glass recipe the shape has to leave alone.
+   * Its own effect rather than a tail on the theme's, because the two answer different inputs: a
+   * shape has to follow a change of mode and a change of theme (a theme may suggest a shape, and the
+   * variant it suggests may carry a glass recipe the shape has to leave alone).
    */
   useEffect(() => {
     const variant =

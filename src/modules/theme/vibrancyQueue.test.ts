@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PREPAINT_BG } from "./vibrancy";
 
 const core = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -69,7 +70,7 @@ describe("vibrancy application", () => {
 
   it("turns the effect on and repaints the transparent surface", async () => {
     const root = fakeDocument();
-    root.style.backgroundColor = "#141414";
+    root.style.backgroundColor = PREPAINT_BG.dark;
     core.invoke.mockResolvedValue("vibrancy");
     const vibrancy = await loadModule();
 
@@ -134,7 +135,7 @@ describe("vibrancy application", () => {
     await vibrancy.applyVibrancy(true, true);
 
     expect(root.attrs.has("data-vibrancy")).toBe(false);
-    expect(root.style.backgroundColor).toBe("#141414");
+    expect(root.style.backgroundColor).toBe(PREPAINT_BG.dark);
     const backdrop = core.invoke.mock.calls.filter(
       (c) => c[0] === "window_set_backdrop",
     );
@@ -154,7 +155,7 @@ describe("vibrancy application", () => {
     await vibrancy.applyVibrancy(true, true);
 
     expect(root.attrs.has("data-vibrancy")).toBe(false);
-    expect(root.style.backgroundColor).toBe("#141414");
+    expect(root.style.backgroundColor).toBe(PREPAINT_BG.dark);
 
     core.invoke.mockImplementation(() => Promise.resolve());
     await vibrancy.applyVibrancy(true, true);
@@ -169,7 +170,7 @@ describe("vibrancy application", () => {
 
     await vibrancy.applyVibrancy(false, false);
 
-    expect(root.style.backgroundColor).toBe("#ffffff");
+    expect(root.style.backgroundColor).toBe(PREPAINT_BG.light);
     expect(core.invoke).toHaveBeenCalledWith("window_set_backdrop", {
       enabled: false,
       dark: false,

@@ -84,7 +84,7 @@ describe("builtin theme palettes", () => {
 
   // Some themes that came with the upstream are dark-only (kanagawa-dragon), deliberately; this
   // only covers the ones we add ourselves.
-  const OURS = ["verta", "acrylic", "carbon-weave"];
+  const OURS = ["verta-default", "acrylic", "carbon-weave"];
   // These names are kept in English on purpose: one is a brand name, the other two name the material.
   const ENGLISH_NAMES = new Set(["Verta", "Acrylic", "Carbon Fiber"]);
 

@@ -13,19 +13,16 @@ import { carbonWeave } from "./pattern-base";
 import { rosePine } from "./rose-pine";
 import { sage } from "./sage";
 import { solarized } from "./solarized";
-import { verta } from "./verta";
 import { vertaDefault } from "./verta-default";
 import { tide } from "./tide";
 import { tokyoNight } from "./tokyo-night";
 import { xcode } from "./xcode";
 
 const BUILTIN: Theme[] = [
-  // Themes added by the user come first: the settings page lists them in this
-  // order, and they are what people are looking for.
-  verta,
-  acrylic,
-  carbonWeave,
+  // The brand theme first: it is what a fresh install starts on, and it is what people
+  // are looking for when they open this page.
   vertaDefault,
+  carbonWeave,
   xcode,
   claude,
   kanagawa,
@@ -41,6 +38,9 @@ const BUILTIN: Theme[] = [
   tide,
   sage,
   caffeine,
+  // Retired, but kept in `BY_ID` so a settings file that still names it resolves:
+  // `listBuiltinThemes` filters it out of the picker below.
+  acrylic,
 ];
 
 const BY_ID = new Map<string, Theme>(BUILTIN.map((t) => [t.id, t]));

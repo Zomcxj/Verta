@@ -9,7 +9,7 @@ import type { ShapeMaterial } from "./shape";
 export type Backdrop = "vibrancy" | "mica" | "none";
 
 /** Must stay in sync with the pre-paint script in index.html. */
-export const PREPAINT_BG = { dark: "#141414", light: "#ffffff" } as const;
+export const PREPAINT_BG = { dark: "#0b0b0d", light: "#0b0b0d" } as const;
 
 type Rgb = readonly [number, number, number];
 
