@@ -46,8 +46,12 @@ describe("the themes page's wording", () => {
     expect(block, "the light/dark switch still carries a label").not.toContain(
       't("settings.appearance")',
     );
-    // Its explanation stays: it is about the switch, not about the label.
-    expect(block).toContain('t("settings.appearanceHint")');
+    // Its explanation went too: "System follows Windows between light and dark; the palettes and the
+    // editor theme are below" narrated a page the buttons already say. Three labelled buttons under
+    // a heading do not need a sentence telling the reader to read on.
+    expect(block, "the switch still carries its explanation").not.toContain(
+      't("settings.appearanceHint")',
+    );
   });
 
   it("still offers the presets under that heading", () => {

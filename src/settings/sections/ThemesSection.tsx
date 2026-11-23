@@ -308,9 +308,6 @@ export function ThemesSection() {
             </button>
           ))}
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          {t("settings.appearanceHint")} {t("settings.appearanceHintTail")}
-        </p>
       </div>
 
       {backdrop === "none" ? null : (
