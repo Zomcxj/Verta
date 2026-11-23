@@ -85,7 +85,7 @@ export function GeneralSection() {
     if (value || !wslShutdownOnDisable) return;
     setWslResult({ ok: true, text: t("settings.wslShutdown.running") });
     try {
-      await invoke("wsl_shutdown");
+      await invoke("wsl_shutdown", { confirmed: true });
       setWslResult({ ok: true, text: t("settings.wslShutdown.done") });
     } catch (error) {
       setWslResult({

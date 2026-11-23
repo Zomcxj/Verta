@@ -1,7 +1,18 @@
 use tauri::AppHandle;
 
+/// The file paths on the clipboard.
+///
+/// This reads outside every authorized root on purpose, and the reason is the feature: the paths are
+/// what the user pressed paste on, copied in Explorer or Finder, which is by definition a folder this
+/// window has never been pointed at. What happens to them is what keeps it safe - they become the
+/// *sources* of a copy whose destination has to be an authorized root (`fs_copy` refuses otherwise),
+/// so a path here can be read into a project the user chose and nowhere else.
 #[tauri::command]
 pub async fn fs_clipboard_paths(app: AppHandle) -> Result<Vec<String>, String> {
+    read_paths(app).await
+}
+
+async fn read_paths(app: AppHandle) -> Result<Vec<String>, String> {
     #[cfg(windows)]
     {
         let _ = app;

@@ -15,6 +15,12 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-23</strong></summary>
 
+**`wsl --shutdown` has to be asked for, and the clipboard read says why it is not filtered**
+
+- `src-tauri/src/modules/workspace.rs`, `src/settings/sections/GeneralSection.tsx`: `wsl_shutdown` takes a `confirmed` flag and refuses without it. It stops every distribution on the machine - every agent, every container, every build - which is cost paid outside this app, so it should not be one accidental `invoke` away. The settings switch is the only caller and passes `true`; nothing else can.
+- `src-tauri/src/modules/fs/clipboard.rs` reads outside every authorized root **on purpose**, and now says so where the read is. The paths are what the user pressed paste on, copied in Explorer or Finder, which is by definition a folder this window has never been shown. What keeps it safe is the other end: they become the sources of a copy whose destination has to be an authorized root, so they can be read into a project the user chose and nowhere else. Filtering the read was tried and reverted - it would have made paste from outside a project silently do nothing, which is the feature.
+- N6 (the docx undo stack lives in memory) is **not** fixed here: persisting it means writing a copy of a user document next to it, with its own lifecycle, its own cleanup and its own privacy question, and that is a decision rather than a patch. It is recorded in the audit instead.
+
 **A CI that runs the four gates, on the one platform this release ships for**
 
 - `.github/workflows/ci.yml` (new), `.github/workflows/dist-budget.yml` (new), `README.md`: 3117 frontend tests, 1125 Rust tests and five gates were all run by hand, and the knowledge needed to run them - which flakes are known, why `format:check` is not a gate, why `dist-budget` takes minutes - lived in `docs/testing.md` and in whoever remembered it. The workflow runs `check-types`, `biome lint`, `vitest` with `--retry=2` (the documented flakes fail under load and pass on a rerun), `clippy -D warnings` and `cargo test --lib` on `windows-latest`.

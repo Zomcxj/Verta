@@ -671,7 +671,14 @@ pub async fn wsl_list_distros() -> Result<Vec<WslDistro>, String> {
 /// explicitly enabled "also shut down WSL on exit", so no extra confirmation is shown; both
 /// success and failure are reported honestly (per §5.5, no silent failures).
 #[tauri::command]
-pub async fn wsl_shutdown() -> Result<(), String> {
+pub async fn wsl_shutdown(confirmed: bool) -> Result<(), String> {
+    // `wsl --shutdown` stops every distribution on the machine - every agent, every container, every
+    // build. It is the one command here whose cost is paid outside this app, so it is not allowed to
+    // be one accidental `invoke` away: the caller has to say out loud that a person asked for it.
+    // The settings switch is the only caller and passes `true`.
+    if !confirmed {
+        return Err("wsl --shutdown was not confirmed by the person who asked for it".to_string());
+    }
     #[cfg(not(windows))]
     {
         Err("只有 Windows 上的 Verta 能执行 wsl --shutdown".to_string())
