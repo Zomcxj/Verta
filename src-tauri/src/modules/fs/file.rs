@@ -10,7 +10,7 @@ use super::blocking;
 use super::index::FileIndexState;
 use super::mutate::note_changed;
 use crate::modules::workspace::{
-    authorize_parent, authorize_read, resolve_path, WorkspaceEnv, WorkspaceRegistry,
+    authorize_parent, authorize_read, authorize_stat, resolve_path, WorkspaceEnv, WorkspaceRegistry,
 };
 
 const MAX_READ_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
@@ -173,12 +173,21 @@ pub async fn fs_write_file(
 
 #[tauri::command]
 pub async fn fs_canonicalize(
+    app: tauri::AppHandle,
     path: String,
     workspace: Option<WorkspaceEnv>,
 ) -> Result<String, String> {
+    // Resolving a path answers two questions nobody asked for - whether it exists, and where a link
+    // really points - so it is a read and is checked like one. Its one caller resolves the workspace
+    // root, which is authorized by definition.
+    let registry_app = app.clone();
     blocking(move || {
         let workspace = WorkspaceEnv::from_option(workspace);
         let p = resolve_path(&path, &workspace);
+        authorize_read(
+            &tauri::Manager::state::<WorkspaceRegistry>(&registry_app),
+            &p,
+        )?;
         let canon = std::fs::canonicalize(&p).map_err(|e| e.to_string())?;
         Ok(super::to_canon(&canon))
     })
@@ -186,8 +195,23 @@ pub async fn fs_canonicalize(
 }
 
 #[tauri::command]
-pub async fn fs_stat(path: String, workspace: Option<WorkspaceEnv>) -> Result<FileStat, String> {
-    blocking(move || stat_path(path, workspace)).await
+pub async fn fs_stat(
+    app: tauri::AppHandle,
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+) -> Result<FileStat, String> {
+    // Whether a path exists, how big it is and when it changed is a read like any other: it told
+    // anyone holding the webview about files the app had never been pointed at.
+    let registry_app = app.clone();
+    blocking(move || {
+        let workspace = WorkspaceEnv::from_option(workspace);
+        authorize_stat(
+            &tauri::Manager::state::<WorkspaceRegistry>(&registry_app),
+            &resolve_path(&path, &workspace),
+        )?;
+        stat_path(path, Some(workspace))
+    })
+    .await
 }
 
 fn stat_path(path: String, workspace: Option<WorkspaceEnv>) -> Result<FileStat, String> {

@@ -8,11 +8,11 @@ use grep_searcher::sinks::UTF8;
 use grep_searcher::{BinaryDetection, SearcherBuilder};
 use ignore::{WalkBuilder, WalkState};
 use serde::Serialize;
-use tauri::State;
+use tauri::{Manager, State};
 
 use super::supersede::Supersede;
 use super::{blocking, display_path, to_canon};
-use crate::modules::workspace::{resolve_path, WorkspaceEnv};
+use crate::modules::workspace::{authorize_read, resolve_path, WorkspaceEnv, WorkspaceRegistry};
 
 const FILE_SIZE_CAP: u64 = 5 * 1024 * 1024;
 const DEFAULT_MAX_RESULTS: usize = 200;
@@ -175,6 +175,7 @@ fn search_tree(
 
 #[tauri::command]
 pub async fn fs_grep(
+    app: tauri::AppHandle,
     pattern: String,
     root: String,
     glob: Option<Vec<String>>,
@@ -182,14 +183,22 @@ pub async fn fs_grep(
     max_results: Option<usize>,
     workspace: Option<WorkspaceEnv>,
 ) -> Result<GrepResponse, String> {
+    // A search reads file contents, so it asks the same question `fs_read_file` does. Without it,
+    // a pattern run against a path nobody opened returned the matching lines of every file under it.
+    let registry_app = app.clone();
     blocking(move || {
+        let workspace = WorkspaceEnv::from_option(workspace);
+        authorize_read(
+            &Manager::state::<WorkspaceRegistry>(&registry_app),
+            &resolve_path(&root, &workspace),
+        )?;
         run_grep(
             pattern,
             root,
             glob,
             case_insensitive,
             max_results,
-            workspace,
+            Some(workspace),
         )
     })
     .await
@@ -240,15 +249,22 @@ pub fn run_grep(
 /// stops even though it is still occupying a blocking thread.
 #[tauri::command]
 pub async fn fs_grep_interactive(
+    app: tauri::AppHandle,
     supersede: State<'_, Supersede>,
     pattern: String,
     root: String,
     max_results: Option<usize>,
     workspace: Option<WorkspaceEnv>,
 ) -> Result<GrepResponse, String> {
+    let registry_app = app.clone();
     let ticket = supersede.begin(INTERACTIVE_KEY);
     blocking(move || {
-        run_grep_interactive(pattern, root, max_results, workspace, &|| {
+        let workspace = WorkspaceEnv::from_option(workspace);
+        authorize_read(
+            &Manager::state::<WorkspaceRegistry>(&registry_app),
+            &resolve_path(&root, &workspace),
+        )?;
+        run_grep_interactive(pattern, root, max_results, Some(workspace), &|| {
             ticket.is_superseded()
         })
     })
@@ -299,12 +315,23 @@ pub struct GlobResponse {
 
 #[tauri::command]
 pub async fn fs_glob(
+    app: tauri::AppHandle,
     pattern: String,
     root: String,
     max_results: Option<usize>,
     workspace: Option<WorkspaceEnv>,
 ) -> Result<GlobResponse, String> {
-    blocking(move || run_glob(pattern, root, max_results, workspace)).await
+    // Paths and names only, which is still a listing of a tree nobody opened.
+    let registry_app = app.clone();
+    blocking(move || {
+        let workspace = WorkspaceEnv::from_option(workspace);
+        authorize_read(
+            &Manager::state::<WorkspaceRegistry>(&registry_app),
+            &resolve_path(&root, &workspace),
+        )?;
+        run_glob(pattern, root, max_results, Some(workspace))
+    })
+    .await
 }
 
 pub fn run_glob(

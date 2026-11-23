@@ -7,7 +7,7 @@ use ignore::WalkBuilder;
 use serde::Serialize;
 
 use super::blocking;
-use crate::modules::workspace::{resolve_path, WorkspaceEnv};
+use crate::modules::workspace::{authorize_read, resolve_path, WorkspaceEnv, WorkspaceRegistry};
 
 #[derive(Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -133,12 +133,26 @@ fn natural_cmp(a: &str, b: &str) -> Ordering {
 /// callers pay nothing.
 #[tauri::command]
 pub async fn fs_read_dir(
+    app: tauri::AppHandle,
     path: String,
     show_hidden: bool,
     git_decorations: Option<bool>,
     workspace: Option<WorkspaceEnv>,
 ) -> Result<Vec<DirEntry>, String> {
-    blocking(move || read_dir_entries(path, show_hidden, git_decorations, workspace)).await
+    // The listing is the first half of every read the app makes, and it went without the allow-list
+    // the file commands have: a directory nobody opened could be listed, revealing names, sizes and
+    // times even though `fs_read_file` would refuse the contents ("a command that skips the
+    // WorkspaceRegistry allow-list is a bug of the first order" - `SECURITY.md`).
+    let registry_app = app.clone();
+    blocking(move || {
+        let workspace = WorkspaceEnv::from_option(workspace);
+        authorize_read(
+            &tauri::Manager::state::<WorkspaceRegistry>(&registry_app),
+            &resolve_path(&path, &workspace),
+        )?;
+        read_dir_entries(path, show_hidden, git_decorations, Some(workspace))
+    })
+    .await
 }
 
 pub fn read_dir_entries(

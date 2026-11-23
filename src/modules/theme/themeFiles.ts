@@ -2,7 +2,7 @@ import type { MessageKey } from "@/modules/i18n";
 import { currentWorkspaceEnv } from "@/modules/workspace";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { appConfigDir, join } from "@tauri-apps/api/path";
+import { join } from "@tauri-apps/api/path";
 import type { Theme } from "./types";
 import { validateTheme, type ValidationResult } from "./validateTheme";
 
@@ -17,8 +17,18 @@ export function isThemeFilePath(path: string): boolean {
   return path.toLowerCase().endsWith(THEME_FILE_EXT);
 }
 
+/**
+ * The themes folder, created and authorized by the backend.
+ *
+ * This used to be `join(await appConfigDir(), "themes")`, a path the webview assembled for itself -
+ * which the plain write commands accepted only because they did not read the allow-list, and which
+ * the settings page then `fs_stat`ed to decide whether to create it. Both of those now check the
+ * allow-list (a command that skips it is a bug of the first order, `SECURITY.md`), so the folder is
+ * granted the way the notes folder already was: by a command that makes it and authorizes it, and
+ * answers the one spelling every later call uses.
+ */
 async function themesDir(): Promise<string> {
-  return join(await appConfigDir(), "themes");
+  return invoke<string>("themes_dir");
 }
 
 export async function themeFilePath(id: string): Promise<string> {
@@ -26,14 +36,9 @@ export async function themeFilePath(id: string): Promise<string> {
 }
 
 export async function writeThemeFile(theme: Theme): Promise<string> {
+  // `themes_dir` creates the folder when it is missing, so there is no existence check to make.
   const dir = await themesDir();
   const ws = currentWorkspaceEnv();
-  const dirExists = await invoke("fs_stat", { path: dir, workspace: ws })
-    .then(() => true)
-    .catch(() => false);
-  if (!dirExists) {
-    await invoke("fs_create_dir", { path: dir, workspace: ws });
-  }
   const path = await join(dir, `${theme.id}${THEME_FILE_EXT}`);
   await invoke("fs_write_file", {
     path,

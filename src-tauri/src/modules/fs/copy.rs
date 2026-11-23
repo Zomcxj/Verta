@@ -3,7 +3,9 @@ use super::{
     mutate::{note_dir_changed, rename_no_replace},
     to_canon,
 };
-use crate::modules::workspace::{resolve_path, WorkspaceEnv, WorkspaceRegistry};
+use crate::modules::workspace::{
+    authorize_parent, resolve_path, WorkspaceEnv, WorkspaceRegistry,
+};
 use serde::Serialize;
 use std::ffi::{OsStr, OsString};
 use std::io;
@@ -60,13 +62,21 @@ pub async fn fs_copy_replacing(
 /// the sources' own spelling, so the front end can match them back to what it is holding.
 #[tauri::command]
 pub async fn fs_copy_conflicts(
+    app: tauri::AppHandle,
     sources: Vec<String>,
     dest_dir: String,
     workspace: Option<WorkspaceEnv>,
 ) -> Result<Vec<String>, String> {
+    // It answers "does a file of that name already exist here", which is the same oracle `fs_stat`
+    // is, so it asks the same question: the destination's parent has to be an authorized folder.
+    let registry_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let workspace = WorkspaceEnv::from_option(workspace);
         let dest = resolve_path(&dest_dir, &workspace);
+        authorize_parent(
+            &tauri::Manager::state::<WorkspaceRegistry>(&registry_app),
+            &dest,
+        )?;
         let mut conflicts = Vec::new();
         for source in sources {
             let source_path = resolve_path(&source, &workspace);

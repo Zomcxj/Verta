@@ -640,6 +640,7 @@ pub fn run() {
             workspace::workspace_authorize,
             workspace::workspace_current_dir,
             workspace::notes_dir,
+            workspace::themes_dir,
             control::control_frontend_ready,
             control::control_respond,
             get_launch_dir,
@@ -797,6 +798,113 @@ mod launch_target_tests {
     fn settings_float_only_outside_macos() {
         assert!(!settings_always_on_top(true));
         assert!(settings_always_on_top(false));
+    }
+
+    /// Every read of a path the app has never been pointed at is refused.
+    ///
+    /// `SECURITY.md` puts it in one line: a command that skips the `WorkspaceRegistry` allow-list is a
+    /// bug of the first order. The file commands had the check; the *listing* commands did not, so a
+    /// directory nobody opened could be listed, its files stat'ed, and its contents grepped - through
+    /// a webview that merely had to be shown a local HTML page (see the preview's frame). This pins
+    /// the calls, because a missing guard is invisible in every behavioural test: the app's own
+    /// callers always pass a path it already authorized.
+    /// The CSP is the other wall, and until now nothing checked it.
+    ///
+    /// `connect-src` carried a bare `https:`, which means *any host*: with script in the webview -
+    /// the HTML preview used to hand that out, and a markdown image or a remote README would do -
+    /// one `fetch` was enough to send what was read off this machine. Tauri's model is that the
+    /// webview talks to Rust and nothing else, and this is where that is written down.
+    #[test]
+    fn the_csp_keeps_the_webview_off_the_network() {
+        let config: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json"),
+            )
+            .expect("tauri.conf.json is unreadable"),
+        )
+        .expect("tauri.conf.json is not JSON");
+        let csp = config["app"]["security"]["csp"]
+            .as_str()
+            .expect("no CSP in tauri.conf.json");
+        let directive = |name: &str| {
+            csp.split(';')
+                .map(str::trim)
+                .find(|part| part.starts_with(name))
+                .unwrap_or_else(|| panic!("no {name} in the CSP"))
+                .split_whitespace()
+                .skip(1)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        };
+
+        // A bare scheme is every host on it: this is the exfiltration channel.
+        for name in ["connect-src", "script-src"] {
+            let tokens = directive(name);
+            for bare in ["https:", "http:", "wss:", "ftp:"] {
+                assert!(
+                    !tokens.iter().any(|t| t == bare),
+                    "{name} allows the bare scheme {bare}, which is every host on it"
+                );
+            }
+        }
+        // Script from disk only: an inline script is what the preview page always was.
+        let script = directive("script-src");
+        assert!(!script.iter().any(|t| t == "'unsafe-inline'"));
+        assert!(script.iter().any(|t| t == "'self'"));
+        // Nothing may be embedded as a plugin, and no `<base>` may redirect relative URLs.
+        assert_eq!(directive("object-src"), ["'none'"]);
+        assert_eq!(directive("base-uri"), ["'self'"]);
+        // The pty stream has its own gate; it is the only IPC origin allowed besides `ipc:`.
+        let connect = directive("connect-src");
+        assert!(connect.iter().any(|t| t == "ipc:"));
+        assert!(connect.iter().any(|t| t == "verta-pty:"));
+    }
+
+    #[test]
+    fn every_listing_and_search_command_asks_the_allow_list() {
+        // Only the part that ships: `include_str!` reads this test's own text too, and a search over
+        // the whole file would find the very call it is looking for and pass whatever the code did.
+        let source = include_str!("lib.rs");
+        let shipping = source.split("#[cfg(test)]").next().unwrap_or("");
+        assert!(!shipping.is_empty());
+        for (file, command) in [
+            ("modules/fs/tree.rs", "read_dir_entries"),
+            ("modules/fs/file.rs", "stat_path"),
+            ("modules/fs/file.rs", "std::fs::canonicalize(&p)"),
+            ("modules/fs/grep.rs", "run_grep("),
+            ("modules/fs/grep.rs", "run_grep_interactive("),
+            ("modules/fs/grep.rs", "run_glob("),
+            ("modules/fs/search.rs", "run_list_files("),
+            ("modules/fs/copy.rs", "std::fs::symlink_metadata(dest.join(name))"),
+            ("modules/projects/commands.rs", "discover_git_repos(&path, depth)"),
+        ] {
+            let text = std::fs::read_to_string(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(file),
+            )
+            .unwrap_or_else(|error| panic!("{file} is unreadable: {error}"));
+            let shipping_part = text.split("#[cfg(test)]").next().unwrap_or("");
+            let call = shipping_part.find(command).unwrap_or_else(|| {
+                panic!("{file} no longer calls {command}, so this test is checking nothing")
+            });
+            // The guard is the nearest `authorize_` above the call, and it has to be in the same
+            // function: a guard in a different command does not cover this one.
+            let before = &shipping_part[..call];
+            let function_start = before
+                .rfind("
+pub async fn ")
+                .or_else(|| before.rfind("
+fn "))
+                .or_else(|| before.rfind("
+pub fn "))
+                .unwrap_or(0);
+            let body = &before[function_start..];
+            assert!(
+                body.contains("authorize_read(")
+                    || body.contains("authorize_parent(")
+                    || body.contains("authorize_stat("),
+                "{command} in {file} does not ask the allow-list"
+            );
+        }
     }
 
     /// The settings window's geometry is never taken from the previous run's state file.

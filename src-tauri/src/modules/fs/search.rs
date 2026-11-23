@@ -3,12 +3,12 @@ use std::path::Path;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 use serde::Serialize;
-use tauri::State;
+use tauri::{Manager, State};
 
 use super::index::{FileIndexState, IndexKey, Packed};
 use super::supersede::Supersede;
 use super::{blocking, display_path};
-use crate::modules::workspace::{resolve_path, WorkspaceEnv};
+use crate::modules::workspace::{authorize_read, resolve_path, WorkspaceEnv, WorkspaceRegistry};
 
 #[derive(Serialize, Clone)]
 pub struct SearchHit {
@@ -176,6 +176,7 @@ pub struct ListFilesResult {
 
 #[tauri::command]
 pub async fn fs_list_files(
+    app: tauri::AppHandle,
     index: State<'_, FileIndexState>,
     root: String,
     limit: Option<usize>,
@@ -183,8 +184,19 @@ pub async fn fs_list_files(
     workspace: Option<WorkspaceEnv>,
     show_hidden: Option<bool>,
 ) -> Result<ListFilesResult, String> {
+    // A walk to `max_depth` returns the paths under a root; the allow-list is what says the app was
+    // ever pointed at that root, the same check the tree's own listing now makes.
     let index = index.inner().clone();
-    blocking(move || run_list_files(&index, root, limit, max_depth, workspace, show_hidden)).await
+    let registry_app = app.clone();
+    blocking(move || {
+        let workspace = WorkspaceEnv::from_option(workspace);
+        authorize_read(
+            &Manager::state::<WorkspaceRegistry>(&registry_app),
+            &resolve_path(&root, &workspace),
+        )?;
+        run_list_files(&index, root, limit, max_depth, Some(workspace), show_hidden)
+    })
+    .await
 }
 
 pub fn run_list_files(

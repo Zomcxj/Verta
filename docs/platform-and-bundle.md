@@ -12,6 +12,33 @@ carries.
 
 A plugin whose work is a Rust hook rather than an IPC command needs no entry from that list: window-state restores and saves from `lib.rs`'s plugin hooks, and the webview never calls it (its commands are unreachable, which is fine and deliberate). The list also names the window the permission applies to, which is what the frontend's own `close`/`destroy` calls on both `main` and `settings` rely on.
 
+## The boundary, in one place
+
+The app is authorized **as the user**, not as a set of folders. Everything below follows from that,
+and each line says how far it reaches - measured, because "there is a boundary" and "the boundary is
+where you think it is" are different claims.
+
+- **IPC is the real boundary**: a call arrives from this app's own origin or it does not. Measured, a
+  page over the asset protocol sees `window.__TAURI_INTERNALS__` and gets
+  `Origin header is not a valid URL` back. The preview frame's sandbox is not what enforces this.
+- **`WorkspaceRegistry` is a floor against the rest of the machine**, not a wall around a project.
+  Roots are the launch directory, the home directory (`bootstrap_registry`) and any cwd a terminal
+  was started in (`authorize_user_spawn_cwd` registers rather than refuses); a path is inside when it
+  starts with a root, so all of `C:\Users\<you>` is inside. Measured: `E:\`, `H:\`,
+  `projects_scan("C:\")` and `workspace_authorize("C:\")` are all refused; a folder under the home
+  directory answers.
+- **Agent sessions do not go through the allow-list at all.** Each reader opens its own store under
+  the home directory; deleting a session is a direct remove. That is the product and must not be
+  gated on the UI's current folder.
+- `workspace_authorize` refuses a volume root: more can become reachable, but a whole drive cannot.
+- `lsp` spawns only a bare program name; a path in a custom server's `command` is refused, because the
+  settings file is writable by anything running as this user.
+- The CSP in `tauri.conf.json` has no bare scheme in `connect-src` or `script-src`, so script in the
+  webview has no route off the machine. **It is applied by the bundle, not by `pnpm tauri dev`** - a
+  dev window has no CSP, where the same `fetch` succeeds. Measure it on `target/release/verta.exe`;
+  verified there: `https://example.com` and a bare IP refused, `tauri.localhost` and IPC allowed,
+  `<img>` / `<iframe>` over the asset protocol clean.
+
 ## Cross-platform conventions
 
 - HOME / cache dirs: use the `dirs` crate (`dirs::home_dir()`, `dirs::cache_dir()`), never raw `$HOME` / `%USERPROFILE%`.

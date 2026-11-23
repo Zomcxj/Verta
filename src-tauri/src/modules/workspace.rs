@@ -139,6 +139,21 @@ pub fn authorize_read(registry: &WorkspaceRegistry, path: &Path) -> Result<(), S
     }
 }
 
+/// A path whose *existence* is the question, which is what `fs_stat` answers.
+///
+/// `authorize_read` canonicalizes, so it fails on a path that is not there - correctly, for a read -
+/// and `fs_stat` would then be unable to say "no such file" about a file the user has not created
+/// yet, inside a folder they did authorize. So: read it when it exists, and when it does not, ask
+/// about the directory it would land in. Either way a path outside every root is refused, and the
+/// refusal is the reason the answer is withheld rather than the answer itself - which is the oracle
+/// this exists to close.
+pub fn authorize_stat(registry: &WorkspaceRegistry, path: &Path) -> Result<(), String> {
+    match authorize_read(registry, path) {
+        Ok(()) => Ok(()),
+        Err(read_error) => authorize_parent(registry, path).map_err(|_| read_error),
+    }
+}
+
 /// The same for a path that is about to be created, written, renamed or deleted.
 ///
 /// The **parent** is what has to be authorized: the target may not exist yet, and the directory it
@@ -225,12 +240,33 @@ pub async fn workspace_authorize(
     crate::modules::fs::blocking(move || {
         let workspace = WorkspaceEnv::from_option(workspace);
         let resolved = resolve_path(&path, &workspace);
+        let canonical = std::fs::canonicalize(&resolved).map_err(|e| e.to_string())?;
+        refuse_volume_root(&canonical)?;
         let canonical = tauri::Manager::state::<WorkspaceRegistry>(&app)
-            .authorize(&resolved)
+            .authorize(&canonical)
             .map_err(|e| e.to_string())?;
         Ok(crate::modules::fs::to_canon(&canonical))
     })
     .await
+}
+
+/// A volume's root is not a workspace: the front end may authorize what the user opened, and nobody
+/// opens a whole drive.
+///
+/// `workspace_authorize` adds whatever path it is given to the registry, which makes the allow-list
+/// only as tight as the caller - that is a product decision (the user opens folders, so the folder
+/// they opened becomes a root), but "open the whole drive" is not one of its cases and it costs one
+/// question to refuse: a canonical path with no parent is a volume root. A folder *inside* another
+/// authorized root stays allowed, because opening the parent of an open project is a real thing to
+/// do; what is gone is the single call that made every other path authorized.
+fn refuse_volume_root(canonical: &Path) -> Result<(), String> {
+    if canonical.parent().is_none() {
+        return Err(format!(
+            "refusing to authorize a volume root: {}",
+            canonical.display()
+        ));
+    }
+    Ok(())
 }
 
 /// The notes folder next to the executable, created when it is missing.
@@ -255,6 +291,29 @@ pub async fn notes_dir(app: tauri::AppHandle) -> Result<String, String> {
         let notes = notes_path()?;
         let canonical = tauri::Manager::state::<WorkspaceRegistry>(&app)
             .authorize(&notes)
+            .map_err(|e| e.to_string())?;
+        Ok(crate::modules::fs::to_canon(&canonical))
+    })
+    .await
+}
+
+/// The folder custom themes are written to: `<app config dir>/themes`, created when it is missing.
+///
+/// It needs its own grant for the same reason `notes_dir` does - the webview cannot name that
+/// directory without the path API, and the ordinary write commands need the folder to be an
+/// authorized parent. Added when `fs_stat` learned to check the allow-list: the settings page used
+/// to ask whether the folder existed, and that question had only ever been answerable because the
+/// check was missing, so saving a theme for the first time would have started failing.
+#[tauri::command]
+pub async fn themes_dir(app: tauri::AppHandle) -> Result<String, String> {
+    crate::modules::fs::blocking(move || {
+        let dir = tauri::Manager::path(&app)
+            .app_config_dir()
+            .map_err(|e| e.to_string())?
+            .join("themes");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let canonical = tauri::Manager::state::<WorkspaceRegistry>(&app)
+            .authorize(&dir)
             .map_err(|e| e.to_string())?;
         Ok(crate::modules::fs::to_canon(&canonical))
     })
@@ -1002,6 +1061,32 @@ mod auth_tests {
         let reg = WorkspaceRegistry::default();
         reg.authorize(&root).expect("authorize root");
         assert!(authorize_parent(&reg, &root.join("a").join("b").join("c")).is_ok());
+    }
+
+    /// The one call that made every other path authorized, refused.
+    ///
+    /// `workspace_authorize` takes the frontend's word for what to trust, which is the design - the
+    /// user opens a folder, the folder becomes a root. A volume root is not one of those openings:
+    /// `C:` covers the whole machine, and allowing it turns the allow-list into decoration.
+    #[test]
+    fn a_volume_root_is_not_authorizable() {
+        let volume = if cfg!(windows) {
+            Path::new("C:\\")
+        } else {
+            Path::new("/")
+        };
+        let canonical = fs::canonicalize(volume).expect("the volume exists");
+        let refused = refuse_volume_root(&canonical);
+        assert!(refused.is_err(), "a volume root was accepted as a workspace");
+        assert!(refused.unwrap_err().contains("volume root"));
+    }
+
+    #[test]
+    fn a_folder_inside_the_volume_is_authorizable() {
+        // The refusal has to be about the root only: every real workspace is one level below it.
+        let dir = tempdir("workspace");
+        let canonical = fs::canonicalize(&dir).expect("the temp dir exists");
+        assert!(refuse_volume_root(&canonical).is_ok());
     }
 
     #[test]

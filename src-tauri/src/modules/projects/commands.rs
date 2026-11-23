@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 use crate::modules::git::operations;
-use crate::modules::workspace::{resolve_path, WorkspaceEnv, WorkspaceRegistry};
+use crate::modules::workspace::{authorize_read, resolve_path, WorkspaceEnv, WorkspaceRegistry};
 
 use super::pull::pull_blocker;
 use super::scan::discover_git_repos;
@@ -17,16 +17,25 @@ use super::types::{ProjectPullOutcome, ProjectStatus, ProjectTarget};
 /// degenerate into ten-plus seconds, and the machine is not saturated.
 const WORKERS: usize = 4;
 
-/// Scan for repositories up to `max_depth` levels below `root`. The caller should have
-/// authorized `root` first.
+/// Scan for repositories up to `max_depth` levels below `root`.
+///
+/// This used to say "the caller should have authorized `root` first" and leave it there - and the
+/// caller is the frontend, which is the side the allow-list exists to be a wall against. A recursive
+/// walk from `C:` returned every repository on the machine: not a file name but a map of what the
+/// user works on, each hit being a writable `.git` to aim later commands at.
 #[tauri::command]
-pub async fn projects_scan(root: String, max_depth: Option<usize>) -> Result<Vec<String>, String> {
+pub async fn projects_scan(
+    app: AppHandle,
+    root: String,
+    max_depth: Option<usize>,
+) -> Result<Vec<String>, String> {
     crate::modules::fs::blocking(move || {
         let depth = max_depth.unwrap_or(2).min(8);
         let path = std::path::PathBuf::from(&root);
         if !path.is_dir() {
             return Err(format!("不是目录：{root}"));
         }
+        authorize_read(&app.state::<WorkspaceRegistry>(), &path)?;
         Ok(discover_git_repos(&path, depth))
     })
     .await

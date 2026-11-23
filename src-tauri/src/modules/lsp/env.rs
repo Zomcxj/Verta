@@ -30,9 +30,29 @@ pub fn server_env_overlay() -> &'static HashMap<String, String> {
     })
 }
 
+/// A command may only be a **bare program name**: a path is refused rather than resolved.
+///
+/// The command comes from the frontend, and a custom LSP server is a record in the settings file -
+/// a plain JSON file any process running as this user can append to. `which::which_in` accepts a
+/// path, so `command: "C:\Windows\System32\cmd.exe"` was the whole of "run any program, at any
+/// working directory". A bare name still has to be found on `PATH` (which is what a real server is),
+/// and it can no longer name a specific executable by path.
+fn is_bare_name(command: &str) -> bool {
+    // Trimmed here rather than by the caller: a name and a name with spaces around it are the same
+    // question, and a predicate that answers differently for them is a trap.
+    let command = command.trim();
+    !command.is_empty()
+        && !command.contains('/')
+        && !command.contains('\\')
+        && !command.contains(':')
+}
+
 pub fn resolve_binary(command: &str) -> Option<PathBuf> {
     let command = command.trim();
-    if command.is_empty() {
+    if !is_bare_name(command) {
+        if !command.is_empty() {
+            log::warn!("lsp: refusing a command that is a path: {command}");
+        }
         return None;
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
@@ -116,5 +136,44 @@ mod tests {
         assert!(resolve_binary("").is_none());
         assert!(resolve_binary("   ").is_none());
         assert!(resolve_binary("verta-definitely-not-a-real-binary").is_none());
+    }
+
+}
+
+/// The rule itself, without a shell to resolve against: this has to hold on Windows, which is the
+/// only platform the release ships for - and there `tests` above is not even compiled.
+#[cfg(test)]
+mod name_tests {
+    use super::*;
+
+    /// The command reaches `Command::new`, so a path in it is arbitrary code execution.
+    ///
+    /// Each of these is a shape a settings file could carry, and each one names a specific program
+    /// rather than a program to look up.
+    #[test]
+    fn a_command_that_is_a_path_is_refused() {
+        for command in [
+            "/bin/sh",
+            "./sh",
+            r"C:\Windows\System32\cmd.exe",
+            r"..\sh",
+            r"..\..\sh",
+            // A drive letter with no separator is the same trick, spelled shorter.
+            "c:sh",
+            // And the Windows spelling of the same idea.
+            r".\sh",
+        ] {
+            assert!(!is_bare_name(command), "{command} was accepted as a bare name");
+            assert!(resolve_binary(command).is_none(), "{command} resolved");
+        }
+    }
+
+    #[test]
+    fn a_bare_program_name_is_allowed_through() {
+        for command in ["rust-analyzer", "typescript-language-server", "gopls", "ruff"] {
+            assert!(is_bare_name(command), "{command} was refused as a bare name");
+        }
+        assert!(!is_bare_name(""));
+        assert!(!is_bare_name("   "));
     }
 }
