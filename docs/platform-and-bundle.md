@@ -5,7 +5,7 @@ carries.
 
 ## Tauri capabilities
 
-`src-tauri/capabilities/default.json` is the allowlist for plugin APIs available to the webview. New plugins (dialog, autostart, updater, window-state, store, opener, os, log are wired in `lib.rs`) typically need:
+`src-tauri/capabilities/default.json` is the allowlist for plugin APIs available to the webview. New plugins (dialog, autostart, window-state, store, opener, os, log are wired in `lib.rs`) typically need:
 1. `Cargo.toml` dependency
 2. `.plugin(...)` call in `lib.rs` `run()`
 3. capability entry in `default.json`
@@ -53,7 +53,19 @@ where you think it is" are different claims.
   builds there (the `#[cfg(target_os)]` arms are kept, and `cargo check` covers them), which is what
   a later port would start from - but the installer is the only artifact this release produces.
   - **Windows**: NSIS installer in `currentUser` mode (no admin required), WebView2 via `downloadBootstrapper`. Installing a missing WebView2 runtime requires internet access; there is no bundled offline runtime. Packaged and offline-install validation remains in the release-readiness gates.
-- Auto-updater: **not configured yet**. Publishing needs a signing key of this project's own, with `pubkey` and `endpoints` written back into `tauri.conf.json` and `createUpdaterArtifacts` turned on again.
+- Auto-updater: **no silent self-replace, and no signing key.** `bundle.createUpdaterArtifacts` is
+  false, `plugins.updater` is gone from `tauri.conf.json`, and the `tauri-plugin-updater` /
+  `tauri-plugin-process` dependencies and their capabilities are removed: an unsigned in-place
+  replacement of the running program is a worse trade than one download link. The About page's
+  "check for updates" is a **check** instead - `app_update_check` in
+  `src-tauri/src/modules/app_update.rs` reads `releases/latest` for `Zomcxj/Verta` and answers the
+  version, whether it is newer, and the release's page, which is where the installer is. The read
+  happens in Rust rather than in the webview because the window's CSP has no `api.github.com` in
+  `connect-src`, so a `fetch` from the page is refused before it leaves, and because the logged-in
+  `gh` does not spend GitHub's anonymous read quota (sixty an hour per address). A repository with
+  no published release answers so in words instead of reading as "up to date". Adding real
+  self-update later means a signing key of this project's own, `pubkey` and `endpoints` back in
+  `tauri.conf.json`, and `createUpdaterArtifacts` on again.
 - `bundle.resources` includes the upstream Ghostty, Restty, ghostty-web, and xterm.js license notices under `licenses/terminal/`. Repository documentation and test-only reference WASM cores are not packaged; the frontend includes only the adapted SIMD and scalar cores.
 
 ## Releasing
@@ -72,8 +84,8 @@ where you think it is" are different claims.
    `build.yml` is a diff of the notes. A draft is editable and deletable; a published release is not,
    which is why the workflow stops at draft.
 5. **No secrets are needed.** The installer is not signed (`bundle.windows.signingIdentity` is unset)
-   and the updater is off (`createUpdaterArtifacts: false`), so there is no key to protect. The
-   consequence is SmartScreen showing "unknown publisher" on first run.
+   and there is no self-update (`createUpdaterArtifacts: false`, no signing key), so there is no key
+   to protect. The consequence is SmartScreen showing "unknown publisher" on first run.
 
 ## Release notes
 

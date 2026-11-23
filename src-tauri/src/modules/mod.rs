@@ -1,5 +1,6 @@
 pub mod agent_sessions;
 pub mod agent_versions;
+pub mod app_update;
 #[cfg(target_os = "macos")]
 pub mod app_menu;
 #[cfg(feature = "bench")]

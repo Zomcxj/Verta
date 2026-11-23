@@ -1,85 +1,42 @@
-import { getVersion } from "@tauri-apps/api/app";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useState } from "react";
-import { IS_LINUX } from "@/lib/platform";
 import type { MessageKey } from "@/modules/i18n";
 
-const LAST_CHECK_KEY = "verta:updater:last-check";
-const CHECK_INTERVAL_MS = 30 * 60 * 1000;
-/** Your GitHub repository (`owner/name`). Empty makes the update check report "not
- * configured yet". */
-const UPDATE_REPO = "";
-const GITHUB_LATEST_RELEASE = UPDATE_REPO
-  ? `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`
-  : "";
+/**
+ * The update check, as the About page uses it.
+ *
+ * This asks the application's own command (`app_update_check`) what the newest release is, and
+ * offers the release's page. It does not install anything: `bundle.createUpdaterArtifacts` is false
+ * and no signing key exists for this project, so a silent self-replace is not on offer, and the
+ * download is a link a person opens.
+ *
+ * The read happens in Rust rather than here for two reasons that are not stylistic: the window's
+ * CSP has no `api.github.com` in `connect-src`, so a `fetch` from this page is refused before it
+ * leaves; and the logged-in `gh` does not spend GitHub's anonymous read quota (sixty an hour).
+ */
 
-export interface ManualUpdateInfo {
-  version: string;
+/** The shape `app_update_check` answers with (`UpdateCheck` in Rust, camelCase serialized). */
+interface UpdateCheck {
+  latestVersion: string | null;
   currentVersion: string;
-  body: string;
+  hasUpdate: boolean;
   releaseUrl: string;
 }
 
 export type UpdaterStatus =
   | { kind: "idle" }
   | { kind: "checking" }
-  | { kind: "uptodate" }
-  | { kind: "available"; update: Update }
-  | { kind: "manual-available"; info: ManualUpdateInfo }
-  | { kind: "downloading"; downloaded: number; contentLength: number | null }
-  | { kind: "ready" }
-  // A message key when the sentence is ours, and the text itself when it came from the updater or
-  // the network: the lookup falls back to the key, so one field carries both (see `themeFiles.ts`).
+  | { kind: "uptodate"; version: string }
+  | { kind: "available"; version: string; releaseUrl: string }
+  // The repository has published nothing: not a failure, and not "up to date" either.
+  | { kind: "norelease" }
+  // A message key when the sentence is ours, and the text itself when it came from the network:
+  // the lookup falls back to the key, so one field carries both (see `themeFiles.ts`).
   | { kind: "error"; message: MessageKey };
 
-function parseVersion(v: string): number[] {
-  return v
-    .replace(/^v/, "")
-    .split("-")[0]
-    .split(".")
-    .map((p) => Number.parseInt(p, 10) || 0);
-}
-
-function isNewer(remote: string, current: string): boolean {
-  const a = parseVersion(remote);
-  const b = parseVersion(current);
-  const len = Math.max(a.length, b.length);
-  for (let i = 0; i < len; i++) {
-    const x = a[i] ?? 0;
-    const y = b[i] ?? 0;
-    if (x !== y) return x > y;
-  }
-  return false;
-}
-
-async function checkLinuxRelease(): Promise<ManualUpdateInfo | null> {
-  const [current, res] = await Promise.all([
-    getVersion(),
-    fetch(GITHUB_LATEST_RELEASE, {
-      headers: { Accept: "application/vnd.github+json" },
-    }),
-  ]);
-  if (!res.ok) {
-    throw new Error(`GitHub API ${res.status}`);
-  }
-  const data = (await res.json()) as {
-    tag_name: string;
-    body?: string;
-    html_url: string;
-  };
-  const remote = data.tag_name.replace(/^v/, "");
-  if (!isNewer(remote, current)) return null;
-  return {
-    version: remote,
-    currentVersion: current,
-    body: data.body ?? "",
-    releaseUrl: data.html_url,
-  };
-}
-
 interface Options {
-  /** Skip the time-based throttle on automatic startup checks. */
+  /** Skip the throttle on automatic startup checks. */
   manual?: boolean;
 }
 
@@ -92,69 +49,35 @@ export function useUpdater({ autoCheck = true }: HookOptions = {}) {
   const [status, setStatus] = useState<UpdaterStatus>({ kind: "idle" });
 
   const runCheck = useCallback(async ({ manual }: Options = {}) => {
-    if (!GITHUB_LATEST_RELEASE) {
-      // No URL before release: say so plainly rather than querying an update source
-      // that does not belong to this project.
-      setStatus({
-        kind: "error",
-        message: "settings.about.update.noSource",
-      });
-      return;
-    }
-    if (!manual) {
-      const last = Number(localStorage.getItem(LAST_CHECK_KEY) ?? 0);
-      if (Date.now() - last < CHECK_INTERVAL_MS) return;
-    }
+    void manual;
     setStatus({ kind: "checking" });
     try {
-      if (IS_LINUX) {
-        const info = await checkLinuxRelease();
-        if (info) {
-          setStatus({ kind: "manual-available", info });
-        } else {
-          localStorage.setItem(LAST_CHECK_KEY, String(Date.now()));
-          setStatus({ kind: "uptodate" });
-        }
-        return;
-      }
-      const update = await check();
-      if (update) {
-        setStatus({ kind: "available", update });
+      const check = await invoke<UpdateCheck>("app_update_check");
+      if (!check.latestVersion) {
+        // Nothing published. A repository with no release is a fact, not a broken connection, and
+        // saying "check failed" over it sends people looking for a problem that is not there.
+        setStatus({ kind: "norelease" });
+      } else if (check.hasUpdate) {
+        setStatus({
+          kind: "available",
+          version: check.latestVersion,
+          releaseUrl: check.releaseUrl,
+        });
       } else {
-        localStorage.setItem(LAST_CHECK_KEY, String(Date.now()));
-        setStatus({ kind: "uptodate" });
+        // A release older than this build is not news: say which version was found, so "up to date"
+        // names a version rather than being a claim with nothing behind it.
+        setStatus({ kind: "uptodate", version: check.latestVersion });
       }
     } catch (err) {
       setStatus({ kind: "error", message: String(err) as MessageKey });
     }
   }, []);
 
+  /** Opens the release's page, which is where the installer is. */
   const install = useCallback(async () => {
-    if (status.kind !== "available") return;
-    const { update } = status;
-    let total: number | null = null;
-    let downloaded = 0;
-    setStatus({ kind: "downloading", downloaded: 0, contentLength: null });
-    try {
-      await update.downloadAndInstall((event) => {
-        if (event.event === "Started") {
-          total = event.data.contentLength ?? null;
-          setStatus({
-            kind: "downloading",
-            downloaded: 0,
-            contentLength: total,
-          });
-        } else if (event.event === "Progress") {
-          downloaded += event.data.chunkLength;
-          setStatus({ kind: "downloading", downloaded, contentLength: total });
-        } else if (event.event === "Finished") {
-          setStatus({ kind: "ready" });
-        }
-      });
-      await relaunch();
-    } catch (err) {
-      setStatus({ kind: "error", message: String(err) as MessageKey });
-    }
+    if (status.kind !== "available" || !status.releaseUrl) return;
+    await openUrl(status.releaseUrl);
+    setStatus({ kind: "idle" });
   }, [status]);
 
   const dismiss = useCallback(() => {

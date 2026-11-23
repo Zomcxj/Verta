@@ -13,7 +13,7 @@ import { SectionHeader } from "../components/SectionHeader";
  * Your repo URL and website. When empty, the "source / website" row and the "report an
  * issue" button on the About page are hidden; just fill the URLs in here on release.
  */
-const REPO_URL = "";
+const REPO_URL = "https://github.com/Zomcxj/Verta";
 const WEBSITE = "";
 
 const PLATFORM_LABEL: Record<string, string> = {
@@ -32,30 +32,19 @@ export function AboutSection() {
   const [build, setBuild] = useState("");
   const { status, check, install } = useUpdater({ autoCheck: false });
   const checking = status.kind === "checking";
-  const downloading = status.kind === "downloading";
   const available = status.kind === "available";
-  const manualAvailable = status.kind === "manual-available";
-  const ready = status.kind === "ready";
   const checkLabel =
     status.kind === "uptodate"
       ? t("settings.about.update.upToDate")
-      : status.kind === "error"
-        ? t("settings.about.update.failed")
-        : checking
-          ? t("settings.about.update.checking")
-          : downloading
-            ? t("settings.about.update.downloading")
-            : ready
-              ? t("settings.about.update.restart")
-              : available
-                ? t("settings.about.update.install", {
-                    version: status.update.version,
-                  })
-                : manualAvailable
-                  ? t("settings.about.update.manual", {
-                      version: status.info.version,
-                    })
-                  : t("settings.about.update.check");
+      : status.kind === "norelease"
+        ? t("settings.about.update.check")
+        : status.kind === "error"
+          ? t("settings.about.update.failed")
+          : checking
+            ? t("settings.about.update.checking")
+            : available
+              ? t("settings.about.update.install", { version: status.version })
+              : t("settings.about.update.check");
   const onUpdateClick = () => {
     if (available) void install();
     else void check({ manual: true });
@@ -152,7 +141,7 @@ export function AboutSection() {
           <Button
             size="sm"
             onClick={onUpdateClick}
-            disabled={checking || downloading || ready}
+            disabled={checking}
           >
             {checkLabel}
           </Button>
@@ -182,15 +171,16 @@ export function AboutSection() {
             {t(status.message)}
           </p>
         )}
-        {downloading && status.contentLength ? (
+        {status.kind === "uptodate" && (
           <p className="text-[11px] text-muted-foreground">
-            {Math.min(
-              100,
-              Math.round((status.downloaded / status.contentLength) * 100),
-            )}
-            %
+            {t("settings.about.update.onVersion", { version: status.version })}
           </p>
-        ) : null}
+        )}
+        {status.kind === "norelease" && (
+          <p className="text-[11px] text-muted-foreground">
+            {t("settings.about.update.noRelease")}
+          </p>
+        )}
       </div>
     </div>
   );

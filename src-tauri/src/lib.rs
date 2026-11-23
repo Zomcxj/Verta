@@ -3,8 +3,8 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent_sessions, agent_versions, control, csv, docx, drag, fonts, fs, git, github, history, lsp,
-    paste, projects, pptx, pty, screenshot, shell, vibrancy, workspace, xlsx,
+    agent_sessions, agent_versions, app_update, control, csv, docx, drag, fonts, fs, git, github,
+    history, lsp, paste, projects, pptx, pty, screenshot, shell, vibrancy, workspace, xlsx,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -385,8 +385,6 @@ pub fn run() {
         .menu(app_menu::build)
         .on_menu_event(app_menu::handle_event);
     builder
-        .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         // Skip restoring VISIBLE: frontend calls window.show() after first
         // paint so the user never sees a transparent window-shadow flash on
         // Windows/Linux.
@@ -654,6 +652,7 @@ pub fn run() {
             agent_versions::agent_versions_check,
             agent_versions::agent_versions_upgrade,
             agent_versions::agent_versions_upgrade_many,
+            app_update::app_update_check,
             history::history_suggest,
             history::history_commands,
             history::history_record,
