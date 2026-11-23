@@ -75,18 +75,9 @@ Verta 是一个终端优先的桌面工作台，围绕「本机已经在用的�
 
 ## 环境要求
 
-- Windows 10/11（x64，使用系统 WebView2）。**1.0.0 只发布 Windows**：这一版只产出安装包，
-  macOS 与 Linux 的打包不在其中。
+- Windows 10/11（x64，使用系统 WebView2）
 - Node.js 22 以上、pnpm 11
 - Rust 稳定版工具链（构建 Tauri 后端）
-
-## 1.0.0 不做的事
-
-- **没有自动更新**：更新器接好了，但没有仓库地址和签名密钥，所以它只会说「没有更新」，不会提供新版本。
-  新版本靠手动安装。
-- **安装包没有代码签名**，Windows SmartScreen 首次运行会提示「未知发布者」。二进制就是这里发布的那一个，
-  没有别的分发渠道。
-- **不上传任何东西**：没有遥测、没有账号、没有本项目的远程服务。
 
 ## 开发
 
@@ -113,8 +104,6 @@ cargo test --lib
 Tauri 2、Rust、`portable-pty`、React 19、TypeScript、Vite、ghostty（WebGPU）、CodeMirror 6、Tailwind v4、shadcn/ui、Zustand。
 
 ## 文档
-
-文档为英文，一个子系统一篇。
 
 - [`docs/`](docs/README.md) - 全部文档的索引
 - [`VERTA.md`](VERTA.md) - 项目、质量门槛、约定、架构地图

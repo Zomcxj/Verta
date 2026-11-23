@@ -76,18 +76,9 @@ Verta is a terminal-first desktop workbench built around the coding agents alrea
 
 ## Requirements
 
-- Windows 10 / 11 (x64), using the system WebView2. **This release is Windows only**: the installer
-  is the single artifact 1.0.0 produces, and the macOS and Linux packaging is not part of it.
+- Windows 10 / 11 (x64), using the system WebView2
 - Node.js 22 or newer, pnpm 11
 - A stable Rust toolchain (builds the Tauri backend)
-
-## What 1.0.0 does not do
-
-- **No auto-update.** The updater is wired but has no repository or signing key, so it reports
-  "nothing to do" rather than offering a new version. A release is installed by hand.
-- **The installer is not code-signed**, so Windows SmartScreen shows an "unknown publisher" prompt
-  the first time it runs. The binary is the one published here; there is no other distribution.
-- **Nothing is uploaded.** There is no telemetry, no account and no remote service of this project.
 
 ## Development
 
@@ -114,8 +105,6 @@ cargo test --lib
 Tauri 2, Rust, `portable-pty`, React 19, TypeScript, Vite, ghostty (WebGPU), CodeMirror 6, Tailwind v4, shadcn/ui, Zustand.
 
 ## Documentation
-
-The documentation is written in English, one file per subsystem.
 
 - [`docs/`](docs/README.md) - the map of all of it
 - [`VERTA.md`](VERTA.md) - the project, the quality bar, the conventions, the architecture map

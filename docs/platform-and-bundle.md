@@ -55,3 +55,60 @@ where you think it is" are different claims.
   - **Windows**: NSIS installer in `currentUser` mode (no admin required), WebView2 via `downloadBootstrapper`. Installing a missing WebView2 runtime requires internet access; there is no bundled offline runtime. Packaged and offline-install validation remains in the release-readiness gates.
 - Auto-updater: **not configured yet**. Publishing needs a signing key of this project's own, with `pubkey` and `endpoints` written back into `tauri.conf.json` and `createUpdaterArtifacts` turned on again.
 - `bundle.resources` includes the upstream Ghostty, Restty, ghostty-web, and xterm.js license notices under `licenses/terminal/`. Repository documentation and test-only reference WASM cores are not packaged; the frontend includes only the adapted SIMD and scalar cores.
+
+## Releasing
+
+1. **Make sure `main` is green and merged.** `ci.yml` runs the five gates on every push to `main` and
+   on every pull request; a release is a claim about a specific commit, so it starts from one that
+   passed them.
+2. **Tag the release commit.** `git tag -a v1.0.0 -m "..." && git push origin v1.0.0`. The `v` prefix is
+   what `build.yml` matches (`tags: ['v*']`); without it the workflow will not fire.
+3. **The workflow does the rest.** `build.yml` checks out the tag, runs the same five gates again
+   (`ci.yml` watches branches, not tags, so the tag itself would otherwise run nothing), checks that
+   the tag matches `tauri.conf.json`'s version, builds the NSIS installer, and uploads it to a
+   **draft** Release for the tag. Watch it in Actions; a red gate step stops the build and nothing is
+   uploaded.
+4. **Review the draft, then publish it.** The body is written in the workflow itself, so a diff of
+   `build.yml` is a diff of the notes. A draft is editable and deletable; a published release is not,
+   which is why the workflow stops at draft.
+5. **No secrets are needed.** The installer is not signed (`bundle.windows.signingIdentity` is unset)
+   and the updater is off (`createUpdaterArtifacts: false`), so there is no key to protect. The
+   consequence is SmartScreen showing "unknown publisher" on first run.
+
+## Release notes
+
+The body is written **inside `build.yml`**, in a `release notes` step that `printf`s it to
+`release-notes.md` for the upload step to read. There is no file per version, and that is deliberate: a
+version's notes are read once, by someone deciding whether to take the update, while the previous
+versions are already in git - `git show v1.0.0:.github/workflows/build.yml` holds the 1.0.0 body. A
+directory of notes files would grow forever without recording a fact the history does not already have.
+
+Editing the body is therefore part of bumping the version: change the version in the three manifests,
+rewrite the `printf` block, tag, push. The `tag matches the manifest` step fails the run before the
+build if the tag and `tauri.conf.json` disagree.
+
+The body is Chinese, in the shape `Zomcxj/LabelForge` uses. The first line is the headline:
+
+```
+Verta v1.0.0 - 一句话说明这一版是什么
+```
+
+Then the changes, grouped by kind, with `• 分类：描述` per line and no nested bullets:
+
+- **`✨ 新增`** - a capability that did not exist before.
+- **`🔧 修复`** - something that was wrong and is now right. Name what was broken, not the file.
+- **`🗑 移除`** - something that is gone. Say what replaces it, or why nothing does.
+
+**A first release lists what the product does** rather than what changed, since nothing came before it.
+It uses feature sections instead of the three change kinds (the feature sections are named in Chinese, e.g. `✨ 核心功能` / `🖥 终端` / `🌿 Git`), and
+the sections follow the product's own surfaces, not the source layout.
+
+What the body does not carry: install steps, checksum instructions, platform requirements, or a list of
+what the release does not do. Those belong in the README, the release assets speak for themselves, and
+a release page that repeats them goes stale between versions. One exception is allowed on the first
+release of a major version, where a reader may genuinely not know the platform - keep it to a line.
+
+Written from the reader's side: a line says what changed for someone using the app, not which module
+was touched. `CHANGES.md` is the other record - every difference from upstream, for license
+compliance - and the two are not the same document. A change can need a line in both, in different
+words.

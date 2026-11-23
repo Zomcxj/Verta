@@ -1,0 +1,181 @@
+name: build
+
+# Build the installer and attach it to a release, triggered by pushing a `v*` tag.
+#
+# Why the gates are repeated here rather than left to `ci.yml`: `ci.yml` watches `branches: [main]`,
+# so a tag push runs neither job. A release is only meaningful if the tagged commit is a green one,
+# and "green" means the same five gates - so this workflow runs them before it builds. The build step
+# reuses the rust-cache from the gate steps, so the duplicate compile costs little.
+#
+# No signing and no updater, so this needs no secrets: `bundle.createUpdaterArtifacts` is false,
+# `bundle.windows.signingIdentity` is unset, and NSIS on `windows-latest` produces a working installer
+# without a certificate. SmartScreen will still say "unknown publisher" - that is stated in the
+# README, not fixed here.
+#
+# One job rather than two: the upload has to be last and unconditional on the gates passing, and a
+# single job keeps the cache warm between them without a second runner.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  # A release build is worth keeping if a second push lands while it runs; do not cancel it.
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `version:` here: `package.json` pins `packageManager` to pnpm 11.9.0, and passing a
+      # different version is an error rather than an override.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: types
+        run: pnpm check-types
+
+      - name: lint
+        run: npx biome lint ./src
+
+      - name: tests
+        run: pnpm vitest run --maxWorkers=2 --retry=2
+
+      - name: clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: rust tests
+        working-directory: src-tauri
+        run: cargo test -p verta --lib
+
+      - name: build
+        run: pnpm tauri build --bundles nsis
+
+      # The tag is what names the release and the file the reader downloads, so it has to agree with
+      # the version compiled into the binary. Without this check, pushing `v1.0.1` against a manifest
+      # still at `1.0.0` would publish a release called 1.0.1 whose installer is 1.0.0 - and the
+      # checksum step below would pass, because it resolves the path from the same manifest.
+      - name: tag matches the manifest
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = (Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json).version
+          if ($tag -ne "v$version") {
+            throw "tag '$tag' does not match tauri.conf.json version '$version' (expected 'v$version')"
+          }
+          Write-Host "tag $tag matches manifest version $version"
+
+      # Scoped to the installer whose name carries this run's version rather than to `*.exe`: a
+      # reused runner or a stale `target` directory can hold an older version's installer beside the
+      # new one, and uploading both would put two different binaries under one release. The resolved
+      # path is passed on, so the upload step names exactly the file the build produced.
+      - name: installer path
+        id: sums
+        shell: pwsh
+        run: |
+          $version = (Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json).version
+          $installer = "src-tauri/target/release/bundle/nsis/Verta_${version}_x64-setup.exe"
+          if (-not (Test-Path $installer)) { throw "no installer at $installer" }
+          Write-Host "installer: $installer ($([math]::Round((Get-Item $installer).Length / 1MB, 2)) MiB)"
+          "installer=$installer" >> $env:GITHUB_OUTPUT
+
+      # The body is written here rather than kept in a file per version. A version's notes are read
+      # once, by someone deciding whether to take the update; the previous versions are already in
+      # git, where `git show v1.0.0:.github/workflows/build.yml` has them, so a directory of notes
+      # files would grow forever without adding a fact the history does not already hold.
+      #
+      # Shape follows Zomcxj/LabelForge: a headline, then sections, `• 分类：描述` per line. A first
+      # release lists what the product does, since nothing came before it to diff against; later
+      # versions use the three change kinds (新增 / 修复 / 移除) and drop the feature sections.
+      - name: release notes
+        shell: bash
+        run: |
+          printf '%s\n' \
+            "Verta ${{ github.ref_name }} — 围绕本机已有编程智能体的桌面工作台" \
+            "" \
+            "✨ 核心功能" \
+            "" \
+            "• 会话列表：直接读取六个编程智能体（Claude、opencode、pi、dsh、zcode、workbuddy）自己写在磁盘上的真实会话，不另建索引" \
+            "• 一键续上：点开一个会话，在它自己的项目目录里重新启动，转场动画盖住 resume 命令落进终端的瞬间" \
+            "• 多选删除：后端在删除前后各校验一次，删不掉的会话说明原因，失败从不伪装成成功" \
+            "• 自动跟随：会话文件变化时列表自动更新，不需要手动刷新" \
+            "• 子会话隐藏：默认只显示主会话，管理视图打开后才显示子智能体会话" \
+            "" \
+            "🖥 终端" \
+            "" \
+            "• ghostty 渲染核心：WebGPU 自绘，支持多标签与分屏" \
+            "• 拖入文件：从浏览器或桌面拖进来的文件自动转成安全引用的路径" \
+            "• 图片粘贴：截图可直接作为路径粘给智能体，Ctrl+V 生效" \
+            "" \
+            "🪟 Windows 与 WSL 并存" \
+            "" \
+            "• WSL 侧数据在发行版内部查询，不受 /mnt 挂载上的 WAL 锁影响" \
+            "• WSL 开关默认关闭：关闭时只停用 Verta 自己的查询，不动 WSL；打开后可在退出时执行 wsl --shutdown，会中断 WSL 内所有运行中的任务" \
+            "• 发行版没有自己的数据时，界面直说，不画一个空列表" \
+            "• 环境由路径推断，终端、文件树与状态查询始终落在同一侧" \
+            "" \
+            "✏ 编辑器与预览" \
+            "" \
+            "• CodeMirror 6，覆盖常用语言" \
+            "• 图片预览：显示尺寸，可缩放，透明区域显示棋盘格" \
+            "• Markdown 本地图片相对文档自身目录解析，受工作区白名单约束" \
+            "• 编辑器右侧实时预览；HTML 预览在隔离 origin 的框架里运行" \
+            "" \
+            "🌿 Git" \
+            "" \
+            "• Git 面板在窗口右侧，可与项目列表并排阅读，折叠按钮与左上角对称" \
+            "• 项目页显示项目、分支、状态、未提交数、上游与 stash 数，支持筛选与排序" \
+            "• 远程页列出账号能访问的仓库，走本机已登录的 gh" \
+            "• 仓库的 Releases 在软件内查看（版本列表、正文、附件），附件下载显示真实字节进度，失败或取消不留半个文件，也不覆盖已有文件" \
+            "" \
+            "📊 用量" \
+            "" \
+            "• 独立窗口，统计六个智能体自己写到磁盘的内容：总量、输入 / 输出 / 缓存读 / 缓存写与请求数" \
+            "• 后台每分钟读一次，打开窗口直接取上次结果，不必再等一轮扫描" \
+            "• 智能体与模型两张表，任意列可排序；模型表可把小比例行折叠成一行，合计仍然对得上" \
+            "• 趋势图支持 7 / 30 / 90 / 180 天与全部，一天最窄 7px，放不下时横向滚动，滚轮也能滚，y 轴固定在滚动区之外" \
+            "• 活动热力图显示近一年的使用密度，零点自动进入新的一天" \
+            "• 只读：不改任何会话文件，也不上传任何东西" \
+            "" \
+            "🎨 界面" \
+            "" \
+            "• 中文与 English 两种语言，默认跟随系统，只翻译界面可见文案" \
+            "• 七种形态（极简、云朵、浮雕、石板、碳纤维、亚克力、玻璃），亚克力与玻璃形态的窗格不透明度、边缘光、高光可调，可一键恢复默认" \
+            > release-notes.md
+          wc -l release-notes.md
+
+      # `draft: true` on purpose: the body and the asset are worth one look before they are public,
+      # and a draft can be edited or deleted while a published release cannot be undone. Publishing
+      # is a click on the release page.
+      #
+      # `body_path` rather than `generate_release_notes`: this repository has no pull requests, and
+      # the generated notes are one line ("Full Changelog: <url>") without them.
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          body_path: release-notes.md
+          files: ${{ steps.sums.outputs.installer }}
