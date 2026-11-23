@@ -15,6 +15,13 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-23</strong></summary>
 
+**A CI that runs the four gates, on the one platform this release ships for**
+
+- `.github/workflows/ci.yml` (new), `.github/workflows/dist-budget.yml` (new), `README.md`: 3117 frontend tests, 1125 Rust tests and five gates were all run by hand, and the knowledge needed to run them - which flakes are known, why `format:check` is not a gate, why `dist-budget` takes minutes - lived in `docs/testing.md` and in whoever remembered it. The workflow runs `check-types`, `biome lint`, `vitest` with `--retry=2` (the documented flakes fail under load and pass on a rerun), `clippy -D warnings` and `cargo test --lib` on `windows-latest`.
+- Windows only, deliberately: `bundle.targets` is `["nsis"]`, so a green Linux job would be a claim about a build nobody publishes. A second `runs-on` is the commit that adds a port.
+- `dist-budget` is its own weekly workflow rather than a step: it spawns a whole `vite build` in `beforeAll`, minutes of runner time for a check whose subject only moves when a dependency or an import does. Ran it alone here to confirm it still passes (12/12).
+- The README carries the badge, so a red gate is visible without opening Actions.
+
 **The product is version 1.0.0**
 
 - `package.json`, `src-tauri/Cargo.toml` (`[package]` and `[workspace.package]`), `src-tauri/tauri.conf.json`: the version was `0.0.1` - the placeholder the fork started with - and is now `1.0.0`, which is the first release the product is offered as. Three files carry it because three tools read it: pnpm, cargo (the two workspace crates inherit from `[workspace.package]`, so their own manifests stay `version.workspace = true`), and the bundler. Everything else derives from those: `Cargo.lock` follows, `env!("CARGO_PKG_VERSION")` carries it into the update check's user agent and the control protocol's `app_version`, and the settings window's About section reads the bundled value. No fourth place to keep in step.

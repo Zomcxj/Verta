@@ -94,6 +94,17 @@ A few conventions that came from getting them wrong:
   `html[data-window-inactive]`, which pauses every CSS animation part way through its entrance and
   suspends the terminals; bring the window forward (`SetForegroundWindow`) before capturing.
 
+## What CI runs
+
+`.github/workflows/ci.yml`, on `windows-latest` only (the release ships `nsis` and nothing else):
+`pnpm check-types`, `biome lint ./src`, `vitest run --maxWorkers=2 --retry=2`,
+`cargo clippy --all-targets --locked -- -D warnings`, `cargo test -p verta --lib`.
+
+`--retry=2` is for the flakes listed below - they pass on a rerun, and a gate that cries wolf is a
+gate people learn to ignore. `dist-budget` is **not** in that workflow: it spawns a whole
+`vite build`, so it has its own weekly run (`.github/workflows/dist-budget.yml`) plus a manual
+trigger. `format:check` stays out for the reason above it (CRLF).
+
 ## Known flakes
 
 These fail occasionally under full-suite load and pass when run alone. Rerun before investigating:

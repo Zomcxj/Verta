@@ -1,0 +1,68 @@
+name: ci
+
+# The four gates the project is held to, plus clippy, on the one platform this release ships for.
+#
+# Windows only, and deliberately: `bundle.targets` is `["nsis"]` (see `docs/platform-and-bundle.md`),
+# so a green Linux or macOS job would be a claim about a build nobody publishes. If the product is
+# ever ported, that is the commit that adds a second `runs-on`.
+#
+# `--retry=2` on vitest is for the flakes `docs/testing.md` already lists - they fail under full-suite
+# load and pass when run again, and a gate that cries wolf is a gate people learn to ignore.
+#
+# Not here: `dist-budget`. It spawns a whole `vite build` in its `beforeAll` and that is minutes of
+# CI time for a check about bundle composition, which changes far less often than code. It runs on a
+# schedule instead (`dist-budget.yml`).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `version:` here: `package.json` pins `packageManager` to pnpm 11.9.0, and passing a
+      # different version is an error rather than an override.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: types
+        run: pnpm check-types
+
+      - name: lint
+        run: npx biome lint ./src
+
+      - name: tests
+        run: pnpm vitest run --maxWorkers=2 --retry=2
+
+      - name: clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: rust tests
+        working-directory: src-tauri
+        run: cargo test -p verta --lib

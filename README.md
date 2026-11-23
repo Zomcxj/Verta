@@ -11,6 +11,7 @@
   <p>
     <img src="https://img.shields.io/badge/platform-Windows-blue" alt="Platform" />
     <img src="https://img.shields.io/badge/license-Apache--2.0-lightgrey" alt="License" />
+    <a href="https://github.com/Zomcxj/Verta/actions/workflows/ci.yml"><img src="https://github.com/Zomcxj/Verta/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   </p>
 </div>
 

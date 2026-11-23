@@ -1,0 +1,38 @@
+name: dist-budget
+
+# The bundle-composition check, on its own schedule because it builds the app to answer.
+#
+# `src/app/dist-budget.test.ts` spawns `vite build` in its `beforeAll` and then inspects what
+# `index.html`, `settings.html` and `usage.html` can reach. That is the right question - it is what
+# keeps CodeMirror, Streamdown and the AI SDK out of the startup graph - but it costs a full build,
+# and on CI that is minutes for a check whose subject only moves when a dependency or an import
+# does. Weekly, plus on demand, is the cheap side of that trade.
+#
+# The build is given its own long timeout inside the test (600 s, see `docs/testing.md`); the job's
+# timeout is the outer bound.
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+jobs:
+  budget:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `version:` here: `package.json` pins `packageManager` to pnpm 11.9.0, and passing a
+      # different version is an error rather than an override.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: dist budget
+        run: pnpm vitest run src/app/dist-budget.test.ts --testTimeout=600000
