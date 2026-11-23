@@ -888,14 +888,22 @@ export const EditorPane = memo(
             // whole path as one segment, and a page whose stylesheet is `./style.css` then resolves it
             // to `http://asset.localhost/style.css` and renders unstyled. See `htmlPreviewUrl`.
             //
-            // `sandbox` is the browser preview's own list, and it stops short of
-            // `allow-top-navigation`: with it, a page could navigate the Tauri webview itself and
-            // put `window.__TAURI__` on an origin of its choosing.
+            // `sandbox` grants scripts but deliberately **not** `allow-same-origin`. Measured: this
+            // frame is never same-origin with the window anyway - it is served from the asset origin
+            // (`http://asset.localhost`) while the app is on `http://localhost:1420` - and IPC from
+            // it is refused by Rust's own Origin check, so the attribute was never what kept `invoke`
+            // out of reach. What it did buy is CSSOM: with it, the framed page could read its own
+            // `document.styleSheets[0].cssRules`; without it, a `SecurityError`. That is the whole
+            // trade - an isolated origin, and a preview page that cannot introspect its own sheets.
+            // Its script, its styles and its relative references all still work.
+            //
+            // It also stops short of `allow-top-navigation`: with it, a page could navigate the Tauri
+            // webview itself and put `window.__TAURI__` on an origin of its choosing.
             <iframe
               key={`${path}#html-preview`}
               src={htmlPreviewUrl(path)}
               title={path.split(/[\\/]/).pop() ?? path}
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+              sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
               referrerPolicy="no-referrer"
               className="h-full min-h-0 w-full flex-1 border-0 bg-white"
             />

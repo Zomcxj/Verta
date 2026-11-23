@@ -50,9 +50,12 @@ describe("HTML preview stop", () => {
     expect(frameJsx).toMatch(/src=\{htmlPreviewUrl\(path\)\}/);
   });
 
-  it("grants scripts and same-origin but never top navigation", () => {
+  it("grants scripts without same-origin, and never top navigation", () => {
     expect(frameJsx).toMatch(/sandbox="[^"]*allow-scripts/);
-    expect(frameJsx).toMatch(/sandbox="[^"]*allow-same-origin/);
+    // The pair is the bug: same-origin *and* script in one frame can reach this window's own
+    // `window.__TAURI__`, so a downloaded page opened here would have the whole command surface.
+    // Opaque-origin script keeps the preview working and puts this window out of reach.
+    expect(frameJsx).not.toMatch(/allow-same-origin/);
     // With this, a page could navigate the Tauri webview itself and hand `window.__TAURI__` to an
     // origin of its choosing.
     expect(frameJsx).not.toMatch(/allow-top-navigation/);

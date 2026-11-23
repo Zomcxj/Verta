@@ -15,6 +15,15 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-23</strong></summary>
 
+**An HTML preview is no longer same-origin with the window that shows it**
+
+- `src/modules/editor/EditorPane.tsx`, `src/modules/editor/htmlPreview.test.ts`: the preview's frame carried `allow-scripts allow-same-origin` in the same `sandbox` - the pair that cancels the isolation the attribute exists for, since a framed page that is same-origin *and* may run script can read this window's DOM and its CSSOM directly.
+- `allow-same-origin` is gone. The frame keeps `allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads` and still refuses `allow-top-navigation`.
+- **What the change does and does not do, measured in the running window** rather than assumed. The frame's origin is `http://asset.localhost` and this window's is `http://localhost:1420`, so the two were never same-origin in the first place: `allow-same-origin` did not hand the frame `window.__TAURI_INTERNALS__`, and it was never the way to the IPC door. Asked to actually call, the frame gets `Origin header is not a valid URL` from Rust's own check, with or without the attribute - the IPC boundary is the Origin check, not the sandbox.
+- What the attribute did buy was CSSOM: with it, the frame read its own `document.styleSheets[0].cssRules` (1 rule); without it, `SecurityError`. A page's script, its styles and its relative references are unaffected - `./style.css` still resolves and still applies (`color: rgb(12, 34, 56)` measured both ways), which was the one thing worth worrying about, because the segment-by-segment URL in `htmlPreviewUrl` exists to make relative references work.
+- So the entry is a narrowing, not the closing of a hole: the isolated origin is worth having and costs a preview page the ability to introspect its own stylesheets. The comment in the file now says that instead of claiming it kept `invoke` out of reach.
+- `htmlPreview.test.ts` asserted the pair; it now asserts the absence of `allow-same-origin`, in the same test that pins `allow-scripts` and the missing `allow-top-navigation`. 7/7 pass.
+
 **`wsl --shutdown` has to be asked for, and the clipboard read says why it is not filtered**
 
 - `src-tauri/src/modules/workspace.rs`, `src/settings/sections/GeneralSection.tsx`: `wsl_shutdown` takes a `confirmed` flag and refuses without it. It stops every distribution on the machine - every agent, every container, every build - which is cost paid outside this app, so it should not be one accidental `invoke` away. The settings switch is the only caller and passes `true`; nothing else can.
