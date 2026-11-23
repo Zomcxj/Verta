@@ -28,6 +28,16 @@ export type WebGlGlyphEntry = {
   readonly uvMaxX: number;
   readonly uvMaxY: number;
   readonly intrinsicColor: boolean;
+  /**
+   * The coverage is final: a shape the program drew, not a font's glyph.
+   *
+   * `BuiltinGlyphs` paints box drawing, blocks, braille and powerline separators from the cell
+   * geometry, and a picture in a session is a wall of half blocks (`OPENTUI_IMAGE_PROTOCOL=blocks`).
+   * Such a cell's foreground is not ink to be read on its background - the two halves *are* the
+   * picture - so it must be drawn as asked. The GPU renderer says the same thing with
+   * `GLYPH_ENTRY_FLAG_EXACT`.
+   */
+  readonly exact: boolean;
 };
 
 type DirtyRectangle = {
@@ -47,6 +57,7 @@ const NULL_GLYPH: WebGlGlyphEntry = {
   uvMaxX: 0,
   uvMaxY: 0,
   intrinsicColor: false,
+  exact: false,
 };
 
 /**
@@ -396,6 +407,7 @@ export class WebGlGlyphAtlas {
       uvMaxX: (region.x + width) / atlasSize,
       uvMaxY: (region.y + height) / atlasSize,
       intrinsicColor,
+      exact: false,
     };
   }
 
@@ -441,6 +453,9 @@ export class WebGlGlyphAtlas {
       uvMaxX: (region.x + width) / ATLAS_SIZE,
       uvMaxY: (region.y + height) / ATLAS_SIZE,
       intrinsicColor: false,
+      // Drawn from the cell geometry, so its coverage is final: the picture it makes is the cell's
+      // own two colours, and nothing may rescue them toward black or white.
+      exact: true,
     };
   }
 

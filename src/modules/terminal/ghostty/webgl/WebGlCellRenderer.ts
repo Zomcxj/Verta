@@ -587,12 +587,19 @@ export class WebGlCellRenderer {
           const glyph = this.atlas.glyph(codepoint, grapheme, flags);
           // Ink a program wrote for a page it is not on is rescued first; the dimming below then works
           // from a colour that can actually be seen. Both are the identity for ordinary cells.
-          const ink = readableInk(foreground, background);
+          //
+          // A cell-exact glyph is the exception: its coverage is final, and its foreground is not ink
+          // on the background but half of a picture drawn from the two colours. A mosaic's halves are
+          // a percent or two apart, which is below the rescue's threshold everywhere, so rescuing them
+          // pushes the picture's shading to a wall of pure black and white - measured on a real
+          // session at 39% of cells sitting exactly on `INK_FLOOR` and 23% holding an extreme. The GPU
+          // renderer already draws these without contrast (`GLYPH_ENTRY_FLAG_EXACT`).
+          const ink = glyph.exact ? foreground : readableInk(foreground, background);
           this.writeGlyph(
             glyphIndex,
             glyph,
             ink,
-            ((flags & CellFlags.FAINT) !== 0 ? faintAlpha(ink, background) : 1) *
+            ((flags & CellFlags.FAINT) !== 0 && !glyph.exact ? faintAlpha(ink, background) : 1) *
               ((flags & CellFlags.BLINK) !== 0 ? -1 : 1),
             previousBackground !== background,
             gridWidth,
