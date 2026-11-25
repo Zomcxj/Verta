@@ -242,8 +242,23 @@ export function LauncherPanel({
       cachedSourceRows = keptSources(cachedSourceRows, asked);
       const nextWarnings: string[] = [];
       const failures: string[] = [];
-      // Settled per source rather than all at once: a slow distro no longer holds back the rows
-      // that are already answered.
+      // Rows are redrawn per **source** (this machine, one distro), not per tool.
+      //
+      // The three tools of a source are one block in the list, and drawing after each of them
+      // arrived meant the first to answer appeared alone and the rest of the block grew underneath
+      // it: `opencode` is asked first and reads one sqlite file, so opening the panel showed an
+      // opencode-only list that filled in with pi and Claude a moment later. The final order is
+      // newest-first and was never tool-priority, so what looked like "opencode is always first"
+      // was the list being drawn three times.
+      //
+      // Per source rather than once at the end, because a distro is read by running a query inside
+      // it and its rows arrive seconds later: waiting for it would hold back the rows that are
+      // already answered.
+      const unanswered = new Map<string, number>();
+      for (const request of requests) {
+        const source = request.distro ?? "";
+        unanswered.set(source, (unanswered.get(source) ?? 0) + 1);
+      }
       await Promise.all(
         requests.map(async (request) => {
           const key = sourceKeyOf(request);
@@ -274,7 +289,11 @@ export function LauncherPanel({
               next.delete(key);
               return next;
             });
-            setSessions([...drawCachedRows()]);
+            const source = request.distro ?? "";
+            const left = (unanswered.get(source) ?? 1) - 1;
+            unanswered.set(source, left);
+            // Every tool of this source has answered: the block is complete, so draw it.
+            if (left === 0) setSessions([...drawCachedRows()]);
           }
         }),
       );
