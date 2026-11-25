@@ -373,7 +373,14 @@ html:not(.dark) {
  * As a margin the 8px is in the same place and this box *is* the card, so one shadow is cast by one box,
  * from the sheet's own edge, at the sheet's own radius. `width` is spelled out because the panel library
  * writes `width: 100%` inline and a flex item that is 100% wide plus a margin overflows. */
-html[data-boundless] [data-slot="resizable-panel-group"] {
+/* Only the shell's own row, never a row inside a region.
+ *
+ * `[data-slot="resizable-panel-group"]` is also what a split terminal is built from (`PaneTreeView`),
+ * so a rule written for the sheet landed on the split as well: its 8px window margin inset the
+ * terminal area from its own pane, and 云朵's float and 石板's step were cast a second time inside it.
+ * On 云朵 that reads as the terminal block bulging out of the pane once it is split, which is what was
+ * reported. A row inside a pane is a layout of that pane's content and gets none of the sheet's box. */
+html[data-boundless] [data-slot="resizable-panel-group"]:not(.verta-pane *) {
   margin-inline: 0.5rem;
   width: calc(100% - 1rem) !important;
   padding-inline: 0;
@@ -405,7 +412,7 @@ html[data-boundless][data-shape="cloud"] .verta-pane {
 /* The spread is positive here too, and for the same reason the preset's own recipe changed: a negative
  * spread shrinks the shadow's corner radius along with its box, so a 14px corner was shadowed by a 6px
  * arc. See `shape.ts` -> `cloud`. */
-html[data-boundless][data-shape="cloud"] [data-slot="resizable-panel-group"] {
+html[data-boundless][data-shape="cloud"] [data-slot="resizable-panel-group"]:not(.verta-pane *) {
   /* One box, four bands, and that is the whole recipe now.
    *
    * It used to be split between two boxes: this row carried the top and bottom bands because it is one
@@ -624,7 +631,7 @@ html[data-boundless][data-shape="slab"] .verta-pane {
  * the sheet's radius, so the step met the sheet's four corners with whatever radius that particular pane
  * carried, which is not the sheet's. One box, one radius: the step now falls from the sheet's own bottom
  * edge and curves with its corners. */
-html[data-boundless][data-shape="slab"] [data-slot="resizable-panel-group"] {
+html[data-boundless][data-shape="slab"] [data-slot="resizable-panel-group"]:not(.verta-pane *) {
   border-radius: var(--pane-radius);
   box-shadow: 0 var(--slab-offset) 0 oklch(0 0 0 / 0.4),
     0 var(--slab-lift) 0 oklch(0 0 0 / 0.2);

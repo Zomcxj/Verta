@@ -15,6 +15,10 @@ swap in the new date, and drop the `open` from the day before.
 <details open>
 <summary><strong>2026-11-25</strong></summary>
 
+**A split terminal no longer bulges out of its pane under Cloud**
+
+- `src/styles/globals.css`, `src/styles/shapeRules.test.ts`: a split terminal is built from the same `ResizablePanelGroup` as the shell's row (`PaneTreeView`), and three rules written for the sheet matched it too. Under Boundless the sheet's 8px window margin became an 8px inset inside the pane, and Cloud's float (and Slab's step, less visibly) was cast a second time from a box that is not the sheet, so the split terminal read as a card standing proud of the pane it fills ("when Cloud splits the screen the terminal bulges"). The three rules are scoped to the shell's row now, with `:not(.verta-pane *)`; measured on the running app after the change, the split row's `margin-inline` is `0px` and its `box-shadow` is `none`, where before it carried the four float bands. The test walks every `data-boundless` rule that names a panel group and fails if one would land on a row inside a pane.
+
 **The session list no longer fills in one agent at a time**
 
 - `src/modules/launcher/components/LauncherPanel.tsx`: opening the panel showed an opencode-only list, which filled in with pi and Claude a moment later. The order was never tool-priority - `sortByRecent` has always answered newest-first and the grouping setting is on "all" - so what looked like "opencode is always first" was the list being drawn once per tool: `setSessions` ran in the `finally` of every request, and opencode is asked first and reads one sqlite file. A source's three tools are one block, so the block is drawn when it is complete. A source is still drawn on its own, because a distro is read by running a query inside it and waiting for it would hold back rows that are already answered.

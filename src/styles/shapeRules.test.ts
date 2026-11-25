@@ -242,7 +242,9 @@ describe("云朵's shadow at the sheet's four corners", () => {
   // "角落多了一层" with the sheet's own edge in 石板 as the same complaint. All of them are one rule: a
   // shadow is cast by the box that carries it, and the only box whose corners can be the sheet's corners
   // is the box that *is* the sheet.
-  const row = ruleWith('html[data-boundless][data-shape="cloud"] [data-slot="resizable-panel-group"]');
+  const row = ruleWith(
+    'html[data-boundless][data-shape="cloud"] [data-slot="resizable-panel-group"]:not(.verta-pane *)',
+  );
 
   it("gives the box that casts the sheet's shadow the sheet's own radius", () => {
     expect(row?.body).toContain("border-radius: var(--pane-radius)");
@@ -291,10 +293,28 @@ describe("云朵's shadow at the sheet's four corners", () => {
     // the sheet's shadow was 8px wider than the card on every side, and its shadow filled the notch
     // between its own corner and the card's arc. A margin is the same 8px in the same place, and the box
     // is the card. `width` is spelled out because the panel library writes `width: 100%` inline.
-    const sheet = ruleWith('html[data-boundless] [data-slot="resizable-panel-group"]');
+    const sheet = ruleWith(
+      'html[data-boundless] [data-slot="resizable-panel-group"]:not(.verta-pane *)',
+    );
     expect(sheet?.body).toContain("margin-inline: 0.5rem");
     expect(sheet?.body).toContain("width: calc(100% - 1rem) !important");
     expect(sheet?.body).toContain("padding-inline: 0");
+  });
+
+  it("is the shell's row and not a split terminal's row", () => {
+    // A split terminal is built from the same `ResizablePanelGroup`, so every rule written for the sheet
+    // landed on it too: the 8px margin inset the terminal area from its own pane, and the float's four
+    // bands were cast again inside it. On 云朵 that reads as the terminal bulging out of the pane once it
+    // is split ("云朵分屏时候终端会突起"). A row inside a pane is a layout of that pane's content.
+    const sheetRows = rules.filter(
+      (rule) => rule.selector.includes('data-slot="resizable-panel-group"') && rule.selector.includes("data-boundless"),
+    );
+    expect(sheetRows.length, "no boundless row rules to check").toBeGreaterThan(0);
+    for (const rule of sheetRows) {
+      expect(rule.selector, `${rule.selector} would land on a split terminal`).toContain(
+        ":not(.verta-pane *)",
+      );
+    }
   });
 
   it("does not shrink the shadow's corner with a negative spread", () => {
@@ -315,7 +335,9 @@ describe("石板's step under 无界", () => {
   // `overflow: auto`), so what survived of it was the part inside the pane's rounded corner - where the
   // pane's own background does not cover its box - and that is a dark square in each corner.
   it("is cast by the sheet's box, not by each pane", () => {
-    const row = ruleWith('html[data-boundless][data-shape="slab"] [data-slot="resizable-panel-group"]');
+    const row = ruleWith(
+      'html[data-boundless][data-shape="slab"] [data-slot="resizable-panel-group"]:not(.verta-pane *)',
+    );
     expect(row?.body).toContain("border-radius: var(--pane-radius)");
     expect(row?.body).toContain("0 var(--slab-offset) 0");
     const pane = ruleWith('html[data-boundless][data-shape="slab"] .verta-pane');
