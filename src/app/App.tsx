@@ -2074,7 +2074,6 @@ export default function App() {
               onToggleSidebar={toggleSidebar}
               onToggleGitPanel={toggleRightPanel}
               onScreenshot={startScreenshot}
-              changedCount={sourceControl.changedCount}
               onOpenCommandPalette={openCommandPaletteFromHeader}
               onOpenSettings={openSettingsFromHeader}
               onOpenUsage={openUsageFromHeader}

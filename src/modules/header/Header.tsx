@@ -52,9 +52,6 @@ type Props = {
   onOpenNotes: () => void;
   /** Region capture: grab the whole screen and drag out a region on the overlay. */
   onScreenshot: () => void;
-  /** Uncommitted change count, shown on the top-right button (it used to sit on the Git
-   * item in the left rail). */
-  changedCount: number;
   onOpenCommandPalette: () => void;
   onOpenSettings: () => void;
   /** The usage window: what the three tools spent, per day and per model. */
@@ -86,7 +83,6 @@ export function Header({
   onOpenProjectsPanel,
   onOpenNotes,
   onScreenshot,
-  changedCount,
   onOpenCommandPalette,
   onOpenSettings,
   onOpenUsage,
@@ -241,14 +237,9 @@ export function Header({
         variant="ghost"
         onClick={onToggleGitPanel}
         title={t("header.toggleGitPanel")}
-        className="relative shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
       >
         <HugeiconsIcon icon={SidebarRightIcon} size={18} strokeWidth={1.75} />
-        {changedCount > 0 ? (
-          <span className="absolute -top-0.5 -right-0.5 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground tabular-nums">
-            {changedCount > 99 ? "99+" : changedCount}
-          </span>
-        ) : null}
       </Button>
 
       {IS_MAC && settingsButton}

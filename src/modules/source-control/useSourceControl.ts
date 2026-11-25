@@ -57,7 +57,6 @@ export type SourceControlSummary = {
   contextPath: string | null;
   repo: GitRepoInfo | null;
   status: GitStatusSnapshot | null;
-  changedCount: number;
   upstream: string | null;
   ahead: number;
   behind: number;
@@ -792,7 +791,6 @@ export function useSourceControl(
       contextPath: state.contextPath,
       repo: state.repo,
       status: state.status,
-      changedCount: state.status?.changedFiles.length ?? 0,
       upstream: state.status?.upstream ?? state.repo?.upstream ?? null,
       ahead: state.status?.ahead ?? 0,
       behind: state.status?.behind ?? 0,
