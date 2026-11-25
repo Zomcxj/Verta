@@ -923,16 +923,6 @@ export type GitBranchListResult = {
   branches: GitBranchEntry[];
 };
 
-/** One stash entry. `reference` looks like `stash@{0}`; commands take it verbatim. */
-export type GitStashEntry = {
-  reference: string;
-  /** Position in the list; 0 is the newest entry. */
-  index: number;
-  message: string;
-  /** Which branch this stash was created on; null when it cannot be parsed. */
-  branch: string | null;
-};
-
 export const native = {
   workspaceCurrentDir: () => invoke<string>("workspace_current_dir"),
   /**
@@ -1512,42 +1502,6 @@ export const native = {
       branch,
       workspace: envForPath(repoRoot),
     }),
-  gitStashList: (repoRoot: string) =>
-    invoke<GitStashEntry[]>("git_stash_list", {
-      repoRoot,
-      workspace: envForPath(repoRoot),
-    }),
-  gitStashPush: (
-    repoRoot: string,
-    message: string | null,
-    includeUntracked: boolean,
-  ) =>
-    invoke<void>("git_stash_push", {
-      repoRoot,
-      message,
-      includeUntracked,
-      workspace: envForPath(repoRoot),
-    }),
-  gitStashApply: (repoRoot: string, reference: string) =>
-    invoke<void>("git_stash_apply", {
-      repoRoot,
-      reference,
-      workspace: envForPath(repoRoot),
-    }),
-  gitStashPop: (repoRoot: string, reference: string) =>
-    invoke<void>("git_stash_pop", {
-      repoRoot,
-      reference,
-      workspace: envForPath(repoRoot),
-    }),
-  /** Drop a stash. The user must have confirmed beforehand. */
-  gitStashDrop: (repoRoot: string, reference: string) =>
-    invoke<void>("git_stash_drop", {
-      repoRoot,
-      reference,
-      workspace: envForPath(repoRoot),
-    }),
-  /** Create a branch; with `switchTo` it also checks it out right away. */
   gitCreateBranch: (
     repoRoot: string,
     name: string,

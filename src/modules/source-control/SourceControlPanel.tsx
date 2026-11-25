@@ -92,7 +92,6 @@ import {
   repositoryTargetIsPending,
   type SourceControlRepositoryTarget,
 } from "./repositoryTarget";
-import { StashSection } from "./StashSection";
 import type { SourceControlSummary } from "./useSourceControl";
 import {
   type SourceControlFileEntry,
@@ -559,7 +558,6 @@ export const SourceControlPanel = memo(function SourceControlPanel({
     return scm.status.isDetached ? t("scm.detached") : scm.status.branch;
   }, [fixedTargetPending, scm.status, t]);
 
-  const pushHint = scm.pushHint ?? t("scm.pushUnavailable");
   const stagedCount = scm.stagedEntries.length;
   const unstagedCount = scm.unstagedEntries.length;
   // The list shows one pane at a time, so its header counts that pane's files rather than every
@@ -574,11 +572,6 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   const tickedPaths = selectedInPane(scm.fileEntries, pane, selected);
   const tickedCount = tickedPaths.length;
   const allTicked = allInPaneSelected(scm.fileEntries, pane, selected);
-  const pushDisabledReason = fixedTargetPending
-    ? t("scm.hint.repoLoading")
-    : scm.actionBusy
-      ? t("scm.hint.busy")
-      : pushHint;
   // The button above the list is the pane's action on the ticked rows, so its reason for being
   // unavailable is that nothing is ticked - or that the repository is not ready, or busy.
   const stageDisabledReason = fixedTargetPending
@@ -918,7 +911,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
 
         {panelState === "ready" && scm.status ? (
           <>
-            <div className="shrink-0 space-y-2 border-b border-border/40 bg-gradient-to-b from-card/65 to-card/30 px-2.5 pb-2.5 pt-2.5">
+            <div className="shrink-0 space-y-2 border-b border-border/40 px-2.5 pb-2.5 pt-2.5">
               <div className="flex min-w-0 items-center gap-1.5 text-[10.5px] text-muted-foreground">
                 <span
                   className={cn(
@@ -945,15 +938,15 @@ export const SourceControlPanel = memo(function SourceControlPanel({
                 </span>
               </div>
 
-              <div className="grid w-full grid-cols-2 gap-1.5">
+              <div className="grid w-full grid-cols-1 gap-1.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       size="xs"
-                      variant="secondary"
+                      variant="outline"
                       data-scm-stage-all=""
                       data-scm-selected-count={tickedCount}
-                      className="h-7 cursor-pointer text-[11.5px] font-medium disabled:cursor-not-allowed"
+                      className="h-7 cursor-pointer border-border/50 bg-transparent text-[11.5px] font-medium hover:bg-foreground/[0.06] disabled:cursor-not-allowed"
                       disabled={stageDisabledReason !== null}
                       onClick={() => void applyToTicked()}
                     >
@@ -974,32 +967,6 @@ export const SourceControlPanel = memo(function SourceControlPanel({
                     )}
                   >
                     {stageHint}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="xs"
-                      variant="secondary"
-                      className="h-7 cursor-pointer text-[11.5px] font-medium disabled:cursor-not-allowed"
-                      disabled={
-                        !scm.canPush || fixedTargetPending || !!scm.actionBusy
-                      }
-                      onClick={() => void scm.push()}
-                    >
-                      {scm.actionBusy === "push"
-                        ? t("scm.pushing")
-                        : t("scm.push")}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent
-                    side="bottom"
-                    className={cn(
-                      SOURCE_CONTROL_TOOLTIP_CLASS,
-                      "max-w-64 text-[10.5px]",
-                    )}
-                  >
-                    {pushDisabledReason}
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -1100,13 +1067,6 @@ export const SourceControlPanel = memo(function SourceControlPanel({
           </>
         ) : null}
       </aside>
-
-      {panelState === "ready" && scm.repo ? (
-        <StashSection
-          repoRoot={scm.repo.repoRoot}
-          onChanged={() => scm.refresh()}
-        />
-      ) : null}
 
       <AlertDialog
         open={scm.pendingDiscard !== null}
