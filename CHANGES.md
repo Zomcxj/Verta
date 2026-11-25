@@ -13,6 +13,23 @@ fine as plain text. **The newest day is `open` by default**; when a new day star
 swap in the new date, and drop the `open` from the day before.
 
 <details open>
+<summary><strong>2026-11-25</strong></summary>
+
+**The session list no longer fills in one agent at a time**
+
+- `src/modules/launcher/components/LauncherPanel.tsx`: opening the panel showed an opencode-only list, which filled in with pi and Claude a moment later. The order was never tool-priority - `sortByRecent` has always answered newest-first and the grouping setting is on "all" - so what looked like "opencode is always first" was the list being drawn once per tool: `setSessions` ran in the `finally` of every request, and opencode is asked first and reads one sqlite file. A source's three tools are one block, so the block is drawn when it is complete. A source is still drawn on its own, because a distro is read by running a query inside it and waiting for it would hold back rows that are already answered.
+- `src/modules/launcher/components/sessionListLoad.wiring.test.ts` (new): the counter that draws a block once, and the absence of the per-request redraw in that position.
+
+**The source control panel is staging, and only staging**
+
+- `src/modules/source-control/SourceControlPanel.tsx`: the action row is one button now. Push is gone ("delete the push button"), the same answer committing got: sending changes to a remote is the agent's job from the terminal. `scm.push()` stays in the hook and the verb still reports through `CommitFeedback`, so the panel's status line keeps saying where the branch stands against its upstream. With one button left the two-column grid was a button and a hole, so the row is gone and the button spans the panel above the list it acts on. It is an outline rather than a filled secondary: filled, it read as a band across the panel instead of a control. The block holding it also loses its `from-card/65 to-card/30` gradient, because the header above it, the commit graph row and the pane tabs below are all transparent and the block read as a tinted strip laid over the panel. Checked on the running app: background-color `rgba(0, 0, 0, 0)`, background-image `none`, the same as its neighbours.
+- `src/modules/source-control/StashSection.tsx` (deleted), `src/lib/native.ts`, `src/modules/i18n/messages.ts`: the stash list is gone ("delete stash"). Its collapsed section, message box and apply / pop / drop actions were the last thing under the panel, and stash was never reached for from this window. The five native bindings, `GitStashEntry` and the fourteen `scm.stash.*` strings in both languages went with it. The Rust `git_stash_*` commands stay registered, the same as `git_commit`: they are commands that write to a repository, and removing those is not part of taking a control off a panel.
+- `src/modules/header/Header.tsx`, `src/app/App.tsx`, `src/modules/source-control/useSourceControl.ts`: the top-right button that shows and hides the panel carried a badge with the number of changed files ("the hide/show button should not show the number of changed files"). The panel says the same number twice more, in its own header and over the file list, and `Header` was the badge's only reader - so the prop and the `changedCount` summary field both go.
+- `src/modules/source-control/statusConsumers.test.ts`: its last case was named after that badge. The assertion is unchanged and still worth having (explorer open, decorations off, plain terminal tab, nothing live); only the name and the reason it gives are the current ones.
+
+</details>
+
+<details>
 <summary><strong>2026-11-23</strong></summary>
 
 **A picture in a session was arriving as a black-and-white field**

@@ -51,9 +51,10 @@ describe("statusConsumers", () => {
     ).toBe(false);
   });
 
-  it("does not count the header badge as a consumer", () => {
-    // Explorer open, decorations off, plain terminal tab: only the badge is
-    // visible, and the badge refreshes lazily instead of on every focus.
+  it("is idle with the explorer open and decorations off", () => {
+    // Nothing that shows git state is on screen: the panel is closed, the tab is a terminal, and
+    // the file tree draws no decorations. This used to be the case that kept the header's change
+    // badge stale on purpose; the badge is gone, so all it says now is that the plain case is idle.
     expect(statusConsumers({ ...base, explorerGitDecorations: false })).toEqual(
       { panel: false, gitTab: false, explorerDecorations: false },
     );
