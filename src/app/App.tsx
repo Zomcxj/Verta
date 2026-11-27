@@ -58,7 +58,7 @@ import {
 } from "@/modules/projects";
 import { newSessionCommand } from "@/modules/launcher/lib/resumeCommand";
 import { folderSessionTarget } from "@/modules/explorer/lib/agentActions";
-import { screenShowsLaunchLine } from "@/modules/terminal/lib/launchLine";
+import { launchLineDisplayed } from "@/modules/terminal/lib/launchLine";
 import { tabAgentIcon } from "@/modules/tabs/lib/tabAgentIcon";
 import { decideCwd, rememberCwd } from "@/modules/terminal/lib/spelledCwd";
 import type { AgentTool } from "@/modules/launcher";
@@ -270,7 +270,7 @@ async function paintsWithoutLaunchLine(
 ): Promise<boolean> {
   await whenLeafPaints(leafId, 1_500, sinceFrame);
   const after = leafScreenTail(leafId);
-  return after === null || !screenShowsLaunchLine(after, command);
+  return !launchLineDisplayed(after, command, leafUsesAlternateScreen(leafId));
 }
 
 async function waitForAgentUi(
@@ -311,13 +311,12 @@ async function waitForAgentUi(
     const elapsed = Date.now() - startedAt;
     const silentFor = Date.now() - lastGrowthAt;
     const screen = leafScreenTail(leafId);
-    const showsLaunch =
-      screen !== null && screenShowsLaunchLine(screen, command);
+    const alt = leafUsesAlternateScreen(leafId);
+    const showsLaunch = launchLineDisplayed(screen, command, alt);
     // The agent's own screen has to be there: an empty one is an agent that has just
     // cleared or switched buffers and has not painted yet, and lifting onto that trades
     // a visible command line for a blank pane.
     const hasOwnScreen = screen !== null && screen.trim().length > 0;
-    const alt = leafUsesAlternateScreen(leafId);
     trace?.push({
       t: elapsed,
       bytes,
@@ -951,12 +950,19 @@ export default function App() {
   >([]);
   /** Set by every start, so a slower earlier start cannot lift a newer one's layer. */
   const sessionOpeningToken = useRef(0);
-  const sessionOpeningTimer = useRef<number | null>(null);
-  const clearSessionOpeningTimer = useCallback(() => {
-    if (sessionOpeningTimer.current !== null) {
-      window.clearTimeout(sessionOpeningTimer.current);
-      sessionOpeningTimer.current = null;
-    }
+  /**
+   * One fallback timer per leaf, not one for the window.
+   *
+   * Several sessions can be starting at once - a restore does exactly that - and a single timer meant
+   * the newer start cancelled the older one's last resort, so that cover had nothing left that could
+   * take it down and stayed up over a terminal that was already running.
+   */
+  const sessionOpeningTimers = useRef(new Map<number, number>());
+  const clearSessionOpeningTimer = useCallback((leafId: number) => {
+    const timer = sessionOpeningTimers.current.get(leafId);
+    if (timer === undefined) return;
+    window.clearTimeout(timer);
+    sessionOpeningTimers.current.delete(leafId);
   }, []);
   const showSessionOpening = useCallback(
     (leafId: number, tool: string | null): number => {
@@ -967,12 +973,15 @@ export default function App() {
       noteSessionOpeningShown(token, leafId, tool);
       // The timer is the last resort: a session that never reports its UI up must not
       // cover a terminal indefinitely.
-      clearSessionOpeningTimer();
-      sessionOpeningTimer.current = window.setTimeout(() => {
-        sessionOpeningTimer.current = null;
-        noteSessionOpeningLifted(token, "fallback-timer", null, null);
-        setSessionOpenings((starts) => dropSessionOpening(starts, leafId));
-      }, SESSION_OPENING_FALLBACK_MS);
+      clearSessionOpeningTimer(leafId);
+      sessionOpeningTimers.current.set(
+        leafId,
+        window.setTimeout(() => {
+          sessionOpeningTimers.current.delete(leafId);
+          noteSessionOpeningLifted(token, "fallback-timer", null, null);
+          setSessionOpenings((starts) => dropSessionOpening(starts, leafId));
+        }, SESSION_OPENING_FALLBACK_MS),
+      );
       return token;
     },
     [clearSessionOpeningTimer],
@@ -1007,7 +1016,13 @@ export default function App() {
     },
     [],
   );
-  useEffect(() => clearSessionOpeningTimer, [clearSessionOpeningTimer]);
+  useEffect(() => {
+    const timers = sessionOpeningTimers.current;
+    return () => {
+      for (const timer of timers.values()) window.clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
   /**
    * Whether the layer belongs to the tab on screen right now (`sessionOpeningVisible`):
    * a leaf lives in exactly one tab, and a session start is not tied to what the user is

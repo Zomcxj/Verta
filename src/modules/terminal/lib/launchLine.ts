@@ -31,3 +31,22 @@ export function screenShowsLaunchLine(screen: string, command: string): boolean 
   if (wanted.length === 0) return false;
   return squeezeWhitespace(screen).includes(wanted);
 }
+
+/**
+ * Whether the launch command is being displayed, given which buffer is on screen.
+ *
+ * The alternate screen is a separate buffer, so the shell's echo of the command stops being
+ * displayed the moment a full-screen program switches to it - that is what
+ * `leafUsesAlternateScreen` answers without reading any text. The text still has to be read, but
+ * only as a question about the buffer that is *shown*: a resumed session can put the very command
+ * that launched it inside its own conversation (the reader had been asking about it), and reading
+ * that mention as the echo kept the cover up over a running agent for the whole hard cap.
+ */
+export function launchLineDisplayed(
+  screen: string | null,
+  command: string,
+  alt: boolean,
+): boolean {
+  if (alt || screen === null) return false;
+  return screenShowsLaunchLine(screen, command);
+}

@@ -34,7 +34,7 @@ describe("the record of a session opening", () => {
     expect(app).toMatch(/hideSessionOpening\(start\.token, "tab-closed"\)/);
     expect(
       app.match(/hideSessionOpening\(opening, "write-failed"\)/g) ?? [],
-    ).toHaveLength(4);
+    ).toHaveLength(5);
   });
 
   it("lets the rules decide, and the clock only as the last resort", () => {
@@ -71,6 +71,16 @@ describe("the record of a session opening", () => {
     expect(app).not.toMatch(/sessionOpening === null \|\| sessionOpeningShown/);
   });
 
+  it("gives every start its own fallback timer, so one cannot cancel another's", () => {
+    // Measured on a restore, which starts two sessions in the same pass: one timer for the window
+    // meant the newer start cancelled the older one's last resort, and that cover then had nothing
+    // left that could take it down - it stayed up over a terminal that was already running,
+    // reported as "还是卡在加载动画".
+    expect(app).toMatch(/sessionOpeningTimers\.current\.set\(/);
+    expect(app).toMatch(/clearSessionOpeningTimer\(leafId\)/);
+    expect(app).not.toMatch(/sessionOpeningTimer\.current\s*=/);
+  });
+
   it("carries the wait's report and the screen it lifted on", () => {
     // `coveredMs` alone cannot say whether an opening was slow because the agent was slow or
     // because a rule kept firing and the frame kept disagreeing; the report and the tail are what
@@ -83,7 +93,7 @@ describe("the record of a session opening", () => {
     expect(app).toMatch(/heldTicks \+= 1/);
     expect(
       app.match(/hideSessionOpening\(opening, "ui-painted", wait\)/g) ?? [],
-    ).toHaveLength(4);
+    ).toHaveLength(5);
     expect(app).toMatch(/leafScreenTail\(leafId\)/);
   });
 

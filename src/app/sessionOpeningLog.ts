@@ -69,9 +69,10 @@ let sequence = 0;
 /**
  * The cover went up.
  *
- * There is only ever one cover, so a start that arrives while another is pending replaces it: the
- * older one is dropped rather than recorded, because its timing was cut short by the newer start
- * and reading it as a slow opening would be wrong.
+ * A start replaces only its own leaf's entry: the same pane shown twice is one cover, and the older
+ * one's timing was cut short by the newer. Starts on *other* leaves stay pending, because each of
+ * them still has a cover to lift and `sessionOpeningLeaf` is the only thing that names its leaf -
+ * forgetting them left those covers up with nothing able to take them down.
  */
 export function noteSessionOpeningShown(
   token: number,
@@ -79,7 +80,9 @@ export function noteSessionOpeningShown(
   tool: string | null,
   atMs: number = Date.now(),
 ): void {
-  pending.clear();
+  for (const [pendingToken, entry] of pending) {
+    if (entry.leafId === leafId) pending.delete(pendingToken);
+  }
   pending.set(token, { leafId, tool, shownAt: atMs });
 }
 

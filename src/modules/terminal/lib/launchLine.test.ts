@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { screenShowsLaunchLine, squeezeWhitespace } from "./launchLine";
+import {
+  launchLineDisplayed,
+  screenShowsLaunchLine,
+  squeezeWhitespace,
+} from "./launchLine";
 
 /** The screen as a shell leaves it right after the app wrote a resume command. */
 const ECHOED = [
@@ -73,5 +77,40 @@ describe("screenShowsLaunchLine", () => {
   it("is not fooled by an empty command", () => {
     expect(screenShowsLaunchLine(ECHOED, "")).toBe(false);
     expect(screenShowsLaunchLine(ECHOED, "   ")).toBe(false);
+  });
+});
+
+describe("launchLineDisplayed", () => {
+  it("says no on the alternate screen, whatever the text says", () => {
+    // Measured on this machine: a resumed claude session shows the resume command *inside its own
+    // conversation*, because that is what the reader had been asking about. The alternate screen is
+    // a separate buffer, so the shell's echo is not being displayed - and reading a mention in the
+    // agent's own transcript as the echo kept the cover up for the whole 60 s cap, reported as
+    // "还是卡在加载动画".
+    const transcript = [
+      "● 关于这条命令 claude --resume b282aa01-3997-4af9-96d5-76c8aa9f9ded",
+      "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
+    ].join("\n");
+    expect(
+      launchLineDisplayed(
+        transcript,
+        "claude --resume b282aa01-3997-4af9-96d5-76c8aa9f9ded",
+        true,
+      ),
+    ).toBe(false);
+  });
+
+  it("says yes while the shell is still showing the echo", () => {
+    expect(
+      launchLineDisplayed(
+        ECHOED,
+        "pi --session 01a151cb-0123-72b0-a7a7-5fd13c054dd6",
+        false,
+      ),
+    ).toBe(true);
+  });
+
+  it("says no when there is no screen to read", () => {
+    expect(launchLineDisplayed(null, "pi", false)).toBe(false);
   });
 });

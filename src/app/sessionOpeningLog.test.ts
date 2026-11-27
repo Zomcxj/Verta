@@ -99,13 +99,32 @@ describe("what a session-opening cover did", () => {
     expect(sessionOpeningRecords()).toHaveLength(1);
   });
 
-  it("drops a start that a newer one replaced, rather than recording it as slow", () => {
+  it("keeps a start on another leaf pending, so its own cover can still come down", () => {
+    // Two sessions opened one after another (a restore does exactly this) each cover their own pane.
+    // Forgetting the first when the second is shown left its cover with nothing that could name its
+    // leaf, so `hideSessionOpening` could not drop it and the transition spun over a terminal that
+    // was already up - reported as "还是卡在加载动画".
     noteSessionOpeningShown(7, 12, "opencode", 0);
     noteSessionOpeningShown(8, 13, "claude", 50);
+    expect(sessionOpeningLeaf(7)).toBe(12);
     noteSessionOpeningLifted(7, "ui-painted", wait({}), "old", 60);
-    expect(sessionOpeningRecords()).toHaveLength(0);
     noteSessionOpeningLifted(8, "ui-painted", wait({}), "new", 70);
-    expect(sessionOpeningRecords().map((r) => r.leafId)).toEqual([13]);
+    expect(sessionOpeningRecords().map((r) => [r.leafId, r.coveredMs])).toEqual([
+      [12, 60],
+      [13, 20],
+    ]);
+  });
+
+  it("drops a start that the same leaf replaced, rather than recording it as slow", () => {
+    // The same pane shown twice is one cover, and its timing was cut short by the second, so the
+    // first is not recorded at all.
+    noteSessionOpeningShown(9, 14, "opencode", 0);
+    noteSessionOpeningShown(10, 14, "claude", 50);
+    expect(sessionOpeningLeaf(9)).toBeNull();
+    noteSessionOpeningLifted(9, "ui-painted", wait({}), "old", 60);
+    expect(sessionOpeningRecords()).toHaveLength(0);
+    noteSessionOpeningLifted(10, "ui-painted", wait({}), "new", 70);
+    expect(sessionOpeningRecords().map((r) => r.leafId)).toEqual([14]);
   });
 
   it("keeps the newest openings and forgets the oldest", () => {
