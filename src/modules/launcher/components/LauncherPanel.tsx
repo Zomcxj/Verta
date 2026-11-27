@@ -52,7 +52,10 @@ import { loadProjectPaths } from "@/modules/projects/lib/store";
 import { useAgentActivityStore } from "@/modules/terminal";
 import { useWindowHidden } from "@/modules/theme/WindowActivityBridge";
 import type { Tab } from "@/modules/tabs/lib/useTabs";
-import { useWorkspaceEnvStore } from "@/modules/workspace";
+import {
+  LOCAL_WORKSPACE,
+  useWorkspaceEnvStore,
+} from "@/modules/workspace";
 import {
   ACTIVE_TICK_MS,
   ACTIVE_WINDOW_BY_TOOL,
@@ -66,6 +69,8 @@ import {
 import { SessionInfoDialog } from "./SessionInfoDialog";
 import { subagentsByParent, subagentsOf } from "../lib/sessionInfo";
 import { SessionList, type SessionRowActions } from "./SessionList";
+import { SessionWorktreeDialog } from "./SessionWorktreeDialog";
+import { resolveWorktreeRepo, workspaceForSession } from "../lib/worktreeForSession";
 
 const TOOLS: AgentTool[] = AGENT_TOOLS;
 
@@ -128,6 +133,15 @@ type PendingDelete = {
 type Props = {
   activeSessionId: string | null;
   onOpenSession: (session: AgentSession) => void;
+  /**
+   * Place a session in its own worktree and open it there. Returns the command's own
+   * sentence on failure, or null once the session is running; omitted hides the menu
+   * item, which is the case when the panel is used without a terminal behind it.
+   */
+  onOpenWorktree?: (
+    session: AgentSession,
+    worktreePath: string,
+  ) => Promise<string | null>;
   /** The open tabs, so a row can be marked when its session is running in one. */
   tabs: readonly Tab[];
   /** Current workspace root: "Copy relative path" resolves against it, and the item
@@ -138,6 +152,7 @@ type Props = {
 export function LauncherPanel({
   activeSessionId,
   onOpenSession,
+  onOpenWorktree,
   tabs,
   workspaceRoot = null,
 }: Props) {
@@ -168,6 +183,12 @@ export function LauncherPanel({
     null,
   );
   const [deleting, setDeleting] = useState(false);
+  /** The session whose worktree dialog is open, and what the last attempt said. */
+  const [worktreeTarget, setWorktreeTarget] = useState<AgentSession | null>(
+    null,
+  );
+  /** The repository that session's folder belongs to; null while it is being resolved. */
+  const [worktreeRepoRoot, setWorktreeRepoRoot] = useState<string | null>(null);
   /** Default is one block sorted by time; `tool` splits it into per-agent sections. */
   const groupBy = usePreferencesStore((s) => s.sessionGroupBy);
   const chooseGroupBy = useCallback((mode: SessionGroupBy) => {
@@ -317,6 +338,31 @@ export function LauncherPanel({
   const rowActions = useMemo<SessionRowActions>(
     () => ({
       onOpen: onOpenSession,
+      // Only offered when there is a terminal to open into: the panel is also used
+      // without one, and a menu item that cannot work should not be there.
+      ...(onOpenWorktree
+        ? {
+            onWorktree: (session: AgentSession) => {
+              // Resolved before the dialog is drawn: the form needs a repository to write
+              // into, and "this folder is not a checkout" has to be said rather than shown
+              // as a dialog whose Create button cannot work.
+              void resolveWorktreeRepo(session).then((resolved) => {
+                if ("error" in resolved) {
+                  toast.error(
+                    resolved.error === "no-repository"
+                      ? t("launcher.worktreeNotRepository")
+                      : t("launcher.worktreeFailed", {
+                          error: resolved.error,
+                        }),
+                  );
+                  return;
+                }
+                setWorktreeTarget(session);
+                setWorktreeRepoRoot(resolved.repoRoot);
+              });
+            },
+          }
+        : {}),
       onCopyAbsolute: (session) => copyText(session.cwd, t("launcher.copied")),
       onCopyRelative: (session) => {
         const relative = relativeToRoot(workspaceRoot, session.cwd);
@@ -326,7 +372,19 @@ export function LauncherPanel({
       onInfo: (session) => setInfoKey(sessionKey(session)),
       canCopyRelative: relativeToRoot(workspaceRoot, "") !== null,
     }),
-    [onOpenSession, t, workspaceRoot],
+    [onOpenSession, onOpenWorktree, t, workspaceRoot],
+  );
+
+  /**
+   * Open a session in the worktree that now exists at `worktreePath`.
+   *
+   * The dialog owns the creation, so this only answers what happens next; a sentence it
+   * returns keeps the dialog open with the command's own wording.
+   */
+  const openInWorktree = useCallback(
+    (session: AgentSession, worktreePath: string) =>
+      onOpenWorktree ? onOpenWorktree(session, worktreePath) : Promise.resolve(null),
+    [onOpenWorktree],
   );
 
   const toggleRow = useCallback((session: AgentSession) => {
@@ -784,6 +842,19 @@ export function LauncherPanel({
         subagents={infoChildren}
         open={infoSession !== null}
         onOpenChange={(open) => !open && setInfoKey(null)}
+      />
+
+      <SessionWorktreeDialog
+        session={worktreeTarget}
+        repoRoot={worktreeRepoRoot}
+        env={worktreeTarget ? workspaceForSession(worktreeTarget) : LOCAL_WORKSPACE}
+        onOpenChange={(open) => {
+          if (!open) {
+            setWorktreeTarget(null);
+            setWorktreeRepoRoot(null);
+          }
+        }}
+        onCreated={openInWorktree}
       />
 
       <AlertDialog

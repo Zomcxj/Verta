@@ -5,6 +5,7 @@ export {
   planSessionOpen,
   planSessionResume,
 } from "./lib/openSession";
+export { workspaceForSession } from "./lib/worktreeForSession";
 export { resumeCommand, newSessionCommand } from "./lib/resumeCommand";
 export { loadAllAgentSessions, runningSessionIds } from "./lib/sessions";
 export type { RunningSessions } from "./lib/sessions";

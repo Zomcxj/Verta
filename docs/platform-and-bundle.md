@@ -68,6 +68,39 @@ where you think it is" are different claims.
   `tauri.conf.json`, and `createUpdaterArtifacts` on again.
 - `bundle.resources` includes the upstream Ghostty, Restty, ghostty-web, and xterm.js license notices under `licenses/terminal/`. Repository documentation and test-only reference WASM cores are not packaged; the frontend includes only the adapted SIMD and scalar cores.
 
+## Worktrees
+
+A session can be reopened in its own git worktree from the session list's context menu, and a
+worktree can be made for a branch from the source control panel's branch dropdown. Both reach the
+same dialog (`AddWorktreeDialog` in `src/modules/source-control/BranchDialogs.tsx`) and the same
+command, `git_worktree_add`; the difference is only what is filled in. The panel asks for the branch
+and the destination; the session row prefills the branch from the session title under `agent/` and,
+once the worktree exists, opens the session there.
+
+That is deliberate: two ways to create a worktree with two different path rules would put two
+naming schemes into `git worktree list` for the same repository, and neither name would say which
+one a reader was looking at. One creation path means one rule, and the destination is the user's
+choice either way.
+
+The session's folder is authorised before the dialog is resolved, because the session list is read
+from the agents' own files rather than from the workspace registry: a project that was never opened
+in Verta is still listed, and asking git about it would otherwise fail with "outside the authorized
+workspace". A folder that is not a repository is named as such instead of showing a form whose
+Create button cannot work.
+
+The worktree starts from the current HEAD; uncommitted changes in the repository do not come along.
+When a branch of that name already exists, git checks it out instead of creating a new one, so a
+second session can share a branch when that is what was meant, and git's own refusal is passed
+through when it is not.
+
+An agent that keys its session store by working directory sees the worktree as a new directory.
+Resuming a pi session there makes pi ask `Session found in different project: <repo>` and
+`Fork this session into current directory? [y/N]`, and it waits for the answer, so the opening
+cover stays up: the agent has not painted anything yet, which is exactly what the cover reports.
+Answer yes to continue the conversation in the worktree, or start a new session there. Verta does
+not answer for the agent, and `--fork` is not used in place of `--session` because it gives the
+session a new id, which is the id the tab, the session list and the diff notes were opened for.
+
 ## Releasing
 
 1. **Make sure `main` is green and merged.** `ci.yml` runs the five gates on every push to `main` and

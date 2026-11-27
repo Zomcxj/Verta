@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { native } from "@/lib/native";
 import { useT } from "@/modules/i18n";
+import type { WorkspaceEnv } from "@/modules/workspace";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -346,23 +347,46 @@ function DeleteBranchDialog({
 
 /** The destination defaults to a sibling of the repo: `<repo>-<branch>`, and stops
  * auto-updating once the user has touched the field. */
-function suggestWorktreePath(repoRoot: string, branch: string): string {
+export function suggestWorktreePath(repoRoot: string, branch: string): string {
   const base = repoRoot.replace(/[\\/]+$/, "");
-  return `${base}-${branch.trim() || "worktree"}`;
+  // A branch is a ref and may hold `/` (`agent/fix-login`); a path segment may not, so the
+  // separator becomes a dash. Without this the default destination of such a branch is a
+  // nested path whose parent does not exist, and `git worktree add` refuses it.
+  const name = (branch.trim() || "worktree").replace(/[\\/]+/g, "-");
+  return `${base}-${name}`;
 }
 
-function AddWorktreeDialog({
+/**
+ * Create a worktree: branch, destination, and where it starts from.
+ *
+ * Shared by the two ways in - the branch dropdown and a session's context menu - so both
+ * ask the same questions and go through `git_worktree_add`. The session entry prefills the
+ * branch from the session's title and, when it has one, hands the created path to
+ * `onCreated` so the session can be opened there.
+ */
+export function AddWorktreeDialog({
   repoRoot,
+  initialBranch,
+  env,
   onClose,
   onChanged,
+  onCreated,
 }: {
   repoRoot: string;
+  /** The branch field's starting value; empty when the caller has nothing to suggest. */
+  initialBranch?: string;
+  /** The workspace `repoRoot` belongs to, when the caller knows it. */
+  env?: WorkspaceEnv;
   onClose: () => void;
   onChanged: () => void;
+  /** The worktree exists at this path. A sentence it returns keeps the dialog open. */
+  onCreated?: (path: string) => Promise<string | null> | string | null;
 }) {
   const t = useT();
-  const [branch, setBranch] = useState("");
-  const [path, setPath] = useState(suggestWorktreePath(repoRoot, ""));
+  const [branch, setBranch] = useState(initialBranch ?? "");
+  const [path, setPath] = useState(
+    suggestWorktreePath(repoRoot, initialBranch ?? ""),
+  );
   const [pathTouched, setPathTouched] = useState(false);
   const [createNewBranch, setCreateNewBranch] = useState(true);
   const [start, setStart] = useState("");
@@ -378,13 +402,18 @@ function AddWorktreeDialog({
     const trimmedPath = path.trim();
     if (!trimmedBranch || !trimmedPath) return;
     void submit(async () => {
-      await native.gitWorktreeAdd(
+      const created = await native.gitWorktreeAdd(
         repoRoot,
         trimmedPath,
         trimmedBranch,
         createNewBranch,
         start.trim() || null,
+        env,
       );
+      // After the worktree exists, and inside the same submit: a failure to open the
+      // session there belongs in this dialog, not in a toast that outlives it.
+      const failure = await onCreated?.(created);
+      if (failure) throw new Error(failure);
     }, t("scm.worktree.added"));
   };
 

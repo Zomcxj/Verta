@@ -1125,10 +1125,10 @@ export const native = {
       workspace: envForPath(cwd),
     }),
 
-  gitResolveRepo: (cwd: string) =>
+  gitResolveRepo: (cwd: string, env?: WorkspaceEnv) =>
     invoke<GitRepoInfo | null>("git_resolve_repo", {
       cwd,
-      workspace: envForPath(cwd),
+      workspace: env ?? envForPath(cwd),
     }),
   gitContainedRepos: (folder: string) =>
     invoke<{ path: string; committedAtMs: number | null }[]>(
@@ -1537,6 +1537,9 @@ export const native = {
     branch: string,
     createNewBranch: boolean,
     startPoint: string | null,
+    /** The workspace `repoRoot` lives in, when the caller knows it: a session carries its
+     * own, and guessing from the path would put a distro's repository on the host. */
+    env?: WorkspaceEnv,
   ) =>
     invoke<string>("git_worktree_add", {
       repoRoot,
@@ -1544,7 +1547,7 @@ export const native = {
       branch,
       createNewBranch,
       startPoint,
-      workspace: envForPath(repoRoot),
+      workspace: env ?? envForPath(repoRoot),
     }),
   /** Remove a worktree. `force` discards uncommitted changes in it. */
   gitWorktreeRemove: (repoRoot: string, path: string, force: boolean) =>

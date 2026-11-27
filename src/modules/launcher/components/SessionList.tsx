@@ -34,6 +34,8 @@ import type { CardAnchor } from "../lib/cardPlacement";
  *  current workspace root, and without a root only the absolute path is offered. */
 export type SessionRowActions = {
   onOpen: (session: AgentSession) => void;
+  /** Place this session in its own git worktree and open it there. */
+  onWorktree?: (session: AgentSession) => void;
   onCopyAbsolute: (session: AgentSession) => void;
   onCopyRelative: (session: AgentSession) => void;
   onCopyId: (session: AgentSession) => void;
@@ -352,6 +354,13 @@ const SessionButton = memo(function SessionButton({
             <ContextMenuItem onSelect={() => actions.onOpen(session)}>
               {t("launcher.open")}
             </ContextMenuItem>
+            {actions.onWorktree ? (
+              <ContextMenuItem
+                onSelect={() => actions.onWorktree?.(session)}
+              >
+                {t("launcher.worktree")}
+              </ContextMenuItem>
+            ) : null}
             <ContextMenuSeparator />
           </>
         )}

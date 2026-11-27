@@ -40,6 +40,7 @@ import {
   openTabForSession,
   planSessionOpen,
   planSessionResume,
+  workspaceForSession,
 } from "@/modules/launcher";
 import { setLspNavigator } from "@/modules/lsp";
 import type { PreviewPaneHandle } from "@/modules/preview";
@@ -578,6 +579,7 @@ export default function App() {
   }, []);
 
   const activeTab = tabs.find((t) => t.id === activeId);
+
   const isTerminalTab = activeTab?.kind === "terminal";
   const isBlockTab = activeTerminalTab?.blocks === true;
   const isEditorTab = activeTab?.kind === "editor";
@@ -1095,6 +1097,83 @@ export default function App() {
       })();
     },
     [newAgentTab, showSessionOpening, hideSessionOpening, setActiveId],
+  );
+
+  /**
+   * Open a session in a worktree that already exists.
+   *
+   * The creation is the source-control dialog's job (`AddWorktreeDialog`, reached from the
+   * session row's menu too), so this starts where that ends: the directory is there, and what
+   * is left is the same as `handleOpenSession` - one agent per session, one tab, the resume
+   * command written once the terminal is ready. A sentence returned here is shown inside that
+   * dialog, because the worktree exists by now and closing it would leave the reader without
+   * the one thing they can act on.
+   */
+  const handleOpenWorktree = useCallback(
+    async (
+      session: AgentSession,
+      worktreePath: string,
+    ): Promise<string | null> => {
+      // Two agents on one session file overwrite each other's turns, so a session that is
+      // already open is returned to instead of started again.
+      const open = openTabForSession(tabsRef.current, session.id);
+      if (open) {
+        setActiveId(open.id);
+        setActiveSessionId(session.id);
+        discoverRepositoriesRef.current(
+          session.cwd,
+          workspaceForSession(session),
+        );
+        return t("launcher.worktreeAlreadyOpen");
+      }
+      const workspace = workspaceForSession(session);
+      const plan = planSessionResume(
+        session.tool,
+        session.id,
+        worktreePath,
+        workspace,
+      );
+      if (!plan) {
+        return t("launcher.resumeBadId", { id: session.id });
+      }
+      const { leafId } = newAgentTab(
+        worktreePath,
+        session.title,
+        workspace,
+        session.tool,
+        session.id,
+      );
+      setActiveSessionId(session.id);
+      discoverRepositoriesRef.current(worktreePath, workspace);
+      const opening = showSessionOpening(leafId, session.tool);
+      void (async () => {
+        await whenSessionReady(leafId);
+        const baseBytes = leafOutputBytes(leafId);
+        const baseFrame = leafFrameCount(leafId);
+        if (!writeToSession(leafId, `${plan.command}\r`)) {
+          hideSessionOpening(opening, "write-failed");
+          toast.error(
+            t("launcher.worktreeCreatedNoTerminal", { path: worktreePath }),
+          );
+          return;
+        }
+        const wait = await waitForAgentUi(
+          leafId,
+          baseBytes,
+          plan.command,
+          baseFrame,
+        );
+        hideSessionOpening(opening, "ui-painted", wait);
+      })();
+      return null;
+    },
+    [
+      newAgentTab,
+      showSessionOpening,
+      hideSessionOpening,
+      setActiveId,
+      t,
+    ],
   );
 
   /**
@@ -2159,6 +2238,7 @@ export default function App() {
                         <LauncherPanel
                           activeSessionId={activeSessionId}
                           onOpenSession={handleOpenSession}
+                          onOpenWorktree={handleOpenWorktree}
                           tabs={tabs}
                           workspaceRoot={explorerRoot}
                         />
