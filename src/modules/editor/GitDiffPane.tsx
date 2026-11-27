@@ -7,6 +7,8 @@ import { EditorView } from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLanguage, useT } from "@/modules/i18n";
+import { CommentLayer } from "@/modules/diff-comments/components/CommentLayer";
+import type { Tab } from "@/modules/tabs";
 import {
   commitDiffKey,
   fetchCommitDiff,
@@ -44,6 +46,10 @@ type Props = {
   source: WorkingSource | CommitSource;
   chipLabel?: string;
   active: boolean;
+  /** The session review notes are written for; null when none is open. */
+  sessionId?: string | null;
+  /** The open tabs, so a note's send button can find the session's terminal. */
+  tabs?: readonly Tab[];
 };
 
 const LARGE_FILE_THRESHOLD = 256 * 1024;
@@ -139,11 +145,19 @@ function loadStateFromCache(source: WorkingSource | CommitSource): LoadState {
   };
 }
 
-export function GitDiffPane({ source, chipLabel, active }: Props) {
+export function GitDiffPane({
+  source,
+  chipLabel,
+  active,
+  sessionId = null,
+  tabs = [],
+}: Props) {
   const t = useT();
   const language = useLanguage();
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   const themeExt = useEditorThemeExt();
+  /** The line the reader has selected, for a new note. */
+  const [selectedLine, setSelectedLine] = useState<number | null>(null);
   const [state, setState] = useState<LoadState>(() =>
     active ? loadStateFromCache(source) : { kind: "idle" },
   );
@@ -229,6 +243,19 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
         gutter: true,
         syntaxHighlightDeletions: true,
         collapseUnchanged: { margin: 3, minSize: 6 },
+      }),
+      // Clicking a deleted-line widget does not move the document selection, so a note
+      // written right after would keep the previous line. Resolve the click to a document
+      // position and select it, which is what the note's line number is read from.
+      EditorView.domEventHandlers({
+        mousedown: (event, view) => {
+          const target = event.target as HTMLElement | null;
+          if (!target?.closest(".cm-deletedChunk")) return false;
+          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (pos === null) return false;
+          view.dispatch({ selection: { anchor: pos } });
+          return true;
+        },
       }),
       DIFF_THEME,
     ],
@@ -338,9 +365,29 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
               highlightActiveLineGutter: false,
               searchKeymap: true,
             }}
+            onUpdate={(viewUpdate) => {
+              const head = viewUpdate.view.state.selection.main.head;
+              setSelectedLine(viewUpdate.view.state.doc.lineAt(head).number);
+            }}
           />
         )}
       </div>
+
+      {useFallback ? null : (
+        <CommentLayer
+          sessionId={sessionId}
+          filePath={path}
+          scope={
+            source.kind === "working"
+              ? source.mode === "-"
+                ? "unstaged"
+                : "staged"
+              : "branch"
+          }
+          selectedLine={selectedLine}
+          tabs={tabs}
+        />
+      )}
     </div>
   );
 }

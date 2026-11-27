@@ -3,8 +3,9 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent_sessions, agent_versions, app_update, control, csv, docx, drag, fonts, fs, git, github,
-    history, lsp, paste, projects, pptx, pty, screenshot, shell, vibrancy, workspace, xlsx,
+    agent_sessions, agent_versions, app_update, control, csv, diff_comments, docx, drag, fonts, fs,
+    git, github, history, lsp, paste, projects, pptx, pty, screenshot, shell, vibrancy, workspace,
+    xlsx,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -639,6 +640,9 @@ pub fn run() {
             workspace::workspace_current_dir,
             workspace::notes_dir,
             workspace::themes_dir,
+            diff_comments::diff_comments_dir,
+            diff_comments::diff_comments_list,
+            diff_comments::diff_comments_save,
             control::control_frontend_ready,
             control::control_respond,
             get_launch_dir,

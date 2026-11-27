@@ -73,6 +73,25 @@ Each module is self-contained, exports a thin barrel via `index.ts`, and owns it
 
 The agent state dots and the notifications are driven by a screen judge, and OpenCode's phase is read from its footer's words alone: `esc interrupt` (including the measured `esc...rupt` abbreviation) means a running turn, a positive shell or subagent tally without that hint means background work, and a footer with neither means rest. Goal labels, spinner icons and transcript words such as `Thinking` are not phase signals. Question panels keep their own detection, and the other agent families are unchanged.
 
+## Diff comments
+
+A review note is working state, not a project file, so it is stored beside the app's own state
+under `<app config dir>/diff-comments/<session-id>.json` rather than in the repository: in the
+tree it would show up in `git status` and would not travel with the code. The folder is created
+and authorised on first use by `diff_comments_dir` (`src-tauri/src/modules/diff_comments/mod.rs`),
+the same grant `themes_dir` performs, because the ordinary write commands need the folder to be an
+authorized parent. Notes are read and written through `diff_comments_list` and
+`diff_comments_save`.
+
+Sending writes one line into the session's own terminal. `pty_write` takes keyboard bytes, so a
+newline is Enter and a multi-line prompt would be submitted on its first line; the format is
+`[git diff review] File: x | Lines: 42-45 | body`, several notes joined by ` ;; `, with `\`, `|`
+and `;` escaped and newlines flattened. Nothing is submitted: the reader presses Enter. A session
+opened outside Verta's own terminal cannot be written to, so the button copies the same line to the
+clipboard instead. The session is found through the tab it was opened for (`openTabForSession`
+plus the pane tree), not through `sessionStateById`, which drops a session whose state is still
+null and discards its pty map after each read.
+
 ## No built-in agent
 
 This fork removed the upstream assistant: `src/modules/ai/**`, `src/modules/agents/**`, `src/components/ai-elements/**`, `src-tauri/src/modules/ai_sessions.rs` and `src-tauri/src/modules/agent.rs` are gone, together with the AI diff tab, inline completion, the notification bell and the model / API-key settings. Do not describe an AI feature in this file and do not rebuild one from a leftover reference.

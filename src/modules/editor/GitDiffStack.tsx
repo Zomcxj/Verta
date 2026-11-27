@@ -4,9 +4,11 @@ import { GitDiffPane } from "./GitDiffPane";
 type Props = {
   tabs: Tab[];
   activeId: number;
+  /** The session review notes are written for; null when none is open. */
+  sessionId?: string | null;
 };
 
-export function GitDiffStack({ tabs, activeId }: Props) {
+export function GitDiffStack({ tabs, activeId, sessionId = null }: Props) {
   const active = tabs.find(
     (t): t is GitDiffTab | GitCommitFileDiffTab =>
       (t.kind === "git-diff" || t.kind === "git-commit-file") &&
@@ -19,6 +21,8 @@ export function GitDiffStack({ tabs, activeId }: Props) {
         <GitDiffPane
           key={active.id}
           active
+          sessionId={sessionId}
+          tabs={tabs}
           source={{
             kind: "working",
             repoRoot: active.repoRoot,
@@ -35,6 +39,8 @@ export function GitDiffStack({ tabs, activeId }: Props) {
       <GitDiffPane
         key={active.id}
         active
+        sessionId={sessionId}
+        tabs={tabs}
         source={{
           kind: "commit",
           repoRoot: active.repoRoot,

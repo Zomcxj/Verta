@@ -75,6 +75,12 @@ type Props = {
    * its own pane until its own UI is painted.
    */
   sessionOpeningLeaves: readonly number[];
+  /**
+   * The session on screen, if one is open. Review notes on a diff are written for it:
+   * the diff does not carry a session of its own, and the agent a reader is looking at
+   * is the one they mean.
+   */
+  activeSessionId?: string | null;
 };
 
 /** The two lists behind the projects panel. */
@@ -127,6 +133,7 @@ export function WorkspaceSurface({
   sessionOpening,
   sessionOpeningTool,
   sessionOpeningLeaves,
+  activeSessionId = null,
 }: Props) {
   const t = useT();
   const kind = activeTab?.kind;
@@ -283,7 +290,7 @@ export function WorkspaceSurface({
         )}
         aria-hidden={!isGitDiffTab}
       >
-        <GitDiffStack tabs={tabs} activeId={activeId} />
+        <GitDiffStack tabs={tabs} activeId={activeId} sessionId={activeSessionId} />
       </div>
       <div
         className={cn(

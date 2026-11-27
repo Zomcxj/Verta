@@ -7,6 +7,7 @@ pub mod app_menu;
 pub mod bench;
 pub mod control;
 pub mod csv;
+pub mod diff_comments;
 pub mod docx;
 pub mod metafile;
 pub mod drag;

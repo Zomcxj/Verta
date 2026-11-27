@@ -98,6 +98,7 @@ import {
   useWindowTitle,
   useWorkspaceCwd,
 } from "@/modules/tabs";
+import { rememberTerminalSession } from "@/modules/tabs/lib/sessionForDiff";
 import {
   clearFocusedTerminal,
   disposeSession,
@@ -579,6 +580,25 @@ export default function App() {
   }, []);
 
   const activeTab = tabs.find((t) => t.id === activeId);
+
+  /**
+   * The session a diff's review notes are written for is the one the reader is looking
+   * at: the active terminal tab, or the last one they looked at when a diff is on
+   * screen. Held in a ref rather than state because a diff tab has no session of its
+   * own, and the value has to be readable in the same render the diff mounts.
+   */
+  const lastTerminalSessionRef = useRef<string | null>(null);
+  lastTerminalSessionRef.current = rememberTerminalSession(
+    activeTab,
+    lastTerminalSessionRef.current,
+  );
+  const sessionForDiff = lastTerminalSessionRef.current;
+
+  useEffect(() => {
+    if (activeTab?.kind === "terminal" && activeTab.sessionId) {
+      setActiveSessionId(activeTab.sessionId);
+    }
+  }, [activeTab]);
 
   const isTerminalTab = activeTab?.kind === "terminal";
   const isBlockTab = activeTerminalTab?.blocks === true;
@@ -2323,6 +2343,7 @@ export default function App() {
                         sessionOpeningLeaves={sessionOpenings.map(
                           (start) => start.leafId,
                         )}
+                        activeSessionId={sessionForDiff}
                       />
                       <SearchInline ref={searchInlineRef} target={searchTarget} />
                     </div>
