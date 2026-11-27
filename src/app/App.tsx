@@ -1763,6 +1763,20 @@ export default function App() {
     return null;
   }, []);
   /**
+   * The env a leaf runs in, as the leaf itself recorded it.
+   *
+   * A leaf without one is a plain local terminal (older tabs only kept a cwd), so the answer is
+   * `local` and its POSIX spellings are still the shell's to explain.
+   */
+  const envForLeaf = useCallback((leafId: number): WorkspaceEnv => {
+    for (const tab of tabsRef.current) {
+      if (tab.kind !== "terminal") continue;
+      const leaf = findLeaf(tab.paneTree, leafId);
+      if (leaf) return leaf.workspace ?? LOCAL_WORKSPACE;
+    }
+    return LOCAL_WORKSPACE;
+  }, []);
+  /**
    * The Windows spelling of a cwd the shell reported, or nothing while it is still being asked about.
    *
    * A Git-Bash pane reports `/tmp/...`, which nothing on the Windows side can open: the sibling menu
@@ -1772,7 +1786,11 @@ export default function App() {
   const askedCwds = useRef(new Set<string>());
   const handleTerminalCwd = useCallback(
     (leafId: number, reported: string) => {
-      const decision = decideCwd(reported);
+      const decision = decideCwd(
+        reported,
+        undefined,
+        envForLeaf(leafId).kind === "wsl" ? "wsl" : "local",
+      );
       if (decision.kind === "ask") {
         if (askedCwds.current.has(reported)) return;
         askedCwds.current.add(reported);
@@ -1792,12 +1810,14 @@ export default function App() {
       setLeafCwd(leafId, cwd);
       if (cwd && !authorizedCwds.current.has(cwd)) {
         authorizedCwds.current.add(cwd);
-        native.workspaceAuthorize(cwd).catch(() => {
+        // The env is the leaf's own: a distro's `/home/x` authorized as a local path is authorized
+        // against this machine's filesystem, which is not where the directory is.
+        native.workspaceAuthorize(cwd, envForLeaf(leafId)).catch(() => {
           authorizedCwds.current.delete(cwd);
         });
       }
     },
-    [setLeafCwd, shellForLeaf],
+    [setLeafCwd, shellForLeaf, envForLeaf],
   );
 
   const handleFocusLeaf = useCallback(

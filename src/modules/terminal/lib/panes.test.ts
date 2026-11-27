@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   firstLeafSlotId,
   leafIds,
+  splitLeaf,
   swapLeafInDirection,
   type PaneNode,
 } from "@/modules/terminal/lib/panes";
@@ -141,5 +142,29 @@ describe("swapLeafInDirection", () => {
   it("does nothing when the tree contains only one pane", () => {
     const tree: PaneNode = { kind: "leaf", id: 1 };
     expect(swapLeafInDirection(tree, 1, "left")).toBe(tree);
+  });
+});
+
+describe("splitLeaf", () => {
+  it("gives the new pane the env the pane it split was running in", () => {
+    // A WSL tab split in two has to open the second shell inside the distro: the new leaf carried
+    // only a cwd, so its shell was started local and the tab held one pane in the distro and one on
+    // this machine. Reported as a session opened from WSL whose file list came up empty.
+    const tree: PaneNode = {
+      kind: "leaf",
+      id: 1,
+      cwd: "/home/cxj",
+      workspace: { kind: "wsl", distro: "Ubuntu-22.04" },
+      shell: "/usr/bin/zsh",
+    };
+    const split = splitLeaf(tree, 1, 10, 2, "row", "/home/cxj");
+    expect(split.kind).toBe("split");
+    if (split.kind !== "split") return;
+    const [, right] = split.children;
+    expect(right).toMatchObject({
+      kind: "leaf",
+      id: 2,
+      workspace: { kind: "wsl", distro: "Ubuntu-22.04" },
+    });
   });
 });

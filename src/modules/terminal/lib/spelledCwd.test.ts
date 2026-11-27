@@ -48,6 +48,26 @@ describe("asking the shell about a cwd", () => {
     expect(decideCwd("/tmp/verta", true)).toEqual({ kind: "use", cwd: "C:/Temp/verta" });
     expect(decideCwd("/tmp/other", true)).toEqual({ kind: "ask" });
   });
+
+  it("leaves a distro's own path alone", () => {
+    // The failing case this exists for: a WSL session's shell reports `/home/cxj`, which is a real
+    // directory inside the distro. Asking the Windows side about it hands it to Git for Windows'
+    // `cygpath`, whose root is the install, so the answer is `C:/Program Files/Git/home/cxj` - a
+    // path that exists nowhere. The file tree then lists nothing, because it is looking for a
+    // Windows directory named after a Linux one. Measured on this machine: `cygpath -w /home/cxj`
+    // prints exactly that.
+    expect(decideCwd("/home/cxj", true, "wsl")).toEqual({
+      kind: "use",
+      cwd: "/home/cxj",
+    });
+    // A local pane in the same spelling is still the shell's to explain.
+    expect(decideCwd("/home/cxj", true, "local")).toEqual({ kind: "ask" });
+    // And the distro's `/tmp` is the distro's, not this machine's.
+    expect(decideCwd("/tmp/verta", true, "wsl")).toEqual({
+      kind: "use",
+      cwd: "/tmp/verta",
+    });
+  });
 });
 
 describe("what a path is spelled as", () => {

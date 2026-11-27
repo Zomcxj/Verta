@@ -75,6 +75,10 @@ export function setLeafCwd(
  * If the target's enclosing split already runs in `dir`, the new leaf is
  * appended as a sibling there (avoids nested same-direction splits, which keeps
  * the tree shallow and the resize handles aligned).
+ *
+ * The new leaf inherits the target's env and shell. A pane split off a distro's pane has to run in
+ * the distro: carrying only a cwd left the new shell on this machine, so one tab held a pane inside
+ * WSL and a pane outside it, and the second one's file list listed nothing.
  */
 export function splitLeaf(
   tree: PaneNode,
@@ -84,12 +88,21 @@ export function splitLeaf(
   dir: SplitDir,
   newCwd?: string,
 ): PaneNode {
+  const target = findLeaf(tree, targetId);
+  const carried = target
+    ? { workspace: target.workspace, shell: target.shell }
+    : {};
   if (tree.kind === "split" && tree.dir === dir) {
     const idx = tree.children.findIndex(
       (c) => c.kind === "leaf" && c.id === targetId,
     );
     if (idx >= 0) {
-      const newLeaf: PaneNode = { kind: "leaf", id: newLeafId, cwd: newCwd };
+      const newLeaf: PaneNode = {
+        kind: "leaf",
+        id: newLeafId,
+        cwd: newCwd,
+        ...carried,
+      };
       return {
         ...tree,
         children: [
@@ -102,7 +115,12 @@ export function splitLeaf(
   }
   if (isLeaf(tree)) {
     if (tree.id !== targetId) return tree;
-    const newLeaf: PaneNode = { kind: "leaf", id: newLeafId, cwd: newCwd };
+    const newLeaf: PaneNode = {
+      kind: "leaf",
+      id: newLeafId,
+      cwd: newCwd,
+      ...carried,
+    };
     return {
       kind: "split",
       id: newSplitId,

@@ -13,6 +13,16 @@ fine as plain text. **The newest day is `open` by default**; when a new day star
 swap in the new date, and drop the `open` from the day before.
 
 <details open>
+<summary><strong>2026-11-27</strong></summary>
+
+**A distro's own directories are no longer translated as if they were this machine's**
+
+- `src/modules/terminal/lib/spelledCwd.ts`, `src/app/App.tsx`: opening a session or a terminal inside WSL listed no files, and the breadcrumb under the terminal read `C: › Program Files › Git › home › cxj`. The shell reports its directory over OSC 7 as `/home/cxj`, and the app asked the Windows side what that was: Git for Windows ships `cygpath`, whose root is its own install, so the answer was `C:/Program Files/Git/home/cxj` - a path that exists nowhere, which the file tree then listed nothing for. Measured on this machine: `cygpath -w /home/cxj` prints exactly that. A path a distro's shell reports is now left alone, because it is a real directory inside the distro; a local pane's POSIX spelling is still the shell's to explain, which is what the translation is for. The env a leaf runs in is read from the leaf itself rather than from the window's current workspace, so the authorization that follows names the same filesystem the directory is on.
+- `src/modules/terminal/lib/panes.ts`: a pane split off a pane running inside a distro carried only a cwd, so its shell started on this machine and one tab held a pane inside WSL and a pane outside it - the second one's file list was empty for the same reason. The new pane inherits the env and the shell of the pane it was split from.
+
+</details>
+
+<details>
 <summary><strong>2026-11-25</strong></summary>
 
 **A split terminal no longer bulges out of its pane under Cloud**

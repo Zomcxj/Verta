@@ -38,7 +38,17 @@ export function needsShellTranslation(path: string, windows: boolean = IS_WINDOW
 }
 
 /** What to do with this cwd right now, without asking anybody. */
-export function decideCwd(raw: string, windows: boolean = IS_WINDOWS): CwdDecision {
+export function decideCwd(
+  raw: string,
+  windows: boolean = IS_WINDOWS,
+  env: "local" | "wsl" = "local",
+): CwdDecision {
+  // A distro's path is a real directory inside the distro. Asking the Windows side about it hands
+  // it to Git for Windows' `cygpath`, whose root is the install, so `/home/cxj` comes back as
+  // `C:/Program Files/Git/home/cxj` - a place that exists nowhere. The file tree then looks for a
+  // Windows directory named after a Linux one and lists nothing. Measured on this machine:
+  // `cygpath -w /home/cxj` prints exactly that.
+  if (env === "wsl") return { kind: "use", cwd: raw };
   if (!needsShellTranslation(raw, windows)) return { kind: "use", cwd: raw };
   const known = recalled.get(raw);
   if (known === undefined) return { kind: "ask" };
